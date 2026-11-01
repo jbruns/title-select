@@ -4,6 +4,7 @@
 pub mod build;
 pub mod ingest;
 pub mod paths;
+pub mod repair;
 pub mod report;
 pub mod selection;
 

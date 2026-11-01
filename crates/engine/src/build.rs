@@ -188,6 +188,79 @@ pub fn repack_members(
         .map_err(|e| e.to_string())
 }
 
+/// One ROM of [`repack_sources`]: the ROM, the index of the source it is read from, and the member of that source,
+/// a ZIP archive, it is read from; `None` reads the whole source, a loose file.
+pub type FromSource<'a> = (&'a ExpectedRom, usize, Option<&'a str>);
+
+/// Writes the TorrentZip of `roms` into `dest`, a new, empty file the caller created, each ROM read from its source
+/// in `sources`, each an open file read from its start. Returns the SHA-256 and size of each source, in order, each
+/// hashed as it was read; a source no ROM is read from is read only to hash it. A source is read either as a ZIP
+/// archive or as a loose file, never both.
+pub fn repack_sources(
+    dest: &File,
+    roms: &[FromSource],
+    sources: &[&File],
+) -> Result<Vec<(String, u64)>, String> {
+    enum Reading<'a> {
+        Unread,
+        Zip(Box<zip::ZipArchive<BufReader<Hashing<'a>>>>),
+        Loose(Hashing<'a>),
+    }
+    let mut reading: Vec<Reading> = sources.iter().map(|_| Reading::Unread).collect();
+    let mut order: Vec<_> = roms.iter().collect();
+    order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
+    let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
+    for (rom, at, member) in order {
+        let source = *sources
+            .get(*at)
+            .ok_or_else(|| format!("{}: no source {at}", rom.name))?;
+        let slot = &mut reading[*at];
+        let added = match (member, &mut *slot) {
+            (Some(member), Reading::Unread | Reading::Zip(_)) => {
+                if matches!(slot, Reading::Unread) {
+                    let opened = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
+                    *slot = Reading::Zip(Box::new(opened));
+                }
+                let Reading::Zip(archive) = slot else {
+                    unreachable!("just opened")
+                };
+                let mut payload = archive
+                    .by_name(member)
+                    .map_err(|e| format!("{member}: {e}"))?;
+                writer.add(&rom.name, rom.size, &mut payload)
+            }
+            (None, Reading::Unread) => {
+                let mut hashing = Hashing::new(source).map_err(|e| e.to_string())?;
+                let added = writer.add(&rom.name, rom.size, &mut hashing);
+                *slot = Reading::Loose(hashing);
+                added
+            }
+            _ => {
+                return Err(format!(
+                    "{}: a source is read once, as a ZIP archive or as a loose file",
+                    rom.name
+                ));
+            }
+        };
+        added.map_err(|e| format!("{}: {e}", rom.name))?;
+    }
+    let out = writer.finish().map_err(|e| e.to_string())?;
+    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    reading
+        .into_iter()
+        .zip(sources)
+        .map(|(reading, source)| {
+            match reading {
+                Reading::Zip(archive) => archive.into_inner().into_inner().finish(),
+                Reading::Loose(hashing) => hashing.finish(),
+                Reading::Unread => Hashing::new(source).and_then(Hashing::finish),
+            }
+            .map_err(|e| e.to_string())
+        })
+        .collect()
+}
+
 /// Checks that `file`, read from its start, is valid TorrentZip whose members are exactly `roms`, under their names,
 /// and that each member's payload, decompressed and hashed again, is the one its ROM expects.
 pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
@@ -642,6 +715,47 @@ mod tests {
         let (sha256, size) = reader.finish().unwrap();
         assert_eq!(size, bytes.len() as u64);
         assert_eq!(sha256, crate::hex(&Sha256::digest(&bytes)));
+    }
+
+    #[test]
+    fn repacking_from_several_sources_hashes_each_whole_and_verifies() {
+        let file_of = |bytes: &[u8]| {
+            let mut file = tempfile::tempfile().unwrap();
+            io::Write::write_all(&mut file, bytes).unwrap();
+            file
+        };
+        let rom_of = |name: &str, bytes: &[u8]| ExpectedRom {
+            name: name.into(),
+            size: bytes.len() as u64,
+            crc: Some(format!("{:08x}", crc32fast::hash(bytes))),
+            md5: None,
+            sha1: None,
+            sha256: None,
+        };
+        let zipped = zip_of(&[("x.bin", b"aaaa"), ("extra.bin", b"zz")]);
+        let zip = file_of(&zipped);
+        let loose = file_of(b"bbbbbb");
+        let unread = file_of(b"cc");
+        let (a, b) = (rom_of("a.bin", b"aaaa"), rom_of("b.bin", b"bbbbbb"));
+        let dest = tempfile::tempfile().unwrap();
+
+        let hashed = repack_sources(
+            &dest,
+            &[(&b, 1, None), (&a, 0, Some("x.bin"))],
+            &[&zip, &loose, &unread],
+        )
+        .unwrap();
+
+        verify(&dest, &[a, b]).unwrap();
+        let sha = |bytes: &[u8]| crate::hex(&Sha256::digest(bytes));
+        assert_eq!(
+            hashed,
+            [
+                (sha(&zipped), zipped.len() as u64),
+                (sha(b"bbbbbb"), 6),
+                (sha(b"cc"), 2)
+            ]
+        );
     }
 
     fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {

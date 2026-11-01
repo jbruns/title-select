@@ -183,6 +183,12 @@ pub enum Fault {
     IngestSetAside,
     /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
     IngestDatOwed,
+    /// After a repair's step with this sequence number writes and checks its staged file, before the store records it.
+    RepairStaged(u32),
+    /// After a repair's step with this sequence number moves its file, before either folder is synced.
+    RepairMoved(u32),
+    /// After a repair's step with this sequence number is done on disk and synced, before the store records it done.
+    RepairStepDone(u32),
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.

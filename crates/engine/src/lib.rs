@@ -118,6 +118,15 @@ pub trait PayloadReads: Sync {
     fn record(&self, path: &str, read: &PayloadRead);
 }
 
+/// Whether `name`, an entry anywhere in a Source Set, is one Title Select keeps there for itself and an Audit passes
+/// over: its marker, its kept files and private `.deleting` folders, and a file it is writing under a temporary
+/// name.
+pub fn is_own_entry(name: &str) -> bool {
+    name.starts_with(".title-select")
+        || name == ".deleting"
+        || (name.starts_with('.') && name.contains(".title-select-new-"))
+}
+
 pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -183,6 +192,12 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
                 continue;
             }
         };
+        if item.depth() > 0 && is_own_entry(&item.file_name().to_string_lossy()) {
+            if item.file_type().is_dir() {
+                walk.skip_current_dir();
+            }
+            continue;
+        }
         let mut path = item.path().to_path_buf();
         if let Some(confine) = options.confine {
             let refusal = match item.path().canonicalize() {
