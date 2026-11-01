@@ -85,7 +85,7 @@ pub async fn run(
             "title-select: job {} started: {} of {}",
             job.id,
             job.kind.as_str(),
-            job.source_set
+            job.ingest_folder.as_deref().unwrap_or(&job.source_set)
         );
         jobs.changed(job.clone());
         let (store, config, jobs, engine) =
@@ -99,6 +99,7 @@ pub async fn run(
                         run_one(&store, &config, &jobs, kind, id, version)
                     }
                     JobKind::Selection => run_selection(&store, &config, engine.as_deref(), id),
+                    JobKind::IngestScan => run_ingest_scan(&store, &config, id),
                 })
                 .await
             };
@@ -160,6 +161,53 @@ fn run_one(
                 _ => store.fail_job(id, &err.to_string()).ok(),
             }
         }
+    }
+}
+
+/// Runs one claimed scan of an Ingest Folder, and returns the Job as it ended.
+fn run_ingest_scan(store: &Store, config: &Config, id: i64) -> Option<Job> {
+    match store.run_ingest_scan_job(config, id) {
+        Ok(job) => Some(job),
+        Err(err) => {
+            eprintln!("title-select: job {id}: {err}");
+            match store.job(id) {
+                Ok(job) if job.state.is_final() => Some(job),
+                _ => store.fail_job(id, &err.to_string()).ok(),
+            }
+        }
+    }
+}
+
+/// Queues a scan of each Ingest Folder with a schedule, every `scan_every_minutes`. A scan still queued or running
+/// is left to finish.
+pub async fn schedule_ingest_scans(store: Arc<Store>, config: Arc<Config>, jobs: Arc<Jobs>) {
+    for (root, settings) in &config.roots {
+        let Some(minutes) = settings.scan_every_minutes.filter(|m| *m > 0) else {
+            continue;
+        };
+        if !settings.is_ingest() {
+            continue;
+        }
+        let (store, jobs, root) = (store.clone(), jobs.clone(), root.clone());
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(Duration::from_secs(minutes * 60));
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                every.tick().await;
+                let (store, root) = (store.clone(), root.clone());
+                let queued = tokio::task::spawn_blocking(move || {
+                    store.enqueue_ingest_scan(&root, "schedule")
+                })
+                .await;
+                match queued {
+                    Ok(Ok(job)) => jobs.changed(job),
+                    Ok(Err(title_select_store::Error::JobActive { .. }))
+                    | Ok(Err(title_select_store::Error::Conflict(_))) => {}
+                    Ok(Err(err)) => eprintln!("title-select: cannot queue a scheduled scan: {err}"),
+                    Err(err) => eprintln!("title-select: cannot queue a scheduled scan: {err}"),
+                }
+            }
+        });
     }
 }
 

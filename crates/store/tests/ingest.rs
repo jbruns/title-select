@@ -10,9 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::*;
 use title_select_api::JobKind;
-use title_select_api::ingest::{
-    IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal,
-};
+use title_select_api::ingest::{IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal};
 use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
 
@@ -117,10 +115,7 @@ impl Env {
 
     /// Queues, claims and runs a scan of `root`.
     fn scan_root(&self, root: &str) {
-        let job = self
-            .store
-            .enqueue_ingest_scan(root, "Operator")
-            .unwrap();
+        let job = self.store.enqueue_ingest_scan(root, "Operator").unwrap();
         assert_eq!(job.kind, JobKind::IngestScan);
         assert_eq!(job.ingest_folder.as_deref(), Some(root));
         let claimed = self.store.claim_job().unwrap().unwrap();
@@ -129,7 +124,11 @@ impl Env {
             .store
             .run_ingest_scan_job(&self.config, job.id)
             .unwrap();
-        assert_eq!(ended.state, title_select_api::JobState::Succeeded, "{ended:?}");
+        assert_eq!(
+            ended.state,
+            title_select_api::JobState::Succeeded,
+            "{ended:?}"
+        );
     }
 
     fn scan(&self) {
@@ -252,7 +251,11 @@ fn an_item_still_changing_stays_arriving_and_partial_downloads_and_dotfiles_are_
     env.scan_root("slow");
     env.scan_root("slow");
     let slow = env.store.ingest_items("slow").unwrap();
-    assert_eq!(slow[0].state, ItemState::Arriving, "within the settle interval");
+    assert_eq!(
+        slow[0].state,
+        ItemState::Arriving,
+        "within the settle interval"
+    );
 }
 
 #[test]
@@ -300,7 +303,10 @@ fn an_item_is_matched_against_every_source_set_and_proposed_for_the_one_that_nee
             need: Need::Missing,
         })
     );
-    assert_eq!(yars.assessment.matches[0].roms[0].member.as_deref(), Some("Yars (USA).a26"));
+    assert_eq!(
+        yars.assessment.matches[0].roms[0].member.as_deref(),
+        Some("Yars (USA).a26")
+    );
 }
 
 #[test]
@@ -353,7 +359,13 @@ fn an_unsupported_archive_is_never_opened_and_a_damaged_zip_is_unreadable() {
     env.scan();
     env.scan();
 
-    for name in ["set.7z", "set.rar", "nested.zip", "whole-set.zip", "a folder"] {
+    for name in [
+        "set.7z",
+        "set.rar",
+        "nested.zip",
+        "whole-set.zip",
+        "a folder",
+    ] {
         let item = env.item(name);
         assert_eq!(item.state, ItemState::Unsupported, "{item:?}");
         assert!(item.reason.is_some());
@@ -380,7 +392,9 @@ fn an_unchanged_item_is_not_read_again_but_matched_again() {
 
     // Beta gains Pong: the item, read once, is now held by every Source Set it matches.
     write_file(&env.dir("roots/sets/Beta/Pong (Beta).bin"), b"pong");
-    env.store.audit_source_set(&env.config, "Beta", None).unwrap();
+    env.store
+        .audit_source_set(&env.config, "Beta", None)
+        .unwrap();
     env.scan();
     assert_eq!(reads.load(Ordering::SeqCst), 1);
     assert_eq!(env.state("pong.a26"), ItemState::AlreadyHeld);
@@ -440,9 +454,9 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].kept_name, "mystery.a26.kept");
 
-    let again = env
-        .store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let again =
+        env.store
+            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
     assert!(again.is_err(), "a plan is carried out once");
 }
 
@@ -456,9 +470,9 @@ fn approval_is_refused_once_anything_in_the_folder_changed_since_the_plan() {
 
     env.put("new arrival.a26", b"new");
     let before = env.listing();
-    let refused = env
-        .store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let refused =
+        env.store
+            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
 
     assert!(matches!(refused, Err(Error::Conflict(_))), "{refused:?}");
     assert_eq!(env.listing(), before);
@@ -469,7 +483,13 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     let env = Env::new();
     let mut games = alpha_games();
     games.push(("Adventure (USA)", vec![rom("Adventure (USA).a26", b"adv")]));
-    write_named_dat(&env.dir("in"), "Alpha System (2).dat", "Alpha System", "2", &games);
+    write_named_dat(
+        &env.dir("in"),
+        "Alpha System (2).dat",
+        "Alpha System",
+        "2",
+        &games,
+    );
     env.scan();
     env.scan();
     let item = env.item("Alpha System (2).dat");
@@ -482,7 +502,11 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     let revisions = env.store.dat_revisions().unwrap().len();
 
     let plan = env.plan(IngestAction::DatImport, &["Alpha System (2).dat"]);
-    assert_eq!(env.store.dat_revisions().unwrap().len(), revisions, "nothing until approved");
+    assert_eq!(
+        env.store.dat_revisions().unwrap().len(),
+        revisions,
+        "nothing until approved"
+    );
     let applied = env
         .store
         .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
@@ -531,9 +555,9 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
     let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
     std::fs::remove_file(env.dir("in").join(".title-select")).unwrap();
 
-    let refused = env
-        .store
-        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let refused =
+        env.store
+            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
 
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     assert_eq!(env.listing(), ["mystery.a26"]);
@@ -541,7 +565,11 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
     env.store.claim_job().unwrap();
     let ended = env.store.run_ingest_scan_job(&env.config, job.id).unwrap();
     assert_eq!(ended.state, title_select_api::JobState::Failed);
-    assert_eq!(env.state("mystery.a26"), ItemState::Assessed, "nothing is marked gone");
+    assert_eq!(
+        env.state("mystery.a26"),
+        ItemState::Assessed,
+        "nothing is marked gone"
+    );
 }
 
 #[test]

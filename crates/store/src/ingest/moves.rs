@@ -240,7 +240,11 @@ impl Store {
                     Err(why) => return Ok(Err(why)),
                 };
                 let same = src.identity().map_err(io)?.dev == dest.identity().map_err(io)?.dev;
-                if same && !force_copy() { "rename" } else { "copy" }
+                if same && !force_copy() {
+                    "rename"
+                } else {
+                    "copy"
+                }
             }
         };
         let (dev, ino) = mv.identity.to_sql();
@@ -612,8 +616,7 @@ impl Store {
                 ));
             }
         };
-        if m
-            .sha256
+        if m.sha256
             .as_deref()
             .is_some_and(|planned| planned != source_sha)
         {
@@ -650,8 +653,7 @@ impl Store {
             Err(why) => return Ok(Err(why)),
         };
         let (source_sha, _) = sha256_of(&source).map_err(io)?;
-        if m
-            .sha256
+        if m.sha256
             .as_deref()
             .is_some_and(|planned| planned != source_sha)
         {

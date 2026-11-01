@@ -81,9 +81,13 @@ fn folder_from_row(r: &Row) -> rusqlite::Result<IngestRow> {
 }
 
 pub(super) fn ingest_by_id(c: &Connection, id: i64) -> Result<IngestRow> {
-    c.query_row(&format!("{FOLDER_QUERY} WHERE id = ?1"), [id], folder_from_row)
-        .optional()?
-        .ok_or_else(|| Error::NotFound(format!("no ingest folder {id}")))
+    c.query_row(
+        &format!("{FOLDER_QUERY} WHERE id = ?1"),
+        [id],
+        folder_from_row,
+    )
+    .optional()?
+    .ok_or_else(|| Error::NotFound(format!("no ingest folder {id}")))
 }
 
 fn ingest_by_root(c: &Connection, root: &str) -> Result<Option<IngestRow>> {
@@ -338,7 +342,9 @@ fn unsupported_at_sight(name: &str, st: &Stat) -> Option<String> {
     }
     let ext = extension(name)?;
     UNSUPPORTED_ARCHIVES.contains(&ext.as_str()).then(|| {
-        format!("{ext} archives are not opened; only loose files and per-game ZIP archives are read")
+        format!(
+            "{ext} archives are not opened; only loose files and per-game ZIP archives are read"
+        )
     })
 }
 
@@ -843,7 +849,8 @@ fn outcomes_from_moves(c: &Connection, plan: &IngestPlan) -> Result<Vec<IngestOu
                 moved: false,
                 detail: None,
                 error: Some(
-                    "the service stopped before it was moved; it was left as it is. Plan it again".into(),
+                    "the service stopped before it was moved; it was left as it is. Plan it again"
+                        .into(),
                 ),
             },
         });
@@ -881,7 +888,9 @@ impl Store {
         let row = match existing {
             Some(row) => row,
             None => {
-                if let MarkerFound::Present(_) | MarkerFound::Unreadable(_) = read_ingest_marker(&dir) {
+                if let MarkerFound::Present(_) | MarkerFound::Unreadable(_) =
+                    read_ingest_marker(&dir)
+                {
                     return Err(Error::Refused(format!(
                         "{}: the folder already has a .title-select marker that is not this store's ingest \
                          folder; is this the right folder? Nothing in it was changed",
@@ -944,6 +953,21 @@ impl Store {
         })
     }
 
+    /// Scans the Ingest Folder of Root `root` now, as a Job started by `actor` and run on this thread. Refused while
+    /// a scan is queued or running. Returns the Job as it ends.
+    pub fn scan_ingest_folder(&self, config: &Config, root: &str, actor: &str) -> Result<Job> {
+        let job = self.enqueue_ingest_scan(root, actor)?;
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE jobs SET state = 'running', started_at = ?2, version = version + 1
+                 WHERE id = ?1 AND state = 'queued'",
+                params![job.id, now()],
+            )?;
+            Ok(())
+        })?;
+        self.run_ingest_scan_job(config, job.id)
+    }
+
     /// Runs the Running scan Job `id`. A folder that cannot be opened, or whose marker is not this store's, fails
     /// the Job and leaves every item as it was. Returns the Job as it ends.
     pub fn run_ingest_scan_job(&self, config: &Config, id: i64) -> Result<Job> {
@@ -998,7 +1022,13 @@ impl Store {
             let seen = Seen::of(&st);
             let existing = items.remove(&name);
             if let Some(reason) = unsupported_at_sight(&name, &st) {
-                self.record_seen(folder, &name, existing.as_ref(), &seen, ItemState::Unsupported)?;
+                self.record_seen(
+                    folder,
+                    &name,
+                    existing.as_ref(),
+                    &seen,
+                    ItemState::Unsupported,
+                )?;
                 let id = self.read(|c| current_id(c, folder, &name))?;
                 self.write(|tx| store_found(tx, id, &Found::unsupported(reason)))?;
                 continue;
@@ -1216,7 +1246,9 @@ impl Store {
                 return Err(Error::Refused(format!("{} is listed twice", item.name)));
             }
             match dir.stat(&item.name).map_err(|e| Error::Io(e.to_string()))? {
-                Some(st) if FolderDir::kind(&st) == FileType::RegularFile && Seen::of(&st) == found.seen => {}
+                Some(st)
+                    if FolderDir::kind(&st) == FileType::RegularFile
+                        && Seen::of(&st) == found.seen => {}
                 Some(st) if FolderDir::kind(&st) != FileType::RegularFile => {
                     return Err(Error::Refused(format!(
                         "{} is not a file; only files are moved out of an ingest folder",
@@ -1449,12 +1481,7 @@ impl Store {
         actor: &str,
         workers: Workers,
     ) -> Result<Vec<String>> {
-        let changed = || {
-            Error::Conflict(format!(
-                "{} changed since the plan was made",
-                item.name
-            ))
-        };
+        let changed = || Error::Conflict(format!("{} changed since the plan was made", item.name));
         let file = dir
             .open_file(&item.name)
             .map_err(|e| Error::Io(e.to_string()))?;
@@ -1474,10 +1501,9 @@ impl Store {
         if item.sha256.as_deref() != Some(sha.as_str()) {
             return Err(changed());
         }
-        let provider = item
-            .provider
-            .as_deref()
-            .ok_or_else(|| Error::Refused(format!("{} has no provider to import it under", item.name)))?;
+        let provider = item.provider.as_deref().ok_or_else(|| {
+            Error::Refused(format!("{} has no provider to import it under", item.name))
+        })?;
         let name = Dat::parse(&bytes, Path::new(&item.name))?.name;
         let existed = self.read(|c| {
             Ok(c.query_row(
@@ -1491,7 +1517,9 @@ impl Store {
         })?;
         let (revision, outcome) = self.import_dat_bytes(&bytes, &item.name, provider, None)?;
         let mut done = vec![match outcome {
-            ImportOutcome::Added => format!("imported {} revision {}", revision.dat(), revision.version),
+            ImportOutcome::Added => {
+                format!("imported {} revision {}", revision.dat(), revision.version)
+            }
             ImportOutcome::AlreadyImported => format!(
                 "{} revision {} was already imported",
                 revision.dat(),

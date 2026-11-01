@@ -72,7 +72,8 @@ fn scoped_temps(c: &Connection, folder: Scope) -> Result<HashMap<String, Identit
     match folder {
         Scope::Managed(id) => temps(c, id),
         Scope::Ingest(id) => {
-            let mut stmt = c.prepare("SELECT name, dev, ino FROM ingest_temps WHERE folder_id = ?1")?;
+            let mut stmt =
+                c.prepare("SELECT name, dev, ino FROM ingest_temps WHERE folder_id = ?1")?;
             let rows = stmt.query_map([id], |r| {
                 Ok((r.get(0)?, Identity::from_sql(r.get(1)?, r.get(2)?)))
             })?;
@@ -82,9 +83,13 @@ fn scoped_temps(c: &Connection, folder: Scope) -> Result<HashMap<String, Identit
 }
 
 /// The directories Builds created in Managed Folder `folder` that outlive them, by name.
-pub(super) fn folder_dirs(c: &Connection, folder: impl Into<Scope>) -> Result<HashMap<String, Identity>> {
+pub(super) fn folder_dirs(
+    c: &Connection,
+    folder: impl Into<Scope>,
+) -> Result<HashMap<String, Identity>> {
     let folder: Scope = folder.into();
-    let mut stmt = c.prepare(&folder.sql("SELECT name, dev, ino FROM {dirs} WHERE folder_id = ?1"))?;
+    let mut stmt =
+        c.prepare(&folder.sql("SELECT name, dev, ino FROM {dirs} WHERE folder_id = ?1"))?;
     let rows = stmt.query_map([folder.id()], |r| {
         Ok((r.get(0)?, Identity::from_sql(r.get(1)?, r.get(2)?)))
     })?;
@@ -337,7 +342,9 @@ fn record_leftover(store: &Store, folder: impl Into<Scope>, key: &str, id: Ident
     let (dev, ino) = id.to_sql();
     store.write(|tx| {
         tx.execute(
-            &folder.sql("INSERT OR REPLACE INTO {dirs} (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)"),
+            &folder.sql(
+                "INSERT OR REPLACE INTO {dirs} (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)",
+            ),
             params![folder.id(), key, dev, ino],
         )?;
         tx.execute(
@@ -446,7 +453,8 @@ pub(super) fn settle_dir_temps(
                 .is_some_and(|(dest, _)| !dest.is_empty())
     };
     let (temps, names) = store.read(|c| {
-        let mut stmt = c.prepare(&folder.sql("SELECT name FROM {temp_names} WHERE folder_id = ?1"))?;
+        let mut stmt =
+            c.prepare(&folder.sql("SELECT name FROM {temp_names} WHERE folder_id = ?1"))?;
         let names = stmt
             .query_map([folder.id()], |r| r.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;

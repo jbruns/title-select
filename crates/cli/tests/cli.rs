@@ -322,3 +322,40 @@ fn select_prints_the_selection_and_refuses_a_profile_it_cannot_read() {
     assert!(out.stdout.is_empty());
     assert!(String::from_utf8_lossy(&out.stderr).contains("region_ordr"));
 }
+
+#[test]
+fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
+    let f = Fixture::new();
+    let inbox = f.dat_dir.path().join("in");
+    std::fs::create_dir_all(&inbox).unwrap();
+    write_file(&inbox.join("mystery.bin"), b"nobody knows");
+    let config = f.dat_dir.path().join("title-select.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "[roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n",
+            inbox.display().to_string()
+        ),
+    )
+    .unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store)
+            .env("TITLE_SELECT_CONFIG", &config);
+        cmd
+    };
+
+    let unregistered = ts().args(["ingest", "scan", "in"]).output().unwrap();
+    assert!(!unregistered.status.success());
+    run_ok(ts().args(["ingest", "register", "in"]));
+    run_ok(ts().args(["ingest", "scan", "in"]));
+    let arriving = run_ok(ts().args(["ingest", "items", "in"]));
+    assert!(arriving.contains("\tarriving\tmystery.bin"), "{arriving}");
+    run_ok(ts().args(["ingest", "scan", "in"]));
+    let assessed = run_ok(ts().args(["ingest", "items", "in"]));
+    assert!(
+        assessed.contains("\tassessed\tmystery.bin\toperator addition"),
+        "{assessed}"
+    );
+}

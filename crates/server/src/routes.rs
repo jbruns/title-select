@@ -19,6 +19,9 @@ use title_select_api::build::{
     FolderCheck, Incomplete, KeptDeletion, KeptFile, ManagedFolder, Plan, PlanBuild, PlanCleanup,
     PlanKeptDeletion,
 };
+use title_select_api::ingest::{
+    IngestFolder, IngestItem, IngestKeptFile, IngestPlan, PlanIngest, RegisterIngestFolder,
+};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
 use title_select_api::{
     AddSourceSet, Availability, CreateProfile, Dat, ErrorBody, Finding, GameStatus, Health,
@@ -122,6 +125,22 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         )
         .route("/kept-deletions/{id}", get(kept_deletion))
         .route("/kept-deletions/{id}/approval", post(approve_kept_deletion))
+        .route(
+            "/ingest-folders",
+            get(ingest_folders).post(register_ingest_folder),
+        )
+        .route("/ingest-folders/{root}", get(ingest_folder))
+        .route("/ingest-folders/{root}/scans", post(start_ingest_scan))
+        .route("/ingest-folders/{root}/items", get(ingest_items))
+        .route(
+            "/ingest-folders/{root}/plans",
+            get(ingest_plans).post(plan_ingest),
+        )
+        .route("/ingest-folders/{root}/kept-files", get(ingest_kept_files))
+        .route("/ingest-items/{id}", get(ingest_item))
+        .route("/ingest-items/{id}/dismissal", post(dismiss_ingest_item))
+        .route("/ingest-plans/{id}", get(ingest_plan))
+        .route("/ingest-plans/{id}/approval", post(approve_ingest_plan))
         .route("/plans/{id}", get(plan))
         .route("/plans/{id}/approval", post(approve_plan))
         .route("/builds/{id}", get(build))
@@ -283,6 +302,7 @@ async fn roots(State(state): State<AppState>) -> Json<Vec<Root>> {
                 name: name.clone(),
                 path: root.path.display().to_string(),
                 writable: root.writable,
+                ingest: root.is_ingest(),
             })
             .collect(),
     )
@@ -595,6 +615,157 @@ async fn approve_kept_deletion(
             store.approve_kept_deletion(&config, id, &approve.digest, &actor)
         })
         .await?,
+    ))
+}
+
+async fn ingest_folders(State(state): State<AppState>) -> ApiResult<Json<Vec<IngestFolder>>> {
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_folders(&config)).await?,
+    ))
+}
+
+/// Registers an ingest root as an Ingest Folder of this store, writing its marker.
+async fn register_ingest_folder(
+    State(state): State<AppState>,
+    body: Result<Json<RegisterIngestFolder>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<IngestFolder>)> {
+    let Json(register) = body?;
+    let config = state.config.clone();
+    let folder = blocking(&state, move |store| {
+        store.register_ingest_folder(&config, &register.root)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(folder)))
+}
+
+async fn ingest_folder(
+    State(state): State<AppState>,
+    root: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<IngestFolder>> {
+    let Path(root) = root?;
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_folder(&config, &root)).await?,
+    ))
+}
+
+/// Queues a scan of the Ingest Folder. It runs whether or not the client stays connected.
+async fn start_ingest_scan(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    root: Result<Path<String>, PathRejection>,
+) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+    let Path(root) = root?;
+    let job = blocking(&state, move |store| {
+        store.enqueue_ingest_scan(&root, &actor)
+    })
+    .await?;
+    state.jobs.changed(job.clone());
+    Ok((StatusCode::ACCEPTED, Json(job)))
+}
+
+async fn ingest_items(
+    State(state): State<AppState>,
+    root: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<IngestItem>>> {
+    let Path(root) = root?;
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_items(&root)).await?,
+    ))
+}
+
+async fn ingest_item(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<IngestItem>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_item(id)).await?,
+    ))
+}
+
+/// Dismisses an item until it changes.
+async fn dismiss_ingest_item(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<IngestItem>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.dismiss_ingest_item(id)).await?,
+    ))
+}
+
+async fn ingest_plans(
+    State(state): State<AppState>,
+    root: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<IngestPlan>>> {
+    let Path(root) = root?;
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_plans(&root)).await?,
+    ))
+}
+
+/// Plans a discard or DAT import of items; nothing changes until you approve it.
+async fn plan_ingest(
+    State(state): State<AppState>,
+    root: Result<Path<String>, PathRejection>,
+    body: Result<Json<PlanIngest>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<IngestPlan>)> {
+    let Path(root) = root?;
+    let Json(request) = body?;
+    let config = state.config.clone();
+    let plan = blocking(&state, move |store| {
+        store.plan_ingest(&config, &root, &request)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+async fn ingest_plan(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<IngestPlan>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_plan(id)).await?,
+    ))
+}
+
+/// Approves an ingest plan with the digest you reviewed, and carries it out before it answers. Audits a DAT import
+/// queues start at once.
+async fn approve_ingest_plan(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<ApprovePlan>, JsonRejection>,
+) -> ApiResult<Json<IngestPlan>> {
+    let Path(id) = id?;
+    let Json(approve) = body?;
+    let (config, workers) = (state.config.clone(), state.workers);
+    let (plan, queued) = blocking(&state, move |store| {
+        let plan = store.approve_ingest_plan(&config, id, &approve.digest, &actor, workers)?;
+        let queued: Vec<_> = store
+            .jobs(100)?
+            .into_iter()
+            .filter(|job| job.state == title_select_api::JobState::Queued)
+            .collect();
+        Ok((plan, queued))
+    })
+    .await?;
+    for job in queued {
+        state.jobs.changed(job);
+    }
+    Ok(Json(plan))
+}
+
+async fn ingest_kept_files(
+    State(state): State<AppState>,
+    root: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<IngestKeptFile>>> {
+    let Path(root) = root?;
+    Ok(Json(
+        blocking(&state, move |store| store.ingest_kept_files(&root)).await?,
     ))
 }
 

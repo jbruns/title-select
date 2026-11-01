@@ -17,8 +17,7 @@ const BUILD_INTERRUPTED: &str = "the service stopped while the build was running
 /// Why a restart Interrupted a Check Job, which is never queued again: nothing depends on it.
 const CHECK_INTERRUPTED: &str = "the service stopped while the check was running; nothing in the folder was changed. Check it again";
 /// Why a restart Interrupted an Ingest Scan Job, which is never queued again: the next scan finds the same.
-const SCAN_INTERRUPTED: &str =
-    "the service stopped while the scan was running; nothing in the folder was changed. Scan it again";
+const SCAN_INTERRUPTED: &str = "the service stopped while the scan was running; nothing in the folder was changed. Scan it again";
 /// Why a restart Failed a Job that was already queued again once.
 const INTERRUPTED_AGAIN: &str =
     "the service stopped while the job was running, after it had already been queued again once";

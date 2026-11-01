@@ -305,7 +305,9 @@ impl Config {
                     "roots.{name} is an ingest folder, which needs writable = true"
                 )));
             }
-            if !root.is_ingest() && (root.settle_secs.is_some() || root.scan_every_minutes.is_some()) {
+            if !root.is_ingest()
+                && (root.settle_secs.is_some() || root.scan_every_minutes.is_some())
+            {
                 return Err(Error(format!(
                     "roots.{name}: settle_secs and scan_every_minutes are only for a root with kind = \"ingest\""
                 )));

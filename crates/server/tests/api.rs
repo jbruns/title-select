@@ -753,6 +753,105 @@ fn the_service_holds_the_store_lock() {
     title_select_store::Store::open(&env.store()).unwrap();
 }
 
+/// An Ingest Folder registered, scanned by a Job, its items assessed against the audited Source Set, and an item
+/// discarded only through an approved plan.
+#[test]
+fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_plan() {
+    use title_select_api::ingest::{
+        IngestFolder, IngestItem, IngestKeptFile, IngestPlan, ItemState, Need, Proposal,
+    };
+    let env = Env::new();
+    let drop = env.tmp.path().join("drop");
+    std::fs::create_dir_all(&drop).unwrap();
+    let service = title_select_server::spawn(env.settings(&format!(
+        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n",
+        drop.display().to_string()
+    )))
+    .unwrap();
+    let client = Client::new(&service);
+    let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
+    assert_eq!(status, 201);
+    client.add_set();
+    let job: Job = client.start_audit().body_mut().read_json().unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    assert!(roots.iter().any(|r| r.name == "drop" && r.ingest));
+
+    let mut response = client
+        .post("/ingest-folders")
+        .send_json(serde_json::json!({"root": "drop"}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let folder: IngestFolder = response.body_mut().read_json().unwrap();
+    assert!(folder.id.is_some());
+    write_file(&drop.join("Breakout (USA).a26"), b"break");
+    write_file(&drop.join("mystery.bin"), b"nobody knows");
+    let scan = || {
+        let mut response = client
+            .post("/ingest-folders/drop/scans")
+            .send_empty()
+            .unwrap();
+        assert_eq!(response.status(), 202);
+        let job: Job = response.body_mut().read_json().unwrap();
+        assert_eq!(job.ingest_folder.as_deref(), Some("drop"));
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    };
+    scan();
+    scan();
+
+    let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
+    let named = |name: &str| items.iter().find(|i| i.name == name).unwrap().clone();
+    let breakout = named("Breakout (USA).a26");
+    assert_eq!(breakout.state, ItemState::Assessed);
+    assert_eq!(
+        breakout.assessment.proposal,
+        Some(Proposal::SourceSet {
+            source_set: SET.into(),
+            game: "Breakout (USA)".into(),
+            need: Need::Missing,
+        })
+    );
+    let mystery = named("mystery.bin");
+    assert!(matches!(
+        mystery.assessment.proposal,
+        Some(Proposal::OperatorAddition { .. })
+    ));
+
+    let mut response = client
+        .post("/ingest-folders/drop/plans")
+        .send_json(serde_json::json!({"action": "discard", "items": [mystery.id]}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let plan: IngestPlan = response.body_mut().read_json().unwrap();
+    assert!(
+        drop.join("mystery.bin").exists(),
+        "planning changes nothing"
+    );
+    let approval = format!("/ingest-plans/{}/approval", plan.id);
+    let wrong = client
+        .post(&approval)
+        .send_json(serde_json::json!({"digest": "0".repeat(64)}));
+    assert_eq!(status_of(wrong), 409);
+
+    let mut response = client
+        .post(&approval)
+        .send_json(serde_json::json!({"digest": plan.digest}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let done: IngestPlan = response.body_mut().read_json().unwrap();
+    assert!(done.outcomes.iter().all(|o| o.moved), "{done:?}");
+    assert!(!drop.join("mystery.bin").exists());
+    let kept: Vec<IngestKeptFile> = client.json("/ingest-folders/drop/kept-files");
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].name, "mystery.bin");
+    let item: IngestItem = client.json(&format!("/ingest-items/{}", mystery.id));
+    assert_eq!(item.state, ItemState::Moved);
+    assert_eq!(
+        status_of(client.get("/ingest-folders/sets/items").call()),
+        404
+    );
+}
+
 /// Selection Profiles and Selections, run by the pinned selection engine (`tools/retool/setup` builds it).
 mod selections {
     use super::*;
