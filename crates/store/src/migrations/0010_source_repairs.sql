@@ -121,8 +121,11 @@ CREATE TABLE repair_steps (
     aside_name TEXT,
     aside_why TEXT,
     -- The slot in the private .deleting folder a staged file recorded in staged_* that won't be published is moved
-    -- to, recorded before it is moved; cleared once the file is in neither place.
+    -- to, recorded before it is moved, with the file's size and modification time then, since a file put in its
+    -- place may reuse its inode number; cleared once the file is in neither place.
     discard_slot TEXT,
+    discard_size INTEGER,
+    discard_mtime_ns TEXT,
     UNIQUE (plan_id, seq)
 );
 CREATE INDEX repair_steps_unfinished ON repair_steps (plan_id) WHERE state NOT IN ('done', 'failed', 'skipped');
@@ -199,3 +202,7 @@ WHEN (NEW.kind = 'selection') <> (NEW.profile_version_id IS NOT NULL)
 BEGIN
     SELECT RAISE(ABORT, 'a selection job runs a profile version, a build job an approved plan, a check job a managed folder, an audit job none');
 END;
+
+-- The change time of an ingest move's published copy, recorded as it is published, so that recovery tells it from a
+-- file put in its place that reused its inode number.
+ALTER TABLE ingest_moves ADD COLUMN published_ctime_ns TEXT;

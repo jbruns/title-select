@@ -34,7 +34,7 @@ use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
 use crate::builds::sha256_of;
 use crate::checks::Seen;
 use crate::config::Config;
-use crate::folder_dir::{FolderDir, Identity, file_stat};
+use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::folders::store_id;
 use crate::kept::{Scope, open_area_deleting, open_retention, unique};
 use crate::plans::{json, to_json};
@@ -120,6 +120,8 @@ struct MoveRow {
     exact: Option<ExpectedRom>,
     staged_name: Option<String>,
     staged: Option<Identity>,
+    /// The published copy's change time, recorded once it was published.
+    published_ctime: Option<i128>,
     dest_sha256: Option<String>,
     found: Option<Identity>,
     aside_name: Option<String>,
@@ -128,7 +130,7 @@ struct MoveRow {
 
 const MOVE_QUERY: &str = "SELECT id, folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns, \
      sha256, dest_kind, dest_root, dest_rel, generation, dest_name, reason, roms, staged_name, staged_dev, \
-     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom FROM ingest_moves";
+     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns FROM ingest_moves";
 
 fn parse_ns(r: &Row, at: usize) -> rusqlite::Result<i128> {
     r.get::<_, String>(at)?.parse().map_err(|e| {
@@ -195,6 +197,10 @@ fn move_from_row(r: &Row) -> rusqlite::Result<MoveRow> {
         },
         staged_name: r.get(19)?,
         staged: identity_at(r, 20)?,
+        published_ctime: match r.get::<_, Option<String>>(29)? {
+            Some(_) => Some(parse_ns(r, 29)?),
+            None => None,
+        },
         dest_sha256: r.get(22)?,
         found: identity_at(r, 24)?,
         aside_name: r.get(26)?,
@@ -599,6 +605,7 @@ impl Store {
         if m.state == "restoring" {
             return self.restore(m, src, dest);
         }
+        let mut _pin = None;
         match dest.stat(dest_name).map_err(io)? {
             None => {
                 if !is_seen(src, &m.name, &m.seen).map_err(io)? {
@@ -612,6 +619,7 @@ impl Store {
                 }
                 self.set_state(m.id, "moving")?;
                 self.fault_point(Fault::IngestRenaming);
+                _pin = src.pin(&m.name, m.seen.identity);
                 match src.rename_new(&m.name, dest, dest_name) {
                     Ok(()) => {}
                     Err(e)
@@ -800,6 +808,7 @@ impl Store {
                 .map_err(io)?
                 .filter(|st| Identity::of(st) == found))
         };
+        let _pin = dir.pin(name, found);
         if holds(dir, name)?.is_some() {
             loop {
                 match dir.rename_new(name, &retention, &aside) {
@@ -921,10 +930,12 @@ impl Store {
             _ if preserving || resumed => (m.staged, None),
             _ => return replaced(),
         };
+        // The published copy, while it is still the file published: the same inode, never changed since.
+        let still = |st: &rustix::fs::Stat, staged: Identity| {
+            Identity::of(st) == staged && m.published_ctime.is_none_or(|at| ctime_ns(st) == at)
+        };
         let published = match (staged, dest.stat(&dest_name).map_err(io)?) {
-            (Some(staged), Some(st)) if Identity::of(&st) == staged => {
-                Some((staged, file_stat(&st)))
-            }
+            (Some(staged), Some(st)) if still(&st, staged) => Some((staged, file_stat(&st))),
             _ if resumed || preserving => None,
             _ => return replaced(),
         };
@@ -933,7 +944,10 @@ impl Store {
             _ if preserving => false,
             (Some((staged, _)), Some(rom)) => {
                 let file = dest.open_file(&dest_name).map_err(io)?;
-                if Identity::of_fd(&file).map_err(io)? != *staged {
+                if !still(
+                    &rustix::fs::fstat(&file).map_err(|e| io(e.into()))?,
+                    *staged,
+                ) {
                     if resumed {
                         false
                     } else {
@@ -991,8 +1005,9 @@ impl Store {
                 dest.sync().map_err(io)?;
                 let file = dest.open_file(dest_name).map_err(io)?;
                 let (sha, _) = sha256_of(&file).map_err(io)?;
-                self.published(m.id, &sha)?;
-                return Ok(Ok(sha));
+                if self.published(m.id, staged, &file, &sha)? {
+                    return Ok(Ok(sha));
+                }
             }
             let staged_name = m.staged_name.clone().unwrap_or_default();
             if is_file(dest, &staged_name, staged, None).map_err(io)? {
@@ -1127,6 +1142,7 @@ impl Store {
         dest_name: &str,
         sha: String,
     ) -> Result<std::result::Result<String, String>> {
+        let _pin = dest.pin(staged_name, staged);
         if let Err(e) = dest.rename_new(staged_name, dest, dest_name) {
             let why = format!(
                 "{e}; the copy was left at {staged_name} and {} as it is",
@@ -1136,26 +1152,45 @@ impl Store {
         }
         dest.sync().map_err(io)?;
         self.fault_point(Fault::IngestRenamed);
-        if !is_file(dest, dest_name, staged, None).map_err(io)? {
-            let why = format!(
-                "{}/{dest_name} is not the copy Title Select wrote, so it and {} were left as they are",
-                dest.path().display(),
-                m.name
-            );
-            return self.fail_move(m.id, why).map(|r| r.map(|_| String::new()));
+        let file = match is_file(dest, dest_name, staged, None).map_err(io)? {
+            true => Some(dest.open_file(dest_name).map_err(io)?),
+            false => None,
+        };
+        if let Some(file) = file
+            && self.published(m.id, staged, &file, &sha)?
+        {
+            return Ok(Ok(sha));
         }
-        self.published(m.id, &sha)?;
-        Ok(Ok(sha))
+        let why = format!(
+            "{}/{dest_name} is not the copy Title Select wrote, so it and {} were left as they are",
+            dest.path().display(),
+            m.name
+        );
+        self.fail_move(m.id, why).map(|r| r.map(|_| String::new()))
     }
 
-    fn published(&self, id: i64, sha: &str) -> Result<()> {
+    /// Records move `id` published as `file`, opened at its destination, when it is the file `staged`, with its
+    /// change time: a file put in its place later may reuse its inode number, but never has the same change time.
+    fn published(
+        &self,
+        id: i64,
+        staged: Identity,
+        file: &std::fs::File,
+        sha: &str,
+    ) -> Result<bool> {
+        let st = rustix::fs::fstat(file).map_err(|e| io(e.into()))?;
+        if FolderDir::kind(&st) != FileType::RegularFile || Identity::of(&st) != staged {
+            return Ok(false);
+        }
         self.write(|tx| {
             tx.execute(
-                "UPDATE ingest_moves SET state = 'published', dest_sha256 = ?2 WHERE id = ?1",
-                params![id, sha],
+                "UPDATE ingest_moves SET state = 'published', dest_sha256 = ?2, published_ctime_ns = ?3
+                 WHERE id = ?1",
+                params![id, sha, ctime_ns(&st).to_string()],
             )?;
             Ok(())
-        })
+        })?;
+        Ok(true)
     }
 
     /// Opens the folder `rel` of the Root `root`, a move's destination: a Source Set there only when a repair may write
@@ -1218,6 +1253,7 @@ impl Store {
             Err(why) => return Ok(Err(why)),
         };
         let slot = format!("move-{}", m.id);
+        let mut _pin = None;
         if m.state != "keeping" {
             if is_seen(src, &m.name, &m.seen).map_err(io)? {
                 if copied.is_none() {
@@ -1233,6 +1269,7 @@ impl Store {
                     ))));
                 }
                 self.set_state(m.id, "disposing")?;
+                _pin = src.pin(&m.name, m.seen.identity);
                 if let Err(e) = src.rename_new(&m.name, &deleting, &slot) {
                     return Ok(Ok(Some(format!(
                         "{} could not be set aside to delete ({e}), so it was left in the folder",
@@ -1358,8 +1395,10 @@ impl Store {
             ),
         };
         let kept = kept_name(&m.name, 1);
+        let mut _pin = None;
         if is_seen(src, &m.name, &m.seen).map_err(io)? {
             self.set_state(m.id, "retaining")?;
+            _pin = src.pin(&m.name, m.seen.identity);
             if let Err(e) = src.rename_new(&m.name, &retention.generation, &kept) {
                 return Ok(Ok((
                     None,
@@ -1864,21 +1903,32 @@ mod tests {
     /// Overwrites the file at `path` with as many other bytes and puts its mtime back, as a writer that hides its
     /// change would.
     fn overwrite_in_place(path: &std::path::Path) {
+        let len = std::fs::metadata(path).unwrap().len() as usize;
+        rewrite_in_place(path, &vec![b'x'; len]);
+    }
+
+    /// Writes `bytes` over the file at `path`, keeping its inode and modification time.
+    fn rewrite_in_place(path: &std::path::Path, bytes: &[u8]) {
         let before = std::fs::metadata(path).unwrap();
         let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
-        (&file)
-            .write_all(&vec![b'x'; before.len() as usize])
-            .unwrap();
+        (&file).write_all(bytes).unwrap();
         file.set_modified(before.modified().unwrap()).unwrap();
     }
 
     #[test]
     fn an_original_set_aside_to_delete_is_kept_when_its_published_copy_no_longer_checks_out_after_a_stop()
      {
-        for (dest, repack, replaced) in [
-            ("Pong (USA).a26", false, false),
-            ("Pong (USA).zip", true, false),
-            ("Pong (USA).a26", false, true),
+        enum Change {
+            Overwritten,
+            Replaced,
+            // What a file put in its place looks like when it reuses the freed inode number, as Linux does.
+            ReusingItsInode,
+        }
+        for (dest, repack, change) in [
+            ("Pong (USA).a26", false, Change::Overwritten),
+            ("Pong (USA).zip", true, Change::Overwritten),
+            ("Pong (USA).a26", false, Change::Replaced),
+            ("Pong (USA).a26", false, Change::ReusingItsInode),
         ] {
             FORCE_COPY.with(|f| f.set(!repack));
             let env = env();
@@ -1895,11 +1945,16 @@ mod tests {
             assert!(ran.is_err(), "{dest}");
             env.store.inject_fault(None);
             let published = env.tmp.path().join("lib/Atari").join(dest);
-            if replaced {
-                std::fs::remove_file(&published).unwrap();
-                std::fs::write(&published, b"pong").unwrap();
-            } else {
-                overwrite_in_place(&published);
+            match change {
+                Change::Overwritten => overwrite_in_place(&published),
+                Change::Replaced => {
+                    std::fs::remove_file(&published).unwrap();
+                    std::fs::write(&published, b"pong").unwrap();
+                }
+                Change::ReusingItsInode => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    rewrite_in_place(&published, b"pong");
+                }
             }
 
             let left = env.store.recover_ingest_moves(&env.config).unwrap();

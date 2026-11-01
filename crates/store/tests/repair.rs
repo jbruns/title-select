@@ -1024,6 +1024,13 @@ fn a_staged_file_a_stop_left_being_deleted_is_deleted_after_a_restart() {
 
 #[test]
 fn a_file_swapped_in_for_a_staged_file_being_deleted_is_put_back_and_never_deleted() {
+    // A file put in its place either gets a new inode number or, as on Linux, may reuse the one freed.
+    for reusing_its_inode in [false, true] {
+        swapped_in_for_a_staged_file_being_deleted(reusing_its_inode);
+    }
+}
+
+fn swapped_in_for_a_staged_file_being_deleted(reusing_its_inode: bool) {
     let env = Env::new();
     let plan = cancelled_after_a_build_staged(&env);
     env.store.inject_fault(Some(Fault::RepairDiscarding(0)));
@@ -1045,8 +1052,18 @@ fn a_file_swapped_in_for_a_staged_file_being_deleted_is_put_back_and_never_delet
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .find(|n| n.contains("title-select-new"));
     assert!(staged.is_none(), "{staged:?}");
-    std::fs::remove_file(&slot).unwrap();
-    std::fs::write(&slot, b"someone else's").unwrap();
+    if reusing_its_inode {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&slot)
+            .unwrap();
+        std::io::Write::write_all(&mut &file, b"someone else's").unwrap();
+    } else {
+        std::fs::remove_file(&slot).unwrap();
+        std::fs::write(&slot, b"someone else's").unwrap();
+    }
     env.store.recover_jobs(WORKERS).unwrap();
 
     env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
@@ -1251,6 +1268,41 @@ fn a_first_marker_a_stop_left_unpublished_is_published_when_the_repair_runs_agai
             "{stop:?}"
         );
     }
+}
+
+#[test]
+fn a_file_put_in_place_of_a_first_marker_a_stop_left_is_never_written_over() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.inject_fault(Some(Fault::RepairMarkerWritten));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    // Written over in place, as a file put there looks when it reuses the freed inode number, as on Linux.
+    let temp = env.set().join(".title-select.new");
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&temp)
+        .unwrap();
+    std::io::Write::write_all(&mut &file, b"someone else's").unwrap();
+    drop(file);
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert_eq!(std::fs::read(&temp).unwrap(), b"someone else's");
+    assert!(!env.set().join(".title-select").exists());
+    assert!(env.set().join("readme.txt").exists());
 }
 
 #[test]

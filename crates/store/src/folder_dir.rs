@@ -244,6 +244,13 @@ impl FolderDir {
         Ok(File::from(fd))
     }
 
+    /// Holds `name` open while it is the regular file `id`, so that while a rename moves it and the result is
+    /// checked, its inode number can't be freed and reused by a file put in its place; `None` when it isn't.
+    pub fn pin(&self, name: &str, id: Identity) -> Option<File> {
+        let file = self.open_file(name).ok()?;
+        (Identity::of_fd(&file).ok()? == id).then_some(file)
+    }
+
     /// The `lstat` of `name`, or `None` if nothing is there.
     pub fn stat(&self, name: &str) -> io::Result<Option<Stat>> {
         let name = component(name)?;

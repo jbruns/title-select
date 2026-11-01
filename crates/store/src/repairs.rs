@@ -991,7 +991,8 @@ impl Store {
     /// is committed first, and its identity as soon as it is; it is written and synced, renamed to the marker only
     /// while it is still that file and by a rename that never replaces anything, and the folder synced before the
     /// marker is recorded. A temporary file a stop left is written again and published, but only while it is the
-    /// file recorded, or, when its identity was not yet committed, the empty file this service's user just made.
+    /// file recorded and holds no more than the marker, or, when its identity was not yet committed, the empty file
+    /// this service's user just made.
     /// Anything else at either name, a marker that appeared meanwhile included, stops the repair with nothing changed.
     fn bootstrap_marker(
         &self,
@@ -1054,7 +1055,14 @@ impl Store {
         }
         let left = stat(MARKER_NEW)?;
         let id = match (left, recorded) {
-            (Some(st), Some(id)) if is_file(&st, id) => id,
+            // Only what this store wrote to it, at most the marker, since a file put in its place may reuse the
+            // inode number.
+            (Some(st), Some(id))
+                if is_file(&st, id)
+                    && json.starts_with(&dir.read(MARKER_NEW, MARKER_LIMIT).map_err(io_err)?) =>
+            {
+                id
+            }
             (Some(st), None)
                 if pending
                     && FolderDir::kind(&st) == FileType::RegularFile
@@ -1115,6 +1123,7 @@ impl Store {
                 "{path}: {MARKER_NEW} was replaced while the marker was written; nothing in it was changed"
             )));
         }
+        let _pin = dir.pin(MARKER_NEW, id);
         if let Err(e) = dir.rename_new(MARKER_NEW, dir, MARKER) {
             return Ok(Err(match e.kind() {
                 io::ErrorKind::AlreadyExists => format!(
@@ -1567,35 +1576,53 @@ impl Store {
     ) -> Ran {
         let dir = &r.dir;
         let left = || Ok(Err(undeleted(dir, staged_name)));
-        let recorded: Option<String> = self.read(|c| {
+        let recorded: Option<(String, FileStat)> = self.read(|c| {
             Ok(c.query_row(
-                "SELECT discard_slot FROM repair_steps WHERE id = ?1",
+                "SELECT discard_slot, discard_size, discard_mtime_ns FROM repair_steps WHERE id = ?1",
                 [step.id],
-                |r| r.get(0),
+                |r| {
+                    Ok(match (r.get::<_, Option<String>>(0)?, r.get::<_, Option<i64>>(1)?) {
+                        (Some(slot), Some(size)) => Some((
+                            slot,
+                            FileStat {
+                                size: size as u64,
+                                mtime_ns: r.get::<_, String>(2)?.parse().unwrap_or_default(),
+                            },
+                        )),
+                        _ => None,
+                    })
+                },
             )?)
         })?;
         let here = is_file(dir, staged_name, id).map_err(io_err)?;
         if recorded.is_none() && !here {
             return Ok(Ok(()));
         }
-        let slot = match recorded {
-            Some(slot) => slot,
+        let (slot, file) = match recorded {
+            Some(found) => found,
             None => {
+                let Some(st) = dir.stat(staged_name).map_err(io_err)? else {
+                    return left();
+                };
+                let file = file_stat(&st);
                 let slot = format!("repair-staged-{}", unique());
                 self.write(|tx| {
                     tx.execute(
-                        "UPDATE repair_steps SET discard_slot = ?2 WHERE id = ?1",
-                        params![step.id, slot],
+                        "UPDATE repair_steps SET discard_slot = ?2, discard_size = ?3, discard_mtime_ns = ?4
+                         WHERE id = ?1",
+                        params![step.id, slot, file.size as i64, file.mtime_ns.to_string()],
                     )?;
                     Ok(())
                 })?;
-                slot
+                (slot, file)
             }
         };
         let Ok(Some(deleting)) = open_area_deleting(self, r.scope(), dir, true)? else {
             return left();
         };
+        let mut _pin = None;
         if here {
+            _pin = dir.pin(staged_name, id);
             if dir.rename_new(staged_name, &deleting, &slot).is_err() {
                 return left();
             }
@@ -1605,8 +1632,11 @@ impl Store {
         dir.sync().map_err(io_err)?;
         deleting.sync().map_err(io_err)?;
         match deleting.stat(&slot).map_err(io_err)? {
+            // The same inode, unchanged since: a file put in its place may reuse the number, never the times too.
             Some(st)
-                if FolderDir::kind(&st) == FileType::RegularFile && Identity::of(&st) == id =>
+                if FolderDir::kind(&st) == FileType::RegularFile
+                    && Identity::of(&st) == id
+                    && file_stat(&st) == file =>
             {
                 deleting.unlink(&slot).map_err(io_err)?;
                 deleting.sync().map_err(io_err)?;
@@ -1631,7 +1661,8 @@ impl Store {
         }
         self.write(|tx| {
             tx.execute(
-                "UPDATE repair_steps SET discard_slot = NULL WHERE id = ?1",
+                "UPDATE repair_steps SET discard_slot = NULL, discard_size = NULL, discard_mtime_ns = NULL
+                 WHERE id = ?1",
                 [step.id],
             )?;
             Ok(())
@@ -1697,6 +1728,7 @@ impl Store {
         };
         let generation = &retention.generation;
         let in_place = is_seen(parent, name, seen).map_err(io_err)?;
+        let mut _pin = None;
         if step.state == "pending" || (in_place && step.state == "moving") {
             if !in_place {
                 self.fail_step(
@@ -1707,6 +1739,7 @@ impl Store {
                 return Ok(Ok(None));
             }
             self.step_state(step, "moving")?;
+            _pin = parent.pin(name, seen.identity);
             if let Err(e) = parent.rename_new(name, generation, kept) {
                 self.fail_step(
                     step,
@@ -1891,6 +1924,7 @@ impl Store {
         };
         let parent = parent.as_ref().unwrap_or(&r.dir);
         let in_place = is_seen(parent, name, seen).map_err(io_err)?;
+        let mut _pin = None;
         if step.state == "pending" || (in_place && step.state == "moving") {
             if !in_place {
                 return self.step_failed(
@@ -1909,6 +1943,7 @@ impl Store {
                 );
             }
             self.step_state(step, "moving")?;
+            _pin = parent.pin(name, seen.identity);
             if let Err(e) = parent.rename_new(name, &r.dir, to) {
                 return self.step_failed(
                     step,
@@ -1971,6 +2006,7 @@ impl Store {
         }
         let dir = &r.dir;
         let at_staged = is_file(dir, staged_name, staged).map_err(io_err)?;
+        let mut _pin = None;
         if step.state == "pending" || (at_staged && step.state == "moving") {
             if !at_staged {
                 return self.step_failed(
@@ -1980,6 +2016,7 @@ impl Store {
                 );
             }
             self.step_state(step, "moving")?;
+            _pin = dir.pin(staged_name, staged);
             if let Err(e) = dir.rename_new(staged_name, dir, target) {
                 let why = format!("the new {target} could not be put in place: {e}");
                 let kept = match self.record_aside(r, step, staged_name, staged, target, &why)? {
