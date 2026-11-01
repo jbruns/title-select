@@ -60,6 +60,7 @@ pub fn synthetic(entries: usize) -> AuditEntries {
             GameRow {
                 seq: i as u64,
                 game: Game {
+                    claimed_roms: vec![],
                     missing_roms: if status == GameStatus::Complete {
                         vec![]
                     } else {

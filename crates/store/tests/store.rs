@@ -1100,6 +1100,77 @@ mod profiles_and_selections {
     }
 
     #[test]
+    fn availability_from_a_quick_inventory_says_which_games_rest_on_claims() {
+        let env = Env::new(20);
+        env.add_dat_and_set();
+        write_zip(
+            &env.set_dir().join("Combat (USA).zip"),
+            &[("Combat (USA).a26", b"combat")],
+        );
+        write_file(&env.set_dir().join("Pong (USA).a26"), b"pong");
+        let (sha256, _) = env.import(1);
+        let saved = env
+            .store
+            .save_profile(
+                NAME,
+                &SelectionProfile::default(),
+                None,
+                "Operator",
+                &[StartSelectionFor {
+                    source_set: "Test - System".into(),
+                    revision: None,
+                }],
+                WORKERS,
+            )
+            .unwrap();
+        let job = env.store.claim_job().unwrap().unwrap();
+        assert_eq!(job.id, saved.jobs[0].id);
+        let id = env
+            .store
+            .record_selection(&env.config, job.id, &selection(&sha256))
+            .unwrap()
+            .selection
+            .unwrap();
+
+        let quick = env.audit_with(None, AuditEvidence::Quick);
+
+        let report = env.store.report(quick.id).unwrap();
+        let game = |name: &str| report.games.iter().find(|g| g.name == name).unwrap();
+        assert_eq!(game("Combat (USA)").status, GameStatus::Complete);
+        assert_eq!(game("Combat (USA)").claimed_roms, ["Combat (USA).a26"]);
+        assert!(game("Pong (USA)").claimed_roms.is_empty());
+        let (rows, _) = env
+            .store
+            .selection_releases(id, None, 10, None, None)
+            .unwrap();
+        let availability: Vec<_> = rows
+            .iter()
+            .map(|r| (r.release.title.as_str(), r.availability, r.claimed))
+            .collect();
+        assert_eq!(
+            availability,
+            [
+                ("Combat (USA)", Some(GameStatus::Complete), true),
+                ("Pong (USA)", Some(GameStatus::Complete), false),
+            ]
+        );
+        let availability = env.store.selection_availability(id).unwrap();
+        assert_eq!(
+            availability.claimed,
+            BTreeSet::from(["Combat (USA)".to_owned()])
+        );
+
+        env.audit_with(None, AuditEvidence::Incremental);
+        assert!(
+            env.store
+                .selection_availability(id)
+                .unwrap()
+                .claimed
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn a_selection_job_records_its_selection_whole_with_availability_from_an_audit_of_the_same_revision()
      {
         let env = Env::new(20);

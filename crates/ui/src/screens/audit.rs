@@ -18,7 +18,8 @@ use crate::app::{Loading, Problem};
 use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
     StatusFilter, audit_evidence_label, entry_name, evidence_text, finding_label,
-    game_status_label, needs_review_from_counts, parse_ndjson, payload_read_text, short_sha, when,
+    game_status_label, game_status_text, needs_review_from_counts, parse_ndjson, payload_read_text,
+    short_sha, when,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
@@ -753,7 +754,7 @@ impl Grid for GameItem {
         let game = &self.games.rows[self.i as usize].game;
         match col {
             GameCol::Name => game.name.clone().into_any(),
-            GameCol::Status => game_status_label(game.status).into_any(),
+            GameCol::Status => game_status_text(game).into_any(),
             GameCol::Absent => match game.missing_roms.len() {
                 0 => ().into_any(),
                 n => format!("{n}: {}", game.missing_roms.join(", ")).into_any(),
@@ -804,10 +805,18 @@ fn GamesPanel(games: Arc<AuditGames>) -> impl IntoView {
                 <ul class="data">{game.missing_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
             }
         });
+        let claimed = (!game.claimed_roms.is_empty()).then(|| {
+            view! {
+                <h4>"Present only on claim evidence"</h4>
+                <p class="note">"A quick inventory read these ROMs' names, sizes and CRC32s from a ZIP directory without reading their payloads. Audit the source set incrementally or in full to verify them; builds never use them."</p>
+                <ul class="data">{game.claimed_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
+            }
+        });
         Some(view! {
             <h3>{game.name.clone()}</h3>
-            <p>{format!("Game status: {}", game_status_label(game.status))}</p>
+            <p>{format!("Game status: {}", game_status_text(&game))}</p>
             {absent}
+            {claimed}
         })
     };
 

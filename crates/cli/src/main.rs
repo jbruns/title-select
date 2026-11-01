@@ -272,7 +272,14 @@ fn run(cli: Cli) -> Result<(), String> {
                 .unwrap_or_default();
             let evidence = match evidence {
                 AuditEvidence::Quick => AuditEvidence::Quick,
-                AuditEvidence::Incremental | AuditEvidence::Full => AuditEvidence::Full,
+                AuditEvidence::Incremental => {
+                    eprintln!(
+                        "this audit has no store and so no earlier payload reads to reuse: it ran as a full \
+                         audit"
+                    );
+                    AuditEvidence::Full
+                }
+                AuditEvidence::Full => AuditEvidence::Full,
             };
             let report = title_select_engine::audit_with(
                 &dat,

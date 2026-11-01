@@ -33,5 +33,8 @@ UPDATE jobs SET evidence = 'full' WHERE kind = 'audit';
 -- rather than reading it. Every earlier Audit read its payloads while it ran.
 ALTER TABLE audit_entries ADD COLUMN read_at TEXT;
 ALTER TABLE audit_entries ADD COLUMN reused INTEGER NOT NULL DEFAULT 0;
+-- A JSON array of the Game's ROMs counted present only on Claim Evidence.
+ALTER TABLE audit_games ADD COLUMN claimed_roms TEXT NOT NULL DEFAULT '[]';
+
 UPDATE audit_entries SET read_at = (SELECT started_at FROM audits a WHERE a.id = audit_entries.audit_id)
 WHERE evidence_level = 'payload';

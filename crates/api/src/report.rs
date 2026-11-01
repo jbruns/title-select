@@ -216,6 +216,9 @@ pub struct Game {
     pub status: GameStatus,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub missing_roms: Vec<String>,
+    /// The ROMs counted present only on Claim Evidence: no Entry's payload was read and matched them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub claimed_roms: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

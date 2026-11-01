@@ -375,11 +375,20 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         ])?;
     }
     let mut game = tx.prepare(
-        "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     for (seq, g) in report.games.iter().enumerate() {
         let missing = serde_json::to_string(&g.missing_roms).map_err(corrupt)?;
-        game.execute(params![id, seq as i64, g.name, g.status.as_str(), missing])?;
+        let claimed = serde_json::to_string(&g.claimed_roms).map_err(corrupt)?;
+        game.execute(params![
+            id,
+            seq as i64,
+            g.name,
+            g.status.as_str(),
+            missing,
+            claimed
+        ])?;
     }
     Ok(())
 }
@@ -445,10 +454,12 @@ pub(super) fn entry_from_row(row: &Row) -> Result<Entry> {
 fn game_from_row(row: &Row) -> Result<Game> {
     let status: String = row.get(1)?;
     let missing: String = row.get(2)?;
+    let claimed: String = row.get(3)?;
     Ok(Game {
         name: row.get(0)?,
         status: GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
         missing_roms: serde_json::from_str(&missing).map_err(corrupt)?,
+        claimed_roms: serde_json::from_str(&claimed).map_err(corrupt)?,
     })
 }
 
@@ -503,7 +514,7 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
         entries.push(entry_from_row(row)?);
     }
     let mut stmt = c.prepare(
-        "SELECT name, status, missing_roms FROM audit_games WHERE audit_id = ?1 ORDER BY seq",
+        "SELECT name, status, missing_roms, claimed_roms FROM audit_games WHERE audit_id = ?1 ORDER BY seq",
     )?;
     let mut rows = stmt.query([audit_id])?;
     let mut game_rows = Vec::new();
@@ -806,7 +817,7 @@ impl Store {
             let tx = conn.unchecked_transaction()?;
             check_full(&tx, audit_id)?;
             let mut stmt = tx.prepare(
-                "SELECT name, status, missing_roms, seq FROM audit_games
+                "SELECT name, status, missing_roms, claimed_roms, seq FROM audit_games
                  WHERE audit_id = ?1 AND seq > ?2 AND (?3 IS NULL OR status = ?3)
                  ORDER BY seq LIMIT ?4",
             )?;
@@ -819,7 +830,7 @@ impl Store {
             let mut items = Vec::new();
             while let Some(row) = rows.next()? {
                 items.push(GameRow {
-                    seq: row.get::<_, i64>(3)? as u64,
+                    seq: row.get::<_, i64>(4)? as u64,
                     game: game_from_row(row)?,
                 });
             }

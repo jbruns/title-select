@@ -6,7 +6,7 @@ pub mod paths;
 pub mod report;
 pub mod selection;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -297,6 +297,9 @@ pub struct SelectionReleaseRow {
     pub release: selection::ReleaseRow,
     /// None when there is no Audit against the Selection's DAT Revision.
     pub availability: Option<GameStatus>,
+    /// The availability rests, for at least one ROM, on Claim Evidence alone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub claimed: bool,
 }
 
 /// The availability of a Selection's releases: the Game Statuses of the Source Set's latest Audit against the
@@ -306,6 +309,9 @@ pub struct Availability {
     /// None when the Source Set has no Audit against that DAT Revision.
     pub audit: Option<i64>,
     pub games: BTreeMap<String, GameStatus>,
+    /// The Games whose status rests, for at least one ROM, on Claim Evidence alone.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub claimed: BTreeSet<String>,
 }
 
 /// Release by release, what changed between two Selections.

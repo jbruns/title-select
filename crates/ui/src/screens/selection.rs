@@ -23,8 +23,9 @@ use crate::model::{Sort, game_status_label, when};
 use crate::screens::PlanABuild;
 use crate::screens::audit::{ReAudit, focus};
 use crate::selection_model::{
-    AvailabilityFilter, FlagFilter, ReleaseColumn, ReleaseFilter, SelectionIndex, checked,
-    choice_label, confirm, flag_labels, include_and_check, role_label, staged_changes, toggle,
+    AvailabilityFilter, FlagFilter, ReleaseColumn, ReleaseFilter, SelectionIndex,
+    availability_label, checked, choice_label, confirm, flag_labels, include_and_check, role_label,
+    staged_changes, toggle,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
@@ -119,10 +120,12 @@ fn role_view(role: Role) -> AnyView {
         .into_any()
 }
 
-fn availability_view(status: Option<GameStatus>) -> AnyView {
+fn availability_view(status: Option<GameStatus>, claimed: bool) -> AnyView {
     match status {
-        Some(s) => view! { <span class=format!("avail avail-{}", s.as_str())>{game_status_label(s)}</span> }
-            .into_any(),
+        Some(s) => {
+            view! { <span class=format!("avail avail-{}", s.as_str())>{availability_label(Some(s), claimed)}</span> }
+                .into_any()
+        }
         None => ().into_any(),
     }
 }
@@ -170,7 +173,9 @@ impl Grid for ReleaseItem {
             ReleaseCol::Group => row.group.clone().into_any(),
             ReleaseCol::Release => row.title.clone().into_any(),
             ReleaseCol::Role => role_view(row.role),
-            ReleaseCol::Availability => availability_view(self.index.availability(i)),
+            ReleaseCol::Availability => {
+                availability_view(self.index.availability(i), self.index.claimed(i))
+            }
             ReleaseCol::Rule => {
                 let text = rule_text(&row.rule);
                 let title = row.rule.reference.clone().unwrap_or_default();
@@ -425,7 +430,7 @@ struct Loaded {
 async fn load(id: i64) -> Result<Loaded, String> {
     let selection = api::get(&format!("/selections/{id}/selection")).await?;
     let availability: Availability = api::get(&format!("/selections/{id}/availability")).await?;
-    let index = SelectionIndex::new(selection, &availability.games);
+    let index = SelectionIndex::new(selection, &availability.games, &availability.claimed);
     Ok(Loaded {
         index: Arc::new(index),
         availability,
@@ -681,6 +686,7 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
                                                 group=g.clone()
                                                 system=index.selection.system.clone()
                                                 availability=loaded.availability.games.clone()
+                                                claimed=loaded.availability.claimed.clone()
                                                 staged
                                             />
                                         }
@@ -789,6 +795,7 @@ fn GroupPanel(
     group: SelectionGroup,
     system: String,
     availability: std::collections::BTreeMap<String, GameStatus>,
+    claimed: std::collections::BTreeSet<String>,
     staged: RwSignal<Option<SelectionProfile>>,
 ) -> impl IntoView {
     let group = StoredValue::new(group);
@@ -890,6 +897,7 @@ fn GroupPanel(
                             checked_now().is_some_and(|c| c.contains(&t.get_value()))
                         };
                         let avail = availability.get(&title).copied();
+                        let claimed_only = claimed.contains(&title);
                         let excluded = role == Role::Exclusion;
                         view! {
                             <li class="release">
@@ -910,7 +918,7 @@ fn GroupPanel(
                                 " "
                                 {role_view(role)}
                                 " "
-                                {availability_view(avail)}
+                                {availability_view(avail, claimed_only)}
                                 {reason.map(|r| view! { " " <span class="note small">{r}</span> })}
                                 {excluded
                                     .then(|| {

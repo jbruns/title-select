@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use title_select_api::{
     ALGORITHMS, AuditEvidence, AuditSummary, DatRevisionRecord, Entry, EntryRow, EvidenceLevel,
-    Finding, GameRow, GameStatus, Reuse,
+    Finding, Game, GameRow, GameStatus, Reuse,
 };
 
 /// The glossary's name for a Finding.
@@ -28,6 +28,20 @@ pub fn game_status_label(status: GameStatus) -> &'static str {
         GameStatus::Incomplete => "Incomplete",
         GameStatus::Missing => "Missing",
     }
+}
+
+/// A Game Status, saying when it rests, for some ROM, on Claim Evidence alone.
+pub fn status_text(status: GameStatus, claimed: bool) -> String {
+    if claimed {
+        format!("{} (claim evidence only)", game_status_label(status))
+    } else {
+        game_status_label(status).to_string()
+    }
+}
+
+/// A Game's status, saying when it rests, for some ROM, on Claim Evidence alone.
+pub fn game_status_text(game: &Game) -> String {
+    status_text(game.status, !game.claimed_roms.is_empty())
 }
 
 /// The states the glossary derives from an Entry's Finding and Evidence.
@@ -506,7 +520,7 @@ pub fn is_plain_text(content_type: Option<&str>) -> bool {
 mod tests {
     use super::*;
     use std::borrow::Cow;
-    use title_select_api::{Evidence, Game, RomRef};
+    use title_select_api::{Evidence, RomRef};
 
     fn entry(path: &str, finding: Finding, games: &[&str], algorithms: &[&'static str]) -> Entry {
         Entry {
@@ -553,8 +567,21 @@ mod tests {
                 } else {
                     vec![format!("{name}.a26")]
                 },
+                claimed_roms: vec![],
             },
         }
+    }
+
+    #[test]
+    fn a_game_status_resting_on_claims_says_so() {
+        let mut claimed = game("Pong (USA)", GameStatus::Complete).game;
+        claimed.claimed_roms = vec!["Pong (USA).a26".into()];
+
+        assert_eq!(game_status_text(&claimed), "Complete (claim evidence only)");
+        assert_eq!(
+            game_status_text(&game("Combat (USA)", GameStatus::Complete).game),
+            "Complete"
+        );
     }
 
     const FULL: &[&str] = &["size", "crc32", "md5", "sha1", "sha256"];

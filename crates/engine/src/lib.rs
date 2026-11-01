@@ -224,7 +224,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
     };
     let mut reads = read::read_files(&files, how, options.workers, options.progress).into_iter();
     let mut scan = Scan {
-        covered: vec![false; dat.roms.len()],
+        covered: vec![None; dat.roms.len()],
         entries: Vec::new(),
         dat: &dat,
     };
@@ -282,7 +282,8 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
 /// What an Audit has found so far.
 struct Scan<'d> {
     dat: &'d Dat,
-    covered: Vec<bool>,
+    /// The strongest Evidence Level any Entry holding each ROM has.
+    covered: Vec<Option<EvidenceLevel>>,
     entries: Vec<Entry>,
 }
 
@@ -303,8 +304,14 @@ impl Scan<'_> {
         let full = member.as_deref().unwrap_or(&path);
         let name = full.rsplit(['/', '\\']).next().unwrap_or(full);
         let (finding, payload, named) = classify(self.dat, name, known);
+        let level = match known {
+            Known::Payload(_) => EvidenceLevel::Payload,
+            Known::Claim { .. } => EvidenceLevel::Claim,
+        };
         for r in &payload {
-            self.covered[*r] = true;
+            if self.covered[*r] != Some(EvidenceLevel::Payload) {
+                self.covered[*r] = Some(level);
+            }
         }
         self.entries.push(Entry {
             path,
@@ -329,7 +336,12 @@ impl Scan<'_> {
             .map(|(name, roms)| {
                 let missing_roms: Vec<String> = roms
                     .iter()
-                    .filter(|r| !self.covered[**r])
+                    .filter(|r| self.covered[**r].is_none())
+                    .map(|r| self.dat.roms[*r].name.clone())
+                    .collect();
+                let claimed_roms: Vec<String> = roms
+                    .iter()
+                    .filter(|r| self.covered[**r] == Some(EvidenceLevel::Claim))
                     .map(|r| self.dat.roms[*r].name.clone())
                     .collect();
                 let status = match missing_roms.len() {
@@ -341,6 +353,7 @@ impl Scan<'_> {
                     name: name.clone(),
                     status,
                     missing_roms,
+                    claimed_roms,
                 }
             })
             .collect()

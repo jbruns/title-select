@@ -104,7 +104,8 @@ remains unresolved.
 
 **Game Status**:
 An Audit's verdict on one Game: _Complete_ (every ROM present), _Incomplete_ (some), or _Missing_ (none). A
-Misnamed or Conflicting Entry counts towards the Game its payload matches.
+Misnamed or Conflicting Entry counts towards the Game its payload matches. A ROM present only on Claim Evidence still
+counts, but the status names it as resting on claims, and a Build never sources it.
 
 ## Selection and change
 

@@ -8,8 +8,8 @@ use std::sync::Mutex;
 use common::*;
 use title_select_engine::payload::Checksums;
 use title_select_engine::{
-    AuditEvidence, EvidenceLevel, FileStamp, Finding, ONE_WORKER_EACH, Options, PayloadRead,
-    PayloadReads, Report, Reuse, audit_with,
+    AuditEvidence, EvidenceLevel, FileStamp, Finding, GameStatus, ONE_WORKER_EACH, Options,
+    PayloadRead, PayloadReads, Report, Reuse, audit_with,
 };
 
 fn run(
@@ -227,4 +227,48 @@ fn a_quick_audit_reuses_an_unchanged_zips_payload_read_rather_than_claiming_it()
     let evidence = report.entries[0].evidence.as_ref().unwrap();
     assert_eq!(evidence.level, EvidenceLevel::Payload);
     assert_eq!(evidence.read_at, Some(earlier()));
+}
+
+#[test]
+fn a_game_present_only_on_claim_evidence_names_its_claimed_roms() {
+    let f = Fixture::new();
+    let dat = f.dat(&[
+        ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+        ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
+        (
+            "Breakout (USA)",
+            vec![
+                rom("Breakout (USA).a26", b"break"),
+                rom("Breakout (USA).txt", b"manual"),
+            ],
+        ),
+    ]);
+    write_zip(
+        &f.set_path("Pong (USA).zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+    write_zip(
+        &f.set_path("Combat (USA).zip"),
+        &[("Combat (USA).a26", b"combat")],
+    );
+    write_file(&f.set_path("Combat (USA).a26"), b"combat");
+    write_zip(
+        &f.set_path("Breakout (USA).zip"),
+        &[("Breakout (USA).a26", b"break")],
+    );
+    write_file(&f.set_path("Breakout (USA).txt"), b"manual");
+
+    let report = run(&dat, f.set.path(), AuditEvidence::Quick, None);
+
+    let game = |name: &str| report.games.iter().find(|g| g.name == name).unwrap();
+    assert_eq!(game("Pong (USA)").status, GameStatus::Complete);
+    assert_eq!(game("Pong (USA)").claimed_roms, ["Pong (USA).a26"]);
+    assert!(
+        game("Combat (USA)").claimed_roms.is_empty(),
+        "a payload read of the same ROM outweighs a claim"
+    );
+    assert_eq!(game("Breakout (USA)").status, GameStatus::Complete);
+    assert_eq!(game("Breakout (USA)").claimed_roms, ["Breakout (USA).a26"]);
+    let full = run(&dat, f.set.path(), AuditEvidence::Full, None);
+    assert!(full.games.iter().all(|g| g.claimed_roms.is_empty()));
 }

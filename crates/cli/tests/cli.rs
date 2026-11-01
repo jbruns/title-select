@@ -43,6 +43,28 @@ fn audit_prints_a_json_report_to_stdout() {
 }
 
 #[test]
+fn a_stateless_audit_says_it_ran_in_full() {
+    let (f, dat) = pong_fixture();
+
+    let out = title_select()
+        .arg("audit")
+        .arg("--dat")
+        .arg(&dat)
+        .arg(f.set.path())
+        .output()
+        .unwrap();
+
+    assert!(out.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["evidence"], "full");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("no earlier payload reads to reuse: it ran as a full audit"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn audit_writes_the_report_to_the_output_file() {
     let (f, dat) = pong_fixture();
     let output = f.dat_dir.path().join("report.json");

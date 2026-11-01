@@ -24,7 +24,8 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   an entry; any other file, including other archive formats, is one entry. Nested archives are not opened.
 - `--evidence quick` is a quick inventory: each ZIP member's size and CRC32 are taken from the archive's directory
   as claim evidence, without reading its payload. Claim evidence never makes an entry verified. Other files are
-  still read. A stateless audit has nothing earlier to reuse, so it is otherwise a full audit.
+  still read. A stateless audit has nothing earlier to reuse, so it is otherwise a full audit, and an incremental
+  request says so on stderr and reports `full`.
 - A finding is decided by payload before name: a file whose name is wrong but whose payload matches a ROM is
   misnamed, not unmatched. A payload matches a ROM when every checksum the DAT supplies for it agrees.
 - An unreadable file, directory, archive or member becomes an unreadable entry and the audit continues.
@@ -85,7 +86,9 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   inventory took them from a ZIP archive's directory; a claim's `algorithms` are always size and CRC32, and it has
   no `read_at`. `read_at` is when the payload was read. `reused` is `unchanged_file_heuristic` when the audit reused
   an earlier read because the file looked unchanged; see `audit --set`.
-- A game is `complete`, `incomplete` or `missing`; `missing_roms` lists its ROMs no entry's payload matched.
+- A game is `complete`, `incomplete` or `missing`; `missing_roms` lists its ROMs no entry matched. `claimed_roms`,
+  present only after a quick inventory, lists its ROMs that only a claim matched: its status rests on claims for
+  them, and a build never uses a claim as a source.
 
 ## Selection
 
@@ -395,7 +398,8 @@ against the selection's DAT revision:
 - **copy** a source that is already the game's TorrentZip, holding exactly its ROMs;
 - **repack** the game's ROMs into a new TorrentZip;
 - **unchanged**: the folder already holds the file, as built;
-- **no source**: no audited file holds every ROM;
+- **no source**: no audited file holds every ROM, by payload. Claims are never sources: a ROM only a quick
+  inventory claimed has no source until you audit the source set incrementally or in full;
 - **conflict**: a file the store did not build, or one changed since it was built, is at the target. It is never
   overwritten;
 - **blocked**: the game's name is not a valid file name on every filesystem, two names differ only in case, or the
@@ -565,7 +569,9 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 
 A paged list is `{"items": [...], "next_cursor": "..."}`; pass `next_cursor` back as `?cursor=` for the next page, and
 `?limit=` (1 to 1000, default 100) for its size. Each item carries its `seq`, its position in the report. A DAT upload
-may be up to 512 MiB, and is `201` when it adds a DAT revision, `200` when the bytes were already imported.
+may be up to 512 MiB, and is `201` when it adds a DAT revision, `200` when the bytes were already imported. After a
+quick inventory, availability's `claimed` names the games whose status rests on claims, and such a release carries
+`"claimed": true`.
 
 Server-sent events carry JSON data, under one of these event names:
 

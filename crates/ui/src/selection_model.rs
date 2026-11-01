@@ -9,7 +9,7 @@ use title_select_api::selection::{
     SystemSettings,
 };
 
-use crate::model::{Sort, game_status_label};
+use crate::model::{Sort, status_text};
 
 pub fn role_label(role: Role) -> &'static str {
     match role {
@@ -163,6 +163,8 @@ pub struct SelectionIndex {
     /// The release's group, as an index into `selection.groups`.
     group: Vec<u32>,
     availability: Vec<Option<GameStatus>>,
+    /// Whether the release's availability rests on Claim Evidence.
+    claimed: Vec<bool>,
     /// The lowercase group and title the filter searches.
     search: Vec<String>,
     /// The lowercase title, for sorting.
@@ -172,8 +174,12 @@ pub struct SelectionIndex {
 
 impl SelectionIndex {
     /// Indexes the Selection, looking up each release's availability by its name; `games` is empty when no Audit
-    /// says.
-    pub fn new(selection: Selection, games: &BTreeMap<String, GameStatus>) -> SelectionIndex {
+    /// says, and `claimed` names the Games whose status rests on Claim Evidence.
+    pub fn new(
+        selection: Selection,
+        games: &BTreeMap<String, GameStatus>,
+        claimed: &BTreeSet<String>,
+    ) -> SelectionIndex {
         let rows = selection.rows();
         let groups: BTreeMap<&str, u32> = selection
             .groups
@@ -182,6 +188,7 @@ impl SelectionIndex {
             .map(|(i, g)| (g.group.as_str(), i as u32))
             .collect();
         let n = rows.len();
+        let mut claimed_of = Vec::with_capacity(n);
         let (mut group, mut availability, mut search, mut title_key, mut flags) = (
             Vec::with_capacity(n),
             Vec::with_capacity(n),
@@ -193,6 +200,7 @@ impl SelectionIndex {
             let g = groups[row.group.as_str()];
             group.push(g);
             availability.push(games.get(&row.title).copied());
+            claimed_of.push(claimed.contains(&row.title));
             let title = row.title.to_lowercase();
             search.push(format!("{}\n{title}", row.group.to_lowercase()));
             title_key.push(title);
@@ -203,6 +211,7 @@ impl SelectionIndex {
             rows,
             group,
             availability,
+            claimed: claimed_of,
             search,
             title: title_key,
             flags,
@@ -223,6 +232,10 @@ impl SelectionIndex {
 
     pub fn availability(&self, i: usize) -> Option<GameStatus> {
         self.availability[i]
+    }
+
+    pub fn claimed(&self, i: usize) -> bool {
+        self.claimed[i]
     }
 
     pub fn flags(&self, i: usize) -> u8 {
@@ -288,8 +301,8 @@ fn availability_rank(status: Option<GameStatus>) -> u8 {
     }
 }
 
-pub fn availability_label(status: Option<GameStatus>) -> &'static str {
-    status.map_or("", game_status_label)
+pub fn availability_label(status: Option<GameStatus>, claimed: bool) -> String {
+    status.map_or(String::new(), |s| status_text(s, claimed))
 }
 
 /// The releases checked in a group as you have staged them: your staged choice, else the engine's picks.
@@ -604,7 +617,26 @@ mod tests {
                 ),
             ]),
             &games,
+            &BTreeSet::from(["Pong (Europe)".to_string()]),
         )
+    }
+
+    #[test]
+    fn availability_resting_on_claims_says_so() {
+        let index = index();
+        let at = |title: &str| index.rows.iter().position(|r| r.title == title).unwrap();
+
+        assert!(index.claimed(at("Pong (Europe)")));
+        assert!(!index.claimed(at("Pong (USA)")));
+        assert_eq!(
+            availability_label(Some(GameStatus::Complete), true),
+            "Complete (claim evidence only)"
+        );
+        assert_eq!(
+            availability_label(Some(GameStatus::Missing), false),
+            "Missing"
+        );
+        assert_eq!(availability_label(None, false), "");
     }
 
     fn titles(index: &SelectionIndex, shown: &[u32]) -> Vec<String> {
