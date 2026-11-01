@@ -1926,7 +1926,7 @@ mod tests {
                     zip.start_file("pong.bin", options).unwrap();
                     zip.write_all(b"pong").unwrap();
                     zip.finish().unwrap();
-                    let roms = vec![(rom_of("Pong (USA).a26", b"pong"), "pong.bin".into())];
+                    let roms = vec![(rom_of("Pong (USA).a26", b"pong"), Some("pong.bin".into()))];
                     env.mv("pong.zip", atari("Pong (USA).zip"), Some(roms))
                 }
                 _ if case.starts_with("rename") => {
