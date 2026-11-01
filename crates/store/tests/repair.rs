@@ -461,6 +461,46 @@ fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
 }
 
 #[test]
+fn an_approval_is_refused_when_an_audit_finishes_while_it_is_being_checked() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let (reached, wait) = std::sync::mpsc::channel::<()>();
+    let (resume, resumed) = std::sync::mpsc::channel::<()>();
+    let (reached, resumed) = (
+        std::sync::Mutex::new(reached),
+        std::sync::Mutex::new(resumed),
+    );
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairApproving {
+                reached.lock().unwrap().send(()).unwrap();
+                resumed.lock().unwrap().recv().unwrap();
+            }
+        })));
+
+    let approved = std::thread::scope(|s| {
+        let approving = s.spawn(|| {
+            env.store
+                .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        });
+        wait.recv().unwrap();
+        env.audit(AuditEvidence::Full);
+        resume.send(()).unwrap();
+        approving.join().unwrap()
+    });
+    env.store.hook_faults(None);
+
+    assert!(
+        matches!(&approved, Err(Error::Conflict(why)) if why.contains("audit")),
+        "{approved:?}"
+    );
+    assert!(env.store.repair_plan(plan.id).unwrap().approval.is_none());
+    assert_eq!(env.listing(), ["readme.txt"]);
+}
+
+#[test]
 fn once_a_source_set_has_been_repaired_a_repair_is_refused_without_its_marker() {
     let env = Env::new();
     env.put("readme.txt", b"hello");

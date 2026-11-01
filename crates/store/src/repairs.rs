@@ -647,11 +647,27 @@ impl Store {
         if let Err(why) = settle_dir_temps(self, Scope::Source(content.set_id), &dir)? {
             return Err(Error::Refused(why));
         }
+        self.fault_point(crate::Fault::RepairApproving);
         self.write(|tx| {
             // The reservation: checked again in the transaction that queues the Repair Job, which Audits and Builds
             // of the Source Set check in theirs.
             if let Some(why) = reserved(tx, content.set_id)? {
                 return Err(Error::Conflict(why));
+            }
+            let latest: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM audits WHERE source_set_id = ?1 AND status = 'finished'
+                     ORDER BY finish_seq DESC LIMIT 1",
+                    [content.set_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if latest != Some(content.audit) {
+                return Err(Error::Conflict(format!(
+                    "source set {} was audited again since the plan was made; plan the repair again from the \
+                     latest audit",
+                    content.source_set
+                )));
             }
             let advanced = tx.execute(
                 "INSERT INTO source_folders (source_set_id, generation) VALUES (?1, ?2)
