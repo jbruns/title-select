@@ -349,6 +349,16 @@ fn insert_kept(tx: &Transaction, m: &MoveRow, k: &KeptRow) -> Result<i64> {
 /// What became of a repack's original: the kept file it became, if it did, and a note on why not.
 type KeptOriginal = (Option<KeptRow>, Option<String>);
 
+/// Where [`Store::move_aside`] left an unexpected file.
+enum Aside {
+    /// Kept, under this name.
+    Kept(String),
+    /// Not kept, for a reason a retry would not change.
+    Ended(String),
+    /// Not kept yet, for a reason a retry may not meet again.
+    Left(String),
+}
+
 impl Store {
     /// Records the intent to make `mv`, then makes it. `Err` says why it was not made, or not finished; one not
     /// finished is rolled forward when the service next starts.
@@ -724,20 +734,41 @@ impl Store {
         }
         let reason = format!("found in place of {} as it was moved", m.name);
         match self.move_aside(m, src, dest, dest_name, found, &reason)? {
-            Ok(aside) => self.fail_move(
+            Aside::Kept(aside) => self.fail_move(
                 m.id,
                 format!(
                     "{why}; {} was taken meanwhile, so it was kept as {aside}",
                     m.name
                 ),
             ),
-            Err(left) => self.fail_move(m.id, format!("{why}; {left}")),
+            Aside::Ended(left) | Aside::Left(left) => {
+                self.fail_move(m.id, format!("{why}; {left}"))
+            }
         }
     }
 
+    /// Records a free name in the kept files `retention` to set `m`'s unexpected file aside under, and returns it.
+    fn choose_aside(&self, m: &MoveRow, retention: &FolderDir) -> Result<String> {
+        let mut nth = 1;
+        let aside = loop {
+            let candidate = kept_name(&m.name, nth);
+            if retention.stat(&candidate).map_err(io)?.is_none() {
+                break candidate;
+            }
+            nth += 1;
+        };
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE ingest_moves SET aside_name = ?2 WHERE id = ?1",
+                params![m.id, aside],
+            )?;
+            Ok(())
+        })?;
+        Ok(aside)
+    }
+
     /// Sets the entry `name` of `dir`, found as `found` where the file planned should have been, aside in the
-    /// folder's kept files under a free name recorded first, and records it kept. Returns the name it is kept as,
-    /// or where it was left.
+    /// folder's kept files under a free name recorded first, and records it kept.
     fn move_aside(
         &self,
         m: &MoveRow,
@@ -746,34 +777,23 @@ impl Store {
         name: &str,
         found: Identity,
         reason: &str,
-    ) -> Result<std::result::Result<String, String>> {
+    ) -> Result<Aside> {
         let left = || format!("it was left at {}/{name}", dir.path().display());
         let generation = m.generation();
         let retention = match open_retention(self, Scope::Ingest(m.folder), src, generation, true)?
         {
             Ok(Some(retention)) => retention.generation,
-            Ok(None) | Err(_) => return Ok(Err(left())),
-        };
-        let aside = match &m.aside_name {
-            Some(aside) => aside.clone(),
-            None => {
-                let mut nth = 1;
-                let aside = loop {
-                    let candidate = kept_name(&m.name, nth);
-                    if retention.stat(&candidate).map_err(io)?.is_none() {
-                        break candidate;
-                    }
-                    nth += 1;
-                };
-                self.write(|tx| {
-                    tx.execute(
-                        "UPDATE ingest_moves SET aside_name = ?2 WHERE id = ?1",
-                        params![m.id, aside],
-                    )?;
-                    Ok(())
-                })?;
-                aside
+            Ok(None) => {
+                return Ok(Aside::Left(format!(
+                    "the kept files folder is missing; {}",
+                    left()
+                )));
             }
+            Err(why) => return Ok(Aside::Left(format!("{why}; {}", left()))),
+        };
+        let mut aside = match &m.aside_name {
+            Some(aside) => aside.clone(),
+            None => self.choose_aside(m, &retention)?,
         };
         let holds = |d: &FolderDir, n: &str| -> Result<Option<rustix::fs::Stat>> {
             Ok(d.stat(n)
@@ -781,8 +801,20 @@ impl Store {
                 .filter(|st| Identity::of(st) == found))
         };
         if holds(dir, name)?.is_some() {
-            if let Err(e) = dir.rename_new(name, &retention, &aside) {
-                return Ok(Err(format!("it could not be kept aside ({e}); {}", left())));
+            loop {
+                match dir.rename_new(name, &retention, &aside) {
+                    Ok(()) => break,
+                    // The name recorded was taken since: another is recorded and tried.
+                    Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                        aside = self.choose_aside(m, &retention)?;
+                    }
+                    Err(e) => {
+                        return Ok(Aside::Left(format!(
+                            "it could not be kept aside ({e}); {}",
+                            left()
+                        )));
+                    }
+                }
             }
             self.fault_point(Fault::IngestSetAside);
         }
@@ -791,7 +823,12 @@ impl Store {
         retention.sync().map_err(io)?;
         let st = match retention.stat(&aside).map_err(io)? {
             Some(st) if Identity::of(&st) == found => st,
-            None => return Ok(Err(left())),
+            None => {
+                return Ok(Aside::Ended(format!(
+                    "it is no longer at {}/{name} nor kept",
+                    dir.path().display()
+                )));
+            }
             // Another entry was renamed in place of the one found: recorded kept under its own identity, or put back.
             Some(st) if FolderDir::kind(&st) == FileType::RegularFile => {
                 let recorded = self.read(|c| {
@@ -814,16 +851,20 @@ impl Store {
                     };
                     self.write(|tx| insert_kept(tx, m, &kept).map(|_| ()))?;
                 }
-                return Ok(Err(format!(
-                    "{}; another file was moved in its place as it was kept aside, and was kept as {aside}",
-                    left()
+                return Ok(Aside::Ended(format!(
+                    "another file was moved in its place as it was kept aside, and was kept as {aside}"
                 )));
             }
             Some(_) => {
-                retention.rename_new(&aside, dir, name).map_err(io)?;
+                let why = "another entry, not a file, was moved in its place as it was kept aside";
+                if let Err(e) = retention.rename_new(&aside, dir, name) {
+                    return Ok(Aside::Ended(format!(
+                        "{why}, and could not be put back ({e}); it was left at {aside} in the kept files"
+                    )));
+                }
                 dir.sync().map_err(io)?;
                 retention.sync().map_err(io)?;
-                return Ok(Err(left()));
+                return Ok(Aside::Ended(format!("{why}, and was put back at {name}")));
             }
         };
         let recorded = self.read(|c| {
@@ -846,7 +887,7 @@ impl Store {
             };
             self.write(|tx| insert_kept(tx, m, &kept).map(|_| ()))?;
         }
-        Ok(Ok(aside))
+        Ok(Aside::Kept(aside))
     }
 
     fn drive_copy(&self, m: &MoveRow, src: &FolderDir, dest: &FolderDir) -> Outcome {
@@ -863,26 +904,29 @@ impl Store {
         // Once the original is being kept, keeping it no longer depends on the published copy.
         let preserving = matches!(m.state.as_str(), "keeping" | "retaining");
         let resumed = m.state == "disposing";
+        // Until its original is touched, a move whose published copy no longer checks out ends, leaving both as they
+        // are; once it is, the original goes on to be kept.
+        let replaced = || {
+            self.fail_move(
+                m.id,
+                format!(
+                    "{}/{dest_name} is no longer the copy that was published, so it and {} were left as they are",
+                    dest.path().display(),
+                    m.name
+                ),
+            )
+        };
         let (staged, published_sha) = match (m.staged, dest_sha256.clone()) {
             (Some(staged), Some(sha)) => (Some(staged), Some(sha)),
-            _ if preserving => (m.staged, None),
-            (None, _) => return Ok(Err("the published copy is not recorded".into())),
-            (Some(_), None) => {
-                return Ok(Err("the published copy's hash is not recorded".into()));
-            }
+            _ if preserving || resumed => (m.staged, None),
+            _ => return replaced(),
         };
         let published = match (staged, dest.stat(&dest_name).map_err(io)?) {
             (Some(staged), Some(st)) if Identity::of(&st) == staged => {
                 Some((staged, file_stat(&st)))
             }
             _ if resumed || preserving => None,
-            _ => {
-                return Ok(Err(format!(
-                    "{}/{dest_name} is no longer the copy that was published; {} was left as it is",
-                    dest.path().display(),
-                    m.name
-                )));
-            }
+            _ => return replaced(),
         };
         // A deletion a stop interrupted is authorized again only by the same checks of the published copy.
         let delete = match (&published, &m.exact) {
@@ -893,11 +937,7 @@ impl Store {
                     if resumed {
                         false
                     } else {
-                        return Ok(Err(format!(
-                            "{}/{dest_name} is no longer the copy that was published; {} was left as it is",
-                            dest.path().display(),
-                            m.name
-                        )));
+                        return replaced();
                     }
                 } else if m.kind == "repack" {
                     exactly_repacked(m, rom, &file)
@@ -1194,10 +1234,10 @@ impl Store {
                 }
                 self.set_state(m.id, "disposing")?;
                 if let Err(e) = src.rename_new(&m.name, &deleting, &slot) {
-                    return Ok(Err(format!(
-                        "the copy is in place, but {} could not be set aside to delete: {e}; it was left as it is",
+                    return Ok(Ok(Some(format!(
+                        "{} could not be set aside to delete ({e}), so it was left in the folder",
                         m.name
-                    )));
+                    ))));
                 }
                 self.fault_point(Fault::IngestIsolated);
             } else if m.state != "disposing" {
@@ -1263,11 +1303,14 @@ impl Store {
         let reason = format!("{} was not deleted: {why}; kept instead", m.name);
         Ok(
             match self.move_aside(&m, src, &deleting, &slot, found, &reason)? {
-                Ok(aside) => Ok(Some(format!(
+                Aside::Kept(aside) => Ok(Some(format!(
                     "{} was kept as {aside} instead of deleted: {why}",
                     m.name
                 ))),
-                Err(left) => Err(format!("{} was not deleted: {why}; {left}", m.name)),
+                Aside::Ended(what) => {
+                    Ok(Some(format!("{} was not deleted: {why}; {what}", m.name)))
+                }
+                Aside::Left(left) => Err(format!("{} was not deleted: {why}; {left}", m.name)),
             },
         )
     }
@@ -1318,9 +1361,12 @@ impl Store {
         if is_seen(src, &m.name, &m.seen).map_err(io)? {
             self.set_state(m.id, "retaining")?;
             if let Err(e) = src.rename_new(&m.name, &retention.generation, &kept) {
-                return Ok(Err(format!(
-                    "the {made} is in place, but {} could not be kept aside: {e}; it was left as it is",
-                    m.name
+                return Ok(Ok((
+                    None,
+                    Some(format!(
+                        "the {made} is in place, but {} could not be kept aside ({e}), so it was left in the folder",
+                        m.name
+                    )),
                 )));
             }
             self.fault_point(Fault::IngestSetAside);
@@ -1342,9 +1388,12 @@ impl Store {
         src.sync().map_err(io)?;
         retention.generation.sync().map_err(io)?;
         let Some(st) = retention.generation.stat(&kept).map_err(io)? else {
-            return Ok(Err(format!(
-                "{} is neither in the folder nor kept; the {made} is in place",
-                m.name
+            return Ok(Ok((
+                None,
+                Some(format!(
+                    "{} is neither in the folder nor kept; the {made} is in place",
+                    m.name
+                )),
             )));
         };
         if Identity::of(&st) != m.seen.identity {
@@ -1356,8 +1405,12 @@ impl Store {
             );
             if FolderDir::kind(&st) != FileType::RegularFile {
                 if let Err(e) = retention.generation.rename_new(&kept, src, &m.name) {
-                    return Ok(Err(format!(
-                        "{note}, and what replaced it, at {kept} in the kept files, could not be put back ({e})"
+                    return Ok(Ok((
+                        None,
+                        Some(format!(
+                            "{note}, and what replaced it, not a file, could not be put back ({e}); it was left at \
+                             {kept} in the kept files"
+                        )),
                     )));
                 }
                 src.sync().map_err(io)?;

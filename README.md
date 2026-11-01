@@ -614,7 +614,11 @@ for a loose file holding one ROM, and kept in the ingest folder's kept files oth
 queues an incremental audit of the source set, even if the service stops right after. A repair cut off by a stop
 resumes as a job when the service next starts: what it started is finished, or rolled back, once the root, the path
 and the marker check out. So does a repair whose job failed, for example because a file it staged and won't use
-couldn't be deleted; until it finishes, the source set stays reserved for it. Audits never read `.title-select` or
+couldn't be deleted; until it finishes, the source set stays reserved for it. A repair that stops before its first
+change, for example because the folder can't be written or a marker appeared in it, ends there instead, saying why,
+and you plan it again. Something that would stop a resumed repair the same way every time ends that change instead,
+saying what was left where: for example, if a file it put in place was replaced before its ingest original was dealt
+with, the fill fails and both are left as they are. Audits never read `.title-select` or
 `.title-select-retained`. You delete a source set's kept files by picking them and approving the deletion.
 
 ### API

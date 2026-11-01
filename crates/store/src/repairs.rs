@@ -792,7 +792,7 @@ impl Store {
         if let Some(why) = why {
             self.write(|tx| {
                 tx.execute(
-                    "UPDATE repair_plans SET recovery_error = ?2 WHERE id = ?1",
+                    "UPDATE repair_plans SET recovery_error = ?2 WHERE id = ?1 AND finished_at IS NULL",
                     params![plan, why],
                 )?;
                 match finish_running(tx, id, JobState::Failed, Some(&why)) {
@@ -895,15 +895,27 @@ impl Store {
             true => MarkerRule::Required,
             false => MarkerRule::Creating,
         };
+        // Until a step starts, nothing the plan names was changed, so a repair that cannot start ends rather than
+        // being tried again; once one has, it is left for recovery to finish.
+        let unstarted = self
+            .read(|c| steps_of(c, id))?
+            .iter()
+            .all(|s| s.state == "pending");
+        let stop = |why: String| -> Ran {
+            if unstarted {
+                self.abandon_repair(&plan, job, &why)?;
+            }
+            Ok(Err(why))
+        };
         let dir = match open_repairable(self, config, content.set_id, rule)? {
             Ok(dir) => dir,
-            Err(why) => return Ok(Err(why)),
+            Err(why) => return stop(why),
         };
         if Identity::from(content.folder) != dir.identity().map_err(io_err)? {
-            return Ok(Err(format!(
+            return stop(format!(
                 "{} is no longer the folder the plan was made for; nothing in it was changed",
                 dir.path().display()
-            )));
+            ));
         }
         // Cancelled before its first repair wrote the marker, nothing in the Source Set was changed, nor is.
         let untouched = !marked && self.cancel_requested(job)?;
@@ -911,7 +923,7 @@ impl Store {
             && !untouched
             && let Err(why) = self.bootstrap_marker(content.set_id, &dir)?
         {
-            return Ok(Err(why));
+            return stop(why);
         }
         if !untouched && let Err(why) = settle_dir_temps(self, Scope::Source(content.set_id), &dir)?
         {
@@ -951,6 +963,28 @@ impl Store {
         }
         self.finish_repair(&plan, job, cancelled)?;
         Ok(Ok(()))
+    }
+
+    /// Ends approved repair `plan`, none of whose steps started, as its Job `job` fails with `why`: every step fails
+    /// with it, the plan finishes, owing no Audit since nothing was changed, and its Source Set is released.
+    fn abandon_repair(&self, plan: &RepairPlan, job: i64, why: &str) -> Result<()> {
+        let at = now();
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET state = 'failed', error = ?2, finished_at = ?3
+                 WHERE plan_id = ?1 AND state = 'pending'",
+                params![plan.id, why, at],
+            )?;
+            Ok(())
+        })?;
+        let outcomes = self.outcomes(plan)?;
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
+                params![plan.id, at, to_json(&outcomes)],
+            )?;
+            finish_running(tx, job, JobState::Failed, Some(why))
+        })
     }
 
     /// Writes Source Set `set`'s first marker through `dir`, durably: that its temporary file is about to be created
@@ -1035,7 +1069,7 @@ impl Store {
                 forget(self)?;
                 return Ok(Err(format!(
                     "{path}: {MARKER_NEW} is not the file Title Select was writing its marker to; move it out of the \
-                     folder, then approve the repair again. Nothing in it was changed"
+                     folder, then plan the repair again. Nothing in it was changed"
                 )));
             }
             (None, _) => {
@@ -1108,7 +1142,8 @@ impl Store {
         let path = dir.path().display().to_string();
         if let Err(e) = dir.rename_new(MARKER, dir, MARKER_NEW) {
             return Ok(Err(format!(
-                "{path}: its .title-select marker was replaced as it was written, and what replaced it could not be                  moved back to {MARKER_NEW} ({e}); move it out of the folder, then approve the repair again"
+                "{path}: its .title-select marker was replaced as it was written, and what replaced it could not be \
+                 moved back to {MARKER_NEW} ({e}); move it out of the folder, then plan the repair again"
             )));
         }
         dir.sync().map_err(io_err)?;
@@ -1121,7 +1156,8 @@ impl Store {
             Ok(())
         })?;
         Ok(Err(format!(
-            "{path}: its .title-select marker was replaced as it was written, so what replaced it was moved back to              {MARKER_NEW}; move it out of the folder, then approve the repair again. Nothing else in it was changed"
+            "{path}: its .title-select marker was replaced as it was written, so what replaced it was moved back to \
+             {MARKER_NEW}; move it out of the folder, then plan the repair again. Nothing else in it was changed"
         )))
     }
 
@@ -1240,6 +1276,32 @@ impl Store {
     /// Records what repair `plan` did, the incremental Audit it owes, and the end of its Job `job`, in one
     /// transaction.
     fn finish_repair(&self, plan: &RepairPlan, job: i64, cancelled: bool) -> Result<()> {
+        let outcomes = self.outcomes(plan)?;
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL, audit_owed = 1
+                 WHERE id = ?1",
+                params![plan.id, now(), to_json(&outcomes)],
+            )?;
+            match cancelled {
+                true => finish_running(
+                    tx,
+                    job,
+                    JobState::Interrupted,
+                    Some(
+                        "you cancelled the repair; what it had started was finished, and the rest was left as it \
+                         was",
+                    ),
+                ),
+                false => finish_running(tx, job, JobState::Succeeded, None),
+            }
+        })?;
+        self.fault_point(Fault::RepairFinished);
+        Ok(())
+    }
+
+    /// What each item of repair `plan` came to, from its steps as recorded.
+    fn outcomes(&self, plan: &RepairPlan) -> Result<Vec<RepairOutcome>> {
         let steps = self.read(|c| steps_of(c, plan.id))?;
         let mut outcomes: Vec<RepairOutcome> = Vec::new();
         for step in &steps {
@@ -1267,27 +1329,7 @@ impl Store {
             }
             outcome.detail.extend(step.note.clone());
         }
-        self.write(|tx| {
-            tx.execute(
-                "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL, audit_owed = 1
-                 WHERE id = ?1",
-                params![plan.id, now(), to_json(&outcomes)],
-            )?;
-            match cancelled {
-                true => finish_running(
-                    tx,
-                    job,
-                    JobState::Interrupted,
-                    Some(
-                        "you cancelled the repair; what it had started was finished, and the rest was left as it \
-                         was",
-                    ),
-                ),
-                false => finish_running(tx, job, JobState::Succeeded, None),
-            }
-        })?;
-        self.fault_point(Fault::RepairFinished);
-        Ok(())
+        Ok(outcomes)
     }
 
     fn step_failed(&self, step: &StepRow, state: &str, why: String) -> Ran {
@@ -1744,8 +1786,8 @@ impl Store {
 
     /// Settles `st`, found kept as `kept` where the rename of `path` should have put the file planned: another file
     /// was moved in its place. A regular file is recorded kept under its own identity, in the same transaction that
-    /// fails the step; anything else is put back as `path` without replacing anything. Until one of them is durable
-    /// the step stays unfinished, so it is never left in the kept files unrecorded.
+    /// fails the step; anything else is put back as `path` without replacing anything, or, when that name was taken,
+    /// left where it is, as the step fails saying so. A regular file is never left in the kept files unrecorded.
     #[allow(clippy::too_many_arguments)]
     fn keep_substitute(
         &self,
@@ -1759,27 +1801,30 @@ impl Store {
     ) -> Result<std::result::Result<Option<i64>, String>> {
         let content = &r.plan.content;
         if FolderDir::kind(st) != FileType::RegularFile {
-            if let Err(e) = generation.rename_new(kept, parent, name) {
-                return Ok(Err(format!(
-                    "what was moved in place of {path} as it was kept aside, now at {kept} in the kept files, could                      not be put back ({e})"
-                )));
-            }
-            parent.sync().map_err(io_err)?;
-            generation.sync().map_err(io_err)?;
-            self.fail_step(
-                step,
-                "failed",
-                format!(
-                    "{path} was replaced by something else as it was kept aside; that was put back as {path}, which                      was left as it is"
+            // Not a file, so never recorded kept: put back if its name is free, else left visible where it is.
+            let why = match generation.rename_new(kept, parent, name) {
+                Ok(()) => {
+                    parent.sync().map_err(io_err)?;
+                    generation.sync().map_err(io_err)?;
+                    format!(
+                        "{path} was replaced by something else as it was kept aside; that was put back as {path}, \
+                         which was left as it is"
+                    )
+                }
+                Err(e) => format!(
+                    "{path} was replaced by something else as it was kept aside, which could not be put back ({e}); \
+                     it was left at {kept} in the kept files"
                 ),
-            )?;
+            };
+            self.fail_step(step, "failed", why)?;
             return Ok(Ok(None));
         }
         let found = Identity::of(st);
         let (dev, ino) = found.to_sql();
         let file = file_stat(st);
         let why = format!(
-            "{path} was replaced by another file as it was kept aside; that file was kept as {kept} instead, and {path}              left as it is"
+            "{path} was replaced by another file as it was kept aside; that file was kept as {kept} instead, and {path} \
+             left as it is"
         );
         let settled = self.write(|tx| {
             let recorded: Option<(i64, i64)> = tx
@@ -1893,7 +1938,8 @@ impl Store {
                     )
                 }
                 Err(e) => format!(
-                    "{from} was replaced by another file as it was renamed, and that file could not be put back                      ({e}); it was left as {to}, for the audit this repair queues to read"
+                    "{from} was replaced by another file as it was renamed, and that file could not be put back \
+                     ({e}); it was left as {to}, for the audit this repair queues to read"
                 ),
             };
             return self.step_failed(step, "failed", why);

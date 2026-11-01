@@ -908,6 +908,7 @@ impl Store {
             for id in &pruned {
                 tx.execute("DELETE FROM audit_entries WHERE audit_id = ?1", [id])?;
                 tx.execute("DELETE FROM audit_games WHERE audit_id = ?1", [id])?;
+                tx.execute("DELETE FROM audit_stamps WHERE audit_id = ?1", [id])?;
                 tx.execute(
                     "UPDATE audits SET pruned_at = ?1 WHERE id = ?2",
                     params![at, id],
@@ -1033,5 +1034,32 @@ mod tests {
             "the other Audit finished later and pruned it"
         );
         assert!(matches!(store.report(first_id), Err(Error::Refused(_))));
+    }
+
+    #[test]
+    fn pruning_an_audit_deletes_the_stamps_it_read() {
+        let (tmp, store, config) = store_with_a_set();
+        std::fs::write(tmp.path().join("sets/Test/readme.txt"), b"hello").unwrap();
+        let first = store
+            .audit_source_set(&config, "Test", None, AuditEvidence::Full)
+            .unwrap();
+        let second = store
+            .audit_source_set(&config, "Test", None, AuditEvidence::Full)
+            .unwrap();
+
+        let stamps = |id: i64| -> i64 {
+            store
+                .read(|c| {
+                    Ok(c.query_row(
+                        "SELECT COUNT(*) FROM audit_stamps WHERE audit_id = ?1",
+                        [id],
+                        |r| r.get(0),
+                    )?)
+                })
+                .unwrap()
+        };
+        assert!(store.audit(first.id).unwrap().pruned);
+        assert_eq!(stamps(first.id), 0);
+        assert_eq!(stamps(second.id), 1);
     }
 }

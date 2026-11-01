@@ -1282,6 +1282,20 @@ fn a_marker_that_appears_while_the_first_one_is_written_is_never_replaced() {
     );
     assert_eq!(std::fs::read(&marker).unwrap(), b"someone else's");
     assert!(env.set().join("readme.txt").exists());
+    let ended = env.store.repair_plan(plan.id).unwrap();
+    assert!(
+        ended.finished_at.is_some(),
+        "a repair that never started ends: {ended:#?}"
+    );
+    assert!(
+        ended
+            .outcomes
+            .iter()
+            .all(|o| !o.done && o.error.as_deref().unwrap().contains("marker appeared")),
+        "{:#?}",
+        ended.outcomes
+    );
+    assert!(env.store.recover_jobs(WORKERS).unwrap().is_empty());
 }
 
 #[test]
@@ -1665,4 +1679,60 @@ fn a_repair_planned_from_an_incremental_audit_trusts_the_reads_that_audit_reused
         "{:?}",
         plan.content.notes
     );
+}
+
+/// Approves `plan`, stops its Repair Job at `fault`, runs `meanwhile`, then recovers and runs the job again.
+fn stop_and_resume(
+    env: &Env,
+    plan: &RepairPlan,
+    fault: Fault,
+    meanwhile: impl FnOnce(),
+) -> RepairPlan {
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.inject_fault(Some(fault));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    meanwhile();
+    env.store.recover_jobs(WORKERS).unwrap();
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    env.store.repair_plan(plan.id).unwrap()
+}
+
+#[test]
+fn a_published_fill_replaced_before_its_original_is_disposed_of_ends_the_fill_once_recovered() {
+    let env = Env::new();
+    env.audit(AuditEvidence::Full);
+    env.ingest("combat.zip", |p| {
+        write_zip(p, &[("Combat (USA).a26", b"combat")])
+    });
+    let plan = env.plan();
+    let published = env.set().join("Combat (USA).zip");
+
+    let ended = stop_and_resume(&env, &plan, Fault::IngestPublished, || {
+        substitute(&published, b"intruder")
+    });
+
+    assert!(ended.finished_at.is_some(), "{ended:#?}");
+    let fill = ended
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Combat (USA)")
+        .unwrap();
+    assert!(
+        !fill.done
+            && fill
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("no longer the copy"),
+        "{fill:?}"
+    );
+    assert_eq!(std::fs::read(&published).unwrap(), b"intruder");
+    assert_eq!(env.ingest_listing(), ["combat.zip"]);
 }
