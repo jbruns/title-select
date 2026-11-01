@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use leptos::prelude::*;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_params_map, use_query_map};
 use title_select_api::Job;
 use title_select_api::build::{ApprovePlan, PlanKeptDeletion, RETENTION};
 use title_select_api::repair::{
@@ -13,6 +13,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
+use crate::repair_model::{fetch_after, repair_to_show, unfinished_note};
 use crate::screens::jobs::{progress_view, state_view};
 
 /// The repair screen of a Source Set: a plan proposed from its latest audit, the choice you make for each item, every
@@ -56,6 +57,27 @@ fn Repair(name: String) -> impl IntoView {
     let plan = RwSignal::new(None::<RepairPlan>);
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
+    // The job the plan was last fetched for as it ended; kept here, as the progress shown is made again each time.
+    let fetched = RwSignal::new(None::<i64>);
+    let query = use_query_map();
+    let wanted = query
+        .read_untracked()
+        .get("plan")
+        .and_then(|id| id.parse::<i64>().ok());
+    {
+        // An approved repair that hasn't finished, or the one the link named, is shown rather than a new proposal.
+        let path = format!("{base}/repairs");
+        leptos::task::spawn_local(async move {
+            match api::get::<Vec<RepairPlan>>(&path).await {
+                Ok(plans) => {
+                    if let Some(p) = repair_to_show(&plans, wanted) {
+                        plan.set(Some(p.clone()));
+                    }
+                }
+                Err(message) => problem.set(Some(message)),
+            }
+        });
+    }
     let propose = {
         let path = format!("{base}/repairs");
         move || {
@@ -218,8 +240,11 @@ fn Repair(name: String) -> impl IntoView {
                     <h4>"Left as it is"</h4>
                     <ul class="plain">{notes}</ul>
                 })}
-                {p.job.map(|job| view! { <RepairProgress job plan=p.id shown=plan /> })}
-                {p.recovery_error.clone().map(|e| view! { <Problem message=e /> })}
+                {p.job.map(|job| view! { <RepairProgress job plan=p.id shown=plan fetched /> })}
+                {match unfinished_note(&p) {
+                    Some(note) => Some(view! { <p class="notice" role="status">{note}</p> }.into_any()),
+                    None => p.recovery_error.clone().map(|e| view! { <Problem message=e /> }.into_any()),
+                }}
                 {p.audit_job.map(|job| view! {
                     <p>
                         "An incremental audit was queued: "
@@ -242,11 +267,19 @@ fn Repair(name: String) -> impl IntoView {
     view! {
         <section aria-labelledby="repair-title">
             <h2 id="repair-title">"Repair"</h2>
-            <div class="form">
-                <button type="button" class="primary" disabled=move || working.get() on:click=move |_| first()>
-                    "Propose a repair"
-                </button>
-            </div>
+            {move || {
+                let first = first.clone();
+                let running = plan.with(|p| {
+                    p.as_ref().is_some_and(|p| p.approval.is_some() && p.finished_at.is_none())
+                });
+                (!running).then(|| view! {
+                    <div class="form">
+                        <button type="button" class="primary" disabled=move || working.get() on:click=move |_| first()>
+                            "Propose a repair"
+                        </button>
+                    </div>
+                })
+            }}
             {review}
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
@@ -256,18 +289,23 @@ fn Repair(name: String) -> impl IntoView {
 /// The repair's job, live: its state and progress, a way to cancel it while it runs, and the plan fetched again
 /// with its outcomes once it ends.
 #[component]
-fn RepairProgress(job: i64, plan: i64, shown: RwSignal<Option<RepairPlan>>) -> impl IntoView {
+fn RepairProgress(
+    job: i64,
+    plan: i64,
+    shown: RwSignal<Option<RepairPlan>>,
+    fetched: RwSignal<Option<i64>>,
+) -> impl IntoView {
     let live = use_live();
     let problem = RwSignal::new(None::<String>);
     let cancelling = RwSignal::new(false);
-    let fetched = RwSignal::new(false);
     Effect::new(move |_| {
         let ended = live
             .book
             .with(|b| b.get(job).is_some_and(|l| l.job.state.is_final()));
-        let stale = shown.with_untracked(|p| p.as_ref().is_some_and(|p| p.finished_at.is_none()));
-        if ended && stale && !fetched.get_untracked() {
-            fetched.set(true);
+        let unfinished =
+            shown.with_untracked(|p| p.as_ref().is_some_and(|p| p.finished_at.is_none()));
+        if fetch_after(job, ended, unfinished, fetched.get_untracked()) {
+            fetched.set(Some(job));
             leptos::task::spawn_local(async move {
                 match api::get::<RepairPlan>(&format!("/repairs/{plan}")).await {
                     Ok(p) if p.id == plan => shown.set(Some(p)),

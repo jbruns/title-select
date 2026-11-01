@@ -11,6 +11,7 @@ pub mod events;
 pub mod jobs;
 pub mod model;
 pub mod registration;
+pub mod repair_model;
 pub mod screens;
 pub mod selection_model;
 pub mod table;

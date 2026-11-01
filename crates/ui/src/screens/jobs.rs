@@ -151,8 +151,11 @@ fn kind_label(kind: JobKind) -> &'static str {
 /// A link to the Audit or Selection a Job recorded, the Managed Folder a Build or Check Job is for, or the repair a
 /// Repair Job carries out.
 fn result_link(job: &Job) -> AnyView {
-    if job.repair.is_some() {
-        let href = format!("/source-sets/{}/repair", api::segment(&job.source_set));
+    if let Some(plan) = job.repair {
+        let href = format!(
+            "/source-sets/{}/repair?plan={plan}",
+            api::segment(&job.source_set)
+        );
         return view! { <A href=href>"Repair"</A> }.into_any();
     }
     if let Some(folder) = job.managed_folder {

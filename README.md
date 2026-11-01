@@ -611,7 +611,8 @@ approved ingest move does: the item's original is deleted only when what was wri
 for a loose file holding one ROM, and kept in the ingest folder's kept files otherwise. Once a repair finishes it
 queues an incremental audit of the source set, even if the service stops right after. A repair cut off by a stop
 resumes as a job when the service next starts: what it started is finished, or rolled back, once the root, the path
-and the marker check out. Audits never read `.title-select` or
+and the marker check out. So does a repair whose job failed, for example because a file it staged and won't use
+couldn't be deleted; until it finishes, the source set stays reserved for it. Audits never read `.title-select` or
 `.title-select-retained`. You delete a source set's kept files by picking them and approving the deletion.
 
 ### API
@@ -820,8 +821,10 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   It lists the folder's kept files.
 - **Repair**, opened from a source set or an audit, proposes a repair of the source set, lists each item with what is
   proposed and a choice you can change before planning again, and every change in order, including what is kept
-  aside. You approve it with its digest and see what happened to each item. It lists the source set's kept files,
-  where you pick some and approve deleting them.
+  aside. You approve it with its digest and see what happened to each item. While an approved repair hasn't
+  finished, the screen opens on it, with its job's progress and a way to cancel it, instead of proposing another, and
+  says what stopped it if it was left unfinished; a repair job on the jobs screen links to its plan. It lists the
+  source set's kept files, where you pick some and approve deleting them.
 - **Jobs** lists the latest jobs with their kind, state, progress and result, live: it follows `/api/v1/events`, applies `state`
   and `progress` events by the job `version` rule above, and replaces what it holds with each `resync` snapshot,
   which also arrives after a reconnect.
