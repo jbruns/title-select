@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
+use title_select_api::Job;
 use title_select_api::build::{ApprovePlan, PlanKeptDeletion, RETENTION};
 use title_select_api::repair::{
     PlanRepair, RepairChoice, RepairPlan, RepairStep, SourceKeptDeletion, SourceKeptFile,
@@ -12,6 +13,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
+use crate::screens::jobs::{progress_view, state_view};
 
 /// The repair screen of a Source Set: a plan proposed from its latest audit, the choice you make for each item, every
 /// path it changes, and its approval; then its kept files, and deleting them.
@@ -216,6 +218,7 @@ fn Repair(name: String) -> impl IntoView {
                     <h4>"Left as it is"</h4>
                     <ul class="plain">{notes}</ul>
                 })}
+                {p.job.map(|job| view! { <RepairProgress job plan=p.id shown=plan /> })}
                 {p.recovery_error.clone().map(|e| view! { <Problem message=e /> })}
                 {p.audit_job.map(|job| view! {
                     <p>
@@ -247,6 +250,86 @@ fn Repair(name: String) -> impl IntoView {
             {review}
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
+    }
+}
+
+/// The repair's job, live: its state and progress, a way to cancel it while it runs, and the plan fetched again
+/// with its outcomes once it ends.
+#[component]
+fn RepairProgress(job: i64, plan: i64, shown: RwSignal<Option<RepairPlan>>) -> impl IntoView {
+    let live = use_live();
+    let problem = RwSignal::new(None::<String>);
+    let cancelling = RwSignal::new(false);
+    let fetched = RwSignal::new(false);
+    Effect::new(move |_| {
+        let ended = live
+            .book
+            .with(|b| b.get(job).is_some_and(|l| l.job.state.is_final()));
+        let stale = shown.with_untracked(|p| p.as_ref().is_some_and(|p| p.finished_at.is_none()));
+        if ended && stale && !fetched.get_untracked() {
+            fetched.set(true);
+            leptos::task::spawn_local(async move {
+                match api::get::<RepairPlan>(&format!("/repairs/{plan}")).await {
+                    Ok(p) if p.id == plan => shown.set(Some(p)),
+                    Ok(_) => {}
+                    Err(message) => problem.set(Some(message)),
+                }
+            });
+        }
+    });
+    let cancel = move |_| {
+        cancelling.set(true);
+        leptos::task::spawn_local(async move {
+            let done =
+                api::post::<_, Job>(&format!("/jobs/{job}/cancellation"), &serde_json::json!({}))
+                    .await;
+            cancelling.set(false);
+            match done {
+                Ok(_) => problem.set(None),
+                Err(message) => problem.set(Some(message)),
+            }
+        });
+    };
+    view! {
+        <p class="notice" role="status">
+            {format!("Repair job #{job} ")}
+            {move || match live.book.with(|b| b.get(job).cloned()) {
+                Some(l) if l.job.state.is_final() => {
+                    let outcome = match &l.job.error {
+                        Some(error) => format!("ended: {error}"),
+                        None => "ended.".to_string(),
+                    };
+                    view! { {state_view(l.job.state)} " " <span>{outcome}</span> }.into_any()
+                }
+                Some(l) => {
+                    let asked = l.job.cancel_requested_at.is_some();
+                    view! {
+                        {state_view(l.job.state)}
+                        " "
+                        {progress_view(&l)}
+                        {if asked {
+                            view! {
+                                <span class="note">
+                                    " You cancelled it: the change it started finishes, and the rest are skipped."
+                                </span>
+                            }
+                            .into_any()
+                        } else {
+                            view! {
+                                " "
+                                <button type="button" disabled=move || cancelling.get() on:click=cancel>
+                                    "Cancel the repair"
+                                </button>
+                            }
+                            .into_any()
+                        }}
+                    }
+                    .into_any()
+                }
+                None => view! { <A href="/jobs">"Follow it on the jobs screen"</A> }.into_any(),
+            }}
+        </p>
+        {move || problem.get().map(|message| view! { <Problem message /> })}
     }
 }
 

@@ -591,18 +591,27 @@ you can change before approving:
   to take it as the ROM its payload matches, keep it aside or leave it;
 - unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.
 
-Setting a file aside that holds the last copy of a ROM no repair writes is never the default. The plan lists every
+Setting a file aside that holds the last copy of a ROM no repair writes is never the default; when you choose to,
+the item says so, and you can restore it from the kept files. A conflicting entry you leave is never displaced by
+another item, and an unreadable entry is replaced only while it is as the audit found it. The plan lists every
 change in order: each file written, renamed, published or kept aside. It binds the source set's folder, and every
 entry in it, by device, inode, size, modification time, change time and link count, and its audit: approving is
-refused if anything changed or a newer audit finished, or while an audit of the source set is queued or running.
+refused if anything changed or a newer audit finished, or while an audit of the source set, or a build reading it,
+is queued or running.
+
+Approving queues the repair as a job, run by the same scheduler as audits, within `jobs.concurrent`; the repair
+screen and the jobs screen show its progress, one step at a time. While it is queued or running, and until its
+follow-up audit is queued, no audit of the source set starts and no build reading it is approved. You can cancel it:
+the step it is on finishes, every change of the item it started finishes, and the rest are skipped.
 
 A repair never deletes. A file it replaces or sets aside is moved, by a rename that never replaces anything, into the
 source set's kept files, `.title-select-retained/<generation>/<name>.kept`; a new file is written under a temporary
 name, read back, and put in place by a rename that never replaces anything. A fill moves the ingest folder item as an
 approved ingest move does: the item's original is deleted only when what was written is exactly the ROM it names, as
 for a loose file holding one ROM, and kept in the ingest folder's kept files otherwise. Once a repair finishes it
-queues an incremental audit of the source set. A repair cut off by a stop is finished, or rolled back, when the service
-next starts, once the root, the path and the marker check out. Audits never read `.title-select` or
+queues an incremental audit of the source set, even if the service stops right after. A repair cut off by a stop
+resumes as a job when the service next starts: what it started is finished, or rolled back, once the root, the path
+and the marker check out. Audits never read `.title-select` or
 `.title-select-retained`. You delete a source set's kept files by picking them and approving the deletion.
 
 ### API
@@ -673,7 +682,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/repairs`           | its repair plans, newest first                               |
 | `POST /api/v1/source-sets/{name}/repairs`          | plan a repair from its latest audit: `{"choices"?: {key: "apply" \| "leave" \| "keep_aside"}}`; `201` |
 | `GET /api/v1/repairs/{id}`                         | a repair plan, with its items, steps, digest and outcomes    |
-| `POST /api/v1/repairs/{id}/approval`               | approve it: `{"digest"}`; repairs and answers with each outcome and the queued audit, `409` when anything changed |
+| `POST /api/v1/repairs/{id}/approval`               | approve it: `{"digest"}`; queues its repair job and answers with the plan naming it, `409` when anything changed |
 | `GET /api/v1/source-sets/{name}/kept-files`        | the files its repairs kept aside                             |
 | `POST /api/v1/source-sets/{name}/kept-deletions`   | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
 | `GET /api/v1/source-kept-deletions/{id}`           | a plan to delete a source set's kept files                   |
@@ -684,6 +693,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/jobs`                                 | the latest 100 jobs, newest first                            |
 | `GET /api/v1/jobs/{id}`                            | one job                                                      |
 | `GET /api/v1/jobs/{id}/events`                     | server-sent events for one job, ending at its final state    |
+| `POST /api/v1/jobs/{id}/cancellation`              | cancel a repair job at the next step; `409` once it has ended |
 | `GET /api/v1/events`                               | server-sent events for every job, opening with a `resync`    |
 
 A paged list is `{"items": [...], "next_cursor": "..."}`; pass `next_cursor` back as `?cursor=` for the next page, and

@@ -130,7 +130,9 @@ Play Library. Approval to repair a Source Set is separate from approval to build
 Applying an approved Change Plan to a Source Set, proposed from its latest Audit's payload Evidence and from items
 assessed in Ingest Folders: renaming Entries to the DAT's names, repacking Games, filling Missing Games, replacing
 Mismatched or Unreadable Entries, and setting aside what no Game needs. Each item has a default the Operator can change
-before approving. A Repair never deletes: what it replaces or sets aside becomes a Kept File.
+before approving. Approving queues it as a Job, which the Operator can cancel between its steps. While a Repair of a
+Source Set is queued, running or owes its follow-up Audit, no Audit or Build reads that Source Set, and the reverse. A
+Repair never deletes: what it replaces or sets aside becomes a Kept File.
 _Avoid_: Fix, rebuild, quarantine
 
 **Build**:
