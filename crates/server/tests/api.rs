@@ -852,6 +852,96 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     );
 }
 
+#[test]
+fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_sets_aside() {
+    use title_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
+    let env = Env::new();
+    let set = env.tmp.path().join("roots/sets").join(SET);
+    let full = |client: &Client| {
+        let job: Job = client
+            .post("/audits")
+            .send_json(serde_json::json!({"source_set": SET, "evidence": "full"}))
+            .unwrap()
+            .body_mut()
+            .read_json()
+            .unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    };
+    let repairs = "/source-sets/Test%20-%20System/repairs";
+
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System (20260101).dat", &env.dat());
+    client.add_set();
+    full(&client);
+    let refused = client.post(repairs).send_json(serde_json::json!({}));
+    assert_eq!(status_of(refused), 400, "the root is not writable");
+    drop(service);
+
+    let service =
+        title_select_server::spawn(env.settings(&format!("writable_paths = [{SET:?}]\n"))).unwrap();
+    let client = Client::new(&service);
+    let roots: Vec<title_select_api::Root> = client.json("/roots");
+    assert!(
+        roots
+            .iter()
+            .any(|r| r.name == "sets" && r.writable_paths == [SET])
+    );
+    let mut response = client
+        .post(&repairs)
+        .send_json(serde_json::json!({}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let plan: RepairPlan = response.body_mut().read_json().unwrap();
+    assert!(plan.content.creates_marker);
+    assert!(set.join("notes.txt").exists(), "planning changes nothing");
+    let listed: Vec<RepairPlan> = client.json(repairs);
+    assert_eq!(listed.iter().map(|p| p.id).collect::<Vec<_>>(), [plan.id]);
+
+    let approval = format!("/repairs/{}/approval", plan.id);
+    let wrong = client
+        .post(&approval)
+        .send_json(serde_json::json!({"digest": "0".repeat(64)}));
+    assert_eq!(status_of(wrong), 409);
+    let mut response = client
+        .post(&approval)
+        .send_json(serde_json::json!({"digest": plan.digest}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let done: RepairPlan = response.body_mut().read_json().unwrap();
+    assert!(
+        done.finished_at.is_some() && done.outcomes.iter().all(|o| o.done),
+        "{done:?}"
+    );
+    assert!(set.join("Pong (USA).zip").exists());
+    assert!(!set.join("notes.txt").exists());
+    let job = done.audit_job.expect("a repair queues an audit");
+    assert_eq!(client.follow(job).1.state, JobState::Succeeded);
+    let fetched: RepairPlan = client.json(&format!("/repairs/{}", plan.id));
+    assert_eq!(fetched.digest, plan.digest);
+
+    let kept: Vec<SourceKeptFile> = client.json("/source-sets/Test%20-%20System/kept-files");
+    let notes = kept
+        .iter()
+        .find(|k| k.name == "notes.txt")
+        .expect("notes.txt is kept");
+    let mut response = client
+        .post("/source-sets/Test%20-%20System/kept-deletions")
+        .send_json(serde_json::json!({"ids": [notes.id]}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let deletion: SourceKeptDeletion = response.body_mut().read_json().unwrap();
+    let mut response = client
+        .post(&format!("/source-kept-deletions/{}/approval", deletion.id))
+        .send_json(serde_json::json!({"digest": deletion.digest}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let deleted: SourceKeptDeletion = response.body_mut().read_json().unwrap();
+    assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:?}");
+    let kept: Vec<SourceKeptFile> = client.json("/source-sets/Test%20-%20System/kept-files");
+    assert!(kept.iter().all(|k| k.id != notes.id));
+}
+
 /// Selection Profiles and Selections, run by the pinned selection engine (`tools/retool/setup` builds it).
 mod selections {
     use super::*;

@@ -41,6 +41,9 @@ pub struct Root {
     pub name: String,
     pub path: String,
     pub writable: bool,
+    /// For a read-only Root: the paths of the Source Sets in it that a repair may write to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writable_paths: Vec<String>,
     /// Whether it is an Ingest Folder.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ingest: bool,

@@ -133,6 +133,20 @@ pub async fn run(
                 Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
                 Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
             }
+            // An Audit a finished repair owes waits for the Job it met to end too.
+            let owed = {
+                let store = store.clone();
+                tokio::task::spawn_blocking(move || store.fulfil_repair_audits()).await
+            };
+            match owed {
+                Ok(Ok(failed)) => {
+                    for why in failed {
+                        eprintln!("title-select: cannot queue an owed audit: {why}");
+                    }
+                }
+                Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
+                Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
+            }
             drop(slot);
             jobs.wake.notify_one();
         });

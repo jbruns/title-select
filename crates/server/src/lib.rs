@@ -123,6 +123,18 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             ),
         }
     }
+    for (plan, reason) in store.recover_repairs(&config)? {
+        eprintln!(
+            "title-select: repair {plan} stopped and was not finished: {reason}. Nothing else is done to its source \
+             set until it is finished when the service next starts"
+        );
+    }
+    for (deletion, reason) in store.recover_source_kept_deletions(&config)? {
+        eprintln!(
+            "title-select: deletion {deletion} of kept files of a source set stopped and was not finished: {reason}. \
+             It is finished when the service next starts"
+        );
+    }
     let listener =
         std::net::TcpListener::bind(listen).map_err(|e| StartError::Listen(listen, e))?;
     listener
