@@ -27,7 +27,7 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
 use title_select_api::build::{ExpectedRom, FileStat, kept_name};
 use title_select_api::ingest::IngestMarker;
-use title_select_engine::build::{FromSource, repack_sources, verify};
+use title_select_engine::build::{FromSource, repack_sources, sole_payload, verify};
 use title_select_engine::payload::{Checksums, Hasher};
 
 use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
@@ -104,6 +104,7 @@ fn force_copy() -> bool {
     }
 }
 
+#[derive(Clone)]
 struct MoveRow {
     id: i64,
     folder: i64,
@@ -1293,16 +1294,25 @@ fn exactly(rom: &ExpectedRom, sums: &Checksums) -> bool {
         && same(&rom.sha256, &sums.sha256)
 }
 
-/// Whether the published repack `file` of `m` shows that its original is exactly `rom`: the original is one loose
-/// file of `rom`'s size that the repack read whole, and the repack is valid TorrentZip holding exactly `rom`, its
-/// payload hashed again. The original is then deleted only while it still hashes as what was read.
+/// Whether the published repack `file` of `m` shows that its original is exactly `rom`, byte for byte: the original
+/// is one loose file of `rom`'s size that the repack read whole, and the repack is valid TorrentZip, opened within
+/// bounds, holding exactly one member, `rom`, whose payload, hashed again, has `rom`'s size and every checksum it
+/// lists, and the SHA-256 and size of the original as the repack read it. The original is then deleted only while it
+/// still hashes, set aside, as what was read.
 fn exactly_repacked(m: &MoveRow, rom: &ExpectedRom, file: &std::fs::File) -> bool {
     let loose_whole = matches!(m.roms.as_deref(), Some([(only, None)]) if only == rom);
+    let Some(read) = m.sha256.as_deref() else {
+        return false;
+    };
     loose_whole
-        && m.sha256.is_some()
         && m.seen.file.size == rom.size
-        && (rom.crc.is_some() || rom.md5.is_some() || rom.sha1.is_some() || rom.sha256.is_some())
-        && verify(file, std::slice::from_ref(rom)).is_ok()
+        && matches!(
+            sole_payload(file),
+            Ok((name, sums)) if name == rom.name
+                && exactly(rom, &sums)
+                && sums.size == m.seen.file.size
+                && sums.sha256.eq_ignore_ascii_case(read)
+        )
 }
 
 fn checksums_of(mut file: &std::fs::File) -> io::Result<Checksums> {
@@ -1610,6 +1620,67 @@ mod tests {
         verify(&built, &[rom]).unwrap();
         let kept = env.store.ingest_kept_files("in").unwrap();
         assert_eq!(kept[0].name, "pong.zip");
+    }
+
+    #[test]
+    fn a_loose_original_is_deleted_only_when_its_repack_is_one_member_exactly_what_was_read() {
+        let env = env();
+        env.put("pong.a26", b"pong");
+        let rom = rom_of("Pong (USA).a26", b"pong");
+        let mut mv = env.mv(
+            "pong.a26",
+            atari("Pong (USA).zip"),
+            Some(vec![(rom.clone(), None)]),
+        );
+        mv.exact = Some(rom.clone());
+
+        env.store.move_out(&env.config, mv).unwrap().unwrap();
+
+        assert_eq!(env.listing(), ["lib/Atari/Pong (USA).zip"]);
+        let m = env.store.read(|c| move_by_id(c, 1)).unwrap();
+        let repack = |name: &str, roms: &[FromSource], sources: &[&[u8]]| {
+            let paths: Vec<_> = sources
+                .iter()
+                .enumerate()
+                .map(|(i, bytes)| {
+                    let path = env.tmp.path().join(format!("source-{name}-{i}"));
+                    std::fs::write(&path, bytes).unwrap();
+                    std::fs::File::open(path).unwrap()
+                })
+                .collect();
+            let refs: Vec<&std::fs::File> = paths.iter().collect();
+            let path = env.tmp.path().join(name);
+            let file = std::fs::File::create_new(&path).unwrap();
+            repack_sources(&file, roms, &refs).unwrap();
+            std::fs::File::open(path).unwrap()
+        };
+        let one = repack("one.zip", &[(&rom, 0, None)], &[b"pong"]);
+        assert!(exactly_repacked(&m, &rom, &one));
+
+        let extra = rom_of("Readme.txt", b"from the scene");
+        let two = repack(
+            "two.zip",
+            &[(&rom, 0, None), (&extra, 1, None)],
+            &[b"pong", b"from the scene"],
+        );
+        assert!(!exactly_repacked(&m, &rom, &two), "more than one member");
+
+        let mut other = m.clone();
+        other.sha256 = Some(hex(&Sha256::digest(b"pang")));
+        assert!(
+            !exactly_repacked(&other, &rom, &one),
+            "a payload that is not what was read"
+        );
+        let mut crc_only = rom.clone();
+        crc_only.sha1 = None;
+        crc_only.sha256 = None;
+        let mut wrong = m.clone();
+        wrong.roms = Some(vec![(crc_only.clone(), None)]);
+        wrong.sha256 = Some(hex(&Sha256::digest(b"pang")));
+        assert!(
+            !exactly_repacked(&wrong, &crc_only, &one),
+            "a payload whose listed checksums match but whose bytes are not what was read"
+        );
     }
 
     /// Runs `change` on the path of the folder `in` once the move reaches `at`.

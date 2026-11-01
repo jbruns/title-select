@@ -304,6 +304,36 @@ pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
     Ok(())
 }
 
+/// The name and payload checksums of the one member of `file`, read from its start, when it is valid TorrentZip,
+/// opened within the default bounds, holding exactly one member. The payload is decompressed and hashed again.
+pub fn sole_payload(file: &File) -> Result<(String, Checksums), String> {
+    let mut reader = BufReader::new(file);
+    reader.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let members = torrentzip::validate(&mut reader).map_err(|e| e.to_string())?;
+    let [only] = members.as_slice() else {
+        return Err(format!("it holds {} members, not one", members.len()));
+    };
+    let mut archive = archive(file, || Ok(reader))?;
+    if archive.len() != 1 {
+        return Err(format!("it holds {} members, not one", archive.len()));
+    }
+    let mut member = archive
+        .by_name(&only.name)
+        .map_err(|e| format!("{}: {e}", only.name))?;
+    let mut hasher = Hasher::new();
+    let mut buf = vec![0; CHUNK];
+    loop {
+        let n = member
+            .read(&mut buf)
+            .map_err(|e| format!("{}: {e}", only.name))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok((only.name.clone(), hasher.finish()))
+}
+
 /// One payload a file holds: a ZIP member, or the whole file when it is not a ZIP.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Payload {

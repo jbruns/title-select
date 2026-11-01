@@ -69,6 +69,12 @@ rename, replace or link to an entry at any moment, including while Title Select 
     approval and the hash of the copy, and deleted only if it still matches and the item has not been seen changing.
     An original that changed before it was set aside stays in the folder; one that changed after is kept in the
     kept files instead of deleted. Either way, the outcome says so;
+  - a loose file repacked as a Game's TorrentZip has its original deleted, as above, only when the published ZIP,
+    opened through the bounded ZIP gate, is canonical TorrentZip with exactly one member, and that member's payload,
+    hashed again, has the size and every checksum (CRC32, MD5, SHA-1, SHA-256) of the ROM the move names and the
+    SHA-256 and size of the original as the repack read it. The original set aside in `.deleting` must still hash as
+    what was repacked. The payload is then the ROM, byte for byte, so the ZIP is only a container and the original
+    adds nothing. Any other repack keeps its original;
   - a ZIP holding a Game's ROM among other members has the ROM repacked as TorrentZip, and the original is kept.
 - Discarding an item and importing a DAT move the file into the folder's own kept files. Deleting kept files is a
   later, separately approved cleanup.
