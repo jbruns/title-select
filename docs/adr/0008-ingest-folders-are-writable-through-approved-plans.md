@@ -35,8 +35,12 @@ rename, replace or link to an entry at any moment, including while Title Select 
 
   The directory's entry count and size are then bounded. Any other ZIP is refused unread: Unsupported in ingest,
   Unreadable in an Audit. Mirroring the reader's own search instead would leave its fallback scans, which can
-  remember every directory-header signature in the file, free to exhaust memory. A file that does not begin as a ZIP
-  is a loose file, and is never opened as an archive.
+  remember every directory-header signature in the file, free to exhaust memory. Whether a file is a ZIP is decided
+  first by how it begins: one that does not begin with a local header (or, empty, with its end record) is a loose
+  file, whatever its tail holds. Only a file judged a ZIP in canonical layout is ever given to the archive reader,
+  through one gate every caller uses (probes, builds, repacks and Audits); everything else is hashed whole or refused.
+  The reader looks a little further back for an end record than the longest comment allows, so a file the layout
+  check cannot see as a ZIP must never reach it.
 
   An opened ZIP is judged from its central directory, by member count, names, declared sizes and each member's first
   bytes. Its members are then read only up to the limits of one game's ZIP. Archives within it and anything past the

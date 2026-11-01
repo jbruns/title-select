@@ -12,6 +12,9 @@
 //!   or is empty and declares no entries.
 //!
 //! The archive reader then takes that end record first and never searches beyond it. Anything else is refused.
+//!
+//! A file that does not begin as a ZIP archive is a loose file, whatever its tail holds, and is never opened as an
+//! archive. [`open`] is the only way into the archive reader, and opens only a file judged [`Layout::Zip`].
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -84,7 +87,7 @@ fn contains(haystack: &[u8], needle: &[u8; 4]) -> bool {
 }
 
 /// Whether `file` begins as a ZIP archive does, with a member's local header or, when empty, its end record.
-pub fn starts_as_zip(file: &File) -> io::Result<bool> {
+fn starts_as_zip(file: &File) -> io::Result<bool> {
     let mut magic = [0; 4];
     Ok(read_at(file, 0, &mut magic)? && (magic == LOCAL_HEADER || magic == EOCD))
 }
@@ -93,8 +96,52 @@ fn unsupported(why: &str) -> Layout {
     Layout::Refused(format!("this ZIP's layout isn't supported: {why}"))
 }
 
-/// Judges `file`'s layout and its central directory against `limits`. Leaves the file's offset unspecified.
-pub fn check_directory(file: &File, limits: &DirectoryLimits) -> io::Result<Layout> {
+/// Judges `file`: a loose file unless it begins as a ZIP archive, and otherwise by its layout and its central
+/// directory against `limits`. Leaves the file's offset unspecified.
+pub fn classify(file: &File, limits: &DirectoryLimits) -> io::Result<Layout> {
+    if !starts_as_zip(file)? {
+        return Ok(Layout::NotZip);
+    }
+    check_directory(file, limits)
+}
+
+/// What [`open`] made of a file.
+pub enum Gated<R: Read + Seek> {
+    /// Not a ZIP archive: a loose file, never opened as an archive.
+    NotZip,
+    /// A ZIP archive never to be opened, for this reason.
+    Refused(String),
+    /// In canonical layout and within bounds, as the archive reader opened it.
+    Archive(zip::result::ZipResult<zip::ZipArchive<R>>),
+}
+
+/// Opens `file` as a ZIP archive, reading it through what `reader` makes, only once [`classify`] judges it a ZIP
+/// within `limits`.
+pub fn open<R: Read + Seek>(
+    file: &File,
+    limits: &DirectoryLimits,
+    reader: impl FnOnce() -> io::Result<R>,
+) -> io::Result<Gated<R>> {
+    match classify(file, limits)? {
+        Layout::NotZip => Ok(Gated::NotZip),
+        Layout::Refused(why) => Ok(Gated::Refused(why)),
+        Layout::Zip => {
+            #[cfg(test)]
+            OPENED
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(file.metadata()?.len());
+            Ok(Gated::Archive(zip::ZipArchive::new(reader()?)))
+        }
+    }
+}
+
+/// The length of each file [`open`] handed to the archive reader.
+#[cfg(test)]
+pub(crate) static OPENED: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+
+/// Judges `file`'s layout and its central directory against `limits`, whatever it begins with.
+pub(crate) fn check_directory(file: &File, limits: &DirectoryLimits) -> io::Result<Layout> {
     let len = file.metadata()?.len();
     let start = len.saturating_sub(TAIL);
     let mut tail = vec![0; (len - start) as usize];
@@ -535,5 +582,98 @@ mod tests {
         assert!(!probe.zip);
         assert_eq!(probe.payloads.len(), 1);
         assert_eq!(probe.error, None);
+    }
+
+    /// Asserts the file `bytes`, whose length no other test's file has, is never handed to the archive reader by
+    /// either probe or an audit, and that both probes hash it whole as a loose file.
+    fn never_opened_but_hashed_whole(bytes: &[u8]) {
+        let whole = {
+            let mut hasher = crate::payload::Hasher::new();
+            hasher.update(bytes);
+            hasher.finish()
+        };
+        let probe = probe(&file_with(bytes)).unwrap();
+        assert!(!probe.zip, "{probe:?}");
+        assert_eq!(probe.payloads.len(), 1);
+        assert_eq!(probe.payloads[0].sha256, whole.sha256);
+        let Probed::Read(within) = probe_within(&file_with(bytes), &ZipLimits::default()).unwrap()
+        else {
+            panic!("refused as a ZIP");
+        };
+        assert!(!within.zip);
+        assert_eq!(within.payloads.len(), 1);
+        assert_eq!(within.payloads[0].sha256, whole.sha256);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.zip");
+        std::fs::write(&path, bytes).unwrap();
+        let files = [ToRead {
+            path,
+            is_zip: true,
+            rel: "a.zip".into(),
+        }];
+        let how = crate::read::How {
+            evidence: AuditEvidence::Incremental,
+            reads: None,
+        };
+        let workers = Workers {
+            readers: 1,
+            hashers: 1,
+        };
+        let read = read_files(&files, how, workers, None).pop().unwrap();
+        assert!(read.members.is_empty());
+        assert!(read.error.is_some_and(|e| e.contains("not a ZIP")));
+
+        let opened = OPENED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            !opened.contains(&(bytes.len() as u64)),
+            "the archive reader was given it"
+        );
+    }
+
+    #[test]
+    fn an_end_record_only_the_archive_reader_would_search_for_is_never_given_to_it() {
+        // The reader looks a few bytes further back than an end record with the longest comment could sit, so one
+        // followed by its 65535-byte comment and 13 more bytes is beyond the tail judged, but within the reader's.
+        let mut bytes = LOCAL_HEADER.to_vec();
+        for _ in 0..1237 {
+            bytes.extend(CENTRAL_HEADER);
+        }
+        let mut record = eocd(1, 0, 0);
+        record[20..22].copy_from_slice(&u16::MAX.to_le_bytes());
+        bytes.extend(record);
+        bytes.extend(vec![b'c'; u16::MAX as usize]);
+        bytes.extend(b"thirteen more");
+        assert_eq!(layout(&bytes), Layout::NotZip);
+        assert!(
+            !matches!(
+                zip::ZipArchive::new(Cursor::new(&bytes)),
+                Err(zip::result::ZipError::InvalidArchive(why)) if why.contains("Could not find EOCD")
+            ),
+            "the reader would find the end record"
+        );
+
+        never_opened_but_hashed_whole(&bytes);
+    }
+
+    #[test]
+    fn a_zip_after_other_bytes_is_a_loose_file_whatever_its_tail() {
+        let mut out = Cursor::new(
+            b"#!/bin/sh\necho a self-extracting archive, padded to a length of its own\n".to_vec(),
+        );
+        out.set_position(out.get_ref().len() as u64);
+        let mut zip = zip::ZipWriter::new(out);
+        zip.start_file("a.bin", stored()).unwrap();
+        zip.write_all(&noise(1999)).unwrap();
+        let bytes = zip.finish().unwrap().into_inner();
+        assert_eq!(layout(&bytes), Layout::Zip, "its tail alone is canonical");
+        assert_eq!(
+            classify(&file_with(&bytes), &INGEST).unwrap(),
+            Layout::NotZip
+        );
+
+        never_opened_but_hashed_whole(&bytes);
     }
 }

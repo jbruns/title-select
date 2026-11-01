@@ -875,7 +875,7 @@ mod tests {
         let mut file = tempfile::tempfile().unwrap();
         file.write_all(&bytes).unwrap();
         assert_eq!(
-            crate::zipdir::check_directory(&file, &Default::default()).unwrap(),
+            crate::zipdir::classify(&file, &Default::default()).unwrap(),
             crate::zipdir::Layout::Zip
         );
     }

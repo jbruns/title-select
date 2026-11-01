@@ -538,8 +538,9 @@ produce. Its last end record is the real one, and its comment runs exactly to th
 record in it. Its directory ends exactly where that record (or its ZIP64 record, which ends at the locator just
 before it) begins, and starts with a directory header. Its directory declares at most 65535 entries and 64 MiB, and a
 ZIP64 end record carries at most 64 KiB of extensible data. Any other ZIP is refused unread: as unsupported here, as
-unreadable in an audit. A file that does not begin as a ZIP is a loose file, whatever bytes its tail holds. A ZIP is judged from its directory before any member is read. Its members are read only up to the limits of
-one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all. Each item is one of:
+unreadable in an audit. Whether a file is a ZIP is decided by how it begins: one that does not begin as a ZIP is a
+loose file, hashed whole, whatever bytes its tail holds, and is never opened as an archive. A ZIP is judged from its
+directory before any member is read. Its members are read only up to the limits of one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all. Each item is one of:
 
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
   a candidate operator addition, with the system its extension suggests when exactly one registered system uses it;

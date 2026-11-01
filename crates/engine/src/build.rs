@@ -12,7 +12,7 @@ use title_select_api::build::ExpectedRom;
 use crate::dat::Dat;
 use crate::payload::{Checksums, Hasher};
 use crate::torrentzip::{self, Writer, compare_names};
-use crate::zipdir::{self, DirectoryLimits, Layout};
+use crate::zipdir::{self, DirectoryLimits, Gated};
 
 const CHUNK: usize = 1 << 16;
 
@@ -35,6 +35,18 @@ pub fn matches(checksums: &Checksums, rom: &ExpectedRom) -> bool {
         && same(&rom.md5, &checksums.md5)
         && same(&rom.sha1, &checksums.sha1)
         && same(&rom.sha256, &checksums.sha256)
+}
+
+/// Opens `file` as a ZIP archive through what `reader` makes, only once it is judged one within the default bounds.
+fn archive<R: Read + Seek>(
+    file: &File,
+    reader: impl FnOnce() -> io::Result<R>,
+) -> Result<zip::ZipArchive<R>, String> {
+    match zipdir::open(file, &DirectoryLimits::default(), reader).map_err(|e| e.to_string())? {
+        Gated::Archive(archive) => archive.map_err(|e| e.to_string()),
+        Gated::Refused(why) => Err(why),
+        Gated::NotZip => Err("it is not a ZIP archive".into()),
+    }
 }
 
 /// Whether the archive at `path` is structurally valid TorrentZip, read from its central directory alone.
@@ -63,11 +75,11 @@ pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)]) -> Result<(), String
     for (rom, source) in order {
         let opened =
             File::open(source.path).map_err(|e| format!("{}: {e}", source.path.display()))?;
-        let mut reader = BufReader::new(opened);
+        let mut reader = BufReader::new(&opened);
         let added = match source.member {
             None => writer.add(&rom.name, rom.size, &mut reader),
             Some(member) => {
-                let mut archive = zip::ZipArchive::new(reader)
+                let mut archive = archive(&opened, || Ok(reader))
                     .map_err(|e| format!("{}: {e}", source.path.display()))?;
                 let mut payload = archive
                     .by_name(member)
@@ -156,8 +168,7 @@ pub fn repack_members(
 ) -> Result<(String, u64), String> {
     let mut order: Vec<_> = roms.iter().collect();
     order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
-    let reader = BufReader::new(Hashing::new(source).map_err(|e| e.to_string())?);
-    let mut archive = zip::ZipArchive::new(reader).map_err(|e| e.to_string())?;
+    let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
     let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
     for (rom, member) in order {
         let mut payload = archive
@@ -194,7 +205,7 @@ pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
             wanted.join(", ")
         ));
     }
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let mut archive = archive(file.get_ref(), || Ok(file))?;
     for rom in roms {
         let mut member = archive
             .by_name(&rom.name)
@@ -286,8 +297,8 @@ fn hash_all(file: &mut impl Read) -> io::Result<Checksums> {
 
 /// Reads `file` from its start: hashes it whole, and, when it is a ZIP archive, each member. An error reading the
 /// file itself is returned; one reading a member is recorded in the probe.
-/// A ZIP archive is opened only in canonical layout (see [`zipdir`]); one that begins as a ZIP but is not is refused
-/// unread, and any other file is a loose file, never opened as an archive.
+/// A ZIP archive is opened only through [`zipdir::open`]: one that begins as a ZIP but is not in canonical layout is
+/// refused unread, and any other file is a loose file, never opened as an archive.
 pub fn probe(file: &File) -> io::Result<Probe> {
     let mut reader = BufReader::new(file);
     reader.seek(SeekFrom::Start(0))?;
@@ -303,25 +314,21 @@ pub fn probe(file: &File) -> io::Result<Probe> {
         payloads: Vec::new(),
         error: None,
     };
-    match zipdir::check_directory(file, &DirectoryLimits::default())? {
-        Layout::Refused(why) if zipdir::starts_as_zip(file)? => {
+    let mut archive = match zipdir::open(file, &DirectoryLimits::default(), || {
+        reader.seek(SeekFrom::Start(0)).map(|_| reader)
+    })? {
+        Gated::Archive(Ok(archive)) => archive,
+        Gated::Refused(why) => {
             probe.torrentzip = false;
             probe.zip = true;
             probe.error = Some(format!("not read: {why}"));
             return Ok(probe);
         }
-        Layout::Refused(_) => {
+        Gated::NotZip | Gated::Archive(Err(_)) => {
             probe.torrentzip = false;
             probe.payloads.push(Payload::new(None, whole));
             return Ok(probe);
         }
-        Layout::NotZip | Layout::Zip => {}
-    }
-    reader.seek(SeekFrom::Start(0))?;
-    let Ok(mut archive) = zip::ZipArchive::new(reader) else {
-        probe.torrentzip = false;
-        probe.payloads.push(Payload::new(None, whole));
-        return Ok(probe);
     };
     probe.zip = true;
     for i in 0..archive.len() {
@@ -426,20 +433,16 @@ pub fn probe_within(file: &File, limits: &ZipLimits) -> io::Result<Probed> {
         entries: limits.members as u64,
         ..DirectoryLimits::default()
     };
-    match zipdir::check_directory(file, &directory)? {
-        Layout::Refused(why) if zipdir::starts_as_zip(file)? => return Ok(Probed::Refused(why)),
-        Layout::Refused(_) => {
+    let mut archive = match zipdir::open(file, &directory, || {
+        reader.seek(SeekFrom::Start(0)).map(|_| reader)
+    })? {
+        Gated::Archive(Ok(archive)) => archive,
+        Gated::Refused(why) => return Ok(Probed::Refused(why)),
+        Gated::NotZip | Gated::Archive(Err(_)) => {
             probe.torrentzip = false;
             probe.payloads.push(Payload::new(None, whole));
             return Ok(Probed::Read(probe));
         }
-        Layout::NotZip | Layout::Zip => {}
-    }
-    reader.seek(SeekFrom::Start(0))?;
-    let Ok(mut archive) = zip::ZipArchive::new(reader) else {
-        probe.torrentzip = false;
-        probe.payloads.push(Payload::new(None, whole));
-        return Ok(Probed::Read(probe));
     };
     probe.zip = true;
     if archive.len() > limits.members {

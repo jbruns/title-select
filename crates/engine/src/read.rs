@@ -176,13 +176,14 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
 
 /// Opens `file` as a ZIP archive once its central directory is known to be within bounds.
 fn bounded_archive(file: File) -> Result<zip::ZipArchive<File>, String> {
-    if let crate::zipdir::Layout::Refused(why) =
-        crate::zipdir::check_directory(&file, &crate::zipdir::DirectoryLimits::default())
-            .map_err(|e| e.to_string())?
+    use crate::zipdir::{DirectoryLimits, Gated, open};
+    match open(&file, &DirectoryLimits::default(), || file.try_clone())
+        .map_err(|e| e.to_string())?
     {
-        return Err(format!("not read: {why}"));
+        Gated::Archive(archive) => archive.map_err(|e| e.to_string()),
+        Gated::Refused(why) => Err(format!("not read: {why}")),
+        Gated::NotZip => Err("not read: it is not a ZIP archive".into()),
     }
-    zip::ZipArchive::new(file).map_err(|e| e.to_string())
 }
 
 /// Claims each member of the ZIP archive at `path` from its directory: its name, size and CRC32.
