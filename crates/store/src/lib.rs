@@ -182,6 +182,8 @@ pub enum Fault {
     IngestRestored,
     /// After an entry is renamed aside into an Ingest Folder's kept files, before either folder is synced.
     IngestSetAside,
+    /// After a move records that what it set aside to delete is kept instead, before it is moved into the kept files.
+    IngestKeeping,
     /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
     IngestDatOwed,
     /// After a repair's step with this sequence number writes and checks its staged file, before the store records it.
@@ -200,6 +202,9 @@ pub enum Fault {
     /// After a repair's cancellation and every step it skips are recorded, before the files its skipped Builds
     /// staged are deleted.
     RepairCancelled,
+    /// After a file the repair step with this sequence number staged is moved into the private folder it is deleted
+    /// from, before either folder is synced.
+    RepairDiscarding(u32),
     /// After a repair plan's approval is checked against the Source Set, before the transaction that reserves it.
     RepairApproving,
     /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before

@@ -1006,6 +1006,23 @@ fn a_cancellation_a_stop_cut_short_is_never_run_past_after_a_restart() {
 }
 
 #[test]
+fn a_staged_file_a_stop_left_being_deleted_is_deleted_after_a_restart() {
+    let env = Env::new();
+    let plan = cancelled_after_a_build_staged(&env);
+    env.store.inject_fault(Some(Fault::RepairDiscarding(0)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&env.store.repair_plan(plan.id).unwrap())
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert_nothing_done(&env, &plan);
+}
+
+#[test]
 fn a_new_file_kept_aside_because_its_place_was_taken_is_recorded_kept_after_a_stop() {
     let env = Env::new();
     env.put("Pong (Anthology).a26", b"pong");

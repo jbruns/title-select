@@ -118,6 +118,9 @@ CREATE TABLE repair_steps (
     -- recorded before it is moved.
     aside_name TEXT,
     aside_why TEXT,
+    -- The slot in the private .deleting folder a staged file recorded in staged_* that won't be published is moved
+    -- to, recorded before it is moved; cleared once the file is in neither place.
+    discard_slot TEXT,
     UNIQUE (plan_id, seq)
 );
 CREATE INDEX repair_steps_unfinished ON repair_steps (plan_id) WHERE state NOT IN ('done', 'failed', 'skipped');

@@ -826,16 +826,22 @@ impl Store {
             self.fault_point(Fault::IngestPublished);
         }
         let m = &self.read(|c| move_by_id(c, m.id))?;
-        let Some(staged) = m.staged else {
-            return Ok(Err("the published copy is not recorded".into()));
-        };
-        let Some(published_sha) = dest_sha256.clone() else {
-            return Ok(Err("the published copy's hash is not recorded".into()));
-        };
+        // Once the original is being kept, keeping it no longer depends on the published copy.
+        let preserving = matches!(m.state.as_str(), "keeping" | "retaining");
         let resumed = m.state == "disposing";
-        let published = match dest.stat(&dest_name).map_err(io)? {
-            Some(st) if Identity::of(&st) == staged => Some(file_stat(&st)),
-            _ if resumed => None,
+        let (staged, published_sha) = match (m.staged, dest_sha256.clone()) {
+            (Some(staged), Some(sha)) => (Some(staged), Some(sha)),
+            _ if preserving => (m.staged, None),
+            (None, _) => return Ok(Err("the published copy is not recorded".into())),
+            (Some(_), None) => {
+                return Ok(Err("the published copy's hash is not recorded".into()));
+            }
+        };
+        let published = match (staged, dest.stat(&dest_name).map_err(io)?) {
+            (Some(staged), Some(st)) if Identity::of(&st) == staged => {
+                Some((staged, file_stat(&st)))
+            }
+            _ if resumed || preserving => None,
             _ => {
                 return Ok(Err(format!(
                     "{}/{dest_name} is no longer the copy that was published; {} was left as it is",
@@ -845,59 +851,42 @@ impl Store {
             }
         };
         // A deletion a stop interrupted is authorized again only by the same checks of the published copy.
-        let delete = match (m.kind.as_str(), m.state.as_str()) {
-            (_, "retaining") => false,
-            (_, "keeping") => true,
-            _ if published.is_none() => false,
-            (kind, _) => match &m.exact {
-                Some(rom) => {
-                    let file = dest.open_file(&dest_name).map_err(io)?;
-                    if Identity::of_fd(&file).map_err(io)? != staged {
-                        if resumed {
-                            false
-                        } else {
-                            return Ok(Err(format!(
-                                "{}/{dest_name} is no longer the copy that was published; {} was left as it is",
-                                dest.path().display(),
-                                m.name
-                            )));
-                        }
-                    } else if kind == "repack" {
-                        exactly_repacked(m, rom, &file)
+        let delete = match (&published, &m.exact) {
+            _ if preserving => false,
+            (Some((staged, _)), Some(rom)) => {
+                let file = dest.open_file(&dest_name).map_err(io)?;
+                if Identity::of_fd(&file).map_err(io)? != *staged {
+                    if resumed {
+                        false
                     } else {
-                        exactly(rom, &checksums_of(&file).map_err(io)?)
+                        return Ok(Err(format!(
+                            "{}/{dest_name} is no longer the copy that was published; {} was left as it is",
+                            dest.path().display(),
+                            m.name
+                        )));
                     }
+                } else if m.kind == "repack" {
+                    exactly_repacked(m, rom, &file)
+                } else {
+                    exactly(rom, &checksums_of(&file).map_err(io)?)
                 }
-                None => false,
-            },
+            }
+            _ => false,
         };
         // What the original must still hash as to be deleted: what was copied, or, for a repack, what was read.
         let original_sha = match m.kind.as_str() {
             "repack" => m.sha256.clone(),
-            _ => Some(published_sha.clone()),
+            _ => published_sha,
         };
-        let disposed = match (delete, original_sha) {
-            (true, Some(original_sha)) => self
-                .delete_original(m, src, &original_sha)?
+        let disposed = match (m.state.as_str(), delete, original_sha) {
+            ("keeping", ..) => self.delete_original(m, src, None)?.map(|note| (None, note)),
+            ("retaining", ..) => self.keep_original(m, src)?,
+            (_, true, Some(original_sha)) => self
+                .delete_original(m, src, Some(&original_sha))?
                 .map(|note| (None, note)),
+            // Already set aside to delete: kept from there instead.
             _ if resumed && !is_seen(src, &m.name, &m.seen).map_err(io)? => {
-                // Already set aside to delete: kept from there instead.
-                self.write(|tx| {
-                    let (dev, ino) = m.seen.identity.to_sql();
-                    tx.execute(
-                        "UPDATE ingest_moves SET state = 'keeping', found_dev = ?2, found_ino = ?3, error = ?4
-                         WHERE id = ?1",
-                        params![
-                            m.id,
-                            dev,
-                            ino,
-                            "its published copy no longer checked out when its deletion resumed"
-                        ],
-                    )?;
-                    Ok(())
-                })?;
-                let m = self.read(|c| move_by_id(c, m.id))?;
-                self.delete_original(&m, src, "")?.map(|note| (None, note))
+                self.delete_original(m, src, None)?.map(|note| (None, note))
             }
             _ => self.keep_original(m, src)?,
         };
@@ -906,8 +895,9 @@ impl Store {
             Err(why) => return Ok(Err(why)),
         };
         let kept = original.or_else(|| {
-            published
-                .and_then(|published| self.kept_entry(m, staged, published, dest_sha256.clone()))
+            published.and_then(|(staged, published)| {
+                self.kept_entry(m, staged, published, dest_sha256.clone())
+            })
         });
         self.finish_move(m, kept, dest_sha256, note)
     }
@@ -1126,12 +1116,13 @@ impl Store {
 
     /// Deletes the original of a published copy whose SHA-256 is `copied`: moved, without replacing anything, into
     /// the folder's private `.deleting` area, read back there, and deleted only if it is still exactly the file that
-    /// was copied. An original that changed is kept aside instead. Returns a note of anything done besides deleting.
+    /// was copied. An original that changed is kept aside instead, as is one already set aside to delete whose
+    /// deletion `copied` being `None` refuses. Returns a note of anything done besides deleting.
     fn delete_original(
         &self,
         m: &MoveRow,
         src: &FolderDir,
-        copied: &str,
+        copied: Option<&str>,
     ) -> Result<std::result::Result<Option<String>, String>> {
         let deleting = match open_area_deleting(self, Scope::Ingest(m.folder), src, true)? {
             Ok(Some(deleting)) => deleting,
@@ -1141,6 +1132,12 @@ impl Store {
         let slot = format!("move-{}", m.id);
         if m.state != "keeping" {
             if is_seen(src, &m.name, &m.seen).map_err(io)? {
+                if copied.is_none() {
+                    return Ok(Ok(Some(format!(
+                        "{} could not be checked against its published copy, so it was left in the folder",
+                        m.name
+                    ))));
+                }
                 if self.unsettled(m)? {
                     return Ok(Ok(Some(format!(
                         "{} changed while it was copied, so it was left in the folder",
@@ -1164,25 +1161,38 @@ impl Store {
             // Whether this call or one before a stop set it aside, both folders are synced before it goes on.
             src.sync().map_err(io)?;
             deleting.sync().map_err(io)?;
-            let found = match read_back(&deleting, &slot, &m.seen, Some(copied)).map_err(io)? {
-                Moving::Planned { .. } if !self.unsettled(m)? => {
-                    deleting.unlink(&slot).map_err(io)?;
-                    deleting.sync().map_err(io)?;
-                    return Ok(Ok(None));
+            let found = match copied {
+                Some(copied) => {
+                    match read_back(&deleting, &slot, &m.seen, Some(copied)).map_err(io)? {
+                        Moving::Planned { .. } if !self.unsettled(m)? => {
+                            deleting.unlink(&slot).map_err(io)?;
+                            deleting.sync().map_err(io)?;
+                            return Ok(Ok(None));
+                        }
+                        Moving::Planned { .. } => (
+                            m.seen.identity,
+                            "it changed after it was copied (a scan found it changing)".to_owned(),
+                        ),
+                        // Gone: deleted before a stop, which may have come before the deletion was synced.
+                        Moving::Other { identity: None, .. } => {
+                            deleting.sync().map_err(io)?;
+                            return Ok(Ok(None));
+                        }
+                        Moving::Other {
+                            identity: Some(found),
+                            why,
+                        } => (found, format!("it changed after it was copied ({why})")),
+                    }
                 }
-                Moving::Planned { .. } => (
-                    m.seen.identity,
-                    "it changed after it was copied (a scan found it changing)".to_owned(),
-                ),
-                // Gone: deleted before a stop, which may have come before the deletion was synced.
-                Moving::Other { identity: None, .. } => {
-                    deleting.sync().map_err(io)?;
-                    return Ok(Ok(None));
-                }
-                Moving::Other {
-                    identity: Some(found),
-                    why,
-                } => (found, format!("it changed after it was copied ({why})")),
+                None => match deleting.stat(&slot).map_err(io)? {
+                    // Deleted before a stop, once its published copy had checked out.
+                    None => return Ok(Ok(None)),
+                    Some(st) => (
+                        Identity::of(&st),
+                        "its published copy no longer checked out when its deletion resumed"
+                            .to_owned(),
+                    ),
+                },
             };
             self.write(|tx| {
                 let (dev, ino) = found.0.to_sql();
@@ -1193,6 +1203,10 @@ impl Store {
                 )?;
                 Ok(())
             })?;
+            self.fault_point(Fault::IngestKeeping);
+        } else {
+            src.sync().map_err(io)?;
+            deleting.sync().map_err(io)?;
         }
         let m = self.read(|c| move_by_id(c, m.id))?;
         let (Some(found), why) = (m.found, m.error.clone().unwrap_or_default()) else {
@@ -1790,6 +1804,132 @@ mod tests {
             );
         }
         FORCE_COPY.with(|f| f.set(false));
+    }
+
+    #[test]
+    fn an_original_being_kept_is_kept_after_a_stop_even_once_its_published_copy_is_gone() {
+        const KEPT: &str = "in/.title-select-retained/1";
+        for case in [
+            "kept from deleting",
+            "kept as not exactly a rom",
+            "kept after a repack",
+        ] {
+            let env = env();
+            let (mv, dest) = match case {
+                "kept after a repack" => {
+                    let path = env.tmp.path().join("in/pong.zip");
+                    let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+                    let options = zip::write::SimpleFileOptions::default();
+                    zip.start_file("readme.txt", options).unwrap();
+                    zip.write_all(b"from the scene").unwrap();
+                    zip.start_file("pong.bin", options).unwrap();
+                    zip.write_all(b"pong").unwrap();
+                    zip.finish().unwrap();
+                    let roms = vec![(rom_of("Pong (USA).a26", b"pong"), Some("pong.bin".into()))];
+                    (
+                        env.mv("pong.zip", atari("Pong (USA).zip"), Some(roms)),
+                        "Pong (USA).zip",
+                    )
+                }
+                _ => {
+                    env.put("pong.a26", b"pong");
+                    let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+                    if case == "kept from deleting" {
+                        mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+                    }
+                    (mv, "Pong (USA).a26")
+                }
+            };
+            FORCE_COPY.with(|f| f.set(case != "kept after a repack"));
+            let base = env.tmp.path().join("in");
+            env.store
+                .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
+                    if fault == Fault::IngestIsolated {
+                        overwrite_in_place(&base.join(".title-select-retained/.deleting/move-1"));
+                    }
+                    if fault == Fault::IngestSetAside {
+                        panic!("stopped");
+                    }
+                })));
+            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+            assert!(ran.is_err(), "{case}");
+            env.store.hook_faults(None);
+            FORCE_COPY.with(|f| f.set(false));
+            std::fs::remove_file(env.tmp.path().join("lib/Atari").join(dest)).unwrap();
+
+            let left = env.store.recover_ingest_moves(&env.config).unwrap();
+
+            assert!(left.is_empty(), "{case}: {left:?}");
+            let (state, error, note) = last_move(&env);
+            assert_eq!(state, "done", "{case}: {error:?} {note:?}");
+            let original = if case == "kept after a repack" {
+                "pong.zip"
+            } else {
+                "pong.a26"
+            };
+            assert_eq!(env.listing(), [format!("{KEPT}/{original}.kept")], "{case}");
+            let kept = env.store.ingest_kept_files("in").unwrap();
+            assert_eq!(kept.len(), 1, "{case}");
+            assert_eq!(kept[0].name, original, "{case}");
+        }
+    }
+
+    #[test]
+    fn an_original_whose_deletion_is_refused_on_resuming_is_kept_only_once_both_folders_are_synced()
+    {
+        let env = env();
+        env.put("pong.a26", b"pong");
+        let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+        mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+        FORCE_COPY.with(|f| f.set(true));
+        env.store.inject_fault(Some(Fault::IngestIsolated));
+        let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+        assert!(ran.is_err());
+        env.store.inject_fault(None);
+        FORCE_COPY.with(|f| f.set(false));
+        overwrite_in_place(&env.tmp.path().join("lib/Atari/Pong (USA).a26"));
+        let tmp = env.tmp.path().to_string_lossy().into_owned();
+        let synced_first = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let seen = synced_first.clone();
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
+                if fault == Fault::IngestKeeping {
+                    let synced: Vec<String> = crate::folder_dir::SYNCED.with(|s| {
+                        s.borrow()
+                            .iter()
+                            .map(|p| {
+                                p.to_string_lossy()
+                                    .strip_prefix(&tmp)
+                                    .unwrap_or_default()
+                                    .trim_start_matches('/')
+                                    .to_owned()
+                            })
+                            .collect()
+                    });
+                    *seen.lock().unwrap() = Some(synced);
+                }
+            })));
+        crate::folder_dir::SYNCED.with(|synced| synced.borrow_mut().clear());
+
+        let left = env.store.recover_ingest_moves(&env.config).unwrap();
+
+        env.store.hook_faults(None);
+        assert!(left.is_empty(), "{left:?}");
+        let synced = synced_first
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("kept instead of deleted");
+        for dir in ["in", "in/.title-select-retained/.deleting"] {
+            assert!(synced.iter().any(|s| s == dir), "{dir} not in {synced:?}");
+        }
+        assert_eq!(
+            env.listing(),
+            [
+                "in/.title-select-retained/1/pong.a26.kept",
+                "lib/Atari/Pong (USA).a26"
+            ]
+        );
     }
 
     #[test]
