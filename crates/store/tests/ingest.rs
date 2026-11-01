@@ -622,6 +622,59 @@ fn an_item_still_arriving_cannot_be_planned() {
 }
 
 #[test]
+fn an_item_moves_only_once_settled_and_read_whatever_state_it_is_shown_in() {
+    let env = Env::new();
+    let plan = |root: &str, action: IngestAction, id: i64| {
+        env.store.plan_ingest(
+            &env.config,
+            root,
+            &PlanIngest {
+                action,
+                items: vec![id],
+                provider: None,
+            },
+        )
+    };
+    let refused = |planned: Result<_, Error>, why: &str| match planned {
+        Err(Error::Conflict(message)) => assert!(message.contains(why), "{message}"),
+        other => panic!("not refused: {other:?}"),
+    };
+    // Unsupported at sight, but seen only once.
+    write_file(&env.dir("slow").join("set.7z"), b"7z");
+    env.scan_root("slow");
+    let archive = &env.store.ingest_items("slow").unwrap()[0];
+    assert_eq!(archive.state, ItemState::Unsupported);
+    refused(
+        plan("slow", IngestAction::Discard, archive.id),
+        "stopped changing",
+    );
+    // Dismissed while still arriving.
+    env.put("pong.a26", b"pong");
+    env.scan();
+    let arriving = env.item("pong.a26");
+    assert_eq!(arriving.state, ItemState::Arriving);
+    env.store.dismiss_ingest_item(arriving.id).unwrap();
+    refused(
+        plan("in", IngestAction::Discard, arriving.id),
+        "stopped changing",
+    );
+    // Dismissed before it was read: it settles, and may be kept aside, but nothing it was not read as.
+    write_named_dat(
+        &env.dir("in"),
+        "Alpha System (2).dat",
+        "Alpha System",
+        "2",
+        &alpha_games(),
+    );
+    env.scan();
+    let dat = env.item("Alpha System (2).dat");
+    env.store.dismiss_ingest_item(dat.id).unwrap();
+    env.scan();
+    refused(plan("in", IngestAction::DatImport, dat.id), "not read");
+    assert!(plan("in", IngestAction::Discard, dat.id).is_ok());
+}
+
+#[test]
 fn approval_is_refused_after_an_overwrite_that_hides_itself_or_a_new_link_to_the_item() {
     for change in ["overwrite", "link"] {
         let env = Env::new();

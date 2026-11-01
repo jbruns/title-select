@@ -45,6 +45,8 @@ CREATE TABLE ingest_items (
     mtime_ns TEXT NOT NULL,
     ctime_ns TEXT NOT NULL,
     stable_since TEXT NOT NULL,
+    -- Whether its stat has stayed as recorded for the folder's settle interval, whatever state it is shown in.
+    settled INTEGER NOT NULL DEFAULT 0,
     hashed_dev INTEGER,
     hashed_ino INTEGER,
     hashed_size INTEGER,

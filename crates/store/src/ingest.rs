@@ -219,13 +219,15 @@ struct ItemRow {
     item: IngestItem,
     seen: Seen,
     stable_since: String,
+    /// Its stat stayed as recorded for the settle interval.
+    settled: bool,
     hashed: Option<Seen>,
     read: Option<ItemRead>,
 }
 
 const ITEM_QUERY: &str = "SELECT id, name, state, dev, ino, size, mtime_ns, ctime_ns, stable_since, hashed_dev, \
-     hashed_ino, hashed_size, hashed_mtime_ns, hashed_ctime_ns, probe, assessment, reason, first_seen_at, assessed_at \
-     FROM ingest_items";
+     hashed_ino, hashed_size, hashed_mtime_ns, hashed_ctime_ns, probe, assessment, reason, first_seen_at, assessed_at, \
+     settled FROM ingest_items";
 
 fn seen_at(r: &Row, at: usize) -> rusqlite::Result<Option<Seen>> {
     let dev: Option<i64> = r.get(at)?;
@@ -280,6 +282,7 @@ fn item_from_row(r: &Row) -> rusqlite::Result<ItemRow> {
         },
         seen,
         stable_since: r.get(8)?,
+        settled: r.get(19)?,
         hashed: seen_at(r, 9)?,
         read,
     })
@@ -1063,6 +1066,31 @@ impl Store {
             };
             let seen = Seen::of(&st);
             let existing = items.remove(&name);
+            // Settled once its stat has stayed as recorded for the interval, whatever state it is shown in.
+            let settled = match &existing {
+                Some(existing) if existing.seen == seen => {
+                    existing.settled || {
+                        let since: jiff::Timestamp = existing
+                            .stable_since
+                            .parse()
+                            .map_err(|e: jiff::Error| Error::Io(e.to_string()))?;
+                        started.duration_since(since).as_secs() >= settle as i64
+                    }
+                }
+                _ => false,
+            };
+            if let Some(existing) = &existing
+                && settled
+                && !existing.settled
+            {
+                self.write(|tx| {
+                    tx.execute(
+                        "UPDATE ingest_items SET settled = 1 WHERE id = ?1",
+                        [existing.item.id],
+                    )?;
+                    Ok(())
+                })?;
+            }
             if let Some(reason) = unsupported_at_sight(&name, &st) {
                 self.record_seen(
                     folder,
@@ -1087,23 +1115,13 @@ impl Store {
                 self.record_seen(folder, &name, Some(&existing), &seen, state)?;
                 continue;
             }
-            let settled = match existing.item.state {
+            match existing.item.state {
                 ItemState::Dismissed => continue,
                 // Refused unread, as an archive within the archive or past the limits: reading it again would only
                 // refuse it again.
                 ItemState::Unsupported if existing.read.is_none() => continue,
-                ItemState::Arriving | ItemState::Stale | ItemState::Failed => {
-                    let since: jiff::Timestamp = existing
-                        .stable_since
-                        .parse()
-                        .map_err(|e: jiff::Error| Error::Io(e.to_string()))?;
-                    let elapsed = started.duration_since(since);
-                    elapsed.as_secs() >= settle as i64
-                }
-                _ => true,
-            };
-            if !settled {
-                continue;
+                _ if !settled => continue,
+                _ => {}
             }
             let matcher = match &mut matcher {
                 Some(matcher) => matcher,
@@ -1190,14 +1208,16 @@ impl Store {
                     )?;
                 }
                 Some(existing) => {
-                    let stable_since = if existing.seen == *seen {
+                    let unchanged = existing.seen == *seen;
+                    let stable_since = if unchanged {
                         existing.stable_since.clone()
                     } else {
                         now.clone()
                     };
                     tx.execute(
                         "UPDATE ingest_items SET state = ?2, dev = ?3, ino = ?4, size = ?5, mtime_ns = ?6,
-                                                 ctime_ns = ?7, stable_since = ?8, changed_at = ?9
+                                                 ctime_ns = ?7, stable_since = ?8, changed_at = ?9,
+                                                 settled = settled AND ?10
                          WHERE id = ?1",
                         params![
                             existing.item.id,
@@ -1208,7 +1228,8 @@ impl Store {
                             mtime,
                             ctime,
                             stable_since,
-                            now
+                            now,
+                            unchanged
                         ],
                     )?;
                 }
@@ -1286,7 +1307,7 @@ impl Store {
                     "item {id} is not in ingest folder {root}"
                 )));
             }
-            if let Some(why) = unmovable(item) {
+            if let Some(why) = unmovable(&found, request.action == IngestAction::Discard) {
                 return Err(Error::Conflict(why));
             }
             if !names.insert(item.name.clone()) {
@@ -1447,7 +1468,8 @@ impl Store {
             )));
         }
         for item in &content.items {
-            if let Some(why) = self.read(|c| item_unmovable(c, item.item))? {
+            let keep_aside = content.action == IngestAction::Discard;
+            if let Some(why) = self.read(|c| item_unmovable(c, item.item, keep_aside))? {
                 return Err(Error::Conflict(format!(
                     "{why}; nothing was moved. Scan the folder, plan again and review the new plan"
                 )));
@@ -1844,31 +1866,53 @@ impl Store {
     }
 }
 
-/// Why `item` cannot be moved now, if it cannot: only an item that has settled, and was assessed or found
-/// unsupported, can be.
-fn unmovable(item: &IngestItem) -> Option<String> {
+/// Why the item `row` cannot be moved now, if it cannot. Whatever state it is shown in, it must have settled: its
+/// stat stayed as recorded for the folder's settle interval. Then, unless it is only kept aside (`keep_aside`) and is
+/// Unsupported or Dismissed, its payloads must have been read and assessed as it is now.
+fn unmovable(row: &ItemRow, keep_aside: bool) -> Option<String> {
+    let item = &row.item;
     match item.state {
+        ItemState::Arriving | ItemState::Stale => {
+            return Some(format!(
+                "{} is {}; it is moved only once it has stopped changing and been assessed",
+                item.name,
+                item.state.label()
+            ));
+        }
         ItemState::Assessed
         | ItemState::AlreadyHeld
         | ItemState::Unreadable
         | ItemState::Unsupported
-        | ItemState::Dismissed => None,
-        ItemState::Arriving | ItemState::Stale => Some(format!(
-            "{} is {}; it is moved only once it has stopped changing and been assessed",
-            item.name,
-            item.state.label()
-        )),
-        _ => Some(format!(
-            "{} is {}; scan the folder again",
-            item.name,
-            item.state.label()
-        )),
+        | ItemState::Dismissed => {}
+        _ => {
+            return Some(format!(
+                "{} is {}; scan the folder again",
+                item.name,
+                item.state.label()
+            ));
+        }
     }
+    if !row.settled {
+        return Some(format!(
+            "{} has not stopped changing for long enough yet; it is moved only once it has. Scan the folder again \
+             later",
+            item.name
+        ));
+    }
+    let unread = matches!(item.state, ItemState::Unsupported | ItemState::Dismissed);
+    let verified = row.read.is_some() && row.hashed.as_ref() == Some(&row.seen);
+    if !verified && !(keep_aside && unread) {
+        return Some(format!(
+            "{} was not read and assessed as it is now; scan the folder again",
+            item.name
+        ));
+    }
+    None
 }
 
-/// Why the item `id` cannot be moved now, if it cannot.
-pub(super) fn item_unmovable(c: &Connection, id: i64) -> Result<Option<String>> {
-    Ok(unmovable(&item_by_id(c, id)?.item))
+/// As [`unmovable`], for the item `id` as recorded now.
+pub(super) fn item_unmovable(c: &Connection, id: i64, keep_aside: bool) -> Result<Option<String>> {
+    Ok(unmovable(&item_by_id(c, id)?, keep_aside))
 }
 
 fn current_id(c: &Connection, folder: i64, name: &str) -> Result<i64> {

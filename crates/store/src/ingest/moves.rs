@@ -428,7 +428,8 @@ impl Store {
         };
         if m.state == "pending"
             && let Some(item) = m.item
-            && let Some(why) = self.read(|c| item_unmovable(c, item))?
+            && let Some(why) =
+                self.read(|c| item_unmovable(c, item, matches!(m.dest, Destination::Kept { .. })))?
         {
             return precondition(format!("{why}; it was left as it is"));
         }
