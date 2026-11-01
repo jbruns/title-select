@@ -1143,6 +1143,11 @@ mod selections {
         );
         let vocabulary: title_select_api::Vocabulary = client.json("/vocabulary");
         assert!(vocabulary.regions.iter().any(|r| r == "USA"));
+        assert_eq!(
+            vocabulary.default_region_order[..3],
+            ["USA", "World", "Canada"]
+        );
+        assert_eq!(vocabulary.default_video_order[0], "NTSC");
     }
 
     #[test]

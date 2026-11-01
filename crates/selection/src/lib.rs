@@ -210,6 +210,8 @@ impl Engine {
     pub fn names(&self) -> Result<Names, Error> {
         let vocabulary = self.vocabulary()?;
         Ok(Names {
+            default_region_order: vocabulary.region_order(&[]).to_vec(),
+            default_video_order: vocabulary.video_order(&[]).to_vec(),
             regions: vocabulary.regions,
             languages: vocabulary.languages.into_iter().collect(),
             videos: vocabulary.videos,
@@ -257,7 +259,7 @@ impl Engine {
         for (name, system) in &profile.systems {
             write(
                 systems.join(format!("{name}.yaml")),
-                config::system_config(system),
+                config::system_config(system, &vocabulary),
             )?;
         }
         let trace_path = run_dir.join("trace.jsonl");
@@ -414,6 +416,10 @@ pub struct Names {
     pub regions: Vec<String>,
     pub languages: Vec<String>,
     pub videos: Vec<String>,
+    /// The region order a Selection uses when a Profile leaves it empty.
+    pub default_region_order: Vec<String>,
+    /// The video order a Selection uses when a Profile leaves it empty.
+    pub default_video_order: Vec<String>,
 }
 
 /// The upstream projects this binary's Selection is pinned to, from `third_party/retool/pins.toml`.

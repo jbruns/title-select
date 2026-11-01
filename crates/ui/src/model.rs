@@ -433,6 +433,38 @@ pub fn when(timestamp: &str) -> String {
     }
 }
 
+/// How long ago something happened, `elapsed_ms` milliseconds before now, in the largest whole unit.
+pub fn age(elapsed_ms: f64) -> String {
+    let minutes = (elapsed_ms / 60_000.0).floor();
+    let (n, unit) = if minutes < 1.0 {
+        return "just now".to_string();
+    } else if minutes < 60.0 {
+        (minutes, "minute")
+    } else if minutes < 24.0 * 60.0 {
+        ((minutes / 60.0).floor(), "hour")
+    } else {
+        ((minutes / (24.0 * 60.0)).floor(), "day")
+    };
+    let plural = if n == 1.0 { "" } else { "s" };
+    format!("{n} {unit}{plural} ago")
+}
+
+/// A UTC timestamp as `(seconds, nanoseconds)` text that sorts in time order, or `None` when it is not one.
+fn instant(timestamp: &str) -> Option<(&str, String)> {
+    let rest = timestamp.strip_suffix('Z')?;
+    let seconds = rest.get(..19)?;
+    let fraction = rest[19..].strip_prefix('.').unwrap_or("");
+    fraction
+        .bytes()
+        .all(|b| b.is_ascii_digit())
+        .then(|| (seconds, format!("{fraction:0<9}")))
+}
+
+/// Whether UTC timestamp `a` is before `b`; false when either is not a timestamp.
+pub fn earlier(a: &str, b: &str) -> bool {
+    matches!((instant(a), instant(b)), (Some(a), Some(b)) if a < b)
+}
+
 /// Whether a response is a plain-text file. The Service answers a path it has no file for with the workbench's
 /// HTML page, so a missing licence text arrives as `200 text/html`.
 pub fn is_plain_text(content_type: Option<&str>) -> bool {
@@ -835,6 +867,33 @@ mod tests {
         assert_eq!(when("2026-10-29T15:04:05Z"), "2026-10-29 15:04:05 UTC");
         assert_eq!(when("yesterday"), "yesterday");
         assert_eq!(short_sha(&"ab".repeat(32)), "abababababab");
+    }
+
+    #[test]
+    fn ages_round_down_to_the_largest_whole_unit() {
+        let minute = 60_000.0;
+        assert_eq!(age(-5_000.0), "just now", "a clock slightly behind");
+        assert_eq!(age(59_000.0), "just now");
+        assert_eq!(age(minute), "1 minute ago");
+        assert_eq!(age(59.0 * minute), "59 minutes ago");
+        assert_eq!(age(60.0 * minute), "1 hour ago");
+        assert_eq!(age(47.0 * 60.0 * minute), "1 day ago");
+        assert_eq!(age(30.0 * 24.0 * 60.0 * minute), "30 days ago");
+    }
+
+    #[test]
+    fn earlier_compares_instants_whatever_their_fractional_seconds() {
+        assert!(earlier("2026-10-29T15:04:05Z", "2026-10-29T15:04:05.1Z"));
+        assert!(!earlier(
+            "2026-10-29T15:04:05.5Z",
+            "2026-10-29T15:04:05.123456Z"
+        ));
+        assert!(earlier("2026-10-29T15:04:05.999Z", "2026-10-29T15:04:06Z"));
+        assert!(!earlier("2026-10-29T15:04:05Z", "2026-10-29T15:04:05Z"));
+        assert!(
+            !earlier("yesterday", "2026-10-29T15:04:05Z"),
+            "not a timestamp"
+        );
     }
 
     #[test]

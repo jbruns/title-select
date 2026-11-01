@@ -216,6 +216,12 @@ pub struct Vocabulary {
     pub languages: Vec<String>,
     pub videos: Vec<String>,
     pub categories: Vec<selection::Category>,
+    /// The region order a Selection uses when a Profile or system leaves it empty.
+    #[serde(default)]
+    pub default_region_order: Vec<String>,
+    /// The video order a Selection uses when a Profile or system leaves it empty.
+    #[serde(default)]
+    pub default_video_order: Vec<String>,
 }
 
 /// The result of checking a Selection Profile: empty when the engine can read it.

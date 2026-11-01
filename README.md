@@ -118,7 +118,9 @@ refused:
 ```
 
 A per-system order, `exclude` or `options` replaces the global one; its overrides are added to the global ones, and
-its post filters too unless `replace_post_filters` is set.
+its post filters too unless `replace_post_filters` is set. An empty region or video order, global or per-system, is the
+default order, which suits English speakers: [docs/default-orders.md](docs/default-orders.md) lists it and says where
+it comes from.
 
 In overrides and post filters, plain text matches part of a release's name, `|` the full name and `/` a regular
 expression (Python syntax, ignoring case). A profile with a regular expression that doesn't compile is refused, so it
@@ -494,7 +496,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
-| `GET /api/v1/vocabulary`                           | the regions, languages, video standards and categories       |
+| `GET /api/v1/vocabulary`                           | the names, categories and default orders                     |
 | `POST /api/v1/check`                               | check a selection profile: `{"problems": [...]}`             |
 | `GET /api/v1/profiles`                             | the selection profiles, each with its newest version         |
 | `POST /api/v1/profiles`                            | create one with no versions: `{"name"}`                      |
@@ -624,7 +626,8 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   preview what it selects, change anything, and confirm to save version 1. The editor has a global settings tab and
   a tab per system; each system setting says whether it comes from your global settings or is set for that system,
   with "Use global setting" to go back. "Reset to defaults" and "Reset to default choices" work per group, per system
-  and for the whole profile. The preview follows your edits 500 ms after you stop, cancelling a preview still
+  and for the whole profile. An empty region or video order shows the default order it stands for, which you can
+  expand, start your own order from, or reset to, with a link to how the default orders work. The preview follows your edits 500 ms after you stop, cancelling a preview still
   running; when a preview of a source set takes more than 2 seconds, it waits for the Preview button instead. It
   shows what changed from the latest saved selection. Saving creates the next version and can make a selection.
 - **Selection** explains every group: each release's role, the rule that decided it, its availability in the latest
@@ -633,7 +636,8 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
   until you save them as the next version of the profile, which makes a new selection. "Plan a build" plans building
   it into a managed folder bound to its source set and selection profile.
-- **Managed folders** lists each managed folder with its current build, and registers another in a writable root,
+- **Managed folders** lists each managed folder with its current build and when it was last checked, marking a check
+  made before the current build, and registers another in a writable root,
   with the path proposed from the source set's DAT as for a source set. Opening one plans a build of a selection,
   shows the plan's files by what they do, what blocks it and what changed, approves it and follows the build live. It
   rebinds the folder, and lists its builds and the files built into it. A plan with unresolved groups offers to build
@@ -647,7 +651,7 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
 - **Jobs** lists the latest jobs with their kind, state, progress and result, live: it follows `/api/v1/events`, applies `state`
   and `progress` events by the job `version` rule above, and replaces what it holds with each `resync` snapshot,
   which also arrives after a reconnect.
-- **About**, linked from every screen's footer, says where selection comes from and shows the licence texts of Title
+- **About**, linked from every screen's footer, says where selection comes from, explains the default orders, and shows the licence texts of Title
   Select, the selection engine and its clone lists and metadata, served from the bundle's `licences/` folder.
 
 Every table is virtualized, sorts by its column headers and works from the keyboard: Tab to the table, then the arrow

@@ -89,6 +89,8 @@ impl SelectionProfile {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SystemSettings {
+    /// An empty list means Retool's default order, as it does in the global settings; so does an empty
+    /// `video_order`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub region_order: Option<Vec<String>>,
     /// An empty list means the languages implied by the effective region order.

@@ -25,7 +25,7 @@ use crate::build_model::{
     removal_kind_label, restore_kind_label, unfinished_label, with_adopt, with_keep_aside,
 };
 use crate::events::use_live;
-use crate::model::{short_sha, when};
+use crate::model::{age, earlier, short_sha, when};
 use crate::registration;
 use crate::screens::jobs::progress_view;
 use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
@@ -49,6 +49,31 @@ fn current_build(build: &Option<BuildSummary>) -> AnyView {
     }
 }
 
+/// When the folder was last checked, how long ago, and whether a build has changed it since. `full` shows the time
+/// as well as the age.
+fn last_checked(folder: &ManagedFolder, full: bool) -> AnyView {
+    let Some(check) = &folder.check else {
+        return "Never checked".into_any();
+    };
+    let at = when(&check.at);
+    let elapsed = js_sys::Date::now() - js_sys::Date::parse(&check.at);
+    let text = match (elapsed.is_nan(), full) {
+        (true, _) => at.clone(),
+        (false, true) => format!("{at} ({})", age(elapsed)),
+        (false, false) => age(elapsed),
+    };
+    let stale = folder
+        .build
+        .as_ref()
+        .and_then(|b| b.finished_at.as_deref())
+        .is_some_and(|built| earlier(&check.at, built));
+    view! {
+        <span title=at>{text}</span>
+        {stale.then(|| view! { " " <span class="state review">"Before the current build"</span> })}
+    }
+    .into_any()
+}
+
 /// The folder's badges: incomplete, with its counts by reason, and a build that stopped before it finished.
 fn badges(folder: &ManagedFolder) -> AnyView {
     let incomplete = folder.incomplete.as_ref().map(|counts| {
@@ -69,6 +94,7 @@ enum FolderCol {
     SourceSet,
     Profile,
     Build,
+    Checked,
     Files,
     Status,
 }
@@ -84,6 +110,7 @@ impl Grid for FolderItem {
         FolderCol::SourceSet,
         FolderCol::Profile,
         FolderCol::Build,
+        FolderCol::Checked,
         FolderCol::Files,
         FolderCol::Status,
     ];
@@ -95,6 +122,7 @@ impl Grid for FolderItem {
             FolderCol::SourceSet => "Source set",
             FolderCol::Profile => "Selection profile",
             FolderCol::Build => "Current build",
+            FolderCol::Checked => "Last checked",
             FolderCol::Files => "Files",
             FolderCol::Status => "Status",
         }
@@ -126,6 +154,7 @@ impl Grid for FolderItem {
             FolderCol::SourceSet => f.source_set.clone().into_any(),
             FolderCol::Profile => f.profile.clone().into_any(),
             FolderCol::Build => current_build(&f.build),
+            FolderCol::Checked => last_checked(f, false),
             FolderCol::Files => f.files.to_string().into_any(),
             FolderCol::Status => badges(f),
         }
@@ -487,6 +516,8 @@ fn FolderView(folder: ManagedFolder, refresh: RwSignal<u64>) -> impl IntoView {
             <dd>{folder.generation}</dd>
             <dt>"Current build"</dt>
             <dd>{current_build(&folder.build)}</dd>
+            <dt>"Last checked"</dt>
+            <dd>{last_checked(&folder, true)}</dd>
             <dt>"Files"</dt>
             <dd>{folder.files}</dd>
             <dt>"Registered"</dt>
