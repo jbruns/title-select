@@ -7,8 +7,9 @@ use crate::events::{Stream, provide_live, use_live};
 #[cfg(feature = "bench")]
 use crate::screens::Bench;
 use crate::screens::{
-    About, AuditScreen, BuildScreen, DatRevisions, Jobs, ManagedFolderScreen, ManagedFolders,
-    NewProfile, ProfileScreen, Profiles, SelectionScreen, SourceSet, SourceSets,
+    About, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen, IngestFolders, Jobs,
+    ManagedFolderScreen, ManagedFolders, NewProfile, ProfileScreen, Profiles, SelectionScreen,
+    SourceSet, SourceSets,
 };
 
 /// Without the `bench` feature, `/bench` is not a screen.
@@ -32,6 +33,7 @@ pub fn App() -> impl IntoView {
                     <A href="/dat-revisions">"DAT revisions"</A>
                     <A href="/profiles">"Selection profiles"</A>
                     <A href="/managed-folders">"Managed folders"</A>
+                    <A href="/ingest-folders">"Ingest folders"</A>
                     <A href="/jobs">"Jobs"</A>
                 </nav>
                 <StreamStatus />
@@ -50,6 +52,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/managed-folders") view=ManagedFolders />
                     <Route path=path!("/managed-folders/:id") view=ManagedFolderScreen />
                     <Route path=path!("/builds/:id") view=BuildScreen />
+                    <Route path=path!("/ingest-folders") view=IngestFolders />
+                    <Route path=path!("/ingest-folders/:root") view=IngestFolderScreen />
                     <Route path=path!("/jobs") view=Jobs />
                     <Route path=path!("/about") view=About />
                     <Route path=path!("/bench") view=Bench />

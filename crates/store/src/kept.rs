@@ -34,10 +34,63 @@ fn cited_by(kept: i64) -> String {
     format!("kept-file:{kept}")
 }
 
+/// Whose bookkeeping a directory Title Select creates is recorded in: a Managed Folder's (`folder_dirs`,
+/// `folder_temps`, `folder_temp_names`) or an Ingest Folder's (`ingest_dirs`, `ingest_temps`, `ingest_temp_names`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Scope {
+    Managed(i64),
+    Ingest(i64),
+}
+
+impl From<i64> for Scope {
+    fn from(folder: i64) -> Scope {
+        Scope::Managed(folder)
+    }
+}
+
+impl Scope {
+    pub fn id(self) -> i64 {
+        match self {
+            Scope::Managed(id) | Scope::Ingest(id) => id,
+        }
+    }
+
+    /// `sql` with `{dirs}`, `{temps}` and `{temp_names}` replaced by this scope's tables.
+    fn sql(self, sql: &str) -> String {
+        let prefix = match self {
+            Scope::Managed(_) => "folder_",
+            Scope::Ingest(_) => "ingest_",
+        };
+        sql.replace("{dirs}", &format!("{prefix}dirs"))
+            .replace("{temps}", &format!("{prefix}temps"))
+            .replace("{temp_names}", &format!("{prefix}temp_names"))
+    }
+}
+
+/// The temporary entries recorded by identity in `folder`'s scope, by name.
+fn scoped_temps(c: &Connection, folder: Scope) -> Result<HashMap<String, Identity>> {
+    match folder {
+        Scope::Managed(id) => temps(c, id),
+        Scope::Ingest(id) => {
+            let mut stmt =
+                c.prepare("SELECT name, dev, ino FROM ingest_temps WHERE folder_id = ?1")?;
+            let rows = stmt.query_map([id], |r| {
+                Ok((r.get(0)?, Identity::from_sql(r.get(1)?, r.get(2)?)))
+            })?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        }
+    }
+}
+
 /// The directories Builds created in Managed Folder `folder` that outlive them, by name.
-pub(super) fn folder_dirs(c: &Connection, folder: i64) -> Result<HashMap<String, Identity>> {
-    let mut stmt = c.prepare("SELECT name, dev, ino FROM folder_dirs WHERE folder_id = ?1")?;
-    let rows = stmt.query_map([folder], |r| {
+pub(super) fn folder_dirs(
+    c: &Connection,
+    folder: impl Into<Scope>,
+) -> Result<HashMap<String, Identity>> {
+    let folder: Scope = folder.into();
+    let mut stmt =
+        c.prepare(&folder.sql("SELECT name, dev, ino FROM {dirs} WHERE folder_id = ?1"))?;
+    let rows = stmt.query_map([folder.id()], |r| {
         Ok((r.get(0)?, Identity::from_sql(r.get(1)?, r.get(2)?)))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -101,7 +154,7 @@ pub(super) fn is_dir_temp(name: &str) -> bool {
 }
 
 /// A name no other attempt, in this process or another, uses.
-fn unique() -> String {
+pub(super) fn unique() -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -136,17 +189,18 @@ fn is_dir(st: &rustix::fs::Stat) -> bool {
 /// whichever step it stopped at, from the name or identity committed before it.
 pub(super) fn create_dir(
     store: &Store,
-    folder: i64,
+    folder: impl Into<Scope>,
     parent: &FolderDir,
     name: &str,
     key: &str,
 ) -> Result<std::result::Result<FolderDir, String>> {
+    let folder: Scope = folder.into();
     let temp = format!("{name}{DIR_TEMP}{}", unique());
     let temp_key = sibling(key, &temp);
     store.write(|tx| {
         tx.execute(
-            "INSERT INTO folder_temp_names (folder_id, name) VALUES (?1, ?2)",
-            params![folder, temp_key],
+            &folder.sql("INSERT INTO {temp_names} (folder_id, name) VALUES (?1, ?2)"),
+            params![folder.id(), temp_key],
         )?;
         Ok(())
     })?;
@@ -181,12 +235,12 @@ pub(super) fn create_dir(
     let (dev, ino) = id.to_sql();
     store.write(|tx| {
         tx.execute(
-            "INSERT OR REPLACE INTO folder_temps (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)",
-            params![folder, temp_key, dev, ino],
+            &folder.sql("INSERT OR REPLACE INTO {temps} (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)"),
+            params![folder.id(), temp_key, dev, ino],
         )?;
         tx.execute(
-            "DELETE FROM folder_temp_names WHERE folder_id = ?1 AND name = ?2",
-            params![folder, temp_key],
+            &folder.sql("DELETE FROM {temp_names} WHERE folder_id = ?1 AND name = ?2"),
+            params![folder.id(), temp_key],
         )?;
         Ok(())
     })?;
@@ -226,8 +280,8 @@ pub(super) fn create_dir(
     store.write(|tx| {
         record_made(tx, folder, key, id)?;
         tx.execute(
-            "DELETE FROM folder_temps WHERE folder_id = ?1 AND name = ?2",
-            params![folder, temp_key],
+            &folder.sql("DELETE FROM {temps} WHERE folder_id = ?1 AND name = ?2"),
+            params![folder.id(), temp_key],
         )?;
         Ok(())
     })?;
@@ -236,46 +290,46 @@ pub(super) fn create_dir(
 
 /// Records the directory `key` of Managed Folder `folder`, made as `id` and renamed into place: a Build's staging
 /// directory among its temporary entries, which go with it, and any other among the directories that outlive it.
-fn record_made(tx: &Transaction, folder: i64, key: &str, id: Identity) -> Result<()> {
-    let table = if key == STAGING {
-        "folder_temps"
-    } else {
-        "folder_dirs"
-    };
+fn record_made(tx: &Transaction, folder: impl Into<Scope>, key: &str, id: Identity) -> Result<()> {
+    let folder: Scope = folder.into();
+    let table = if key == STAGING { "{temps}" } else { "{dirs}" };
     let (dev, ino) = id.to_sql();
     tx.execute(
-        &format!(
+        &folder.sql(&format!(
             "INSERT OR REPLACE INTO {table} (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)"
-        ),
-        params![folder, key, dev, ino],
+        )),
+        params![folder.id(), key, dev, ino],
     )?;
     Ok(())
 }
 
 /// Whether the directory `key` of Managed Folder `folder` is recorded as made, as [`record_made`] records it.
-fn is_made(c: &Connection, folder: i64, key: &str) -> Result<bool> {
+fn is_made(c: &Connection, folder: impl Into<Scope>, key: &str) -> Result<bool> {
+    let folder: Scope = folder.into();
     Ok(if key == STAGING {
-        temps(c, folder)?.contains_key(key)
+        scoped_temps(c, folder)?.contains_key(key)
     } else {
         folder_dirs(c, folder)?.contains_key(key)
     })
 }
 
-fn forget_name(store: &Store, folder: i64, key: &str) -> Result<()> {
+fn forget_name(store: &Store, folder: impl Into<Scope>, key: &str) -> Result<()> {
+    let folder: Scope = folder.into();
     store.write(|tx| {
         tx.execute(
-            "DELETE FROM folder_temp_names WHERE folder_id = ?1 AND name = ?2",
-            params![folder, key],
+            &folder.sql("DELETE FROM {temp_names} WHERE folder_id = ?1 AND name = ?2"),
+            params![folder.id(), key],
         )?;
         Ok(())
     })
 }
 
-fn forget_temp(store: &Store, folder: i64, key: &str) -> Result<()> {
+fn forget_temp(store: &Store, folder: impl Into<Scope>, key: &str) -> Result<()> {
+    let folder: Scope = folder.into();
     store.write(|tx| {
         tx.execute(
-            "DELETE FROM folder_temps WHERE folder_id = ?1 AND name = ?2",
-            params![folder, key],
+            &folder.sql("DELETE FROM {temps} WHERE folder_id = ?1 AND name = ?2"),
+            params![folder.id(), key],
         )?;
         Ok(())
     })
@@ -283,16 +337,19 @@ fn forget_temp(store: &Store, folder: i64, key: &str) -> Result<()> {
 
 /// Records the temporary folder `key`, made as `id` and never renamed into place, as this store's leftover: it is
 /// left where it is, and never reported as something no build of this store made.
-fn record_leftover(store: &Store, folder: i64, key: &str, id: Identity) -> Result<()> {
+fn record_leftover(store: &Store, folder: impl Into<Scope>, key: &str, id: Identity) -> Result<()> {
+    let folder: Scope = folder.into();
     let (dev, ino) = id.to_sql();
     store.write(|tx| {
         tx.execute(
-            "INSERT OR REPLACE INTO folder_dirs (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)",
-            params![folder, key, dev, ino],
+            &folder.sql(
+                "INSERT OR REPLACE INTO {dirs} (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)",
+            ),
+            params![folder.id(), key, dev, ino],
         )?;
         tx.execute(
-            "DELETE FROM folder_temps WHERE folder_id = ?1 AND name = ?2",
-            params![folder, key],
+            &folder.sql("DELETE FROM {temps} WHERE folder_id = ?1 AND name = ?2"),
+            params![folder.id(), key],
         )?;
         Ok(())
     })
@@ -303,12 +360,13 @@ fn record_leftover(store: &Store, folder: i64, key: &str, id: Identity) -> Resul
 /// set, creates it with [`create_dir`]; otherwise returns `None`.
 fn own_dir(
     store: &Store,
-    folder: i64,
+    folder: impl Into<Scope>,
     parent: &FolderDir,
     name: &str,
     key: &str,
     create: bool,
 ) -> Result<std::result::Result<Option<FolderDir>, String>> {
+    let folder: Scope = folder.into();
     let recorded = store.read(|c| folder_dirs(c, folder))?.get(key).copied();
     let found = match parent.stat(name) {
         Ok(found) => found,
@@ -341,10 +399,11 @@ fn own_dir(
 /// Opens the private folder kept files are deleted from, in the retention area `area` of Managed Folder `folder`.
 fn open_deleting(
     store: &Store,
-    folder: i64,
+    folder: impl Into<Scope>,
     area: &FolderDir,
     create: bool,
 ) -> Result<std::result::Result<Option<FolderDir>, String>> {
+    let folder: Scope = folder.into();
     own_dir(
         store,
         folder,
@@ -355,6 +414,21 @@ fn open_deleting(
     )
 }
 
+/// Opens the retention area of `folder`, through its handle `dir`, and the private folder in it that entries are
+/// deleted from; with `create`, creating either that is absent. `None` when one is absent and `create` is not set.
+pub(super) fn open_area_deleting(
+    store: &Store,
+    folder: impl Into<Scope>,
+    dir: &FolderDir,
+    create: bool,
+) -> Result<std::result::Result<Option<FolderDir>, String>> {
+    let folder: Scope = folder.into();
+    match own_dir(store, folder, dir, RETENTION, RETENTION, create)? {
+        Ok(Some(area)) => open_deleting(store, folder, &area, create),
+        other => Ok(other.map(|_| None)),
+    }
+}
+
 /// Settles each directory Title Select was creating in Managed Folder `folder`, opened as `dir`, when it stopped:
 /// one still under its temporary name, committed by name before it was made or by identity once it was checked, is
 /// recorded as this store's leftover and left, and one already renamed into place, still the directory made, is
@@ -362,9 +436,10 @@ fn open_deleting(
 /// folder's marker shows it is the store's. Returns why the folder could not be read, if it could not.
 pub(super) fn settle_dir_temps(
     store: &Store,
-    folder: i64,
+    folder: impl Into<Scope>,
     dir: &FolderDir,
 ) -> Result<std::result::Result<(), String>> {
+    let folder: Scope = folder.into();
     let is_pending = |key: &str| {
         let (parent, last) = match key.split_once('/') {
             Some((parent, last)) => (Some(parent), last),
@@ -378,11 +453,12 @@ pub(super) fn settle_dir_temps(
                 .is_some_and(|(dest, _)| !dest.is_empty())
     };
     let (temps, names) = store.read(|c| {
-        let mut stmt = c.prepare("SELECT name FROM folder_temp_names WHERE folder_id = ?1")?;
+        let mut stmt =
+            c.prepare(&folder.sql("SELECT name FROM {temp_names} WHERE folder_id = ?1"))?;
         let names = stmt
-            .query_map([folder], |r| r.get::<_, String>(0))?
+            .query_map([folder.id()], |r| r.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
-        Ok((temps(c, folder)?, names))
+        Ok((scoped_temps(c, folder)?, names))
     })?;
     // A name with no identity yet: committed before its directory was made, which may not have been.
     let mut pending: Vec<(String, Option<Identity>)> = temps
@@ -463,11 +539,12 @@ pub(super) fn settle_dir_temps(
 /// it; with `create`, creating either that is absent. `None` when one is absent and `create` is not set.
 pub(super) fn open_retention(
     store: &Store,
-    folder: i64,
+    folder: impl Into<Scope>,
     dir: &FolderDir,
     generation: u64,
     create: bool,
 ) -> Result<std::result::Result<Option<Retention>, String>> {
+    let folder: Scope = folder.into();
     let area = match own_dir(store, folder, dir, RETENTION, RETENTION, create)? {
         Ok(Some(area)) => area,
         other => return Ok(other.map(|_| None)),

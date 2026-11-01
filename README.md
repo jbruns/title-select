@@ -220,6 +220,13 @@ writable = false            # the default
 path = "/data/roms"
 writable = true             # only managed folders may live in a writable root
 
+[roots.downloads]           # an ingest folder, where new files arrive
+path = "/data/downloads/games"
+writable = true             # an ingest root is always declared writable
+kind = "ingest"
+settle_secs = 60            # unchanged this long before an item is assessed (the default)
+# scan_every_minutes = 15   # scan on a schedule; by default only when you ask
+
 [audits]
 keep = 20                   # full audits kept per source set (the default)
 
@@ -313,6 +320,15 @@ incremental audit does, and takes the remaining ZIP members as claims, as for th
 matched against the DAT revision afresh, so an audit against a newer DAT revision reuses the checksums and compares
 them with the new ROMs. The read, reused and claimed counts go to stderr, and `set history` shows each audit's
 evidence.
+
+```sh
+title-select ingest register <ingest root>
+title-select ingest scan <ingest root>
+title-select ingest items <ingest root>
+```
+
+`ingest register` registers a root of kind `ingest` as an ingest folder, writing its marker; see "Ingest folders".
+`ingest scan` scans it now, and `ingest items` lists each item with its state and what is proposed for it.
 
 ## Service
 
@@ -506,6 +522,52 @@ planning until you remove it.
 
 The current build of each managed folder keeps its selection and its audit from being pruned.
 
+### Ingest folders
+
+An ingest folder is a writable root of kind `ingest` where new files arrive, such as a downloader's completed folder
+or a folder you drop files into. There may be several. Registering one writes a marker naming this store; without it,
+scans and every write fail.
+
+A scan reads the folder and changes nothing in it. It is a job you start, or that `scan_every_minutes` queues; the
+folder is not watched. Dotfiles and partial downloads (`.part`, `.!qB`, `.crdownload`, `.tmp`) are ignored. A new or
+changed item is arriving until its size, modification time and change time stay the same for `settle_secs`; then it
+is assessed: hashed once, and matched against the current DAT revision of every source set. Its hashes are reused
+while its device, inode, size, modification time and change time are unchanged, as an incremental audit reuses an
+entry's. A ZIP is opened, here and in audits, only in the canonical layout TorrentZip and mainstream ZIP writers
+produce. Its last end record is the real one, and its comment runs exactly to the end of the file with no other end
+record in it. Its directory ends exactly where that record (or its ZIP64 record, which ends at the locator just
+before it) begins, and starts with a directory header. Its directory declares at most 65535 entries and 64 MiB, and a
+ZIP64 end record carries at most 64 KiB of extensible data. Any other ZIP is refused unread: as unsupported here, as
+unreadable in an audit. Whether a file is a ZIP is decided by how it begins: one that does not begin as a ZIP is a
+loose file, hashed whole, whatever bytes its tail holds, and is never opened as an archive. A ZIP is judged from its
+directory before any member is read. Its members are read only up to the limits of one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all. Each item is one of:
+
+- assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
+  a candidate operator addition, with the system its extension suggests when exactly one registered system uses it;
+  or a DAT you may import;
+- already held, when every source set it matches holds it with a verified payload, or it is a DAT revision already
+  imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
+- unsupported: 7z, RAR, an archive holding archives (by name or by content), a ZIP of several games that no one
+  game accounts for, a ZIP past the limits, or a folder, never read further;
+- unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
+
+Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a
+plan, whatever state it shows; an unsupported or dismissed item can still be discarded unread once settled, and
+dismissing an item never makes it movable. An item with other hard links to it cannot be in a plan. A plan lists each item, where it goes and why, and binds every
+entry of the folder by device, inode, size, modification time, change time and link count. Approving it is refused if
+anything changed.
+Discarding an item moves it into the folder's kept files, `.title-select-retained/<generation>/<name>.kept`. Importing
+a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
+incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
+audit is queued once that job ends; until then it keeps the DAT's file from being cleaned up. Within one filesystem a move is a rename that never replaces anything. What
+arrives is then read back and hashed; anything other than the file planned is put back, or kept if its name was taken
+meanwhile, and the move fails. Across filesystems the file is copied, the copy checked by hash and renamed into place.
+The original is deleted only when the copy exactly matches a ROM of the DAT the plan names; any other original is
+kept, never deleted except by a cleanup you approve. Before deleting, the original is set aside and read back again,
+and deleted only if it is still exactly what was copied. An original that changed meanwhile is left in the folder, or
+kept, and never deleted; the plan's outcome says which. Moves into kept files are always renames.
+A move cut off by a stop is finished when the service next starts, once the folder's root and marker check out.
+
 ### API
 
 Every body is JSON, and every error is `{"error": "...", "job": <id, when one is named>}`.
@@ -559,6 +621,18 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/managed-folders/{id}/kept-deletions` | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
 | `GET /api/v1/kept-deletions/{id}`                  | a plan to delete kept files, with its digest and outcomes    |
 | `POST /api/v1/kept-deletions/{id}/approval`        | approve it: `{"digest"}`; deletes them and answers with each outcome, `409` when they changed |
+| `GET /api/v1/ingest-folders`                       | every ingest root, with its counts of items by state once registered |
+| `POST /api/v1/ingest-folders`                      | register one: `{"root"}`; `201`                              |
+| `GET /api/v1/ingest-folders/{root}`                | one ingest folder                                            |
+| `POST /api/v1/ingest-folders/{root}/scans`         | scan it; `202` with the scan job                             |
+| `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence and proposal      |
+| `GET /api/v1/ingest-folders/{root}/plans`          | its plans, newest first                                      |
+| `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import", "items": [id], "provider"?}`; `201` |
+| `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans kept aside                               |
+| `GET /api/v1/ingest-items/{id}`                    | one item                                                     |
+| `POST /api/v1/ingest-items/{id}/dismissal`         | dismiss it until it changes                                  |
+| `GET /api/v1/ingest-plans/{id}`                    | an ingest plan, with its digest and outcomes                 |
+| `POST /api/v1/ingest-plans/{id}/approval`          | approve it: `{"digest"}`; moves the items and answers with each outcome, `409` when the folder changed |
 | `GET /api/v1/plans/{id}`                           | a plan, with its digest, summary and changes                 |
 | `POST /api/v1/plans/{id}/approval`                 | approve it: `{"digest"}`; `202` with the build job, `409` when the plan changed |
 | `GET /api/v1/builds/{id}`                          | a build and each file it wrote                               |
@@ -685,6 +759,10 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   put back and built files to repack as TorrentZip, reviewed and approved as a plan. The folder shows badges
   for an incomplete folder and an interrupted build, what the folder lacks, and its latest check, which you can run
   again. Each build shows every file it wrote or failed to write.
+- **Ingest folders** lists each ingest root and registers it. Opening one scans it, and lists each item with its
+  state, the evidence assessing it found and what is proposed. You pick items to plan discarding them or importing
+  DATs, review the plan, approve it and see what happened to each item; you can dismiss an item until it changes.
+  It lists the folder's kept files.
 - **Jobs** lists the latest jobs with their kind, state, progress and result, live: it follows `/api/v1/events`, applies `state`
   and `progress` events by the job `version` rule above, and replaces what it holds with each `resync` snapshot,
   which also arrives after a reconnect.

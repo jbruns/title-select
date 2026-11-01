@@ -114,6 +114,15 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
              stay recorded, and plans for the folder are blocked, until it is finished when the service next starts"
         );
     }
+    for (id, reason) in store.recover_ingest_moves(&config)? {
+        match id {
+            0 => eprintln!("title-select: after the last stop: {reason}"),
+            _ => eprintln!(
+                "title-select: a move out of an ingest folder stopped and was not finished: {reason}. It is \
+                 tried again when the service next starts"
+            ),
+        }
+    }
     let listener =
         std::net::TcpListener::bind(listen).map_err(|e| StartError::Listen(listen, e))?;
     listener
@@ -145,6 +154,11 @@ impl Prepared {
     async fn serve(self) -> std::io::Result<()> {
         let state = self.state;
         if !self.hold_jobs {
+            tokio::spawn(jobs::schedule_ingest_scans(
+                state.store.clone(),
+                state.config.clone(),
+                state.jobs.clone(),
+            ));
             tokio::spawn(jobs::run(
                 state.store,
                 state.config,

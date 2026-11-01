@@ -2,6 +2,7 @@
 //! (ADR 0005). Every response body is one of these, or the `schema: 2` [`Report`].
 
 pub mod build;
+pub mod ingest;
 pub mod paths;
 pub mod report;
 pub mod selection;
@@ -39,6 +40,9 @@ pub struct Root {
     pub name: String,
     pub path: String,
     pub writable: bool,
+    /// Whether it is an Ingest Folder.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ingest: bool,
 }
 
 /// A DAT, identified by its provider and header name, with its DAT Revisions, oldest import first.
@@ -395,6 +399,8 @@ pub enum JobKind {
     Build,
     /// Checks a Managed Folder against the store's record of it, read-only.
     Check,
+    /// Scans an Ingest Folder and assesses what settled in it, read-only.
+    IngestScan,
 }
 
 impl JobKind {
@@ -404,6 +410,7 @@ impl JobKind {
             JobKind::Selection => "selection",
             JobKind::Build => "build",
             JobKind::Check => "check",
+            JobKind::IngestScan => "ingest_scan",
         }
     }
 
@@ -413,6 +420,7 @@ impl JobKind {
             JobKind::Selection,
             JobKind::Build,
             JobKind::Check,
+            JobKind::IngestScan,
         ]
         .into_iter()
         .find(|k| k.as_str() == s)
@@ -459,6 +467,9 @@ pub struct Job {
     /// How an Audit Job's Audit gets its checksums.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<AuditEvidence>,
+    /// The Ingest Folder an Ingest Scan Job scans, by its Root's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingest_folder: Option<String>,
     /// Why a Job Failed or was Interrupted.
     pub error: Option<String>,
     pub workers: Workers,

@@ -8,6 +8,7 @@ pub mod config;
 mod dats;
 mod folder_dir;
 mod folders;
+mod ingest;
 mod jobs;
 mod kept;
 mod migrations;
@@ -24,6 +25,7 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
+pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use selections::SelectionInput;
 pub use title_select_api::{
@@ -160,6 +162,27 @@ pub enum Fault {
     AfterFinalize,
     /// After the marker advances, before the store records the Build finished.
     AfterMarker,
+    /// Before a scan reads an item of an Ingest Folder to hash it: not reached when the hashes it read before are
+    /// reused.
+    IngestRead,
+    /// After an entry of an Ingest Folder is checked to be the file a plan moves, just before it is renamed there.
+    IngestRenaming,
+    /// After an entry of an Ingest Folder is renamed to where a plan moves it, before either folder is synced.
+    IngestMoved,
+    /// After the verified copy or repack of an entry of an Ingest Folder is written, before it is renamed into place.
+    IngestStaged,
+    /// After the copy or repack of an entry of an Ingest Folder is renamed into place, before its original is
+    /// disposed of.
+    IngestPublished,
+    /// After the original of a published copy is moved into the private `.deleting` area, before either folder is
+    /// synced.
+    IngestIsolated,
+    /// After a rename puts back what was moved in place of an Ingest Folder's entry, before either folder is synced.
+    IngestRestored,
+    /// After an entry is renamed aside into an Ingest Folder's kept files, before either folder is synced.
+    IngestSetAside,
+    /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
+    IngestDatOwed,
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.
@@ -494,6 +517,74 @@ mod tests {
             Ok(())
         });
         assert!(build_without_a_folder.is_err());
+        let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
+        assert_eq!(foreign_keys, "Integer(1)");
+    }
+
+    #[test]
+    fn the_ingest_migration_rebuilds_jobs_keeping_every_column_of_every_job() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..7]).unwrap();
+        store
+            .write(|tx| {
+                tx.execute_batch(
+                    "INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
+                     INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at)
+                         SELECT id, 'abc', '1', 'Test.dat', 'then' FROM dats;
+                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
+                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
+                     INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, readers, hashers, created_at,
+                                       finished_at, error)
+                         SELECT 'failed', s.id, r.id, 'Operator', 2, 3, 'then', 'later', 'it stopped'
+                         FROM source_sets s, dat_revisions r;
+                     INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, readers, hashers, created_at)
+                         SELECT 'succeeded', s.id, r.id, 'Operator', 1, 1, 'then'
+                         FROM source_sets s, dat_revisions r;",
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        drop(store);
+        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..8]).unwrap();
+        store
+            .write(|tx| {
+                tx.execute("UPDATE jobs SET evidence = 'incremental' WHERE id = 2", [])?;
+                Ok(())
+            })
+            .unwrap();
+        let rows =
+            |c: &Connection, columns: &[String]| -> Result<Vec<Vec<rusqlite::types::Value>>> {
+                let mut stmt = c.prepare(&format!(
+                    "SELECT {} FROM jobs ORDER BY id",
+                    columns.join(", ")
+                ))?;
+                Ok(stmt
+                    .query_map([], |r| (0..columns.len()).map(|i| r.get(i)).collect())?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
+            };
+        let columns: Vec<String> = store
+            .read(|c| {
+                let mut stmt = c.prepare("SELECT name FROM pragma_table_info('jobs')")?;
+                Ok(stmt
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
+            })
+            .unwrap();
+        assert!(columns.contains(&"evidence".to_owned()));
+        let before = store.read(|c| rows(c, &columns)).unwrap();
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+
+        assert_eq!(store.read(|c| rows(c, &columns)).unwrap(), before);
+        let jobs = store.jobs(10).unwrap();
+        assert_eq!(
+            jobs.iter().map(|j| j.evidence).collect::<Vec<_>>(),
+            [
+                Some(title_select_api::AuditEvidence::Incremental),
+                Some(title_select_api::AuditEvidence::Full)
+            ]
+        );
         let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
         assert_eq!(foreign_keys, "Integer(1)");
     }

@@ -110,7 +110,11 @@ impl Grid for JobItem {
             JobCol::Id => format!("#{}", job.id).into_any(),
             JobCol::Kind => kind_label(job.kind).into_any(),
             JobCol::State => state_view(job.state),
-            JobCol::SourceSet => job.source_set.clone().into_any(),
+            JobCol::SourceSet => job
+                .ingest_folder
+                .clone()
+                .unwrap_or_else(|| job.source_set.clone())
+                .into_any(),
             JobCol::DatRevision => short_sha(&job.dat_revision).to_string().into_any(),
             JobCol::Progress => progress_view(&self.0),
             JobCol::Actor => job.actor.clone().into_any(),
@@ -132,6 +136,7 @@ fn kind_label(kind: JobKind) -> &'static str {
         JobKind::Selection => "Selection",
         JobKind::Build => "Build",
         JobKind::Check => "Check",
+        JobKind::IngestScan => "Ingest scan",
     }
 }
 

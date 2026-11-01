@@ -357,7 +357,7 @@ pub(super) fn open_writable_folder(
 pub(super) const MARKER_NEW: &str = ".title-select.new";
 
 /// The largest marker read.
-const MARKER_LIMIT: u64 = 64 << 10;
+pub(super) const MARKER_LIMIT: u64 = 64 << 10;
 
 /// Whether `name` is one of the files Title Select keeps in a Managed Folder for itself.
 pub(super) fn is_own(name: &str) -> bool {
@@ -374,7 +374,7 @@ pub(super) fn is_own(name: &str) -> bool {
 /// only while it is still that file, and the marker must then be that file.
 pub(super) fn write_marker(
     dir: &FolderDir,
-    marker: &Marker,
+    marker: &impl serde::Serialize,
     record: &mut dyn FnMut(Identity) -> Result<()>,
 ) -> Result<()> {
     let mut json = serde_json::to_vec_pretty(marker).expect("a marker always serializes");
@@ -577,6 +577,12 @@ impl Store {
                 add.root
             )));
         }
+        if root.is_ingest() {
+            return Err(Error::Refused(format!(
+                "root {} is an ingest folder; a managed folder needs another writable root",
+                add.root
+            )));
+        }
         let rel = relative_path(&rel)
             .map_err(|e| Error::Refused(format!("{rel}: a managed folder's path {e}")))?;
         if !Path::new(&rel)
@@ -626,9 +632,15 @@ impl Store {
         let would_be = rel
             .split('/')
             .fold(canonical_root.clone(), |p, part| p.join(part));
-        for (root, path, what) in others {
+        let ingest = config
+            .roots
+            .iter()
+            .filter(|(_, r)| r.is_ingest())
+            .map(|(name, _)| (name.clone(), String::new(), "an ingest folder".to_owned()));
+        for (root, path, what) in others.into_iter().chain(ingest) {
             let Some(other) = config.root(&root).and_then(|r| {
                 path.split('/')
+                    .filter(|part| !part.is_empty())
                     .fold(r.path.clone(), |p, part| p.join(part))
                     .canonicalize()
                     .ok()

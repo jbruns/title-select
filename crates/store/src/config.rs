@@ -41,6 +41,38 @@ pub struct Root {
     /// stay in read-only ones.
     #[serde(default)]
     pub writable: bool,
+    /// What the Root is for: `ingest` makes it an Ingest Folder, which must be writable and holds no Source Set or
+    /// Managed Folder.
+    #[serde(default)]
+    pub kind: RootKind,
+    /// For an Ingest Folder: how long, in seconds, an item's size and times must stay unchanged before it is
+    /// assessed.
+    pub settle_secs: Option<u64>,
+    /// For an Ingest Folder: how often, in minutes, it is scanned on its own. Off when absent.
+    pub scan_every_minutes: Option<u64>,
+}
+
+/// How long an item in an Ingest Folder must stay unchanged before it is assessed, when the Root does not say.
+pub const DEFAULT_SETTLE_SECS: u64 = 60;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RootKind {
+    #[default]
+    General,
+    /// An Ingest Folder: where new files arrive, assessed, and moved out only by plans you approve.
+    Ingest,
+}
+
+impl Root {
+    pub fn is_ingest(&self) -> bool {
+        self.kind == RootKind::Ingest
+    }
+
+    /// For an Ingest Folder, the settle interval in seconds.
+    pub fn settle_secs(&self) -> u64 {
+        self.settle_secs.unwrap_or(DEFAULT_SETTLE_SECS)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -264,9 +296,26 @@ impl Config {
         {
             return Err(Error("auth.dev_identity is empty".into()));
         }
-        for name in config.roots.keys() {
+        for (name, root) in &config.roots {
             if name.is_empty() {
                 return Err(Error("a root has an empty name".into()));
+            }
+            if root.is_ingest() && !root.writable {
+                return Err(Error(format!(
+                    "roots.{name} is an ingest folder, which needs writable = true"
+                )));
+            }
+            if !root.is_ingest()
+                && (root.settle_secs.is_some() || root.scan_every_minutes.is_some())
+            {
+                return Err(Error(format!(
+                    "roots.{name}: settle_secs and scan_every_minutes are only for a root with kind = \"ingest\""
+                )));
+            }
+            if root.scan_every_minutes == Some(0) {
+                return Err(Error(format!(
+                    "roots.{name}.scan_every_minutes must be at least 1; leave it out to scan only when you ask"
+                )));
             }
         }
         Ok(config)
@@ -389,6 +438,27 @@ mod tests {
                     "{text}: {error}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn an_ingest_root_is_writable_and_only_it_takes_ingest_settings() {
+        let config = Config::parse(
+            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nscan_every_minutes = 5",
+        )
+        .unwrap();
+        let root = config.root("in").unwrap();
+        assert!(root.is_ingest());
+        assert_eq!(root.settle_secs(), DEFAULT_SETTLE_SECS);
+        assert_eq!(root.scan_every_minutes, Some(5));
+
+        for text in [
+            "[roots.in]\npath = \"/in\"\nkind = \"ingest\"",
+            "[roots.in]\npath = \"/in\"\nsettle_secs = 5",
+            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nscan_every_minutes = 0",
+            "[roots.in]\npath = \"/in\"\nkind = \"other\"",
+        ] {
+            assert!(Config::parse(text).is_err(), "{text}");
         }
     }
 

@@ -36,8 +36,9 @@ builds Selections into it.
 _Avoid_: Library (alone), output
 
 **Ingest Folder**:
-A folder where new files arrive, such as a Downloader's completed folder or a manual drop, that the Operator registers
-for Title Select to assess. Title Select never writes to it.
+A folder where new files arrive, such as a Downloader's completed folder or a manual drop: a writable Root of kind
+`ingest` that the Operator registers for Title Select to assess. Title Select writes to it only through an approved
+plan that names each item, where it goes and why, and only while its marker says it is this store's Ingest Folder.
 _Avoid_: Source (alone), Downloads
 
 **Root**:

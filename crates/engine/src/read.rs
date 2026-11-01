@@ -174,6 +174,18 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
     read
 }
 
+/// Opens `file` as a ZIP archive once its central directory is known to be within bounds.
+fn bounded_archive(file: File) -> Result<zip::ZipArchive<File>, String> {
+    use crate::zipdir::{DirectoryLimits, Gated, open};
+    match open(&file, &DirectoryLimits::default(), || file.try_clone())
+        .map_err(|e| e.to_string())?
+    {
+        Gated::Archive(archive) => archive.map_err(|e| e.to_string()),
+        Gated::Refused(why) => Err(format!("not read: {why}")),
+        Gated::NotZip => Err("not read: it is not a ZIP archive".into()),
+    }
+}
+
 /// Claims each member of the ZIP archive at `path` from its directory: its name, size and CRC32.
 fn claim_file(path: &Path) -> FileRead {
     let mut read = FileRead {
@@ -183,7 +195,7 @@ fn claim_file(path: &Path) -> FileRead {
     };
     let mut zip = match File::open(path)
         .map_err(|e| e.to_string())
-        .and_then(|f| zip::ZipArchive::new(f).map_err(|e| e.to_string()))
+        .and_then(|f| bounded_archive(f).map_err(|e| e.to_string()))
     {
         Ok(zip) => zip,
         Err(e) => {
@@ -248,10 +260,10 @@ fn read_file(
         }
         return (read, stamp);
     }
-    let mut zip = match zip::ZipArchive::new(file) {
+    let mut zip = match bounded_archive(file) {
         Ok(zip) => zip,
         Err(e) => {
-            read.error = Some(e.to_string());
+            read.error = Some(e);
             return (read, stamp);
         }
     };

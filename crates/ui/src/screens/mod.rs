@@ -3,6 +3,7 @@ pub mod audit;
 #[cfg(feature = "bench")]
 mod bench;
 mod dats;
+mod ingest_folders;
 mod jobs;
 mod managed_folders;
 mod profiles;
@@ -14,6 +15,7 @@ pub use audit::AuditScreen;
 #[cfg(feature = "bench")]
 pub use bench::Bench;
 pub use dats::DatRevisions;
+pub use ingest_folders::{IngestFolderScreen, IngestFolders};
 pub use jobs::Jobs;
 pub use managed_folders::{BuildScreen, ManagedFolderScreen, ManagedFolders, PlanABuild};
 pub use profiles::{NewProfile, ProfileScreen, Profiles};

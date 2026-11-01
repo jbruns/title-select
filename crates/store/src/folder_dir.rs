@@ -45,6 +45,12 @@ fn component(name: &str) -> io::Result<&str> {
     Ok(name)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Each directory this thread synced, in order.
+    pub(crate) static SYNCED: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// What a file or directory is, as opposed to the name it is found at: its device and inode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Identity {
@@ -283,6 +289,8 @@ impl FolderDir {
 
     /// Makes the directory's entries durable.
     pub fn sync(&self) -> io::Result<()> {
+        #[cfg(test)]
+        SYNCED.with(|synced| synced.borrow_mut().push(self.path.clone()));
         rustix::fs::fsync(&self.fd).map_err(|e| with_path(&self.path, e.into()))
     }
 

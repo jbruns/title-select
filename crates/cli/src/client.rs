@@ -362,6 +362,7 @@ mod tests {
             profile: None,
             selection: None,
             managed_folder: None,
+            ingest_folder: None,
             plan: None,
             evidence: None,
             error: None,

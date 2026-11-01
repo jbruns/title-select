@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use title_select_api::JobState;
+use title_select_api::ingest::Proposal;
 use title_select_api::selection::SelectionProfile;
 use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
 use title_select_server::Settings;
@@ -78,6 +80,11 @@ enum Command {
     Set {
         #[command(subcommand)]
         command: SetCommand,
+    },
+    /// Manage Ingest Folders: roots of kind `ingest` where new files arrive.
+    Ingest {
+        #[command(subcommand)]
+        command: IngestCommand,
     },
     /// Run the service: the `/api/v1` JSON API and the audit and selection jobs. It holds the store until it stops.
     Serve {
@@ -162,6 +169,27 @@ enum SetCommand {
     List,
     /// List a source set's audits, newest first, with time, DAT revision, counts and evidence.
     History { name: String },
+}
+
+#[derive(Subcommand)]
+enum IngestCommand {
+    /// Register an ingest root as an ingest folder of this store, writing its marker. Title Select scans and
+    /// changes an ingest folder only once it is registered.
+    Register {
+        /// The root's name in the configuration; it must have `kind = "ingest"`.
+        root: String,
+    },
+    /// Scan an ingest folder now: note what arrived, changed or went, and assess each item that has settled.
+    /// Changes nothing in the folder.
+    Scan {
+        /// The ingest root's name.
+        root: String,
+    },
+    /// List an ingest folder's items with their states and what is proposed for each.
+    Items {
+        /// The ingest root's name.
+        root: String,
+    },
 }
 
 /// The package version, then the upstream commits selection is pinned to.
@@ -408,6 +436,69 @@ fn run(cli: Cli) -> Result<(), String> {
                 "{}: added from {}:{}, bound to {}",
                 set.name, set.root, set.path, set.dat
             );
+            Ok(())
+        }
+        Command::Ingest {
+            command: IngestCommand::Register { root },
+        } => {
+            let config = load_config(config)?;
+            let folder = open_store(store)?
+                .register_ingest_folder(&config, &root)
+                .map_err(|e| e.to_string())?;
+            println!(
+                "{}: registered as an ingest folder at {}",
+                folder.root, folder.path
+            );
+            Ok(())
+        }
+        Command::Ingest {
+            command: IngestCommand::Scan { root },
+        } => {
+            let config = load_config(config)?;
+            let job = open_store(store)?
+                .scan_ingest_folder(&config, &root, "the Operator")
+                .map_err(|e| e.to_string())?;
+            match job.error {
+                Some(error) if job.state != JobState::Succeeded => {
+                    Err(format!("the scan of {root} failed: {error}"))
+                }
+                _ => {
+                    println!("{root}: scanned (job {})", job.id);
+                    Ok(())
+                }
+            }
+        }
+        Command::Ingest {
+            command: IngestCommand::Items { root },
+        } => {
+            for item in open_store(store)?
+                .ingest_items(&root)
+                .map_err(|e| e.to_string())?
+            {
+                let proposal = match &item.assessment.proposal {
+                    Some(Proposal::SourceSet {
+                        source_set,
+                        game,
+                        need,
+                    }) => format!("{source_set}: {game} ({})", need.label()),
+                    Some(Proposal::OperatorAddition {
+                        system: Some(system),
+                    }) => {
+                        format!("operator addition for {system}")
+                    }
+                    Some(Proposal::OperatorAddition { system: None }) => {
+                        "operator addition".to_owned()
+                    }
+                    Some(Proposal::DatImport) => "DAT import".to_owned(),
+                    None => item.reason.clone().unwrap_or_default(),
+                };
+                println!(
+                    "{}\t{}\t{}\t{proposal}",
+                    item.id,
+                    item.state.as_str(),
+                    item.name
+                );
+            }
             Ok(())
         }
         Command::Set {
