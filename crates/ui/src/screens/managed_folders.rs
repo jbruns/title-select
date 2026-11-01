@@ -49,6 +49,21 @@ fn current_build(build: &Option<BuildSummary>) -> AnyView {
     }
 }
 
+/// The time now in milliseconds, ticking while the screen is open so that ages stay current without refetching.
+#[derive(Clone, Copy)]
+struct Now(ReadSignal<f64>);
+
+const NOW_TICK: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn provide_now() {
+    let (now, set_now) = signal(js_sys::Date::now());
+    if let Ok(handle) = set_interval_with_handle(move || set_now.set(js_sys::Date::now()), NOW_TICK)
+    {
+        on_cleanup(move || handle.clear());
+    }
+    provide_context(Now(now));
+}
+
 /// When the folder was last checked, how long ago, and whether a build has changed it since. `full` shows the time
 /// as well as the age.
 fn last_checked(folder: &ManagedFolder, full: bool) -> AnyView {
@@ -56,11 +71,16 @@ fn last_checked(folder: &ManagedFolder, full: bool) -> AnyView {
         return "Never checked".into_any();
     };
     let at = when(&check.at);
-    let elapsed = js_sys::Date::now() - js_sys::Date::parse(&check.at);
-    let text = match (elapsed.is_nan(), full) {
-        (true, _) => at.clone(),
-        (false, true) => format!("{at} ({})", age(elapsed)),
-        (false, false) => age(elapsed),
+    let checked = js_sys::Date::parse(&check.at);
+    let now = use_context::<Now>();
+    let title = at.clone();
+    let text = move || {
+        let elapsed = now.map_or_else(js_sys::Date::now, |n| n.0.get()) - checked;
+        match (elapsed.is_nan(), full) {
+            (true, _) => at.clone(),
+            (false, true) => format!("{at} ({})", age(elapsed)),
+            (false, false) => age(elapsed),
+        }
     };
     let stale = folder
         .build
@@ -68,7 +88,7 @@ fn last_checked(folder: &ManagedFolder, full: bool) -> AnyView {
         .and_then(|b| b.finished_at.as_deref())
         .is_some_and(|built| earlier(&check.at, built));
     view! {
-        <span title=at>{text}</span>
+        <span title=title>{text}</span>
         {stale.then(|| view! { " " <span class="state review">"Before the current build"</span> })}
     }
     .into_any()
@@ -164,6 +184,7 @@ impl Grid for FolderItem {
 /// The managed folders, and the form to register another.
 #[component]
 pub fn ManagedFolders() -> impl IntoView {
+    provide_now();
     let live = use_live();
     let folders = LocalResource::new(move || {
         live.settled.track();
@@ -450,6 +471,7 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
 /// One managed folder: what it is bound to, its latest plan, its builds and its files.
 #[component]
 pub fn ManagedFolderScreen() -> impl IntoView {
+    provide_now();
     let params = use_params_map();
     let id = move || {
         params
