@@ -184,6 +184,8 @@ fn open_checked(
 /// Every top-level entry of the folder a scan does not pass over, as it is now, by name: identity, size, modification
 /// and change times, and link count. A write that puts the size and modification time back still changes the change
 /// time, as does a link made to an entry under a name a scan passes over.
+// `st_nlink` is narrower than u64 on some platforms.
+#[allow(clippy::unnecessary_cast)]
 fn fingerprint(dir: &FolderDir) -> std::io::Result<Vec<FolderEntry>> {
     let mut found = Vec::new();
     for (name, _) in dir.entries()? {
