@@ -116,6 +116,9 @@ pub trait PayloadReads: Sync {
     /// Records a read this Audit made of every payload of the file at `path`. A file with any payload that could
     /// not be read is not recorded.
     fn record(&self, path: &str, read: &PayloadRead);
+    /// Records the stamp the file at `path` had when this Audit could not read one of its payloads, so that what is
+    /// done about it later can tell whether it changed since.
+    fn record_unreadable(&self, _path: &str, _stamp: &FileStamp) {}
 }
 
 /// Whether `name`, an entry anywhere in a Source Set, is one Title Select keeps there for itself and an Audit passes

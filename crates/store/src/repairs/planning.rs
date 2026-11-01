@@ -22,6 +22,8 @@ pub(super) struct Inputs<'a> {
     /// Every regular file in the Source Set now, by path relative to its folder.
     pub files: &'a BTreeMap<String, Seen>,
     pub stamps: &'a HashMap<String, FileStamp>,
+    /// The stamp of each file the Audit could not read every payload of, when it could stat it.
+    pub unreadable: &'a HashMap<String, FileStamp>,
     /// Whether the file at a path is stored as TorrentZip.
     pub torrentzip: &'a dyn Fn(&str) -> bool,
     pub candidates: &'a [FillCandidate],
@@ -176,10 +178,18 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
         let unreadable = entries.iter().any(|e| e.finding == Finding::Unreadable);
-        let unchanged = match i.stamps.get(*path) {
-            Some(stamp) => as_read(seen, stamp),
-            None => unreadable,
+        let stamp = match unreadable {
+            true => i.unreadable.get(*path),
+            false => i.stamps.get(*path),
         };
+        let unchanged = stamp.is_some_and(|stamp| as_read(seen, stamp));
+        if unreadable && stamp.is_none() {
+            notes.push(format!(
+                "{path} could not be read by the audit, which could not tell what it was then, so it is left as it \
+                 is; audit again to repair it"
+            ));
+            continue;
+        }
         if !unchanged {
             notes.push(format!(
                 "{path} changed since the audit read it, so it is left as it is; audit again to repair it"
@@ -209,6 +219,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     // Conflicting Entries first: what you choose for each decides what a Game may be written from.
     let mut applied_conflicts: BTreeSet<(&str, Option<&str>)> = BTreeSet::new();
     let mut kept_conflicts: BTreeSet<&str> = BTreeSet::new();
+    // Files holding a Conflicting Entry you left: never read from, displaced or kept aside by anything else.
+    let mut left_conflicts: BTreeSet<&str> = BTreeSet::new();
     for (path, file) in &usable {
         for entry in file
             .entries
@@ -235,7 +247,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 RepairChoice::KeepAside => {
                     kept_conflicts.insert(path);
                 }
-                RepairChoice::Leave => {}
+                RepairChoice::Leave => {
+                    left_conflicts.insert(path);
+                }
             }
             referenced.insert(path);
             proposed.push(Proposed {
@@ -289,7 +303,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         // conflicting entry you chose to take as the ROM it matches.
         let mut sources: Vec<Option<(u8, &str, &Entry)>> = vec![None; roms.len()];
         for (path, file) in &usable {
-            if file.unreadable || kept_conflicts.contains(path) {
+            if file.unreadable || kept_conflicts.contains(path) || left_conflicts.contains(path) {
                 continue;
             }
             for entry in &file.entries {
@@ -317,6 +331,18 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             }
         }
         let occupant = i.files.contains_key(&target).then_some(target.as_str());
+        let left_in_way = |path: &str| {
+            format!(
+                "{game} is left as it is: {path} is in the way, and it holds a conflicting entry you chose to leave; \
+                 choose to keep that entry aside to repair it"
+            )
+        };
+        if let Some(occupant) = occupant
+            && left_conflicts.contains(occupant)
+        {
+            notes.push(left_in_way(occupant));
+            continue;
+        }
         if sources.iter().all(Option::is_some) {
             let sources: Vec<(u8, &str, &Entry)> = sources.into_iter().flatten().collect();
             let names: BTreeSet<&str> = roms.iter().map(|r| r.name.as_str()).collect();
@@ -450,6 +476,10 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .map(|(path, _)| *path)
             .filter(|path| !kept_conflicts.contains(path))
             .collect();
+        if let Some(path) = attributable.iter().find(|p| left_conflicts.contains(**p)) {
+            notes.push(left_in_way(path));
+            continue;
+        }
         let Some(candidate) = i
             .candidates
             .iter()
@@ -624,6 +654,47 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         }
     }
     proposed.extend(aside);
+
+    // What you chose to keep aside is kept aside even when it is the last copy of a ROM, which the item then says:
+    // it can be restored from the kept files.
+    let applied = |p: &&Proposed| p.item.chosen != RepairChoice::Leave;
+    let produced: BTreeSet<&str> = proposed
+        .iter()
+        .filter(applied)
+        .filter_map(|p| p.produces.as_deref())
+        .collect();
+    let displaced: BTreeSet<&str> = proposed
+        .iter()
+        .filter(applied)
+        .flat_map(|p| p.displaces.iter().map(|(path, _)| path.as_str()))
+        .collect();
+    let last: Vec<(usize, Vec<String>)> = proposed
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| !p.checked && p.item.chosen == RepairChoice::KeepAside)
+        .filter_map(|(n, p)| {
+            let lost: BTreeSet<String> = p
+                .displaces
+                .iter()
+                .filter_map(|(path, _)| usable.get(path.as_str()))
+                .flat_map(|file| file.holds())
+                .filter(|rom| {
+                    !produced.contains(rom.0.as_str())
+                        && !held_by
+                            .get(rom)
+                            .is_some_and(|by| by.iter().any(|p| !displaced.contains(p)))
+                })
+                .map(|(game, name)| format!("{name} of {game}"))
+                .collect();
+            (!lost.is_empty()).then(|| (n, lost.into_iter().collect()))
+        })
+        .collect();
+    for (n, lost) in last {
+        proposed[n].item.note = Some(format!(
+            "this keeps aside the last copy in the source set of {}; you can restore it from the kept files",
+            lost.join(", ")
+        ));
+    }
 
     let steps = steps_of(i, &proposed);
     Ok(Planned {

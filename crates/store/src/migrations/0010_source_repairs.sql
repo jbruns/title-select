@@ -12,6 +12,18 @@ CREATE TABLE source_folders (
     marker_temp_dev INTEGER,
     marker_temp_ino INTEGER
 );
+-- The stamp each file of a Source Set had when its last Audit could not read one of its payloads, as payload_reads
+-- records one it read in full, so that a repair tells whether it changed since.
+CREATE TABLE unreadable_reads (
+    source_set_id INTEGER NOT NULL REFERENCES source_sets (id),
+    path TEXT NOT NULL,
+    dev INTEGER NOT NULL,
+    ino INTEGER NOT NULL,
+    size INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    ctime_ns INTEGER NOT NULL,
+    PRIMARY KEY (source_set_id, path)
+);
 -- As ingest_dirs, ingest_temps and ingest_temp_names, for the directories a repair creates in a Source Set.
 CREATE TABLE source_dirs (
     folder_id INTEGER NOT NULL REFERENCES source_sets (id),

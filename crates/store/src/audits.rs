@@ -134,6 +134,10 @@ impl PayloadReads for StoredReads<'_> {
             .and_then(|members| {
                 self.store.write(|tx| {
                     tx.execute(
+                        "DELETE FROM unreadable_reads WHERE source_set_id = ?1 AND path = ?2",
+                        params![self.set_id, path],
+                    )?;
+                    tx.execute(
                         "INSERT OR REPLACE INTO payload_reads
                              (source_set_id, path, dev, ino, size, mtime_ns, ctime_ns, read_at, job_id, members)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -153,6 +157,29 @@ impl PayloadReads for StoredReads<'_> {
                     Ok(())
                 })
             });
+        if let Err(err) = recorded {
+            self.keep(err);
+        }
+    }
+
+    fn record_unreadable(&self, path: &str, stamp: &FileStamp) {
+        let recorded = self.store.write(|tx| {
+            tx.execute(
+                "INSERT OR REPLACE INTO unreadable_reads
+                     (source_set_id, path, dev, ino, size, mtime_ns, ctime_ns)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    self.set_id,
+                    path,
+                    stamp.dev as i64,
+                    stamp.ino as i64,
+                    stamp.size as i64,
+                    stamp.mtime_ns as i64,
+                    stamp.ctime_ns as i64,
+                ],
+            )?;
+            Ok(())
+        });
         if let Err(err) = recorded {
             self.keep(err);
         }
@@ -344,6 +371,16 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
     for path in recorded.iter().filter(|p| !found.contains(p.as_str())) {
         tx.execute(
             "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+            params![set_id, path],
+        )?;
+    }
+    let unreadable: Vec<String> = tx
+        .prepare("SELECT path FROM unreadable_reads WHERE source_set_id = ?1")?
+        .query_map([set_id], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for path in unreadable.iter().filter(|p| !found.contains(p.as_str())) {
+        tx.execute(
+            "DELETE FROM unreadable_reads WHERE source_set_id = ?1 AND path = ?2",
             params![set_id, path],
         )?;
     }

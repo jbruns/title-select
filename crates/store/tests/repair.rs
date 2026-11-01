@@ -355,6 +355,73 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
 }
 
 #[test]
+fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_synced() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    env.approve(&env.plan());
+    let id = env.store.source_kept_files("Alpha").unwrap()[0].id;
+    let deletion = env
+        .store
+        .plan_source_kept_deletion(
+            "Alpha",
+            &PlanKeptDeletion {
+                ids: vec![id],
+                all: false,
+            },
+        )
+        .unwrap();
+    env.store.inject_fault(Some(Fault::SourceKeptMoved(id)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.approve_source_kept_deletion(
+            &env.config,
+            deletion.id,
+            &deletion.digest,
+            "Operator",
+        )
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    let moved = env.listing();
+    let slot = moved
+        .iter()
+        .find(|p| p.starts_with(".title-select-retained/.deleting/"))
+        .unwrap_or_else(|| panic!("{moved:?}"))
+        .clone();
+    let recover_until_synced = || {
+        env.store.inject_fault(Some(Fault::SourceKeptSynced(id)));
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.store.recover_source_kept_deletions(&env.config)
+        }));
+        env.store.inject_fault(None);
+        assert!(ran.is_err(), "recovery decided before it synced: {ran:?}");
+        assert!(
+            env.store
+                .source_kept_deletion(deletion.id)
+                .unwrap()
+                .finished_at
+                .is_none()
+        );
+    };
+
+    // Found in the slot it was moved to.
+    recover_until_synced();
+    assert!(env.listing().contains(&slot));
+    // Already gone from both places.
+    std::fs::remove_file(env.set().join(&slot)).unwrap();
+    recover_until_synced();
+
+    assert!(
+        env.store
+            .recover_source_kept_deletions(&env.config)
+            .unwrap()
+            .is_empty()
+    );
+    let done = env.store.source_kept_deletion(deletion.id).unwrap();
+    assert!(done.finished_at.is_some(), "{done:?}");
+    assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
+}
+
+#[test]
 fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
     let env = Env::new();
     env.put("readme.txt", b"hello");
@@ -453,6 +520,13 @@ fn a_conflicting_entry_you_choose_to_keep_aside_is_kept_aside() {
     env.audit(AuditEvidence::Full);
 
     let plan = env.plan_with(&[("entry:Combat (USA).a26", RepairChoice::KeepAside)]);
+    let note = item(&plan, "entry:Combat (USA).a26").note.as_deref();
+    assert!(
+        note.is_some_and(
+            |n| n.contains("last copy in the source set of Pong (USA).a26 of Pong (USA)")
+        ),
+        "{note:?}"
+    );
     env.approve(&plan);
 
     assert_eq!(
@@ -871,4 +945,80 @@ fn a_marker_that_appears_while_the_first_one_is_written_is_never_replaced() {
     );
     assert_eq!(std::fs::read(&marker).unwrap(), b"someone else's");
     assert!(env.set().join("readme.txt").exists());
+}
+
+#[test]
+fn an_unreadable_entry_is_replaced_only_while_it_is_as_the_audit_found_it() {
+    let env = Env::new();
+    env.put("Yars (USA).zip", b"PK\x03\x04 not really a zip");
+    env.audit(AuditEvidence::Full);
+    assert_eq!(
+        env.latest_report().entries[0].finding,
+        Finding::Unreadable,
+        "{:?}",
+        env.latest_report().entries
+    );
+    env.ingest("yars.a26", |p| write_file(p, b"yars"));
+    assert_eq!(
+        item(&env.plan(), "game:Yars (USA)").kind,
+        RepairKind::Replace
+    );
+
+    env.put("Yars (USA).zip", b"PK\x03\x04 something else since");
+    let plan = env.plan();
+
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.key != "game:Yars (USA)"),
+        "{:#?}",
+        plan.content.items
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Yars (USA).zip changed since the audit")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+#[test]
+fn a_game_filled_from_ingest_never_displaces_a_conflicting_entry_you_left() {
+    let env = Env::new();
+    write_zip(
+        &env.set().join("Combat (USA).zip"),
+        &[("Combat (USA).a26", b"pong")],
+    );
+    env.audit(AuditEvidence::Full);
+    env.ingest("combat.a26", |p| write_file(p, b"combat"));
+
+    let plan = env.plan();
+
+    assert_eq!(
+        item(&plan, "entry:Combat (USA).zip#Combat (USA).a26").chosen,
+        RepairChoice::Leave
+    );
+    assert!(plan.content.steps.is_empty(), "{:#?}", plan.content.steps);
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("conflicting entry you chose to leave")),
+        "{:?}",
+        plan.content.notes
+    );
+
+    let kept = env.plan_with(&[(
+        "entry:Combat (USA).zip#Combat (USA).a26",
+        RepairChoice::KeepAside,
+    )]);
+    assert_eq!(
+        item(&kept, "game:Combat (USA)").kind,
+        RepairKind::Fill,
+        "{:#?}",
+        kept.content.items
+    );
 }

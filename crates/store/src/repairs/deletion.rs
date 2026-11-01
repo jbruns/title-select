@@ -352,6 +352,12 @@ impl Store {
             Ok(found) => found.map(|r| r.generation),
             Err(why) => return Ok(outcome(file, false, Some(why))),
         };
+        // A stop may have left a rename unsynced: nothing is decided or recorded until both folders are synced.
+        if let Some(generation) = &generation {
+            generation.sync().map_err(io)?;
+        }
+        deleting.sync().map_err(io)?;
+        self.fault_point(crate::Fault::SourceKeptSynced(file.id));
         let in_slot = deleting.stat(&slot).map_err(io)?.is_some();
         if !in_slot {
             let Some(generation) = &generation else {
@@ -381,6 +387,7 @@ impl Store {
                 self.settle_source_kept(file, "kept", Some(&why))?;
                 return Ok(outcome(file, false, Some(why)));
             }
+            self.fault_point(crate::Fault::SourceKeptMoved(file.id));
             generation.sync().map_err(io)?;
             deleting.sync().map_err(io)?;
         }

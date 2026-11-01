@@ -499,7 +499,8 @@ impl Store {
         let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
         let folder = dir.identity().map_err(io_err)?;
         let (fingerprint, files) = walk(&dir).map_err(io_err)?;
-        let stamps = self.read(|c| payload_stamps(c, set.id))?;
+        let stamps = self.read(|c| payload_stamps(c, set.id, "payload_reads"))?;
+        let unreadable = self.read(|c| payload_stamps(c, set.id, "unreadable_reads"))?;
         let candidates =
             self.read(|c| fill_candidates(c, &record.name, &report.dat_revision.sha256))?;
         let torrentzip = |path: &str| -> bool {
@@ -519,6 +520,7 @@ impl Store {
             dat: &dat,
             files: &files,
             stamps: &stamps,
+            unreadable: &unreadable,
             torrentzip: &torrentzip,
             candidates: &candidates,
             choices: &request.choices,
@@ -1798,11 +1800,12 @@ impl Store {
     }
 }
 
-/// The stamp each file had when an Audit last read its payloads, by path.
-fn payload_stamps(c: &Connection, set: i64) -> Result<HashMap<String, FileStamp>> {
-    let mut stmt = c.prepare(
-        "SELECT path, dev, ino, size, mtime_ns, ctime_ns FROM payload_reads WHERE source_set_id = ?1",
-    )?;
+/// The stamp each file had when an Audit last read its payloads, by path: from `table`, `payload_reads` for files
+/// read in full, or `unreadable_reads` for those with a payload it could not read.
+fn payload_stamps(c: &Connection, set: i64, table: &str) -> Result<HashMap<String, FileStamp>> {
+    let mut stmt = c.prepare(&format!(
+        "SELECT path, dev, ino, size, mtime_ns, ctime_ns FROM {table} WHERE source_set_id = ?1"
+    ))?;
     Ok(stmt
         .query_map([set], |r| {
             Ok((

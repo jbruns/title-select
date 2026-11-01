@@ -197,6 +197,12 @@ pub enum Fault {
     RepairMarkerWritten,
     /// After a Source Set's first marker is renamed into place, before its folder is synced and the marker recorded.
     RepairMarkerPublished,
+    /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
+    /// either folder is synced.
+    SourceKeptMoved(i64),
+    /// After both folders a deletion of the kept file of a Source Set with this id touches are synced, before it is
+    /// checked, deleted or recorded.
+    SourceKeptSynced(i64),
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.
