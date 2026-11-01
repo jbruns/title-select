@@ -155,8 +155,8 @@ impl Store {
         })
     }
 
-    /// Drops the blob of every DAT Revision that no retained or running Audit, and no Queued or Running Job, refers
-    /// to, that is not the newest imported revision of its DAT (ADR 0003), and that is not held as restored. The row
+    /// Drops the blob of every DAT Revision that no retained or running Audit, no Queued or Running Job, and no
+    /// Audit a DAT import from an Ingest Folder still owes refers to, that is not the newest imported revision of its DAT (ADR 0003), and that is not held as restored. The row
     /// stays. Returns the SHA-256s whose blobs were dropped.
     pub fn retain_blobs(&self) -> Result<Vec<String>> {
         self.with_writer(|conn| {
@@ -174,6 +174,8 @@ impl Store {
                            SELECT 1 FROM jobs j WHERE j.dat_revision_id = r.id AND j.state IN ('queued', 'running'))
                        AND NOT EXISTS (
                            SELECT 1 FROM selections s WHERE s.dat_revision_id = r.id AND s.pruned_at IS NULL)
+                       AND NOT EXISTS (
+                           SELECT 1 FROM ingest_reaudits o WHERE o.sha256 = r.sha256 AND o.fulfilled_at IS NULL)
                      ORDER BY r.id",
                 )?
                 .query_map([], |r| r.get(0))?

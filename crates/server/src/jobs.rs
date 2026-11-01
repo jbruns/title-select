@@ -124,7 +124,12 @@ pub async fn run(
                 tokio::task::spawn_blocking(move || store.fulfil_ingest_reaudits()).await
             };
             match owed {
-                Ok(Ok(queued)) => queued.into_iter().for_each(|job| jobs.changed(job)),
+                Ok(Ok(owed)) => {
+                    for why in owed.failed {
+                        eprintln!("title-select: cannot queue an owed audit: {why}");
+                    }
+                    owed.queued.into_iter().for_each(|job| jobs.changed(job));
+                }
                 Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
                 Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
             }

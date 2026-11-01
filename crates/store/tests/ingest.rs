@@ -811,7 +811,13 @@ fn an_audit_a_dat_import_owes_is_queued_once_the_job_in_its_way_ends_or_on_recov
                 .collect()
         };
         assert_eq!(queued(&env), [(blocking.id, Some(AuditEvidence::Full))]);
-        assert!(env.store.fulfil_ingest_reaudits().unwrap().is_empty());
+        assert!(
+            env.store
+                .fulfil_ingest_reaudits()
+                .unwrap()
+                .queued
+                .is_empty()
+        );
 
         env.store.claim_job().unwrap().unwrap();
         env.store.fail_job(blocking.id, "stopped").unwrap();
@@ -822,15 +828,113 @@ fn an_audit_a_dat_import_owes_is_queued_once_the_job_in_its_way_ends_or_on_recov
                     .unwrap()
                     .is_empty()
             ),
-            false => assert_eq!(env.store.fulfil_ingest_reaudits().unwrap().len(), 1),
+            false => assert_eq!(env.store.fulfil_ingest_reaudits().unwrap().queued.len(), 1),
         }
 
         let owed = queued(&env);
         assert_eq!(owed.len(), 1, "{owed:?}");
         assert_eq!(owed[0].1, Some(AuditEvidence::Incremental));
         assert!(
-            env.store.fulfil_ingest_reaudits().unwrap().is_empty(),
+            env.store
+                .fulfil_ingest_reaudits()
+                .unwrap()
+                .queued
+                .is_empty(),
             "queued once"
         );
     }
+}
+
+#[test]
+fn an_owed_audit_holds_its_revisions_dat_until_its_job_does() {
+    let env = Env::new();
+    let mut games = alpha_games();
+    games.push(("Adventure (USA)", vec![rom("Adventure (USA).a26", b"adv")]));
+    write_named_dat(
+        &env.dir("in"),
+        "Alpha System (2).dat",
+        "Alpha System",
+        "2",
+        &games,
+    );
+    games.push(("Yars (USA)", vec![rom("Yars (USA).a26", b"yars")]));
+    let newest = write_named_dat(&env.dir("dats"), "alpha3.dat", "Alpha System", "3", &games);
+    env.scan();
+    env.scan();
+    let sha = env.item("Alpha System (2).dat").assessment.sha256.unwrap();
+    let plan = env.plan(IngestAction::DatImport, &["Alpha System (2).dat"]);
+    let blocking = env
+        .store
+        .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full)
+        .unwrap();
+    env.store
+        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.import_dat(&newest, "Test", None).unwrap();
+
+    env.store.retain_blobs().unwrap();
+
+    assert!(
+        env.store.blob_path(&sha).exists(),
+        "the owed audit holds it"
+    );
+    env.store.claim_job().unwrap().unwrap();
+    env.store.fail_job(blocking.id, "stopped").unwrap();
+    let owed = env.store.fulfil_ingest_reaudits().unwrap();
+    assert_eq!(owed.queued.len(), 1, "{owed:?}");
+    assert!(owed.failed.is_empty(), "{owed:?}");
+    env.store.retain_blobs().unwrap();
+    assert!(env.store.blob_path(&sha).exists(), "its job holds it now");
+}
+
+#[test]
+fn an_owed_audit_whose_revision_is_not_imported_yet_stays_owed() {
+    let env = Env::new();
+    write_named_dat(
+        &env.dir("in"),
+        "Alpha System (2).dat",
+        "Alpha System",
+        "2",
+        &alpha_games()[..2],
+    );
+    env.scan();
+    env.scan();
+    let plan = env.plan(IngestAction::DatImport, &["Alpha System (2).dat"]);
+    let (reached, wait) = std::sync::mpsc::channel();
+    let (go, gate) = std::sync::mpsc::channel::<()>();
+    let gate = std::sync::Mutex::new(gate);
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |at: Fault| {
+            if at == Fault::IngestDatOwed {
+                reached.send(()).unwrap();
+                gate.lock().unwrap().recv().unwrap();
+            }
+        })));
+
+    let applied = std::thread::scope(|scope| {
+        let approving = scope.spawn(|| {
+            env.store
+                .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+                .unwrap()
+        });
+        wait.recv().unwrap();
+        let meanwhile = env.store.fulfil_ingest_reaudits().unwrap();
+        assert!(
+            meanwhile.queued.is_empty() && meanwhile.failed.is_empty(),
+            "{meanwhile:?}"
+        );
+        go.send(()).unwrap();
+        approving.join().unwrap()
+    });
+
+    assert!(applied.outcomes[0].moved, "{applied:?}");
+    let audits: Vec<Option<AuditEvidence>> = env
+        .store
+        .jobs(10)
+        .unwrap()
+        .into_iter()
+        .filter(|j| j.kind == JobKind::Audit && j.state == title_select_api::JobState::Queued)
+        .map(|j| j.evidence)
+        .collect();
+    assert_eq!(audits, [Some(AuditEvidence::Incremental)]);
 }

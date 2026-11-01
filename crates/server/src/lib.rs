@@ -114,11 +114,14 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
              stay recorded, and plans for the folder are blocked, until it is finished when the service next starts"
         );
     }
-    for (_, reason) in store.recover_ingest_moves(&config)? {
-        eprintln!(
-            "title-select: a move out of an ingest folder stopped and was not finished: {reason}. It is tried \
-             again when the service next starts"
-        );
+    for (id, reason) in store.recover_ingest_moves(&config)? {
+        match id {
+            0 => eprintln!("title-select: after the last stop: {reason}"),
+            _ => eprintln!(
+                "title-select: a move out of an ingest folder stopped and was not finished: {reason}. It is \
+                 tried again when the service next starts"
+            ),
+        }
     }
     let listener =
         std::net::TcpListener::bind(listen).map_err(|e| StartError::Listen(listen, e))?;

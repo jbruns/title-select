@@ -325,6 +325,14 @@ fn stat_params(seen: &Seen) -> (i64, i64, i64, String, String) {
     )
 }
 
+/// What [`Store::fulfil_ingest_reaudits`] did: the Audit Jobs it queued, and each owed Audit it could not queue,
+/// with why.
+#[derive(Debug, Default)]
+pub struct OwedAudits {
+    pub queued: Vec<Job>,
+    pub failed: Vec<String>,
+}
+
 /// What assessing an item found, to be stored.
 struct Found {
     state: ItemState,
@@ -1606,7 +1614,20 @@ impl Store {
             }
             Ok(())
         })?;
-        let (revision, outcome) = self.import_dat_bytes(&bytes, &item.name, provider, None)?;
+        self.fault_point(crate::Fault::IngestDatOwed);
+        let imported = self.import_dat_bytes(&bytes, &item.name, provider, None);
+        if let Err(err) = &imported {
+            let why = format!("the import failed: {err}");
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE ingest_reaudits SET fulfilled_at = ?3, error = ?4
+                     WHERE plan_id = ?1 AND item_id = ?2 AND fulfilled_at IS NULL",
+                    params![plan, item.item, now(), why],
+                )?;
+                Ok(())
+            })?;
+        }
+        let (revision, outcome) = imported?;
         let mut done = vec![match outcome {
             ImportOutcome::Added => {
                 format!("imported {} revision {}", revision.dat(), revision.version)
@@ -1625,19 +1646,32 @@ impl Store {
         self.fulfil_ingest_reaudits()?;
         let owed = self.read(|c| {
             let mut stmt = c.prepare(
-                "SELECT s.name, a.job_id FROM ingest_reaudits a JOIN source_sets s ON s.id = a.source_set_id
+                "SELECT s.name, a.job_id, a.fulfilled_at IS NOT NULL, a.error
+                 FROM ingest_reaudits a JOIN source_sets s ON s.id = a.source_set_id
                  WHERE a.plan_id = ?1 AND a.item_id = ?2 ORDER BY s.name",
             )?;
             Ok(stmt
                 .query_map(params![plan, item.item], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<i64>>(1)?,
+                        r.get::<_, bool>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                    ))
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })?;
-        for (set, job) in owed {
-            done.push(match job {
-                Some(job) => format!("queued an incremental audit of {set} with it: job {job}"),
-                None => format!(
+        for (set, job, ended, error) in owed {
+            done.push(match (job, ended, error) {
+                (Some(job), _, _) => format!("queued an incremental audit of {set} with it: job {job}"),
+                (None, true, error) => format!(
+                    "cannot queue an incremental audit of {set} with it: {}",
+                    error.unwrap_or_default()
+                ),
+                (None, false, Some(error)) => format!(
+                    "an incremental audit of {set} with it is owed and tried again once a job ends: {error}"
+                ),
+                (None, false, None) => format!(
                     "an incremental audit of {set} with it is queued as soon as the job running now ends"
                 ),
             });
@@ -1645,15 +1679,18 @@ impl Store {
         Ok(done)
     }
 
-    /// Queues each incremental Audit a DAT imported from an Ingest Folder owes and no other Job stands in the way of.
-    /// Returns the Jobs queued.
-    pub fn fulfil_ingest_reaudits(&self) -> Result<Vec<Job>> {
+    /// Queues each incremental Audit a DAT imported from an Ingest Folder owes, once its revision is imported and
+    /// no other Job stands in the way. One whose revision is not imported yet stays owed: its import may still be
+    /// under way. One that cannot be queued at all ends with why; one that failed only this time stays owed with
+    /// why. Neither stops the others.
+    pub fn fulfil_ingest_reaudits(&self) -> Result<OwedAudits> {
         let owed = self.read(|c| {
             let mut stmt = c.prepare(
-                "SELECT a.id, s.name, a.sha256, a.actor, a.readers, a.hashers,
-                        EXISTS (SELECT 1 FROM dat_revisions r WHERE r.sha256 = a.sha256)
+                "SELECT a.id, s.name, a.sha256, a.actor, a.readers, a.hashers
                  FROM ingest_reaudits a JOIN source_sets s ON s.id = a.source_set_id
-                 WHERE a.fulfilled_at IS NULL ORDER BY a.id",
+                 WHERE a.fulfilled_at IS NULL
+                   AND EXISTS (SELECT 1 FROM dat_revisions r WHERE r.sha256 = a.sha256)
+                 ORDER BY a.id",
             )?;
             Ok(stmt
                 .query_map([], |r| {
@@ -1664,44 +1701,67 @@ impl Store {
                         r.get::<_, String>(3)?,
                         r.get::<_, i64>(4)?,
                         r.get::<_, i64>(5)?,
-                        r.get::<_, bool>(6)?,
                     ))
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })?;
-        let mut queued = Vec::new();
-        for (id, set, sha, actor, readers, hashers, imported) in owed {
-            // A stop between recording what an import owes and the import itself owes nothing.
-            let job = match imported {
-                false => None,
-                true => {
-                    let workers = Workers {
-                        readers: readers as usize,
-                        hashers: hashers as usize,
-                    };
-                    match self.enqueue_audit(
-                        &set,
-                        Some(&sha),
-                        &actor,
-                        workers,
-                        AuditEvidence::Incremental,
-                    ) {
-                        Ok(job) => Some(job),
-                        Err(Error::JobActive { .. }) => continue,
-                        Err(err) => return Err(err),
-                    }
-                }
+        let mut result = OwedAudits::default();
+        for (id, set, sha, actor, readers, hashers) in owed {
+            let workers = Workers {
+                readers: readers as usize,
+                hashers: hashers as usize,
             };
-            self.write(|tx| {
+            // The Job holds the revision's blob from when it is queued, before the obligation stops holding it.
+            let (job, ended, error) = match self.enqueue_audit(
+                &set,
+                Some(&sha),
+                &actor,
+                workers,
+                AuditEvidence::Incremental,
+            ) {
+                Ok(job) => (Some(job), true, None),
+                Err(Error::JobActive { .. }) => continue,
+                Err(err @ (Error::NotFound(_) | Error::Refused(_) | Error::Conflict(_))) => {
+                    (None, true, Some(err.to_string()))
+                }
+                Err(err) => (None, false, Some(err.to_string())),
+            };
+            if let Some(why) = &error {
+                result
+                    .failed
+                    .push(format!("an incremental audit of {set}: {why}"));
+            }
+            let recorded = self.write(|tx| {
                 tx.execute(
-                    "UPDATE ingest_reaudits SET job_id = ?2, fulfilled_at = ?3 WHERE id = ?1",
-                    params![id, job.as_ref().map(|j| j.id), now()],
+                    "UPDATE ingest_reaudits SET job_id = ?2, fulfilled_at = ?3, error = ?4 WHERE id = ?1",
+                    params![id, job.as_ref().map(|j| j.id), ended.then(now), error],
                 )?;
                 Ok(())
-            })?;
-            queued.extend(job);
+            });
+            if let Err(err) = recorded {
+                result
+                    .failed
+                    .push(format!("an incremental audit of {set}: {err}"));
+            }
+            result.queued.extend(job);
         }
-        Ok(queued)
+        Ok(result)
+    }
+
+    /// Ends, with why, each Audit owed by a DAT import whose plan finished without importing it.
+    fn end_unimported_reaudits(&self) -> Result<()> {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE ingest_reaudits SET fulfilled_at = ?1,
+                     error = 'the service stopped before the import, and it was not imported'
+                 WHERE fulfilled_at IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM dat_revisions r WHERE r.sha256 = ingest_reaudits.sha256)
+                   AND EXISTS (SELECT 1 FROM ingest_plans p
+                               WHERE p.id = ingest_reaudits.plan_id AND p.finished_at IS NOT NULL)",
+                [now()],
+            )?;
+            Ok(())
+        })
     }
 
     /// The files plans kept aside in the Ingest Folder of Root `root`.
@@ -1749,7 +1809,6 @@ impl Store {
                 left.push((id, why));
             }
         }
-        self.fulfil_ingest_reaudits()?;
         let plans = self.read(|c| {
             let mut stmt = c.prepare(&format!(
                 "{PLAN_QUERY} WHERE approved_at IS NOT NULL AND finished_at IS NULL
@@ -1769,6 +1828,17 @@ impl Store {
                 )?;
                 Ok(())
             })?;
+        }
+        // An owed Audit that cannot be queued is reported, never a reason not to start.
+        let owed = self
+            .end_unimported_reaudits()
+            .and_then(|()| self.fulfil_ingest_reaudits());
+        match owed {
+            Ok(owed) => left.extend(owed.failed.into_iter().map(|why| (0, why))),
+            Err(err) => left.push((
+                0,
+                format!("cannot queue the audits ingest imports owe: {err}"),
+            )),
         }
         Ok(left)
     }

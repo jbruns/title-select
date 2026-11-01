@@ -25,6 +25,7 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
+pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use selections::SelectionInput;
 pub use title_select_api::{
@@ -176,6 +177,8 @@ pub enum Fault {
     /// After the original of a published copy is moved into the private `.deleting` area, before it is read back
     /// and deleted.
     IngestIsolated,
+    /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
+    IngestDatOwed,
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.

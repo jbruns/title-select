@@ -193,7 +193,9 @@ BEGIN
 END;
 
 -- An Audit a DAT import owes each Source Set bound to the imported DAT, recorded before the import so that one
--- missed while another Audit of the set ran, or by a stop, is queued later.
+-- missed while another Audit of the set ran, or by a stop, is queued later. Until it is queued it holds the
+-- revision's blob. One that cannot be queued ends with its error; one that only failed this time keeps its last
+-- error and stays owed.
 CREATE TABLE ingest_reaudits (
     id INTEGER PRIMARY KEY,
     plan_id INTEGER NOT NULL REFERENCES ingest_plans (id),
@@ -206,6 +208,7 @@ CREATE TABLE ingest_reaudits (
     job_id INTEGER,
     created_at TEXT NOT NULL,
     fulfilled_at TEXT,
+    error TEXT,
     UNIQUE (plan_id, item_id, source_set_id)
 );
 CREATE INDEX ingest_reaudits_owed ON ingest_reaudits (id) WHERE fulfilled_at IS NULL;
