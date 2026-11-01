@@ -891,7 +891,16 @@ impl Store {
         }
         let repairing = Repairing { plan: &plan, dir };
         let total = self.read(|c| steps_of(c, id))?.len();
-        let mut cancelled = false;
+        let mut cancelled = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT cancelled FROM repair_plans WHERE id = ?1",
+                [id],
+                |r| r.get::<_, bool>(0),
+            )?)
+        })?;
+        if cancelled {
+            self.discard_skipped(&repairing)?;
+        }
         for seq in 0..total {
             if !cancelled && (untouched || self.cancel_requested(job)?) {
                 cancelled = true;
@@ -1095,16 +1104,18 @@ impl Store {
     /// started, or a committed or started step keeping a file aside needs one of its Builds.
     fn cancel_uncommitted(&self, r: &Repairing) -> Result<()> {
         let steps = self.read(|c| steps_of(c, r.plan.id))?;
+        // A step skipped changed nothing, so it commits nothing.
+        let started = |s: &StepRow| !matches!(s.state.as_str(), "pending" | "skipped");
         let mut committed: std::collections::HashSet<&str> = steps
             .iter()
-            .filter(|s| !matches!(s.step, RepairStep::Build { .. }) && s.state != "pending")
+            .filter(|s| !matches!(s.step, RepairStep::Build { .. }) && started(s))
             .map(|s| s.item.as_str())
             .collect();
         loop {
             let before = committed.len();
             for step in &steps {
                 if let RepairStep::Keep { needs, affects, .. } = &step.step
-                    && (step.state != "pending"
+                    && (started(step)
                         || committed.contains(step.item.as_str())
                         || affects.iter().any(|a| committed.contains(a.as_str())))
                 {
@@ -1121,22 +1132,46 @@ impl Store {
                 break;
             }
         }
-        for step in &steps {
-            if committed.contains(step.item.as_str())
-                || matches!(step.state.as_str(), "failed" | "skipped")
-            {
-                continue;
+        let skipped: Vec<i64> = steps
+            .iter()
+            .filter(|s| {
+                !committed.contains(s.item.as_str())
+                    && !matches!(s.state.as_str(), "failed" | "skipped")
+            })
+            .map(|s| s.id)
+            .collect();
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_plans SET cancelled = 1 WHERE id = ?1",
+                [r.plan.id],
+            )?;
+            for id in &skipped {
+                tx.execute(
+                    "UPDATE repair_steps SET state = 'skipped', error = ?2, finished_at = ?3 WHERE id = ?1",
+                    params![
+                        id,
+                        "you cancelled the repair before it changed anything for this",
+                        now()
+                    ],
+                )?;
             }
-            if let (RepairStep::Build { .. }, Some(name), Some(id)) =
-                (&step.step, &step.staged_name, step.staged)
-            {
+            Ok(())
+        })?;
+        self.fault_point(Fault::RepairCancelled);
+        self.discard_skipped(r)
+    }
+
+    /// Deletes each file a skipped Build staged, if it is still there.
+    fn discard_skipped(&self, r: &Repairing) -> Result<()> {
+        for step in self.read(|c| steps_of(c, r.plan.id))? {
+            if let (RepairStep::Build { .. }, "skipped", Some(name), Some(id)) = (
+                &step.step,
+                step.state.as_str(),
+                &step.staged_name,
+                step.staged,
+            ) {
                 self.discard_staged(r, name, id)?;
             }
-            self.fail_step(
-                step,
-                "skipped",
-                "you cancelled the repair before it changed anything for this".into(),
-            )?;
         }
         Ok(())
     }

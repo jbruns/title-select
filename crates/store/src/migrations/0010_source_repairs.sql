@@ -66,7 +66,9 @@ CREATE TABLE repair_plans (
     audit_job_id INTEGER REFERENCES jobs (id),
     audit_error TEXT,
     readers INTEGER NOT NULL,
-    hashers INTEGER NOT NULL
+    hashers INTEGER NOT NULL,
+    -- Set, with every step the cancellation skips, in one transaction: a restart never runs a skipped step.
+    cancelled INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX repair_plans_unfinished ON repair_plans (source_set_id) WHERE approved_at IS NOT NULL
     AND finished_at IS NULL;

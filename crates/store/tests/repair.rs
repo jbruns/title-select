@@ -921,6 +921,90 @@ fn a_repair_cancelled_after_a_shared_keep_finishes_every_item_that_keep_displace
     }
 }
 
+/// Approves a plan to repack `Pong (Anthology).a26` as Pong and keep `readme.txt` aside, stopped once Pong's Build
+/// staged its file, and cancels the job a restart queued again.
+fn cancelled_after_a_build_staged(env: &Env) -> RepairPlan {
+    env.put("Pong (Anthology).a26", b"pong");
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.inject_fault(Some(Fault::RepairStaged(0)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+    env.store.cancel_job(requeued.id).unwrap();
+    plan
+}
+
+fn assert_nothing_done(env: &Env, plan: &RepairPlan) {
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(done.finished_at.is_some(), "{done:?}");
+    assert!(
+        done.outcomes.iter().all(|o| !o.done),
+        "{:#?}",
+        done.outcomes
+    );
+    assert_eq!(
+        env.listing(),
+        [".title-select", "Pong (Anthology).a26", "readme.txt"]
+    );
+}
+
+#[test]
+fn a_step_a_cancellation_skipped_never_commits_its_item() {
+    let env = Env::new();
+    let plan = cancelled_after_a_build_staged(&env);
+    // A cancellation that skipped Pong's file being kept aside, but not yet the rest of Pong.
+    let keep = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| s.item == "game:Pong (USA)" && matches!(s.step, RepairStep::Keep { .. }))
+        .unwrap();
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "UPDATE repair_steps SET state = 'skipped', error = 'cancelled' WHERE seq = ?1",
+        [keep as i64],
+    )
+    .unwrap();
+
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert_nothing_done(&env, &plan);
+}
+
+#[test]
+fn a_cancellation_a_stop_cut_short_is_never_run_past_after_a_restart() {
+    let env = Env::new();
+    let plan = cancelled_after_a_build_staged(&env);
+    env.store.inject_fault(Some(Fault::RepairCancelled));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&env.store.repair_plan(plan.id).unwrap())
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+    assert!(requeued.cancel_requested_at.is_some(), "{requeued:?}");
+
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_nothing_done(&env, &plan);
+}
+
 #[test]
 fn a_repair_cancelled_before_it_ran_changes_nothing_not_even_the_marker() {
     let env = Env::new();

@@ -197,6 +197,9 @@ pub enum Fault {
     RepairMarkerWritten,
     /// After a Source Set's first marker is renamed into place, before its folder is synced and the marker recorded.
     RepairMarkerPublished,
+    /// After a repair's cancellation and every step it skips are recorded, before the files its skipped Builds
+    /// staged are deleted.
+    RepairCancelled,
     /// After a repair plan's approval is checked against the Source Set, before the transaction that reserves it.
     RepairApproving,
     /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
