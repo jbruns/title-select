@@ -215,6 +215,7 @@ read. Without it there are no roots, so Title Select reads none of your folders.
 [roots.sets]                # a root called `sets`
 path = "/data/source-sets"
 writable = false            # the default
+# writable_paths = ["No-Intro/Atari - 2600"]   # source sets in it that repairs may write
 
 [roots.play]                # a root for your front end's `roms/` folder
 path = "/data/roms"
@@ -568,6 +569,42 @@ and deleted only if it is still exactly what was copied. An original that change
 kept, and never deleted; the plan's outcome says which. Moves into kept files are always renames.
 A move cut off by a stop is finished when the service next starts, once the folder's root and marker check out.
 
+### Repairs
+
+A repair changes a source set, and only through a plan you approve, separately from any build. The source set's root
+must list its path in `writable_paths`, which keeps the source set registered where it is, with its history; and its
+folder must be writable when the repair runs. The first repair of a source set writes a `.title-select` marker
+holding the store's id and the source set's id, and says so in its plan; every later repair, and every move into the
+source set, is refused while the marker is missing or names another store or source set.
+
+A repair is proposed from the source set's latest audit and from items assessed in ingest folders. It acts only on
+what the audit read from payloads, as a full audit, or an incremental audit reading a file, does; a file the audit
+judged by name and size alone, or that changed since, is left as it is and listed with why. Each item has a choice
+you can change before approving:
+
+- a game whose files are named otherwise than the DAT says is renamed, or written under its name: on by default;
+- a game not stored as TorrentZip, `<game>.zip`, is repacked as one: always proposed for now;
+- a missing game is filled from an ingest folder item whose payload matches it: on by default when there is one;
+- a game with a mismatched or unreadable entry is replaced from an ingest folder item that matches it, keeping the
+  original: on by default when there is one;
+- an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
+  to take it as the ROM its payload matches, keep it aside or leave it;
+- unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.
+
+Setting a file aside that holds the last copy of a ROM no repair writes is never the default. The plan lists every
+change in order: each file written, renamed, published or kept aside. It binds the source set's folder, and every
+entry in it, by device, inode, size, modification time, change time and link count, and its audit: approving is
+refused if anything changed or a newer audit finished, or while an audit of the source set is queued or running.
+
+A repair never deletes. A file it replaces or sets aside is moved, by a rename that never replaces anything, into the
+source set's kept files, `.title-select-retained/<generation>/<name>.kept`; a new file is written under a temporary
+name, read back, and put in place by a rename that never replaces anything. A fill moves the ingest folder item as an
+approved ingest move does: the item's original is deleted only when what was written is exactly the ROM it names, as
+for a loose file holding one ROM, and kept in the ingest folder's kept files otherwise. Once a repair finishes it
+queues an incremental audit of the source set. A repair cut off by a stop is finished, or rolled back, when the service
+next starts, once the root, the path and the marker check out. Audits never read `.title-select` or
+`.title-select-retained`. You delete a source set's kept files by picking them and approving the deletion.
+
 ### API
 
 Every body is JSON, and every error is `{"error": "...", "job": <id, when one is named>}`.
@@ -633,6 +670,14 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/ingest-items/{id}/dismissal`         | dismiss it until it changes                                  |
 | `GET /api/v1/ingest-plans/{id}`                    | an ingest plan, with its digest and outcomes                 |
 | `POST /api/v1/ingest-plans/{id}/approval`          | approve it: `{"digest"}`; moves the items and answers with each outcome, `409` when the folder changed |
+| `GET /api/v1/source-sets/{name}/repairs`           | its repair plans, newest first                               |
+| `POST /api/v1/source-sets/{name}/repairs`          | plan a repair from its latest audit: `{"choices"?: {key: "apply" \| "leave" \| "keep_aside"}}`; `201` |
+| `GET /api/v1/repairs/{id}`                         | a repair plan, with its items, steps, digest and outcomes    |
+| `POST /api/v1/repairs/{id}/approval`               | approve it: `{"digest"}`; repairs and answers with each outcome and the queued audit, `409` when anything changed |
+| `GET /api/v1/source-sets/{name}/kept-files`        | the files its repairs kept aside                             |
+| `POST /api/v1/source-sets/{name}/kept-deletions`   | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
+| `GET /api/v1/source-kept-deletions/{id}`           | a plan to delete a source set's kept files                   |
+| `POST /api/v1/source-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
 | `GET /api/v1/plans/{id}`                           | a plan, with its digest, summary and changes                 |
 | `POST /api/v1/plans/{id}/approval`                 | approve it: `{"digest"}`; `202` with the build job, `409` when the plan changed |
 | `GET /api/v1/builds/{id}`                          | a build and each file it wrote                               |
@@ -763,6 +808,10 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   state, the evidence assessing it found and what is proposed. You pick items to plan discarding them or importing
   DATs, review the plan, approve it and see what happened to each item; you can dismiss an item until it changes.
   It lists the folder's kept files.
+- **Repair**, opened from a source set or an audit, proposes a repair of the source set, lists each item with what is
+  proposed and a choice you can change before planning again, and every change in order, including what is kept
+  aside. You approve it with its digest and see what happened to each item. It lists the source set's kept files,
+  where you pick some and approve deleting them.
 - **Jobs** lists the latest jobs with their kind, state, progress and result, live: it follows `/api/v1/events`, applies `state`
   and `progress` events by the job `version` rule above, and replaces what it holds with each `resync` snapshot,
   which also arrives after a reconnect.

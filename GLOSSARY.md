@@ -27,7 +27,7 @@ file, such as a `.wav` or `.cue`, that a DAT lists.
 **Source Set**:
 A preserved collection, kept with its files, variants and provenance, that can be audited against its DAT and is
 recorded with the DAT Revision of its latest Audit; the source from which a Play Library is built. It changes only
-through an approved repair Change Plan.
+through an approved Repair, and only while its Root may write it and its marker says it is this store's Source Set.
 _Avoid_: Verified Set, Archive, romset, dump folder
 
 **Play Library**:
@@ -42,8 +42,9 @@ plan that names each item, where it goes and why, and only while its marker says
 _Avoid_: Source (alone), Downloads
 
 **Root**:
-A named folder the Operator configures for Title Select to read, or later to write, such as the one holding Source
-Sets. A Source Set or a Play Library folder is identified by its Root and a path relative to it.
+A named folder the Operator configures for Title Select to read, or to write, such as the one holding Source Sets.
+A Source Set or a Play Library folder is identified by its Root and a path relative to it. A Root that is not
+writable may still name, in its `writable_paths`, the Source Sets that Repairs may write.
 _Avoid_: Mount, share
 
 **Operator**:
@@ -125,14 +126,21 @@ _Avoid_: Profile (when meaning the chosen releases), Filtered DAT
 A proposed set of changes that the Operator approves before a Source Set is repaired or a Selection is built into a
 Play Library. Approval to repair a Source Set is separate from approval to build a Play Library.
 
+**Repair**:
+Applying an approved Change Plan to a Source Set, proposed from its latest Audit's payload Evidence and from items
+assessed in Ingest Folders: renaming Entries to the DAT's names, repacking Games, filling Missing Games, replacing
+Mismatched or Unreadable Entries, and setting aside what no Game needs. Each item has a default the Operator can change
+before approving. A Repair never deletes: what it replaces or sets aside becomes a Kept File.
+_Avoid_: Fix, rebuild, quarantine
+
 **Build**:
 Applying an approved Change Plan that creates or updates a Play Library from a Selection's files in a Source Set.
 _Avoid_: Publish, export
 
 **Managed Folder**:
 A Play Library folder that the Operator registers for Title Select to build into, identified by its Root and a path
-relative to it, and bound to one system, one Source Set and one Selection Profile. Title Select writes only to
-Managed Folders; every other Play Library file is unmanaged and never touched. A system may have several.
+relative to it, and bound to one system, one Source Set and one Selection Profile. Of a Play Library, Title Select
+writes only to Managed Folders; every other Play Library file is unmanaged and never touched. A system may have several.
 _Avoid_: Output folder, target
 
 **Path Template**:
@@ -151,6 +159,7 @@ the Operator acknowledges is not reported again until it changes.
 _Avoid_: Corruption (when meaning any difference)
 
 **Kept File**:
-A file or folder removed from a Managed Folder by a Build or a cleanup, set aside in that folder's retention area so that no
-tool scans it, until the Operator approves deleting or restoring it.
+A file or folder removed from a Managed Folder by a Build or a cleanup, from a Source Set by a Repair, or from an
+Ingest Folder by a plan, set aside in that folder's retention area so that no tool or Audit scans it, until the
+Operator approves deleting or restoring it.
 _Avoid_: Trash, backup

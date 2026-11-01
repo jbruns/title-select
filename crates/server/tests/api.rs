@@ -888,7 +888,7 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
             .any(|r| r.name == "sets" && r.writable_paths == [SET])
     );
     let mut response = client
-        .post(&repairs)
+        .post(repairs)
         .send_json(serde_json::json!({}))
         .unwrap();
     assert_eq!(response.status(), 201);
