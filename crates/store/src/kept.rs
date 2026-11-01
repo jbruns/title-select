@@ -1507,6 +1507,15 @@ impl Store {
             Ok(generation) => generation,
             Err(reason) => return Ok(Err(reason)),
         };
+        // A stop may have left a rename between the two unsynced: nothing is decided or recorded until both are.
+        let synced = generation
+            .as_ref()
+            .map_or(Ok(()), FolderDir::sync)
+            .and_then(|()| deleting.as_ref().map_or(Ok(()), FolderDir::sync));
+        if let Err(e) = synced {
+            return Ok(Err(e.to_string()));
+        }
+        self.fault_point(Fault::KeptDeletionSynced(file.id));
         if let Some(moved) = quarantined {
             let Some(deleting) = &deleting else {
                 self.write(|tx| still_kept(tx, file.id))?;

@@ -1023,6 +1023,83 @@ fn a_staged_file_a_stop_left_being_deleted_is_deleted_after_a_restart() {
 }
 
 #[test]
+fn a_file_swapped_in_for_a_staged_file_being_deleted_is_put_back_and_never_deleted() {
+    let env = Env::new();
+    let plan = cancelled_after_a_build_staged(&env);
+    env.store.inject_fault(Some(Fault::RepairDiscarding(0)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&env.store.repair_plan(plan.id).unwrap())
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    // What was moved to be deleted is, by the time the repair goes on, another file.
+    let deleting = env.set().join(".title-select-retained/.deleting");
+    let slot = std::fs::read_dir(&deleting)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let staged = std::fs::read_dir(env.set())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .find(|n| n.contains("title-select-new"));
+    assert!(staged.is_none(), "{staged:?}");
+    std::fs::remove_file(&slot).unwrap();
+    std::fs::write(&slot, b"someone else's").unwrap();
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert!(
+        std::fs::read_dir(&deleting).unwrap().next().is_none(),
+        "{:?}",
+        env.listing()
+    );
+    let back = env
+        .listing()
+        .into_iter()
+        .find(|n| n.contains("title-select-new"))
+        .unwrap_or_else(|| panic!("{:?}", env.listing()));
+    assert_eq!(
+        std::fs::read(env.set().join(back)).unwrap(),
+        b"someone else's"
+    );
+}
+
+#[test]
+fn a_cancelled_repair_whose_staged_file_could_not_be_deleted_stays_unfinished_until_it_is() {
+    let env = Env::new();
+    let plan = cancelled_after_a_build_staged(&env);
+    // The kept files folder can't be made, so nothing can be moved to be deleted.
+    let blocker = env.set().join(".title-select-retained");
+    let at = blocker.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairCancelled {
+                std::fs::write(&at, b"in the way").unwrap();
+            }
+        })));
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    env.store.hook_faults(None);
+
+    assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert!(
+        env.store
+            .repair_plan(plan.id)
+            .unwrap()
+            .finished_at
+            .is_none(),
+        "a staged file was left untracked"
+    );
+    std::fs::remove_file(&blocker).unwrap();
+    let requeued = env.store.recover_repairs().unwrap();
+    assert_eq!(requeued.len(), 1, "{requeued:?}");
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    assert_nothing_done(&env, &plan);
+}
+
+#[test]
 fn a_new_file_kept_aside_because_its_place_was_taken_is_recorded_kept_after_a_stop() {
     let env = Env::new();
     env.put("Pong (Anthology).a26", b"pong");

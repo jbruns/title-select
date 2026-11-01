@@ -911,13 +911,15 @@ impl Store {
                 |r| r.get::<_, bool>(0),
             )?)
         })?;
-        if cancelled {
-            self.discard_skipped(&repairing)?;
+        if cancelled && let Err(why) = self.discard_skipped(&repairing)? {
+            return Ok(Err(why));
         }
         for seq in 0..total {
             if !cancelled && (untouched || self.cancel_requested(job)?) {
                 cancelled = true;
-                self.cancel_uncommitted(&repairing)?;
+                if let Err(why) = self.cancel_uncommitted(&repairing)? {
+                    return Ok(Err(why));
+                }
             }
             let step = self.other_step(id, seq as u32)?;
             if !is_terminal(&step.state)
@@ -1115,7 +1117,7 @@ impl Store {
     /// Once you cancel a repair: skips every step of each item nothing was yet changed for, deleting the files its
     /// Builds staged. An item is committed, and runs to its end, once one of its steps other than a Build has
     /// started, or a committed or started step keeping a file aside needs one of its Builds.
-    fn cancel_uncommitted(&self, r: &Repairing) -> Result<()> {
+    fn cancel_uncommitted(&self, r: &Repairing) -> Ran {
         let steps = self.read(|c| steps_of(c, r.plan.id))?;
         // A step skipped changed nothing, so it commits nothing.
         let started = |s: &StepRow| !matches!(s.state.as_str(), "pending" | "skipped");
@@ -1174,19 +1176,21 @@ impl Store {
         self.discard_skipped(r)
     }
 
-    /// Deletes each file a skipped Build staged, if it is still there.
-    fn discard_skipped(&self, r: &Repairing) -> Result<()> {
+    /// Deletes each file a skipped Build staged, if it is still there. Returns why one could not be, leaving the
+    /// repair unfinished so a later Job tries again.
+    fn discard_skipped(&self, r: &Repairing) -> Ran {
         for step in self.read(|c| steps_of(c, r.plan.id))? {
             if let (RepairStep::Build { .. }, "skipped", Some(name), Some(id)) = (
                 &step.step,
                 step.state.as_str(),
                 &step.staged_name,
                 step.staged,
-            ) {
-                self.discard_staged(r, &step, name, id)?;
+            ) && let Err(why) = self.discard_staged(r, &step, name, id)?
+            {
+                return Ok(Err(why));
             }
         }
-        Ok(())
+        Ok(Ok(()))
     }
 
     /// Records what repair `plan` did, the incremental Audit it owes, and the end of its Job `job`, in one
@@ -1342,9 +1346,9 @@ impl Store {
         // A staged file a stop left being deleted is deleted before anything is staged again.
         if let (Some(staged_name), Some(id), Some(_)) =
             (&step.staged_name, step.staged, &step.discard_slot)
-            && !self.discard_staged(r, step, staged_name, id)?
+            && let Err(why) = self.discard_staged(r, step, staged_name, id)?
         {
-            return self.step_failed(step, "failed", undeleted(dir, staged_name));
+            return Ok(Err(why));
         }
         if let (Some(staged_name), "staging") = (&step.staged_name, step.state.as_str()) {
             match step.staged {
@@ -1356,8 +1360,8 @@ impl Store {
                         return self.build_staged(step, &file);
                     }
                     drop(file);
-                    if !self.discard_staged(r, step, staged_name, id)? {
-                        return self.step_failed(step, "failed", undeleted(dir, staged_name));
+                    if let Err(why) = self.discard_staged(r, step, staged_name, id)? {
+                        return Ok(Err(why));
                     }
                 }
                 Some(_) => {}
@@ -1437,7 +1441,10 @@ impl Store {
         })();
         if let Err(why) = written {
             drop(file);
-            self.discard_staged(r, step, &staged_name, id)?;
+            // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
+            if let Err(left) = self.discard_staged(r, step, &staged_name, id)? {
+                return Ok(Err(format!("{why}; {left}")));
+            }
             return self.step_failed(step, "failed", why);
         }
         dir.sync().map_err(io_err)?;
@@ -1459,15 +1466,18 @@ impl Store {
 
     /// Deletes a staged file Title Select wrote and will not publish: moved into the private `.deleting` folder
     /// under a slot recorded on `step` first, and deleted there only while it is still the file `id`. Anything else
-    /// is left where it is. Resumes from wherever a stop left the file, and returns whether it is in neither place.
+    /// found in the slot was swapped in for it and is put back under `staged_name`, never deleted. Resumes from
+    /// wherever a stop left the file; the intent is cleared only once the slot is empty and the file is gone from
+    /// `staged_name`. Returns why it could not be, leaving the intent for a later try.
     fn discard_staged(
         &self,
         r: &Repairing,
         step: &StepRow,
         staged_name: &str,
         id: Identity,
-    ) -> Result<bool> {
+    ) -> Ran {
         let dir = &r.dir;
+        let left = || Ok(Err(undeleted(dir, staged_name)));
         let recorded: Option<String> = self.read(|c| {
             Ok(c.query_row(
                 "SELECT discard_slot FROM repair_steps WHERE id = ?1",
@@ -1477,11 +1487,8 @@ impl Store {
         })?;
         let here = is_file(dir, staged_name, id).map_err(io_err)?;
         if recorded.is_none() && !here {
-            return Ok(true);
+            return Ok(Ok(()));
         }
-        let Ok(Some(deleting)) = open_area_deleting(self, r.scope(), dir, true)? else {
-            return Ok(false);
-        };
         let slot = match recorded {
             Some(slot) => slot,
             None => {
@@ -1496,31 +1503,51 @@ impl Store {
                 slot
             }
         };
+        let Ok(Some(deleting)) = open_area_deleting(self, r.scope(), dir, true)? else {
+            return left();
+        };
         if here {
             if dir.rename_new(staged_name, &deleting, &slot).is_err() {
-                return Ok(false);
+                return left();
             }
             self.fault_point(Fault::RepairDiscarding(step.seq));
         }
         // Whether this call or one before a stop moved it, both folders are synced before it is deleted.
         dir.sync().map_err(io_err)?;
         deleting.sync().map_err(io_err)?;
-        if is_file(&deleting, &slot, id).map_err(io_err)? {
-            deleting.unlink(&slot).map_err(io_err)?;
-            deleting.sync().map_err(io_err)?;
+        match deleting.stat(&slot).map_err(io_err)? {
+            Some(st)
+                if FolderDir::kind(&st) == FileType::RegularFile && Identity::of(&st) == id =>
+            {
+                deleting.unlink(&slot).map_err(io_err)?;
+                deleting.sync().map_err(io_err)?;
+            }
+            Some(_) => {
+                if deleting.rename_new(&slot, dir, staged_name).is_err() {
+                    return Ok(Err(format!(
+                        "what was moved to be deleted from {}/{staged_name} is not the file Title Select staged, \
+                         and could not be put back; it was left at .title-select-retained/.deleting/{slot}",
+                        dir.path().display()
+                    )));
+                }
+                deleting.sync().map_err(io_err)?;
+                dir.sync().map_err(io_err)?;
+            }
+            None => {}
         }
-        let gone = !is_file(dir, staged_name, id).map_err(io_err)?
-            && !is_file(&deleting, &slot, id).map_err(io_err)?;
-        if gone {
-            self.write(|tx| {
-                tx.execute(
-                    "UPDATE repair_steps SET discard_slot = NULL WHERE id = ?1",
-                    [step.id],
-                )?;
-                Ok(())
-            })?;
+        if is_file(dir, staged_name, id).map_err(io_err)?
+            || deleting.stat(&slot).map_err(io_err)?.is_some()
+        {
+            return left();
         }
-        Ok(gone)
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET discard_slot = NULL WHERE id = ?1",
+                [step.id],
+            )?;
+            Ok(())
+        })?;
+        Ok(Ok(()))
     }
 
     /// Keeps `path` aside as `kept`, by one rename that never replaces anything, with the intent recorded first.

@@ -1245,6 +1245,45 @@ fn a_kept_file_swapped_just_before_it_is_deleted_is_moved_back_and_never_deleted
 }
 
 #[test]
+fn recovery_syncs_both_folders_before_it_deletes_a_kept_file_a_crash_left_aside() {
+    let env = Env::new();
+    let (folder, plan) = built_then_deselected(&env);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let kept = env.store.kept_files(folder.id).unwrap();
+    let first = kept[0].clone();
+    let slot = env
+        .play()
+        .join("atari2600")
+        .join(RETAINED)
+        .join(".deleting")
+        .join(first.id.to_string());
+    let deletion = env
+        .store
+        .plan_kept_deletion(
+            folder.id,
+            &PlanKeptDeletion {
+                ids: vec![first.id],
+                all: false,
+            },
+        )
+        .unwrap();
+    crash_deletion(&env, &deletion, Fault::AfterDeleteMove(first.id));
+    assert!(slot.exists());
+
+    let (env, stopped) = env.restart_until(Some(Fault::KeptDeletionSynced(first.id)));
+
+    assert!(
+        stopped.is_none(),
+        "recovery never synced both folders first"
+    );
+    assert!(slot.exists(), "deleted before both folders were synced");
+    let (env, _) = env.restart();
+    let done = env.store.kept_deletion(deletion.id).unwrap();
+    assert!(done.outcomes[0].deleted, "{:?}", done.outcomes);
+    assert!(!slot.exists());
+}
+
+#[test]
 fn a_crash_mid_deletion_never_loses_a_kept_file_and_recovery_settles_it() {
     for at in ["before the move", "after the move", "after the unlink"] {
         let env = Env::new();

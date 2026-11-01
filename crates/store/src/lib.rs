@@ -213,6 +213,9 @@ pub enum Fault {
     /// After both folders a deletion of the kept file of a Source Set with this id touches are synced, before it is
     /// checked, deleted or recorded.
     SourceKeptSynced(i64),
+    /// After recovery syncs both folders a stopped deletion of the kept file with this id touches, before it is
+    /// checked, deleted or recorded.
+    KeptDeletionSynced(i64),
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.
