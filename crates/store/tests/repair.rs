@@ -1006,6 +1006,71 @@ fn a_cancellation_a_stop_cut_short_is_never_run_past_after_a_restart() {
 }
 
 #[test]
+fn a_new_file_kept_aside_because_its_place_was_taken_is_recorded_kept_after_a_stop() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let publish = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| matches!(s.step, RepairStep::Publish { .. }))
+        .unwrap() as u32;
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    // Something takes Pong's place once its file is staged; the service stops once that file is moved aside.
+    let target = env.set().join("Pong (USA).zip");
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairStaged(0) {
+                std::fs::write(&target, b"someone else's").unwrap();
+            } else if fault == Fault::RepairMoved(publish) {
+                panic!("stopped");
+            }
+        })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    let new = kept
+        .iter()
+        .find(|k| k.kept_name == "Pong (USA).zip.kept")
+        .unwrap_or_else(|| panic!("{kept:#?}"));
+    assert!(new.reason.contains("could not be put in place"), "{new:?}");
+    let done = env.store.repair_plan(plan.id).unwrap();
+    let pong = done
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Pong (USA)")
+        .unwrap();
+    assert!(
+        !pong.done
+            && pong
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("kept aside as Pong (USA).zip.kept")),
+        "{pong:?}"
+    );
+    assert_eq!(
+        std::fs::read(env.set().join("Pong (USA).zip")).unwrap(),
+        b"someone else's"
+    );
+    assert!(
+        env.listing()
+            .contains(&".title-select-retained/1/Pong (USA).zip.kept".to_owned())
+    );
+}
+
+#[test]
 fn a_repair_cancelled_before_it_ran_changes_nothing_not_even_the_marker() {
     let env = Env::new();
     env.put("readme.txt", b"hello");

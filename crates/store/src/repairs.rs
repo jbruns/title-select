@@ -413,10 +413,12 @@ struct StepRow {
     move_id: Option<i64>,
     error: Option<String>,
     note: Option<String>,
+    aside_name: Option<String>,
+    aside_why: Option<String>,
 }
 
 const STEP_QUERY: &str = "SELECT id, seq, item, detail, state, staged_name, staged_dev, staged_ino, move_id, \
-     error, note FROM repair_steps";
+     error, note, aside_name, aside_why FROM repair_steps";
 
 fn step_from_row(r: &Row) -> rusqlite::Result<StepRow> {
     let staged = match (r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(7)?) {
@@ -434,6 +436,8 @@ fn step_from_row(r: &Row) -> rusqlite::Result<StepRow> {
         move_id: r.get(8)?,
         error: r.get(9)?,
         note: r.get(10)?,
+        aside_name: r.get(11)?,
+        aside_why: r.get(12)?,
     })
 }
 
@@ -1653,6 +1657,10 @@ impl Store {
                 ),
             );
         };
+        if let Some(kept) = &step.aside_name {
+            let why = step.aside_why.clone().unwrap_or_default();
+            return self.keep_unpublished(r, step, staged_name, staged, kept, why);
+        }
         let dir = &r.dir;
         let at_staged = is_file(dir, staged_name, staged).map_err(io_err)?;
         if step.state == "pending" || (at_staged && step.state == "moving") {
@@ -1666,7 +1674,11 @@ impl Store {
             self.step_state(step, "moving")?;
             if let Err(e) = dir.rename_new(staged_name, dir, target) {
                 let why = format!("the new {target} could not be put in place: {e}");
-                return self.keep_unpublished(r, step, staged_name, target, why);
+                let kept = match self.record_aside(r, step, staged_name, staged, target, &why)? {
+                    Ok(kept) => kept,
+                    Err(left) => return self.step_failed(step, "failed", left),
+                };
+                return self.keep_unpublished(r, step, staged_name, staged, &kept, why);
             }
             self.fault_point(Fault::RepairMoved(step.seq));
         }
@@ -1683,20 +1695,51 @@ impl Store {
         Ok(Ok(()))
     }
 
-    /// Keeps a staged file that could not be published aside, under the first name free in this repair's
-    /// generation, and fails the step with `why`.
+    /// Records the intent to keep the staged file `staged_name`, `staged`, that could not be published as `target`,
+    /// aside under the first name free in this repair's generation, and why. Returns that name, or why the file was
+    /// left where it is.
+    fn record_aside(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        staged_name: &str,
+        staged: Identity,
+        target: &str,
+        why: &str,
+    ) -> Result<std::result::Result<String, String>> {
+        let generation =
+            match open_retention(self, r.scope(), &r.dir, r.plan.content.generation, true)? {
+                Ok(Some(retention)) => retention.generation,
+                _ => return Ok(Err(format!("{why}; it was left at {staged_name}"))),
+            };
+        let kept = (1..)
+            .map(|n| kept_name(target, n))
+            .find(|name| matches!(generation.stat(name), Ok(None)))
+            .expect("a free name");
+        let (dev, ino) = staged.to_sql();
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET aside_name = ?2, aside_why = ?3, staged_name = ?4, staged_dev = ?5,
+                                         staged_ino = ?6
+                 WHERE id = ?1",
+                params![step.id, kept, why, staged_name, dev, ino],
+            )?;
+            Ok(())
+        })?;
+        Ok(Ok(kept))
+    }
+
+    /// Keeps the staged file `staged_name`, `staged`, that could not be published aside as `kept`, its intent
+    /// recorded, and fails the step with `why`; from wherever a stop left it.
     fn keep_unpublished(
         &self,
         r: &Repairing,
         step: &StepRow,
         staged_name: &str,
-        target: &str,
+        staged: Identity,
+        kept: &str,
         why: String,
     ) -> Ran {
-        let Some(st) = r.dir.stat(staged_name).map_err(io_err)? else {
-            return self.step_failed(step, "failed", why);
-        };
-        let seen = Seen::of(&st);
         let generation =
             match open_retention(self, r.scope(), &r.dir, r.plan.content.generation, true)? {
                 Ok(Some(retention)) => retention.generation,
@@ -1708,13 +1751,26 @@ impl Store {
                     );
                 }
             };
-        let kept = (1..)
-            .map(|n| kept_name(target, n))
-            .find(|name| matches!(generation.stat(name), Ok(None)))
-            .expect("a free name");
+        let found = |d: &FolderDir, name: &str| -> Result<Option<Seen>> {
+            Ok(d.stat(name)
+                .map_err(io_err)?
+                .filter(|st| Identity::of(st) == staged)
+                .map(|st| Seen::of(&st)))
+        };
+        let Some(seen) = found(&r.dir, staged_name)?.or(found(&generation, kept)?) else {
+            return self.step_failed(
+                step,
+                "failed",
+                format!("{why}; it is neither at {staged_name} nor kept as {kept}"),
+            );
+        };
         let keeping = StepRow {
-            state: "pending".into(),
+            state: "moving".into(),
             ..self.other_step(r.plan.id, step.seq)?
+        };
+        let target = match &step.step {
+            RepairStep::Publish { target, .. } => target.as_str(),
+            _ => staged_name,
         };
         let reason = format!("a repair's new {target}, which could not be put in place");
         let failed = |tx: &Transaction, _: i64| -> Result<()> {
@@ -1724,7 +1780,7 @@ impl Store {
             )?;
             Ok(())
         };
-        match self.keep_file(r, &keeping, staged_name, &kept, &reason, &seen, &failed)? {
+        match self.keep_file(r, &keeping, staged_name, kept, &reason, &seen, &failed)? {
             Ok(Some(_)) => Ok(Ok(())),
             Ok(None) => {
                 let left = self

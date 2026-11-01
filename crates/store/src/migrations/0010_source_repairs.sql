@@ -114,6 +114,10 @@ CREATE TABLE repair_steps (
     error TEXT,
     note TEXT,
     finished_at TEXT,
+    -- A Publish whose place was taken: the kept name its staged file, recorded in staged_*, is moved to, and why,
+    -- recorded before it is moved.
+    aside_name TEXT,
+    aside_why TEXT,
     UNIQUE (plan_id, seq)
 );
 CREATE INDEX repair_steps_unfinished ON repair_steps (plan_id) WHERE state NOT IN ('done', 'failed', 'skipped');
