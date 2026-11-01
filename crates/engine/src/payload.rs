@@ -5,6 +5,7 @@ use sha1::Digest;
 use crate::dat::Rom;
 use crate::hex;
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Checksums {
     pub size: u64,
     pub crc: String,

@@ -573,10 +573,13 @@ struct Candidate<'a> {
 }
 
 /// Finds and ranks the Entries that hold each ROM, reading each source's metadata once and each archive's central
-/// directory at most once per Game.
+/// directory at most once per Game. Only an Entry with Payload Evidence is a source: a Claim says nothing of whether
+/// its payload is intact.
 struct Sources<'a> {
     set_dir: Option<(PathBuf, PathBuf)>,
     by_rom: HashMap<(String, String), Vec<&'a Entry>>,
+    /// The ROMs only Claim Evidence holds.
+    claimed: HashSet<(String, String)>,
     by_path: HashMap<&'a str, Vec<&'a Entry>>,
     stats: HashMap<&'a str, Option<FileStat>>,
     copyable: HashMap<(&'a str, String), bool>,
@@ -588,24 +591,33 @@ impl<'a> Sources<'a> {
             .ok()
             .map(|r| (r.path, r.canonical_root));
         let mut by_rom: HashMap<(String, String), Vec<&Entry>> = HashMap::new();
+        let mut claimed = HashSet::new();
         let mut by_path: HashMap<&str, Vec<&Entry>> = HashMap::new();
         for entry in &inputs.entries {
             by_path.entry(&entry.path).or_default().push(entry);
-            if matches!(
+            if !matches!(
                 entry.finding,
                 Finding::Matched | Finding::Misnamed | Finding::Conflicting
             ) {
-                for rom in &entry.roms {
-                    by_rom
-                        .entry((rom.game.clone(), rom.name.clone()))
-                        .or_default()
-                        .push(entry);
+                continue;
+            }
+            let payload = entry
+                .evidence
+                .as_ref()
+                .is_some_and(|e| e.level == EvidenceLevel::Payload);
+            for rom in &entry.roms {
+                let key = (rom.game.clone(), rom.name.clone());
+                if payload {
+                    by_rom.entry(key).or_default().push(entry);
+                } else {
+                    claimed.insert(key);
                 }
             }
         }
         Sources {
             set_dir,
             by_rom,
+            claimed,
             by_path,
             stats: HashMap::new(),
             copyable: HashMap::new(),
@@ -706,12 +718,10 @@ impl<'a> Sources<'a> {
     }
 }
 
-/// Matched over Misnamed or Conflicting; Payload Evidence over a claim; a source that can be copied as it is; then
-/// path order.
-fn rank<'a>(c: &Candidate<'a>) -> (bool, bool, bool, &'a str, Option<&'a str>) {
+/// Matched over Misnamed or Conflicting; a source that can be copied as it is; then path order.
+fn rank<'a>(c: &Candidate<'a>) -> (bool, bool, &'a str, Option<&'a str>) {
     (
         c.entry.finding != Finding::Matched,
-        c.entry.evidence.as_ref().map(|e| e.level) != Some(EvidenceLevel::Payload),
         !c.copyable,
         &c.entry.path,
         c.entry.member.as_deref(),
@@ -1058,10 +1068,21 @@ fn plan_items(
         match sources.choose(game, &item.roms) {
             Err(missing) => {
                 item.kind = ItemKind::NoSource;
-                item.reason = Some(format!(
-                    "the latest audit found no source for {}",
-                    missing.join(", ")
-                ));
+                let claimed = missing
+                    .iter()
+                    .any(|rom| sources.claimed.contains(&(game.to_owned(), rom.clone())));
+                item.reason = Some(if claimed {
+                    format!(
+                        "the latest audit found no payload-verified source for {}: a quick inventory has only \
+                         claim evidence for it, so audit the source set incrementally or in full first",
+                        missing.join(", ")
+                    )
+                } else {
+                    format!(
+                        "the latest audit found no source for {}",
+                        missing.join(", ")
+                    )
+                });
                 unkeep(&mut item);
             }
             Ok(chosen) => {

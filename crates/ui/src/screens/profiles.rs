@@ -652,7 +652,11 @@ fn SettingsTab(
 fn PreviewView(preview: Arc<Preview>) -> impl IntoView {
     let selection = &preview.selection;
     let summary = selection.summary;
-    let index = Arc::new(SelectionIndex::new(selection.clone(), &Default::default()));
+    let index = Arc::new(SelectionIndex::new(
+        selection.clone(),
+        &Default::default(),
+        &Default::default(),
+    ));
     let changes = preview.diff.clone();
     let count = changes.len();
     view! {

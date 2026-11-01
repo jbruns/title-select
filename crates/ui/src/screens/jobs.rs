@@ -11,7 +11,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::{Stream, use_live};
 use crate::jobs::{LiveJob, state_label};
-use crate::model::{short_sha, when};
+use crate::model::{audit_evidence_label, short_sha, when};
 use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -264,6 +264,14 @@ fn job_detail(live: &LiveJob) -> AnyView {
                 {job.attempt}
                 {job.requeued_from.map(|from| format!(", queued again for interrupted job #{from}"))}
             </dd>
+            {job
+                .evidence
+                .map(|evidence| {
+                    view! {
+                        <dt>"Evidence"</dt>
+                        <dd>{audit_evidence_label(evidence)}</dd>
+                    }
+                })}
             {(job.kind == JobKind::Audit)
                 .then(|| {
                     view! {

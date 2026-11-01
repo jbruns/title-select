@@ -493,8 +493,9 @@ impl Store {
             let audit = availability_audit(&tx, id)?;
             let mut stmt = tx.prepare(&format!(
                 "SELECT {RELEASE_COLUMNS},
-                        (SELECT g.status FROM audit_games g WHERE g.audit_id = ?5 AND g.name = rel.title)
+                        g.status, g.claimed_roms <> '[]'
                  FROM selection_releases rel
+                 LEFT JOIN audit_games g ON g.audit_id = ?5 AND g.name = rel.title
                  WHERE rel.selection_id = ?1 AND rel.seq > ?2 AND (?3 IS NULL OR rel.role = ?3)
                    AND (?6 IS NULL OR rel.group_name = ?6)
                  ORDER BY rel.seq LIMIT ?4"
@@ -514,6 +515,7 @@ impl Store {
                     seq: row.get::<_, i64>(10)? as u64,
                     release: release_from_row(row)?,
                     availability: status.as_deref().and_then(GameStatus::parse),
+                    claimed: row.get::<_, Option<bool>>(12)?.unwrap_or(false),
                 });
             }
             let more = items.len() > limit;
@@ -533,18 +535,28 @@ impl Store {
             record_by_id(c, id)?;
             let audit = availability_audit(c, id)?;
             let mut games = BTreeMap::new();
+            let mut claimed = BTreeSet::new();
             if let Some(audit) = audit {
-                let mut stmt =
-                    c.prepare("SELECT name, status FROM audit_games WHERE audit_id = ?1")?;
+                let mut stmt = c.prepare(
+                    "SELECT name, status, claimed_roms <> '[]' FROM audit_games WHERE audit_id = ?1",
+                )?;
                 let mut rows = stmt.query([audit])?;
                 while let Some(row) = rows.next()? {
+                    let name: String = row.get(0)?;
                     let status: String = row.get(1)?;
+                    if row.get(2)? {
+                        claimed.insert(name.clone());
+                    }
                     if let Some(status) = GameStatus::parse(&status) {
-                        games.insert(row.get(0)?, status);
+                        games.insert(name, status);
                     }
                 }
             }
-            Ok(Availability { audit, games })
+            Ok(Availability {
+                audit,
+                games,
+                claimed,
+            })
         })
     }
 

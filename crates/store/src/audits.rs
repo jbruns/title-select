@@ -1,6 +1,7 @@
 //! Stored Audits: run against a registered Source Set, kept as rows, pruned to summaries.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::{Mutex, PoisonError};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
@@ -12,9 +13,11 @@ use super::sets::{Resolved, SourceSetRow, resolve, set_by_id, set_by_name};
 use super::{Error, Result, Store, now};
 use crate::config::Config;
 use title_select_api::{AuditSummary, EntryRow, GameRow};
+use title_select_engine::payload::Checksums;
 use title_select_engine::{
-    ALGORITHMS, DatRevision, Entry, Evidence, EvidenceLevel, Finding, Game, GameStatus,
-    ONE_WORKER_EACH, Options, Progress, Report, RomRef, SCHEMA, Summary, Workers,
+    ALGORITHMS, AuditEvidence, DatRevision, Entry, Evidence, EvidenceLevel, FileStamp, Finding,
+    Game, GameStatus, ONE_WORKER_EACH, Options, PayloadRead, PayloadReads, Progress, Report, Reuse,
+    RomRef, SCHEMA, Summary, Workers,
 };
 
 /// An Audit the store has recorded, with the report generated from its rows.
@@ -22,6 +25,14 @@ use title_select_engine::{
 pub struct StoredAudit {
     pub id: i64,
     pub report: Report,
+}
+
+/// How an Audit runs: for which Job, with how many workers, and how it gets its checksums.
+struct How {
+    job: Option<i64>,
+    workers: Workers,
+    evidence: AuditEvidence,
+    resumes: Option<i64>,
 }
 
 /// An Audit whose row is inserted as running, before its scan.
@@ -33,11 +44,124 @@ pub(super) struct RunningAudit {
     /// The Job running it, if any; it changes state with the Audit.
     job: Option<i64>,
     workers: Workers,
+    evidence: AuditEvidence,
+    /// For a Job queued again after a restart interrupted it, the interrupted Job, whose reads a full Audit resumes
+    /// from.
+    resumes: Option<i64>,
+}
+
+/// The payload reads recorded for a Source Set, as an Audit of it reuses and records them.
+struct StoredReads<'s> {
+    store: &'s Store,
+    set_id: i64,
+    /// The Job recording its reads, if any.
+    job: Option<i64>,
+    /// Which recorded reads may be reused: any, only those of one Job, or none.
+    reuse: Option<Option<i64>>,
+    /// The first error reading or recording, which fails the Audit once its scan ends.
+    error: Mutex<Option<Error>>,
+}
+
+impl<'s> StoredReads<'s> {
+    /// A full Audit reuses nothing, except, when it resumes an interrupted Job, what that Job read.
+    fn new(store: &'s Store, running: &RunningAudit) -> StoredReads<'s> {
+        let reuse = match (running.evidence, running.resumes) {
+            (AuditEvidence::Full, None) => None,
+            (AuditEvidence::Full, Some(job)) => Some(Some(job)),
+            (AuditEvidence::Quick | AuditEvidence::Incremental, _) => Some(None),
+        };
+        StoredReads {
+            store,
+            set_id: running.set_id,
+            job: running.job,
+            reuse,
+            error: Mutex::new(None),
+        }
+    }
+
+    fn keep(&self, err: Error) {
+        self.error
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert(err);
+    }
+}
+
+impl PayloadReads for StoredReads<'_> {
+    fn prior(&self, path: &str) -> Option<PayloadRead> {
+        let only_job = self.reuse?;
+        let found = self.store.read(|c| {
+            let row = c
+                .query_row(
+                    "SELECT dev, ino, size, mtime_ns, ctime_ns, read_at, members FROM payload_reads
+                     WHERE source_set_id = ?1 AND path = ?2 AND (?3 IS NULL OR job_id = ?3)",
+                    params![self.set_id, path, only_job],
+                    |r| {
+                        Ok((
+                            FileStamp {
+                                dev: r.get::<_, i64>(0)? as u64,
+                                ino: r.get::<_, i64>(1)? as u64,
+                                size: r.get::<_, i64>(2)? as u64,
+                                mtime_ns: r.get::<_, i64>(3)? as i128,
+                                ctime_ns: r.get::<_, i64>(4)? as i128,
+                            },
+                            r.get::<_, String>(5)?,
+                            r.get::<_, String>(6)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            let Some((stamp, read_at, members)) = row else {
+                return Ok(None);
+            };
+            let members: Vec<(Option<String>, Checksums)> =
+                serde_json::from_str(&members).map_err(corrupt)?;
+            Ok(Some(PayloadRead {
+                stamp,
+                read_at: timestamp(&read_at)?,
+                members,
+            }))
+        });
+        found.unwrap_or_else(|err| {
+            self.keep(err);
+            None
+        })
+    }
+
+    fn record(&self, path: &str, read: &PayloadRead) {
+        let recorded = serde_json::to_string(&read.members)
+            .map_err(corrupt)
+            .and_then(|members| {
+                self.store.write(|tx| {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO payload_reads
+                             (source_set_id, path, dev, ino, size, mtime_ns, ctime_ns, read_at, job_id, members)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                        params![
+                            self.set_id,
+                            path,
+                            read.stamp.dev as i64,
+                            read.stamp.ino as i64,
+                            read.stamp.size as i64,
+                            read.stamp.mtime_ns as i64,
+                            read.stamp.ctime_ns as i64,
+                            read.read_at.to_string(),
+                            self.job,
+                            members
+                        ],
+                    )?;
+                    Ok(())
+                })
+            });
+        if let Err(err) = recorded {
+            self.keep(err);
+        }
+    }
 }
 
 const SUMMARY_QUERY: &str = "SELECT a.id, s.name, a.started_at, a.finished_at, r.sha256, r.version,
             a.pruned_at IS NOT NULL, a.matched, a.misnamed, a.conflicting, a.mismatched, a.unmatched, a.unreadable,
-            a.complete, a.incomplete, a.missing
+            a.complete, a.incomplete, a.missing, a.evidence
      FROM audits a
      JOIN dat_revisions r ON r.id = a.dat_revision_id
      JOIN source_sets s ON s.id = a.source_set_id";
@@ -52,13 +176,27 @@ fn summary_from_row(r: &Row) -> rusqlite::Result<AuditSummary> {
         dat_revision_sha256: r.get(4)?,
         dat_revision_version: r.get(5)?,
         pruned: r.get(6)?,
+        evidence: evidence_from(r, 16)?,
         findings,
         games,
     })
 }
 
-pub(super) const ENTRY_COLUMNS: &str =
-    "path, member, finding, roms, named_game, named_rom, evidence_level, algorithms, reason";
+pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game, named_rom, evidence_level, algorithms, reason, read_at, reused";
+
+/// The `seq` column's index, when selected after [`ENTRY_COLUMNS`].
+const ENTRY_SEQ: usize = 11;
+
+pub(super) fn evidence_from(row: &Row, i: usize) -> rusqlite::Result<AuditEvidence> {
+    let text: String = row.get(i)?;
+    AuditEvidence::parse(&text).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            i,
+            rusqlite::types::Type::Text,
+            format!("unknown audit evidence {text}").into(),
+        )
+    })
+}
 
 /// The count columns of `audits`, Findings then Game Statuses, named as the report names them.
 fn count_columns(prefix: &str) -> String {
@@ -152,7 +290,8 @@ pub(super) fn choose_revision(
     .ok_or_else(|| Error::Refused(format!("no DAT revision of {dat} has been imported")))
 }
 
-/// Finishes the running Audit `id`: its counts and times, its Entries and its Game Statuses.
+/// Finishes the running Audit `id`: its counts and times, its Entries and its Game Statuses. Forgets the payload
+/// reads of files in its Source Set that it did not find.
 fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
     let mut values = vec![
         Value::Text(report.source_set.clone()),
@@ -192,10 +331,27 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         [id],
     )?;
 
+    let found: HashSet<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
+    let set_id: i64 = tx.query_row(
+        "SELECT source_set_id FROM audits WHERE id = ?1",
+        [id],
+        |r| r.get(0),
+    )?;
+    let recorded: Vec<String> = tx
+        .prepare("SELECT path FROM payload_reads WHERE source_set_id = ?1")?
+        .query_map([set_id], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for path in recorded.iter().filter(|p| !found.contains(p.as_str())) {
+        tx.execute(
+            "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+            params![set_id, path],
+        )?;
+    }
+
     let mut entry = tx.prepare(
         "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
-                                    evidence_level, algorithms, reason)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                                    evidence_level, algorithms, reason, read_at, reused)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
     )?;
     for (seq, e) in report.entries.iter().enumerate() {
         let roms = serde_json::to_string(&e.roms).map_err(corrupt)?;
@@ -211,14 +367,28 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
             e.evidence.as_ref().map(|ev| ev.level.as_str()),
             e.evidence.as_ref().map(|ev| ev.algorithms.join(",")),
             e.reason,
+            e.evidence
+                .as_ref()
+                .and_then(|ev| ev.read_at)
+                .map(|at| at.to_string()),
+            e.evidence.as_ref().is_some_and(|ev| ev.reused.is_some()),
         ])?;
     }
     let mut game = tx.prepare(
-        "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )?;
     for (seq, g) in report.games.iter().enumerate() {
         let missing = serde_json::to_string(&g.missing_roms).map_err(corrupt)?;
-        game.execute(params![id, seq as i64, g.name, g.status.as_str(), missing])?;
+        let claimed = serde_json::to_string(&g.claimed_roms).map_err(corrupt)?;
+        game.execute(params![
+            id,
+            seq as i64,
+            g.name,
+            g.status.as_str(),
+            missing,
+            claimed
+        ])?;
     }
     Ok(())
 }
@@ -247,6 +417,8 @@ pub(super) fn entry_from_row(row: &Row) -> Result<Entry> {
     let named_name: Option<String> = row.get(5)?;
     let level: Option<String> = row.get(6)?;
     let algorithms: Option<String> = row.get(7)?;
+    let read_at: Option<String> = row.get(9)?;
+    let reused: bool = row.get(10)?;
     let evidence = match (level, algorithms) {
         (Some(level), Some(algorithms)) => Some(Evidence {
             level: EvidenceLevel::parse(&level).ok_or_else(|| corrupt(&level))?,
@@ -260,6 +432,8 @@ pub(super) fn entry_from_row(row: &Row) -> Result<Entry> {
                         .ok_or_else(|| corrupt(a))
                 })
                 .collect::<Result<_>>()?,
+            read_at: read_at.as_deref().map(timestamp).transpose()?,
+            reused: reused.then_some(Reuse::UnchangedFileHeuristic),
         }),
         _ => None,
     };
@@ -280,10 +454,12 @@ pub(super) fn entry_from_row(row: &Row) -> Result<Entry> {
 fn game_from_row(row: &Row) -> Result<Game> {
     let status: String = row.get(1)?;
     let missing: String = row.get(2)?;
+    let claimed: String = row.get(3)?;
     Ok(Game {
         name: row.get(0)?,
         status: GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
         missing_roms: serde_json::from_str(&missing).map_err(corrupt)?,
+        claimed_roms: serde_json::from_str(&claimed).map_err(corrupt)?,
     })
 }
 
@@ -293,7 +469,7 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
         .query_row(
             &format!(
                 "SELECT a.source_set_path, a.started_at, a.finished_at, a.pruned_at IS NOT NULL,
-                        r.sha256, d.name, r.version, r.file_name, {}
+                        r.sha256, d.name, r.version, r.file_name, a.evidence, {}
                  FROM audits a
                  JOIN dat_revisions r ON r.id = a.dat_revision_id
                  JOIN dats d ON d.id = r.dat_id
@@ -315,13 +491,15 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
                         version: r.get(6)?,
                         file: r.get(7)?,
                     },
-                    counts_from(r, 8)?,
+                    evidence_from(r, 8)?,
+                    counts_from(r, 9)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no finished audit {audit_id}")))?;
-    let ((source_set, started_at, finished_at, pruned), dat_revision, (findings, games)) = head;
+    let ((source_set, started_at, finished_at, pruned), dat_revision, evidence, (findings, games)) =
+        head;
     if pruned {
         return Err(Error::Refused(format!(
             "audit {audit_id} was pruned; only its summary is kept"
@@ -336,7 +514,7 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
         entries.push(entry_from_row(row)?);
     }
     let mut stmt = c.prepare(
-        "SELECT name, status, missing_roms FROM audit_games WHERE audit_id = ?1 ORDER BY seq",
+        "SELECT name, status, missing_roms, claimed_roms FROM audit_games WHERE audit_id = ?1 ORDER BY seq",
     )?;
     let mut rows = stmt.query([audit_id])?;
     let mut game_rows = Vec::new();
@@ -347,6 +525,7 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
         schema: SCHEMA,
         dat_revision,
         source_set,
+        evidence,
         started_at: timestamp(&started_at)?,
         finished_at: timestamp(&finished_at)?,
         summary: Summary { findings, games },
@@ -357,15 +536,17 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
 
 impl Store {
     /// Audits the registered Source Set `name` against the DAT Revision chosen by `revision` (a SHA-256 prefix),
-    /// or by default the latest Audit's, else the newest imported revision of its DAT. The Audit is recorded
-    /// in one transaction when it finishes; older Audits are then pruned and unheld DAT blobs dropped.
+    /// or by default the latest Audit's, else the newest imported revision of its DAT, getting checksums as
+    /// `evidence` says. Each file's payload read is recorded as it finishes, for later Audits to reuse. The Audit is
+    /// recorded in one transaction when it finishes; older Audits are then pruned and unheld DAT blobs dropped.
     pub fn audit_source_set(
         &self,
         config: &Config,
         name: &str,
         revision: Option<&str>,
+        evidence: AuditEvidence,
     ) -> Result<StoredAudit> {
-        let running = self.begin_audit(config, name, revision)?;
+        let running = self.begin_audit(config, name, revision, evidence)?;
         self.complete_audit(config, running, None)
     }
 
@@ -374,9 +555,16 @@ impl Store {
         config: &Config,
         name: &str,
         revision: Option<&str>,
+        evidence: AuditEvidence,
     ) -> Result<RunningAudit> {
         let set = self.read(|c| set_by_name(c, name))?;
-        self.begin(config, set, None, ONE_WORKER_EACH, |tx, set| {
+        let how = How {
+            job: None,
+            workers: ONE_WORKER_EACH,
+            evidence,
+            resumes: None,
+        };
+        self.begin(config, set, how, |tx, set| {
             choose_revision(tx, set, revision)
         })
     }
@@ -385,9 +573,13 @@ impl Store {
     pub(super) fn begin_job_audit(&self, config: &Config, job: &JobRow) -> Result<RunningAudit> {
         let set = self.read(|c| set_by_id(c, job.source_set_id))?;
         let revision_id = job.dat_revision_id;
-        self.begin(config, set, Some(job.id), job.workers, |tx, _| {
-            revision_by_id(tx, revision_id)
-        })
+        let how = How {
+            job: Some(job.id),
+            workers: job.workers,
+            evidence: job.evidence,
+            resumes: job.requeued_from,
+        };
+        self.begin(config, set, how, |tx, _| revision_by_id(tx, revision_id))
     }
 
     /// Chooses the revision with `choose` and inserts the running row in one transaction, which pins the blob:
@@ -396,8 +588,7 @@ impl Store {
         &self,
         config: &Config,
         set: SourceSetRow,
-        job: Option<i64>,
-        workers: Workers,
+        how: How,
         choose: impl FnOnce(&Transaction, &SourceSetRow) -> Result<(i64, DatRevisionRecord)>,
     ) -> Result<RunningAudit> {
         let resolved = resolve(config, &set.record.root, &set.record.path)?;
@@ -406,9 +597,17 @@ impl Store {
             let (revision_id, revision) = choose(tx, &set)?;
             check_blob_present(&revision)?;
             tx.execute(
-                "INSERT INTO audits (source_set_id, dat_revision_id, status, source_set_path, started_at, job_id)
-                 VALUES (?1, ?2, 'running', ?3, ?4, ?5)",
-                params![set.id, revision_id, source_set_path, now(), job],
+                "INSERT INTO audits (source_set_id, dat_revision_id, status, source_set_path, started_at, job_id,
+                                     evidence)
+                 VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6)",
+                params![
+                    set.id,
+                    revision_id,
+                    source_set_path,
+                    now(),
+                    how.job,
+                    how.evidence.as_str()
+                ],
             )?;
             Ok((tx.last_insert_rowid(), revision))
         })?;
@@ -417,8 +616,10 @@ impl Store {
             set_id: set.id,
             resolved,
             revision,
-            job,
-            workers,
+            job: how.job,
+            workers: how.workers,
+            evidence: how.evidence,
+            resumes: how.resumes,
         })
     }
 
@@ -480,6 +681,7 @@ impl Store {
     ) -> Result<Report> {
         let revision = &running.revision;
         let blob = self.blob_path(&revision.sha256);
+        let reads = StoredReads::new(self, running);
         let report = title_select_engine::audit_with(
             &blob,
             &running.resolved.path,
@@ -488,8 +690,17 @@ impl Store {
                 confine: Some(&running.resolved.canonical_root),
                 workers: running.workers,
                 progress,
+                evidence: running.evidence,
+                reads: Some(&reads),
             },
         )?;
+        if let Some(err) = reads
+            .error
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner)
+        {
+            return Err(err);
+        }
         if report.dat_revision.sha256 != revision.sha256 {
             return Err(Error::Io(format!(
                 "{}: the blob does not match its SHA-256",
@@ -563,7 +774,7 @@ impl Store {
             let mut items = Vec::new();
             while let Some(row) = rows.next()? {
                 items.push(EntryRow {
-                    seq: row.get::<_, i64>(9)? as u64,
+                    seq: row.get::<_, i64>(ENTRY_SEQ)? as u64,
                     entry: entry_from_row(row)?,
                 });
             }
@@ -583,7 +794,7 @@ impl Store {
             let mut rows = stmt.query([audit_id])?;
             while let Some(row) = rows.next()? {
                 let entry = EntryRow {
-                    seq: row.get::<_, i64>(9)? as u64,
+                    seq: row.get::<_, i64>(ENTRY_SEQ)? as u64,
                     entry: entry_from_row(row)?,
                 };
                 if !f(entry) {
@@ -606,7 +817,7 @@ impl Store {
             let tx = conn.unchecked_transaction()?;
             check_full(&tx, audit_id)?;
             let mut stmt = tx.prepare(
-                "SELECT name, status, missing_roms, seq FROM audit_games
+                "SELECT name, status, missing_roms, claimed_roms, seq FROM audit_games
                  WHERE audit_id = ?1 AND seq > ?2 AND (?3 IS NULL OR status = ?3)
                  ORDER BY seq LIMIT ?4",
             )?;
@@ -619,7 +830,7 @@ impl Store {
             let mut items = Vec::new();
             while let Some(row) = rows.next()? {
                 items.push(GameRow {
-                    seq: row.get::<_, i64>(3)? as u64,
+                    seq: row.get::<_, i64>(4)? as u64,
                     game: game_from_row(row)?,
                 });
             }
@@ -732,8 +943,12 @@ mod tests {
     #[test]
     fn the_latest_audit_is_the_last_to_finish_and_is_never_pruned_by_its_own_completion() {
         let (_tmp, store, config) = store_with_a_set();
-        let first = store.begin_audit(&config, "Test", None).unwrap();
-        let second = store.begin_audit(&config, "Test", None).unwrap();
+        let first = store
+            .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
+            .unwrap();
+        let second = store
+            .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
+            .unwrap();
         let (first_id, second_id) = (first.id, second.id);
         store.complete_audit(&config, second, None).unwrap();
         let completed = store.complete_audit(&config, first, None).unwrap();
@@ -754,8 +969,12 @@ mod tests {
     #[test]
     fn a_finished_audits_report_survives_another_audit_pruning_it_before_its_own_pruning() {
         let (_tmp, store, config) = store_with_a_set();
-        let first = store.begin_audit(&config, "Test", None).unwrap();
-        let second = store.begin_audit(&config, "Test", None).unwrap();
+        let first = store
+            .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
+            .unwrap();
+        let second = store
+            .begin_audit(&config, "Test", None, AuditEvidence::Incremental)
+            .unwrap();
         let (first_id, set_id) = (first.id, first.set_id);
 
         let finished = store.finish(first, None).unwrap();

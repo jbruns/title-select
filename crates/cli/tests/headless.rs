@@ -84,7 +84,7 @@ fn the_headless_client_runs_an_audit_job_and_prints_the_report() {
 
     assert!(out.status.success(), "{}", stderr(&out));
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["schema"], 2);
+    assert_eq!(report["schema"], 3);
     assert!(report["source_set"].as_str().unwrap().ends_with(SET));
     assert_eq!(report["summary"]["findings"]["matched"], 1);
     assert_eq!(report["summary"]["findings"]["unmatched"], 1);
@@ -103,6 +103,32 @@ fn the_headless_client_runs_an_audit_job_and_prints_the_report() {
     let written: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&output).unwrap()).unwrap();
     assert_eq!(written["summary"], report["summary"]);
+}
+
+#[test]
+fn the_headless_client_asks_for_the_evidence_you_choose() {
+    let env = Env::new();
+    let token = env.file("token");
+    assert!(env.audit(&env.service.url(), &token, &[]).status.success());
+
+    let full = env.audit(&env.service.url(), &token, &["--evidence", "full"]);
+    let quick = env.audit(&env.service.url(), &token, &["--evidence", "quick"]);
+
+    assert!(full.status.success(), "{}", stderr(&full));
+    let report: serde_json::Value = serde_json::from_slice(&full.stdout).unwrap();
+    assert_eq!(report["evidence"], "full");
+    assert!(
+        stderr(&full).contains("2 entries read, 0 reused"),
+        "{}",
+        stderr(&full)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&quick.stdout).unwrap();
+    assert_eq!(report["evidence"], "quick");
+    assert!(
+        stderr(&quick).contains("0 entries read, 2 reused"),
+        "{}",
+        stderr(&quick)
+    );
 }
 
 #[test]

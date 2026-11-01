@@ -149,7 +149,12 @@ impl Env {
 
     fn audit(&self) {
         self.store
-            .audit_source_set(&self.config, SET, None)
+            .audit_source_set(
+                &self.config,
+                SET,
+                None,
+                title_select_engine::AuditEvidence::Incremental,
+            )
             .unwrap();
     }
 
@@ -948,7 +953,12 @@ fn a_replacement_keeps_the_old_file_and_writes_the_new_one_in_one_plan() {
     let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
     write_file(&env.set_dir().join("pong-revised.bin"), b"pong, revised");
     env.store
-        .audit_source_set(&env.config, SET, Some(&revision.sha256))
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Incremental,
+        )
         .unwrap();
     let id = env.record(&selection(
         &revision.sha256,
@@ -1875,6 +1885,64 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
     let read_only = config(&env.tmp.path().join("roots/sets"), &env.play(), false);
     let plan = env.store.plan_build(&read_only, second.id, id).unwrap();
     assert_eq!(blockers(&plan), BTreeSet::from([BlockerKind::ReadOnlyRoot]));
+}
+
+#[test]
+fn a_quick_inventorys_claims_are_never_build_sources() {
+    let env = Env::new();
+    // Ōkami's ZIP: its directory claims the right CRC32, but its payload is corrupt.
+    let okami = env.set_dir().join("Ōkami (Japan).zip");
+    write_stored_zip(&okami, &[("Ōkami (Japan).a26", b"cafe")]);
+    let mut bytes = std::fs::read(&okami).unwrap();
+    let at = bytes.windows(4).position(|w| w == b"cafe").unwrap();
+    bytes[at..at + 4].copy_from_slice(b"CAFE");
+    std::fs::write(&okami, &bytes).unwrap();
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            None,
+            title_select_engine::AuditEvidence::Quick,
+        )
+        .unwrap();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+
+    let plan = env.plan(&folder, id);
+
+    let item = |game: &str| plan.content.items.iter().find(|i| i.game == game).unwrap();
+    let sources = |game: &str| {
+        item(game)
+            .sources
+            .iter()
+            .map(|s| (s.path.clone(), s.finding, s.evidence))
+            .collect::<Vec<_>>()
+    };
+    use title_select_api::{EvidenceLevel::Payload, Finding::*};
+    assert_eq!(
+        sources("Ōkami (Japan)"),
+        [("a-cafe.bin".into(), Misnamed, Some(Payload))]
+    );
+    assert_eq!(
+        sources("Pong (USA)"),
+        [("Pong (USA).a26".into(), Matched, Some(Payload))]
+    );
+    let combat = item("Combat (USA)");
+    assert_eq!(combat.kind, ItemKind::NoSource);
+    let reason = combat.reason.as_deref().unwrap();
+    assert!(reason.contains("claim evidence"), "{reason}");
+
+    let job = env.build(&plan);
+
+    assert_eq!(job.state, JobState::Succeeded);
+    let built = env.play().join("atari2600/Ōkami (Japan).zip");
+    assert_eq!(
+        validate(&built)
+            .into_iter()
+            .map(|m| m.name)
+            .collect::<Vec<_>>(),
+        ["Ōkami (Japan).a26"]
+    );
 }
 
 #[test]
@@ -3224,7 +3292,12 @@ fn an_unresolved_group_whose_roms_the_newer_dat_revision_changed_is_incomplete()
     );
     let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
     env.store
-        .audit_source_set(&env.config, SET, Some(&revision.sha256))
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Incremental,
+        )
         .unwrap();
     let mut unresolved = selection(
         &revision.sha256,

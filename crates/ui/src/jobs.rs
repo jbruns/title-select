@@ -176,6 +176,7 @@ mod tests {
             selection: None,
             managed_folder: None,
             plan: None,
+            evidence: None,
             error: None,
             workers: Workers {
                 readers: 1,

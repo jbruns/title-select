@@ -640,6 +640,7 @@ async fn start_audit(
             start.revision.as_deref(),
             &actor,
             workers,
+            start.evidence,
         )
     })
     .await?;
@@ -655,7 +656,7 @@ async fn audit(
     Ok(Json(blocking(&state, move |store| store.audit(id)).await?))
 }
 
-/// The full `schema: 2` report.
+/// The full `schema: 3` report.
 async fn report(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
@@ -1276,7 +1277,13 @@ mod tests {
             )
             .unwrap();
         store
-            .enqueue_audit("Test - System", None, "Operator", state.workers)
+            .enqueue_audit(
+                "Test - System",
+                None,
+                "Operator",
+                state.workers,
+                title_select_api::AuditEvidence::Incremental,
+            )
             .unwrap();
         let running = store.claim_job().unwrap().unwrap();
 

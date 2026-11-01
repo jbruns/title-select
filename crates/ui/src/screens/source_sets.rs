@@ -7,7 +7,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 use leptos_struct_table::ColumnSort;
 use title_select_api::{
-    AddSourceSet, AuditSummary, Dat, DatRevisionRecord, Finding, GameStatus, Job,
+    AddSourceSet, AuditEvidence, AuditSummary, Dat, DatRevisionRecord, Finding, GameStatus, Job,
     PathTemplateDefaults, ProfileRecord, Root, SelectionRecord, SourceSetRecord, StartAudit,
     StartSelection,
 };
@@ -16,7 +16,8 @@ use crate::api;
 use crate::app::{Loading, Problem, navigator};
 use crate::events::use_live;
 use crate::model::{
-    audit_choices, finding_label, game_status_label, needs_review_from_counts, short_sha, when,
+    audit_choices, audit_evidence_label, finding_label, game_status_label,
+    needs_review_from_counts, short_sha, when,
 };
 use crate::registration;
 use crate::screens::audit::{ReAudit, queued};
@@ -541,12 +542,14 @@ fn SourceSetView(set: SourceSetRecord) -> impl IntoView {
         )
     });
     let revision = RwSignal::new(String::new());
+    let evidence = RwSignal::new(AuditEvidence::Incremental);
     let start = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let chosen = revision.get_untracked();
         let request = StartAudit {
             source_set: name.get_value(),
             revision: (!chosen.is_empty()).then_some(chosen),
+            evidence: evidence.get_untracked(),
         };
         leptos::task::spawn_local(async move {
             outcome.set(Some(api::post::<_, Job>("/audits", &request).await));
@@ -608,6 +611,22 @@ fn SourceSetView(set: SourceSetRecord) -> impl IntoView {
                                     .collect_view()}
                             }
                         }}
+                    </select>
+                </label>
+                <label>
+                    "Evidence"
+                    <select
+                        prop:value=move || evidence.get().as_str()
+                        on:change=move |ev| {
+                            if let Some(chosen) = AuditEvidence::parse(&event_target_value(&ev)) {
+                                evidence.set(chosen);
+                            }
+                        }
+                    >
+                        {AuditEvidence::ALL
+                            .into_iter()
+                            .map(|e| view! { <option value=e.as_str()>{audit_evidence_label(e)}</option> })
+                            .collect_view()}
                     </select>
                 </label>
                 <button type="submit" class="primary">

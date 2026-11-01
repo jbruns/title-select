@@ -60,6 +60,7 @@ pub fn synthetic(entries: usize) -> AuditEntries {
             GameRow {
                 seq: i as u64,
                 game: Game {
+                    claimed_roms: vec![],
                     missing_roms: if status == GameStatus::Complete {
                         vec![]
                     } else {
@@ -111,6 +112,8 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                     named_rom: None,
                     evidence: (finding != Finding::Unreadable).then(|| Evidence {
                         level: EvidenceLevel::Payload,
+                        read_at: None,
+                        reused: None,
                         algorithms: algorithms.iter().map(|a| Cow::Borrowed(*a)).collect(),
                     }),
                     reason: (finding == Finding::Unreadable)
