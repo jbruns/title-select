@@ -12,7 +12,7 @@ use title_select_api::build::ExpectedRom;
 use crate::dat::Dat;
 use crate::payload::{Checksums, Hasher};
 use crate::torrentzip::{self, Writer, compare_names};
-use crate::zipdir::{self, DirectoryLimits};
+use crate::zipdir::{self, DirectoryLimits, Layout};
 
 const CHUNK: usize = 1 << 16;
 
@@ -286,6 +286,8 @@ fn hash_all(file: &mut impl Read) -> io::Result<Checksums> {
 
 /// Reads `file` from its start: hashes it whole, and, when it is a ZIP archive, each member. An error reading the
 /// file itself is returned; one reading a member is recorded in the probe.
+/// A ZIP archive is opened only in canonical layout (see [`zipdir`]); one that begins as a ZIP but is not is refused
+/// unread, and any other file is a loose file, never opened as an archive.
 pub fn probe(file: &File) -> io::Result<Probe> {
     let mut reader = BufReader::new(file);
     reader.seek(SeekFrom::Start(0))?;
@@ -301,11 +303,19 @@ pub fn probe(file: &File) -> io::Result<Probe> {
         payloads: Vec::new(),
         error: None,
     };
-    if let Some(why) = zipdir::check_directory(file, &DirectoryLimits::default())? {
-        probe.torrentzip = false;
-        probe.zip = true;
-        probe.error = Some(format!("not read: {why}"));
-        return Ok(probe);
+    match zipdir::check_directory(file, &DirectoryLimits::default())? {
+        Layout::Refused(why) if zipdir::starts_as_zip(file)? => {
+            probe.torrentzip = false;
+            probe.zip = true;
+            probe.error = Some(format!("not read: {why}"));
+            return Ok(probe);
+        }
+        Layout::Refused(_) => {
+            probe.torrentzip = false;
+            probe.payloads.push(Payload::new(None, whole));
+            return Ok(probe);
+        }
+        Layout::NotZip | Layout::Zip => {}
     }
     reader.seek(SeekFrom::Start(0))?;
     let Ok(mut archive) = zip::ZipArchive::new(reader) else {
@@ -416,8 +426,14 @@ pub fn probe_within(file: &File, limits: &ZipLimits) -> io::Result<Probed> {
         entries: limits.members as u64,
         ..DirectoryLimits::default()
     };
-    if let Some(why) = zipdir::check_directory(file, &directory)? {
-        return Ok(Probed::Refused(why));
+    match zipdir::check_directory(file, &directory)? {
+        Layout::Refused(why) if zipdir::starts_as_zip(file)? => return Ok(Probed::Refused(why)),
+        Layout::Refused(_) => {
+            probe.torrentzip = false;
+            probe.payloads.push(Payload::new(None, whole));
+            return Ok(Probed::Read(probe));
+        }
+        Layout::NotZip | Layout::Zip => {}
     }
     reader.seek(SeekFrom::Start(0))?;
     let Ok(mut archive) = zip::ZipArchive::new(reader) else {

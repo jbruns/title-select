@@ -24,13 +24,23 @@ rename, replace or link to an entry at any moment, including while Title Select 
 - Scans only read. They are Jobs the Operator starts, or that an optional per-folder schedule queues; there is no
   filesystem watching. An item is assessed only once its size, modification time and change time stay unchanged for
   the settle interval. Its hashes are reused under the same change test an incremental Audit uses: device, inode,
-  size, modification time and change time all unchanged. Before any ZIP is opened, its end-of-directory records
-  are read to bound its entry count, directory size and ZIP64 end record size, so a directory of millions of empty
-  members or gigabytes of extensible data cannot exhaust memory; Audits use the same bound. The end record is chosen
-  as the archive reader chooses it, and every one it could fall back to is judged, so signature bytes in a payload
-  or comment are not mistaken for it. A ZIP is then judged from its central directory, by member count, names,
-  declared sizes and each member's first bytes. Its members are then read only up to the limits
-  of one game's ZIP. Archives within it and anything past the limits are Unsupported, and never read further.
+  size, modification time and change time all unchanged. A ZIP is opened, in ingest and in Audits, only in
+  canonical layout, so that the archive reader takes its first end record and never searches the file. That layout
+  is the one TorrentZip and mainstream writers produce:
+  - the last end-record signature in the tail is the end record;
+  - its comment runs exactly to the end of the file, and holds no end-record or ZIP64 signature;
+  - with ZIP64, the locator sits just before the end record, and the ZIP64 end record ends exactly at the locator,
+    with at most 64 KiB of extensible data;
+  - the central directory ends exactly where its end record begins, and starts with a directory header, or is empty.
+
+  The directory's entry count and size are then bounded. Any other ZIP is refused unread: Unsupported in ingest,
+  Unreadable in an Audit. Mirroring the reader's own search instead would leave its fallback scans, which can
+  remember every directory-header signature in the file, free to exhaust memory. A file that does not begin as a ZIP
+  is a loose file, and is never opened as an archive.
+
+  An opened ZIP is judged from its central directory, by member count, names, declared sizes and each member's first
+  bytes. Its members are then read only up to the limits of one game's ZIP. Archives within it and anything past the
+  limits are Unsupported, and never read further.
 - Nothing leaves an Ingest Folder except through a plan the Operator approves. The plan lists each item, its
   destination and the reason. Only an item that has settled can be planned: its stamp stayed unchanged for the
   settle interval, whatever state it is shown in. It must also have been read and assessed, except that an

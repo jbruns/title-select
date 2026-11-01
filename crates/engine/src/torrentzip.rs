@@ -871,6 +871,13 @@ mod tests {
         assert!(bytes.windows(4).any(|w| w == LOCATOR_SIG.to_le_bytes()));
         // Without the lowered limits the same bytes are not canonical.
         assert!(validate(&mut Cursor::new(&bytes)).is_err());
+        // The ZIP64 records are laid out as an archive is opened with.
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(&bytes).unwrap();
+        assert_eq!(
+            crate::zipdir::check_directory(&file, &Default::default()).unwrap(),
+            crate::zipdir::Layout::Zip
+        );
     }
 
     #[test]

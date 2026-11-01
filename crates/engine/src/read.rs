@@ -176,7 +176,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
 
 /// Opens `file` as a ZIP archive once its central directory is known to be within bounds.
 fn bounded_archive(file: File) -> Result<zip::ZipArchive<File>, String> {
-    if let Some(why) =
+    if let crate::zipdir::Layout::Refused(why) =
         crate::zipdir::check_directory(&file, &crate::zipdir::DirectoryLimits::default())
             .map_err(|e| e.to_string())?
     {
