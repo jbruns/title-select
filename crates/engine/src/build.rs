@@ -12,6 +12,7 @@ use title_select_api::build::ExpectedRom;
 use crate::dat::Dat;
 use crate::payload::{Checksums, Hasher};
 use crate::torrentzip::{self, Writer, compare_names};
+use crate::zipdir::{self, DirectoryLimits};
 
 const CHUNK: usize = 1 << 16;
 
@@ -300,6 +301,13 @@ pub fn probe(file: &File) -> io::Result<Probe> {
         payloads: Vec::new(),
         error: None,
     };
+    if let Some(why) = zipdir::check_directory(file, &DirectoryLimits::default())? {
+        probe.torrentzip = false;
+        probe.zip = true;
+        probe.error = Some(format!("not read: {why}"));
+        return Ok(probe);
+    }
+    reader.seek(SeekFrom::Start(0))?;
     let Ok(mut archive) = zip::ZipArchive::new(reader) else {
         probe.torrentzip = false;
         probe.payloads.push(Payload::new(None, whole));
@@ -404,6 +412,14 @@ pub fn probe_within(file: &File, limits: &ZipLimits) -> io::Result<Probed> {
         payloads: Vec::new(),
         error: None,
     };
+    let directory = DirectoryLimits {
+        entries: limits.members as u64,
+        ..DirectoryLimits::default()
+    };
+    if let Some(why) = zipdir::check_directory(file, &directory)? {
+        return Ok(Probed::Refused(why));
+    }
+    reader.seek(SeekFrom::Start(0))?;
     let Ok(mut archive) = zip::ZipArchive::new(reader) else {
         probe.torrentzip = false;
         probe.payloads.push(Payload::new(None, whole));
@@ -658,6 +674,23 @@ mod tests {
         assert!(refused(probed(&by_name, &roomy)).contains("disc.7z"));
         let by_magic = zip_of(&[("game.bin", b"rom"), ("data.bin", &one_game)]);
         assert!(refused(probed(&by_magic, &roomy)).contains("data.bin, which reads as ZIP"));
+    }
+
+    #[test]
+    fn a_directory_declaring_more_members_than_allowed_is_refused_before_the_archive_is_opened() {
+        let mut bytes = zip_of(&[("a.bin", b"aaaa")]);
+        let end = bytes.len() - 22;
+        assert_eq!(&bytes[end..end + 4], b"PK\x05\x06");
+        bytes[end + 8..end + 12].copy_from_slice(&[0x60, 0xea, 0x60, 0xea]);
+
+        assert!(refused(probed(&bytes, &ZipLimits::default())).contains("60000 members"));
+        // An Audit's probe allows any 32-bit count, but not a directory larger than its bound.
+        bytes[end + 12..end + 16].copy_from_slice(&(100u32 << 20).to_le_bytes());
+        let mut file = tempfile::tempfile().unwrap();
+        io::Write::write_all(&mut file, &bytes).unwrap();
+        let probe = probe(&file).unwrap();
+        assert!(probe.payloads.is_empty(), "{probe:?}");
+        assert!(probe.error.unwrap().contains("not read"));
     }
 
     #[test]

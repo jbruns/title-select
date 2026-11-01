@@ -5,6 +5,7 @@ pub mod dat;
 pub mod payload;
 mod read;
 pub mod torrentzip;
+pub mod zipdir;
 
 use std::collections::BTreeMap;
 use std::path::Path;
