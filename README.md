@@ -533,8 +533,9 @@ folder is not watched. Dotfiles and partial downloads (`.part`, `.!qB`, `.crdown
 changed item is arriving until its size, modification time and change time stay the same for `settle_secs`; then it
 is assessed: hashed once, and matched against the current DAT revision of every source set. Its hashes are reused
 while its device, inode, size, modification time and change time are unchanged, as an incremental audit reuses an
-entry's. A ZIP whose directory declares more than 65535 entries or 64 MiB is refused before it is opened, here and
-in audits. A ZIP is judged from its directory before any member is read. Its members are read only up to the limits of
+entry's. A ZIP whose directory declares more than 65535 entries or 64 MiB, or whose ZIP64 end record carries more
+than 64 KiB of extensible data, is refused before it is opened, here and in audits. Its end record is found as the
+archive reader finds it, so end-record bytes inside a payload or a comment are not mistaken for it. A ZIP is judged from its directory before any member is read. Its members are read only up to the limits of
 one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all. Each item is one of:
 
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;

@@ -25,8 +25,10 @@ rename, replace or link to an entry at any moment, including while Title Select 
   filesystem watching. An item is assessed only once its size, modification time and change time stay unchanged for
   the settle interval. Its hashes are reused under the same change test an incremental Audit uses: device, inode,
   size, modification time and change time all unchanged. Before any ZIP is opened, its end-of-directory records
-  are read to bound its entry count and directory size, so a directory of millions of empty members cannot exhaust
-  memory; Audits use the same bound. A ZIP is then judged from its central directory, by member count, names,
+  are read to bound its entry count, directory size and ZIP64 end record size, so a directory of millions of empty
+  members or gigabytes of extensible data cannot exhaust memory; Audits use the same bound. The end record is chosen
+  as the archive reader chooses it, and every one it could fall back to is judged, so signature bytes in a payload
+  or comment are not mistaken for it. A ZIP is then judged from its central directory, by member count, names,
   declared sizes and each member's first bytes. Its members are then read only up to the limits
   of one game's ZIP. Archives within it and anything past the limits are Unsupported, and never read further.
 - Nothing leaves an Ingest Folder except through a plan the Operator approves. The plan lists each item, its
