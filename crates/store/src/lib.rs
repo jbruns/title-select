@@ -8,6 +8,7 @@ pub mod config;
 mod dats;
 mod folder_dir;
 mod folders;
+mod ingest;
 mod jobs;
 mod kept;
 mod migrations;
@@ -160,6 +161,16 @@ pub enum Fault {
     AfterFinalize,
     /// After the marker advances, before the store records the Build finished.
     AfterMarker,
+    /// Before a scan reads an item of an Ingest Folder to hash it: not reached when the hashes it read before are
+    /// reused.
+    IngestRead,
+    /// After an entry of an Ingest Folder is renamed to where a plan moves it, before either folder is synced.
+    IngestMoved,
+    /// After the verified copy or repack of an entry of an Ingest Folder is written, before it is renamed into place.
+    IngestStaged,
+    /// After the copy or repack of an entry of an Ingest Folder is renamed into place, before its original is
+    /// disposed of.
+    IngestPublished,
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.

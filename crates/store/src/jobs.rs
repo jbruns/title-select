@@ -16,6 +16,9 @@ const BUILD_INTERRUPTED: &str = "the service stopped while the build was running
      and a new plan builds the rest";
 /// Why a restart Interrupted a Check Job, which is never queued again: nothing depends on it.
 const CHECK_INTERRUPTED: &str = "the service stopped while the check was running; nothing in the folder was changed. Check it again";
+/// Why a restart Interrupted an Ingest Scan Job, which is never queued again: the next scan finds the same.
+const SCAN_INTERRUPTED: &str =
+    "the service stopped while the scan was running; nothing in the folder was changed. Scan it again";
 /// Why a restart Failed a Job that was already queued again once.
 const INTERRUPTED_AGAIN: &str =
     "the service stopped while the job was running, after it had already been queued again once";
@@ -40,12 +43,13 @@ pub(super) struct JobRow {
 }
 
 pub(super) const JOB_QUERY: &str =
-    "SELECT j.id, j.state, s.name, r.sha256, j.actor, j.attempt, j.requeued_from, j.audit_id,
-            j.error, j.readers, j.hashers, j.created_at, j.started_at, j.finished_at, j.version,
-            j.kind, p.name, v.version, j.selection_id, j.managed_folder_id, j.plan_id, j.evidence
+    "SELECT j.id, j.state, coalesce(s.name, ''), coalesce(r.sha256, ''), j.actor, j.attempt, j.requeued_from,
+            j.audit_id, j.error, j.readers, j.hashers, j.created_at, j.started_at, j.finished_at, j.version,
+            j.kind, p.name, v.version, j.selection_id, j.managed_folder_id, j.plan_id, i.root, j.evidence
      FROM jobs j
-     JOIN source_sets s ON s.id = j.source_set_id
-     JOIN dat_revisions r ON r.id = j.dat_revision_id
+     LEFT JOIN source_sets s ON s.id = j.source_set_id
+     LEFT JOIN dat_revisions r ON r.id = j.dat_revision_id
+     LEFT JOIN ingest_folders i ON i.id = j.ingest_folder_id
      LEFT JOIN profile_versions v ON v.id = j.profile_version_id
      LEFT JOIN profiles p ON p.id = v.profile_id";
 
@@ -80,10 +84,11 @@ pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
         selection: row.get(18)?,
         managed_folder: row.get(19)?,
         plan: row.get(20)?,
-        evidence: match row.get::<_, Option<String>>(21)? {
+        ingest_folder: row.get(21)?,
+        evidence: match row.get::<_, Option<String>>(22)? {
             Some(text) => Some(AuditEvidence::parse(&text).ok_or_else(|| {
                 rusqlite::Error::FromSqlConversionFailure(
-                    21,
+                    22,
                     rusqlite::types::Type::Text,
                     format!("unknown audit evidence {text}").into(),
                 )
@@ -354,8 +359,13 @@ impl Store {
                             requeued: None,
                         });
                     }
-                    if kind == JobKind::Check.as_str() {
-                        finish_running(tx, id, JobState::Interrupted, Some(CHECK_INTERRUPTED))?;
+                    if kind == JobKind::Check.as_str() || kind == JobKind::IngestScan.as_str() {
+                        let why = if kind == JobKind::Check.as_str() {
+                            CHECK_INTERRUPTED
+                        } else {
+                            SCAN_INTERRUPTED
+                        };
+                        finish_running(tx, id, JobState::Interrupted, Some(why))?;
                         return Ok(Interruption {
                             job: job_by_id(tx, id)?,
                             requeued: None,

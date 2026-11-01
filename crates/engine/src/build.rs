@@ -142,15 +142,26 @@ pub fn repack_from(
     roms: &[ExpectedRom],
     source: &File,
 ) -> Result<(String, u64), String> {
+    let named: Vec<(&ExpectedRom, &str)> = roms.iter().map(|r| (r, r.name.as_str())).collect();
+    repack_members(dest, &named, source)
+}
+
+/// As [`repack_from`], each ROM read from the named member of `source`, which may be named otherwise; members not
+/// named are left out.
+pub fn repack_members(
+    dest: &File,
+    roms: &[(&ExpectedRom, &str)],
+    source: &File,
+) -> Result<(String, u64), String> {
     let mut order: Vec<_> = roms.iter().collect();
-    order.sort_by(|a, b| compare_names(&a.name, &b.name));
+    order.sort_by(|a, b| compare_names(&a.0.name, &b.0.name));
     let reader = BufReader::new(Hashing::new(source).map_err(|e| e.to_string())?);
     let mut archive = zip::ZipArchive::new(reader).map_err(|e| e.to_string())?;
     let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
-    for rom in order {
+    for (rom, member) in order {
         let mut payload = archive
-            .by_name(&rom.name)
-            .map_err(|e| format!("{}: {e}", rom.name))?;
+            .by_name(member)
+            .map_err(|e| format!("{member}: {e}"))?;
         writer
             .add(&rom.name, rom.size, &mut payload)
             .map_err(|e| format!("{}: {e}", rom.name))?;
