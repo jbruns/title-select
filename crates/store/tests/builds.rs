@@ -149,7 +149,12 @@ impl Env {
 
     fn audit(&self) {
         self.store
-            .audit_source_set(&self.config, SET, None)
+            .audit_source_set(
+                &self.config,
+                SET,
+                None,
+                title_select_engine::AuditEvidence::Incremental,
+            )
             .unwrap();
     }
 
@@ -948,7 +953,12 @@ fn a_replacement_keeps_the_old_file_and_writes_the_new_one_in_one_plan() {
     let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
     write_file(&env.set_dir().join("pong-revised.bin"), b"pong, revised");
     env.store
-        .audit_source_set(&env.config, SET, Some(&revision.sha256))
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Incremental,
+        )
         .unwrap();
     let id = env.record(&selection(
         &revision.sha256,
@@ -3224,7 +3234,12 @@ fn an_unresolved_group_whose_roms_the_newer_dat_revision_changed_is_incomplete()
     );
     let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
     env.store
-        .audit_source_set(&env.config, SET, Some(&revision.sha256))
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Incremental,
+        )
         .unwrap();
     let mut unresolved = selection(
         &revision.sha256,

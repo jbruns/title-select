@@ -5,8 +5,8 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
 use title_select_api::{
-    ALGORITHMS, AuditSummary, DatRevisionRecord, Entry, EntryRow, EvidenceLevel, Finding, GameRow,
-    GameStatus,
+    ALGORITHMS, AuditEvidence, AuditSummary, DatRevisionRecord, Entry, EntryRow, EvidenceLevel,
+    Finding, GameRow, GameStatus, Reuse,
 };
 
 /// The glossary's name for a Finding.
@@ -103,12 +103,39 @@ pub fn entry_name(entry: &Entry) -> String {
 pub fn evidence_text(entry: &Entry) -> String {
     match &entry.evidence {
         Some(evidence) => {
-            let level = match evidence.level {
-                EvidenceLevel::Payload => "Payload",
-            };
-            format!("{level}: {}", evidence.algorithms.join(", "))
+            let algorithms = evidence.algorithms.join(", ");
+            match evidence.level {
+                EvidenceLevel::Payload => format!("Payload: {algorithms}"),
+                EvidenceLevel::Claim => format!("Claim: {algorithms} (not payload-verified)"),
+            }
         }
         None => String::new(),
+    }
+}
+
+/// When an Entry's payload was last read, and whether this Audit reused that read; nothing for Claim Evidence.
+pub fn payload_read_text(entry: &Entry) -> Option<String> {
+    let evidence = entry.evidence.as_ref()?;
+    let read_at = when(&evidence.read_at?.to_string());
+    Some(match evidence.reused {
+        Some(Reuse::UnchangedFileHeuristic) => {
+            format!("{read_at}, reused because the file looked unchanged (a heuristic)")
+        }
+        None => format!("{read_at}, by this audit"),
+    })
+}
+
+/// How an Audit got its Entries' checksums, in words.
+pub fn audit_evidence_label(evidence: AuditEvidence) -> &'static str {
+    match evidence {
+        AuditEvidence::Quick => {
+            "Quick: claim evidence from ZIP directories without reading their payloads; other files read, \
+             and earlier payload reads reused for files that looked unchanged (a heuristic)"
+        }
+        AuditEvidence::Incremental => {
+            "Incremental: payload reads reused for files that looked unchanged (a heuristic)"
+        }
+        AuditEvidence::Full => "Full: every payload read",
     }
 }
 
@@ -497,6 +524,8 @@ mod tests {
             evidence: (finding != Finding::Unreadable).then(|| Evidence {
                 level: EvidenceLevel::Payload,
                 algorithms: algorithms.iter().map(|a| Cow::Borrowed(*a)).collect(),
+                read_at: None,
+                reused: None,
             }),
             reason: (finding == Finding::Unreadable).then(|| "permission denied".into()),
         }
@@ -834,7 +863,37 @@ mod tests {
             findings: BTreeMap::new(),
             games: BTreeMap::new(),
             pruned: false,
+            evidence: AuditEvidence::Incremental,
         }
+    }
+
+    #[test]
+    fn claim_evidence_never_reads_as_payload_verified() {
+        let mut claimed = entry("a.zip", Finding::Matched, &["Pong"], &["size", "crc32"]);
+        claimed.evidence.as_mut().unwrap().level = EvidenceLevel::Claim;
+
+        assert_eq!(
+            evidence_text(&claimed),
+            "Claim: size, crc32 (not payload-verified)"
+        );
+        assert_eq!(payload_read_text(&claimed), None);
+    }
+
+    #[test]
+    fn a_reused_payload_read_says_when_it_was_read_and_that_reuse_is_a_heuristic() {
+        let mut read = entry("a.zip", Finding::Matched, &["Pong"], &["size", "crc32"]);
+        read.evidence.as_mut().unwrap().read_at = Some("2026-01-02T03:04:05Z".parse().unwrap());
+        let mut reused = read.clone();
+        reused.evidence.as_mut().unwrap().reused = Some(Reuse::UnchangedFileHeuristic);
+
+        assert_eq!(
+            payload_read_text(&read).as_deref(),
+            Some("2026-01-02 03:04:05 UTC, by this audit")
+        );
+        assert_eq!(
+            payload_read_text(&reused).as_deref(),
+            Some("2026-01-02 03:04:05 UTC, reused because the file looked unchanged (a heuristic)")
+        );
     }
 
     #[test]

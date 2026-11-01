@@ -111,6 +111,8 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                     named_rom: None,
                     evidence: (finding != Finding::Unreadable).then(|| Evidence {
                         level: EvidenceLevel::Payload,
+                        read_at: None,
+                        reused: None,
                         algorithms: algorithms.iter().map(|a| Cow::Borrowed(*a)).collect(),
                     }),
                     reason: (finding == Finding::Unreadable)

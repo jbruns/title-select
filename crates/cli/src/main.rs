@@ -7,7 +7,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use title_select_api::selection::SelectionProfile;
-use title_select_engine::{Finding, GameStatus};
+use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
 use title_select_server::Settings;
 use title_select_store::config::Config;
 use title_select_store::{ImportOutcome, Store};
@@ -31,12 +31,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Audit a source set against a DAT revision, reading every payload, and print a JSON report.
+    /// Audit a source set against a DAT revision and print a JSON report.
     /// Reads only; never changes the source set.
     ///
     /// With `--dat <file> <dir>` the audit is stateless. With `--set <name>` it audits a registered source set
     /// and records the audit in the store. With `--server <url> --set <name>` the service at `<url>` runs it as a
     /// job, which this follows to completion, showing progress and a summary on stderr.
+    ///
+    /// An incremental audit, the default, reuses the payload read recorded for a file whose device, inode, size,
+    /// modification time and status change time are all unchanged since it was read. That change test is a
+    /// heuristic: a file rewritten in place with its times restored passes it. Use `--evidence full` to read every
+    /// payload again.
     Audit {
         /// The Logiqx XML DAT file to audit against.
         #[arg(long, required_unless_present = "set", conflicts_with = "set")]
@@ -51,6 +56,12 @@ enum Command {
         /// The service to run the audit, such as `http://127.0.0.1:8080`. Sends your operator token.
         #[arg(long, requires = "set")]
         server: Option<String>,
+        /// How the audit gets each entry's checksums: `quick` takes a ZIP member's size and CRC32 from the
+        /// archive's directory as claim evidence, without reading its payload; `incremental` reads only payloads
+        /// of files that look changed (a heuristic); `full` reads every payload. A stateless audit has no earlier
+        /// reads to reuse, so `incremental` there reads every payload and reports `full`.
+        #[arg(long, default_value = "incremental", value_parser = parse_evidence)]
+        evidence: AuditEvidence,
         /// Write the report to this file instead of stdout.
         #[arg(long)]
         output: Option<PathBuf>,
@@ -149,7 +160,7 @@ enum SetCommand {
     },
     /// List the source sets with the DAT revision each was last verified against.
     List,
-    /// List a source set's audits, newest first, with time, DAT revision and counts.
+    /// List a source set's audits, newest first, with time, DAT revision, counts and evidence.
     History { name: String },
 }
 
@@ -206,6 +217,27 @@ fn write_report(report: &impl serde::Serialize, output: Option<PathBuf>) -> Resu
     }
 }
 
+fn parse_evidence(s: &str) -> Result<AuditEvidence, String> {
+    AuditEvidence::parse(s).ok_or_else(|| "expected quick, incremental or full".to_owned())
+}
+
+/// How many Entries' checksums the Audit read, reused or took as claims.
+fn payloads_line(report: &Report) -> String {
+    let (mut read, mut reused, mut claimed) = (0, 0, 0);
+    for evidence in report.entries.iter().filter_map(|e| e.evidence.as_ref()) {
+        match (evidence.level, evidence.reused) {
+            (EvidenceLevel::Claim, _) => claimed += 1,
+            (_, Some(_)) => reused += 1,
+            (_, None) => read += 1,
+        }
+    }
+    format!(
+        "{} audit: {read} entries read, {reused} reused because their files looked unchanged (a heuristic), \
+         {claimed} claimed from ZIP directories without reading payloads",
+        report.evidence.as_str()
+    )
+}
+
 fn run(cli: Cli) -> Result<(), String> {
     let store = cli.store.as_deref();
     let config = cli.config.as_deref();
@@ -214,6 +246,7 @@ fn run(cli: Cli) -> Result<(), String> {
             set: Some(set),
             revision,
             server: Some(server),
+            evidence,
             output,
             ..
         } => {
@@ -221,6 +254,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 server: &server,
                 set,
                 revision,
+                evidence,
                 token_file: cli.token_file.as_deref(),
             })?;
             write_report(&report, output)
@@ -228,23 +262,45 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Audit {
             dat: Some(dat),
             source_set: Some(source_set),
+            evidence,
             output,
             ..
         } => {
-            let report =
-                title_select_engine::audit(&dat, &source_set).map_err(|e| e.to_string())?;
+            let file = dat
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let evidence = match evidence {
+                AuditEvidence::Quick => AuditEvidence::Quick,
+                AuditEvidence::Incremental | AuditEvidence::Full => AuditEvidence::Full,
+            };
+            let report = title_select_engine::audit_with(
+                &dat,
+                &source_set,
+                &title_select_engine::Options {
+                    file,
+                    confine: None,
+                    workers: title_select_engine::ONE_WORKER_EACH,
+                    progress: None,
+                    evidence,
+                    reads: None,
+                },
+            )
+            .map_err(|e| e.to_string())?;
             write_report(&report, output)
         }
         Command::Audit {
             set: Some(set),
             revision,
+            evidence,
             output,
             ..
         } => {
             let config = load_config(config)?;
             let audit = open_store(store)?
-                .audit_source_set(&config, &set, revision.as_deref())
+                .audit_source_set(&config, &set, revision.as_deref(), evidence)
                 .map_err(|e| e.to_string())?;
+            eprintln!("{}", payloads_line(&audit.report));
             write_report(&audit.report, output)
         }
         Command::Audit { .. } => unreachable!("clap requires --dat with a directory, or --set"),
@@ -380,12 +436,13 @@ fn run(cli: Cli) -> Result<(), String> {
                     .map(|g| format!("{}={}", g.as_str(), audit.games[g]));
                 let counts: Vec<String> = findings.chain(games).collect();
                 println!(
-                    "{}\t{}\t{} ({})\t{}\t{}",
+                    "{}\t{}\t{} ({})\t{}\tevidence={}\t{}",
                     audit.id,
                     audit.finished_at,
                     audit.dat_revision_sha256,
                     audit.dat_revision_version,
                     counts.join(" "),
+                    audit.evidence.as_str(),
                     if audit.pruned { "summary" } else { "full" }
                 );
             }

@@ -34,7 +34,7 @@ fn audit_prints_a_json_report_to_stdout() {
         String::from_utf8_lossy(&out.stderr)
     );
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["schema"], 2);
+    assert_eq!(report["schema"], 3);
     assert_eq!(report["dat_revision"]["name"], "Test - System");
     assert_eq!(report["summary"]["findings"]["matched"], 1);
     assert_eq!(report["entries"][0]["finding"], "matched");
@@ -131,7 +131,7 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
     run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
     let report: serde_json::Value =
         serde_json::from_str(&run_ok(ts().args(["audit", "--set", rel]))).unwrap();
-    assert_eq!(report["schema"], 2);
+    assert_eq!(report["schema"], 3);
     assert_eq!(report["summary"]["findings"]["matched"], 1);
 
     let sets = run_ok(ts().args(["set", "list"]));
@@ -145,6 +145,30 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
     assert_eq!(history.lines().count(), 1);
     assert!(
         history.contains("matched=1") && history.contains("complete=1"),
+        "{history}"
+    );
+
+    let again = ts().args(["audit", "--set", rel]).output().unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&again.stdout).unwrap();
+    let stderr = String::from_utf8_lossy(&again.stderr);
+    assert_eq!(report["evidence"], "incremental");
+    assert!(
+        stderr.contains("0 entries read, 1 reused") && stderr.contains("heuristic"),
+        "{stderr}"
+    );
+    let full: serde_json::Value = serde_json::from_str(&run_ok(ts().args([
+        "audit",
+        "--set",
+        rel,
+        "--evidence",
+        "full",
+    ])))
+    .unwrap();
+    assert_eq!(full["evidence"], "full");
+    assert!(full["entries"][0]["evidence"].get("reused").is_none());
+    let history = run_ok(ts().args(["set", "history", rel]));
+    assert!(
+        history.lines().next().unwrap().contains("evidence=full"),
         "{history}"
     );
 }

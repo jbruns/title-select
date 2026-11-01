@@ -392,6 +392,8 @@ fn many_workers_produce_the_same_report_and_report_progress_for_every_file() {
             confine: None,
             workers,
             progress: Some(&progress),
+            evidence: title_select_engine::AuditEvidence::Full,
+            reads: None,
         };
         let report = title_select_engine::audit_with(&dat, fx.set.path(), &options).unwrap();
         (report, seen.into_inner().unwrap())
@@ -402,10 +404,19 @@ fn many_workers_produce_the_same_report_and_report_progress_for_every_file() {
         readers: 4,
         hashers: 3,
     });
-
-    assert_eq!(one.entries, many.entries);
-    assert_eq!(one.games, many.games);
     assert_eq!(many.summary.findings.get(&Finding::Matched), Some(&12));
+
+    // Each payload's read time is its own.
+    let unread = |report: title_select_engine::Report| {
+        let mut entries = report.entries;
+        for e in &mut entries {
+            e.evidence.as_mut().unwrap().read_at = None;
+        }
+        entries
+    };
+    assert_eq!(one.games, many.games);
+    assert_eq!(unread(one), unread(many));
+
     for progress in [one_progress, many_progress] {
         assert_eq!(progress.len(), 12);
         assert!(progress.iter().all(|p| p.files_total == 12));

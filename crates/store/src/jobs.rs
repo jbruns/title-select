@@ -7,7 +7,7 @@ use super::sets::set_by_name;
 use super::{Error, Result, Store, now};
 use crate::config::Config;
 use title_select_api::{Job, JobKind, JobState, ProfileVersionRef, Workers};
-use title_select_engine::Progress;
+use title_select_engine::{AuditEvidence, Progress};
 
 /// Why a restart Interrupted a Job.
 const INTERRUPTED: &str = "the service stopped while the job was running";
@@ -35,12 +35,14 @@ pub(super) struct JobRow {
     pub source_set_id: i64,
     pub dat_revision_id: i64,
     pub workers: Workers,
+    pub evidence: AuditEvidence,
+    pub requeued_from: Option<i64>,
 }
 
 pub(super) const JOB_QUERY: &str =
     "SELECT j.id, j.state, s.name, r.sha256, j.actor, j.attempt, j.requeued_from, j.audit_id,
             j.error, j.readers, j.hashers, j.created_at, j.started_at, j.finished_at, j.version,
-            j.kind, p.name, v.version, j.selection_id, j.managed_folder_id, j.plan_id
+            j.kind, p.name, v.version, j.selection_id, j.managed_folder_id, j.plan_id, j.evidence
      FROM jobs j
      JOIN source_sets s ON s.id = j.source_set_id
      JOIN dat_revisions r ON r.id = j.dat_revision_id
@@ -78,6 +80,16 @@ pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
         selection: row.get(18)?,
         managed_folder: row.get(19)?,
         plan: row.get(20)?,
+        evidence: match row.get::<_, Option<String>>(21)? {
+            Some(text) => Some(AuditEvidence::parse(&text).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    21,
+                    rusqlite::types::Type::Text,
+                    format!("unknown audit evidence {text}").into(),
+                )
+            })?),
+            None => None,
+        },
         state,
         source_set: row.get(2)?,
         dat_revision: row.get(3)?,
@@ -180,14 +192,16 @@ pub(super) fn check_no_active(
 
 impl Store {
     /// Queues an Audit of the Source Set `name`, started by `actor`, pinned now to the DAT Revision `revision` (a
-    /// SHA-256 prefix) or by default the latest Audit's, else the newest imported revision of its DAT. Refused, naming
-    /// the Job, while the Source Set already has an Audit Job Queued or Running.
+    /// SHA-256 prefix) or by default the latest Audit's, else the newest imported revision of its DAT, getting
+    /// checksums as `evidence` says. Refused, naming the Job, while the Source Set already has an Audit Job Queued or
+    /// Running.
     pub fn enqueue_audit(
         &self,
         name: &str,
         revision: Option<&str>,
         actor: &str,
         workers: Workers,
+        evidence: AuditEvidence,
     ) -> Result<Job> {
         if workers.readers == 0 || workers.hashers == 0 {
             return Err(Error::Refused(
@@ -200,15 +214,16 @@ impl Store {
             let (revision_id, chosen) = choose_revision(tx, &set, revision)?;
             check_blob_present(&chosen)?;
             tx.execute(
-                "INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, readers, hashers, created_at)
-                 VALUES ('queued', ?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, readers, hashers, created_at, evidence)
+                 VALUES ('queued', ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     set.id,
                     revision_id,
                     actor,
                     workers.readers as i64,
                     workers.hashers as i64,
-                    now()
+                    now(),
+                    evidence.as_str()
                 ],
             )?;
             job_by_id(tx, tx.last_insert_rowid())
@@ -246,7 +261,8 @@ impl Store {
     ) -> Result<Job> {
         let row = self.read(|c| {
             c.query_row(
-                "SELECT id, source_set_id, dat_revision_id, readers, hashers, state, kind FROM jobs WHERE id = ?1",
+                "SELECT id, source_set_id, dat_revision_id, readers, hashers, state, kind, evidence, requeued_from
+                 FROM jobs WHERE id = ?1",
                 [id],
                 |r| {
                     Ok((
@@ -258,6 +274,12 @@ impl Store {
                                 readers: r.get::<_, i64>(3)? as usize,
                                 hashers: r.get::<_, i64>(4)? as usize,
                             },
+                            evidence: r
+                                .get::<_, Option<String>>(7)?
+                                .as_deref()
+                                .and_then(AuditEvidence::parse)
+                                .unwrap_or(AuditEvidence::Full),
+                            requeued_from: r.get(8)?,
                         },
                         r.get::<_, String>(5)?,
                         r.get::<_, String>(6)?,
@@ -349,9 +371,9 @@ impl Store {
                     finish_running(tx, id, JobState::Interrupted, Some(INTERRUPTED))?;
                     tx.execute(
                         "INSERT INTO jobs (state, source_set_id, dat_revision_id, actor, attempt, requeued_from,
-                                           readers, hashers, created_at, kind, profile_version_id)
+                                           readers, hashers, created_at, kind, profile_version_id, evidence)
                          SELECT 'queued', source_set_id, dat_revision_id, actor, attempt + 1, id, ?2, ?3, ?4,
-                                kind, profile_version_id
+                                kind, profile_version_id, evidence
                          FROM jobs WHERE id = ?1",
                         params![id, workers.readers as i64, workers.hashers as i64, now()],
                     )?;

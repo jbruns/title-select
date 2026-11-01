@@ -6,8 +6,8 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 use title_select_api::{
-    ErrorBody, Finding, GameStatus, Health, Job, JobEvent, JobProgress, JobState, PREFIX, Report,
-    SSE_KEEP_ALIVE, StartAudit,
+    AuditEvidence, ErrorBody, Finding, GameStatus, Health, Job, JobEvent, JobProgress, JobState,
+    PREFIX, Report, SSE_KEEP_ALIVE, StartAudit,
 };
 
 /// Succeeds only when `url` answers 200 with `{"status": "ok"}` within `timeout`. The reason for a failure is one
@@ -73,6 +73,7 @@ pub struct Request<'a> {
     pub server: &'a str,
     pub set: String,
     pub revision: Option<String>,
+    pub evidence: AuditEvidence,
     pub token_file: Option<&'a Path>,
 }
 
@@ -283,6 +284,7 @@ pub fn audit(request: Request) -> Result<Report, String> {
     let start = StartAudit {
         source_set: request.set,
         revision: request.revision,
+        evidence: request.evidence,
     };
     let response = client
         .agent
@@ -335,6 +337,7 @@ pub fn audit(request: Request) -> Result<Report, String> {
         report.dat_revision.version,
         counts.join(" ")
     );
+    eprintln!("{}", crate::payloads_line(&report));
     Ok(report)
 }
 
@@ -360,6 +363,7 @@ mod tests {
             selection: None,
             managed_folder: None,
             plan: None,
+            evidence: None,
             error: None,
             workers: Workers {
                 readers: 1,

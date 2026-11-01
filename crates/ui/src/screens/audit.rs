@@ -8,15 +8,17 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 use leptos_struct_table::ColumnSort;
-use title_select_api::{ALGORITHMS, AuditSummary, Finding, GameStatus, Job, StartAudit};
+use title_select_api::{
+    ALGORITHMS, AuditEvidence, AuditSummary, Finding, GameStatus, Job, StartAudit,
+};
 use wasm_bindgen::JsCast;
 
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
-    StatusFilter, entry_name, evidence_text, finding_label, game_status_label,
-    needs_review_from_counts, parse_ndjson, short_sha, when,
+    StatusFilter, audit_evidence_label, entry_name, evidence_text, finding_label,
+    game_status_label, needs_review_from_counts, parse_ndjson, payload_read_text, short_sha, when,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
@@ -112,6 +114,8 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
             <dd>{when(&audit.started_at)}</dd>
             <dt>"Finished"</dt>
             <dd>{when(&audit.finished_at)}</dd>
+            <dt>"Evidence"</dt>
+            <dd>{audit_evidence_label(audit.evidence)}</dd>
         </dl>
         <div class="actions">
             {(!pruned)
@@ -281,6 +285,7 @@ impl ReAudit {
         let request = StartAudit {
             source_set: self.source_set.get_value(),
             revision: Some(self.revision.get_value()),
+            evidence: AuditEvidence::Incremental,
         };
         leptos::task::spawn_local(async move {
             let job = api::post::<_, Job>("/audits", &request).await;
@@ -618,6 +623,7 @@ pub fn EntriesPanel(entries: Arc<AuditEntries>) -> impl IntoView {
 fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
     let entry = entries.rows[i].entry.clone();
     let evidence = evidence_text(&entry);
+    let read = payload_read_text(&entry);
     let roms = entry
         .roms
         .iter()
@@ -645,6 +651,13 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
             <dd>{finding_label(entry.finding)} " " {state_badge(entries.derived(i))}</dd>
             <dt>"Evidence"</dt>
             <dd>{if evidence.is_empty() { "None".to_string() } else { evidence }}</dd>
+            {read
+                .map(|read| {
+                    view! {
+                        <dt>"Payload last read"</dt>
+                        <dd>{read}</dd>
+                    }
+                })}
             {entry
                 .named_rom
                 .clone()

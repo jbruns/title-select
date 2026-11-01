@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use common::*;
+use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, Reuse};
 use title_select_store::config::Config;
 use title_select_store::{Error, ImportOutcome, Store};
 
@@ -86,8 +87,16 @@ impl Env {
     }
 
     fn audit(&self, revision: Option<&str>) -> title_select_store::StoredAudit {
+        self.audit_with(revision, AuditEvidence::Incremental)
+    }
+
+    fn audit_with(
+        &self,
+        revision: Option<&str>,
+        evidence: AuditEvidence,
+    ) -> title_select_store::StoredAudit {
         self.store
-            .audit_source_set(&self.config, "Test - System", revision)
+            .audit_source_set(&self.config, "Test - System", revision, evidence)
             .unwrap()
     }
 
@@ -353,7 +362,7 @@ fn a_stored_audits_report_equals_the_stateless_audits_apart_from_times() {
     );
     write_file(&set.join("Broken.zip"), b"not a zip");
 
-    let stored = env.audit(None).report;
+    let stored = env.audit_with(None, AuditEvidence::Full).report;
     let stateless = title_select_engine::audit(&env.dat(2), &set).unwrap();
 
     let without_times = |report: &title_select_engine::Report| {
@@ -361,6 +370,11 @@ fn a_stored_audits_report_equals_the_stateless_audits_apart_from_times() {
         let obj = json.as_object_mut().unwrap();
         obj.remove("started_at").unwrap();
         obj.remove("finished_at").unwrap();
+        for entry in obj["entries"].as_array_mut().unwrap() {
+            if let Some(evidence) = entry.get_mut("evidence") {
+                evidence.as_object_mut().unwrap().remove("read_at").unwrap();
+            }
+        }
         json
     };
     assert_eq!(without_times(&stored), without_times(&stateless));
@@ -477,9 +491,12 @@ fn a_dat_blob_is_deleted_once_no_retained_audit_or_newer_import_holds_it() {
         history[1].dat_revision_sha256, first,
         "history still names it"
     );
-    let refused = env
-        .store
-        .audit_source_set(&env.config, "Test - System", Some(&first));
+    let refused = env.store.audit_source_set(
+        &env.config,
+        "Test - System",
+        Some(&first),
+        AuditEvidence::Incremental,
+    );
     assert!(matches!(refused, Err(Error::Refused(_))));
 }
 
@@ -544,7 +561,7 @@ fn a_running_audit_holds_its_dat_revision_until_a_restart_discards_it() {
         "opening the store does not run retention"
     );
     store
-        .audit_source_set(&config, "Test - System", None)
+        .audit_source_set(&config, "Test - System", None, AuditEvidence::Incremental)
         .unwrap();
     assert!(
         !store.blob_path(&first).exists(),
@@ -566,7 +583,12 @@ fn a_restored_dat_revision_is_kept_across_commands_until_an_audit_uses_it() {
     assert!(present(&old), "opening the store keeps the restored blob");
 
     store
-        .audit_source_set(&config, "Test - System", Some(&new))
+        .audit_source_set(
+            &config,
+            "Test - System",
+            Some(&new),
+            AuditEvidence::Incremental,
+        )
         .unwrap();
     assert!(
         present(&old),
@@ -574,12 +596,22 @@ fn a_restored_dat_revision_is_kept_across_commands_until_an_audit_uses_it() {
     );
 
     let audit = store
-        .audit_source_set(&config, "Test - System", Some(&old))
+        .audit_source_set(
+            &config,
+            "Test - System",
+            Some(&old),
+            AuditEvidence::Incremental,
+        )
         .unwrap();
     assert_eq!(audit.report.dat_revision.sha256, old);
 
     store
-        .audit_source_set(&config, "Test - System", Some(&new))
+        .audit_source_set(
+            &config,
+            "Test - System",
+            Some(&new),
+            AuditEvidence::Incremental,
+        )
         .unwrap();
     assert!(
         !present(&old),
@@ -594,9 +626,12 @@ fn an_audit_that_fails_leaves_no_row() {
     env.add_set();
     std::fs::write(env.store.blob_path(&sha), b"<datafile></datafile>").unwrap();
 
-    let failed = env
-        .store
-        .audit_source_set(&env.config, "Test - System", None);
+    let failed = env.store.audit_source_set(
+        &env.config,
+        "Test - System",
+        None,
+        AuditEvidence::Incremental,
+    );
 
     assert!(matches!(failed, Err(Error::Io(_))), "{failed:?}");
     let rows: i64 = database(&env.store)
@@ -669,9 +704,12 @@ fn an_ambiguous_revision_prefix_is_refused() {
     }
     let prefix = shared.expect("17 SHA-256s share a first digit").to_string();
 
-    let refused = env
-        .store
-        .audit_source_set(&env.config, "Test - System", Some(&prefix));
+    let refused = env.store.audit_source_set(
+        &env.config,
+        "Test - System",
+        Some(&prefix),
+        AuditEvidence::Incremental,
+    );
 
     let Err(Error::Refused(message)) = refused else {
         panic!("expected a refusal: {refused:?}");
@@ -693,7 +731,13 @@ fn an_audit_job_moves_from_queued_through_running_to_succeeded() {
 
     let queued = env
         .store
-        .enqueue_audit("Test - System", Some(&sha256[..12]), "Operator", WORKERS)
+        .enqueue_audit(
+            "Test - System",
+            Some(&sha256[..12]),
+            "Operator",
+            WORKERS,
+            AuditEvidence::Incremental,
+        )
         .unwrap();
     assert_eq!(queued.state, JobState::Queued);
     assert_eq!(queued.dat_revision, sha256);
@@ -723,28 +767,48 @@ fn a_second_audit_of_the_same_source_set_is_refused_naming_the_active_job() {
     env.add_dat_and_set();
     let first = env
         .store
-        .enqueue_audit("Test - System", None, "Operator", WORKERS)
+        .enqueue_audit(
+            "Test - System",
+            None,
+            "Operator",
+            WORKERS,
+            AuditEvidence::Incremental,
+        )
         .unwrap();
 
-    let second = env
-        .store
-        .enqueue_audit("Test - System", None, "Operator", WORKERS);
+    let second = env.store.enqueue_audit(
+        "Test - System",
+        None,
+        "Operator",
+        WORKERS,
+        AuditEvidence::Incremental,
+    );
     assert!(
         matches!(second, Err(Error::JobActive { job, .. }) if job == first.id),
         "{second:?}"
     );
 
     env.store.claim_job().unwrap();
-    let third = env
-        .store
-        .enqueue_audit("Test - System", None, "Operator", WORKERS);
+    let third = env.store.enqueue_audit(
+        "Test - System",
+        None,
+        "Operator",
+        WORKERS,
+        AuditEvidence::Incremental,
+    );
     assert!(matches!(third, Err(Error::JobActive { job, .. }) if job == first.id));
 
     env.store
         .run_audit_job(&env.config, first.id, None)
         .unwrap();
     env.store
-        .enqueue_audit("Test - System", None, "Operator", WORKERS)
+        .enqueue_audit(
+            "Test - System",
+            None,
+            "Operator",
+            WORKERS,
+            AuditEvidence::Incremental,
+        )
         .unwrap();
 }
 
@@ -755,7 +819,13 @@ fn a_restart_interrupts_a_running_job_and_queues_it_once_more_then_fails_it() {
     env.add_dat_and_set();
     let first = env
         .store
-        .enqueue_audit("Test - System", None, "Operator", WORKERS)
+        .enqueue_audit(
+            "Test - System",
+            None,
+            "Operator",
+            WORKERS,
+            AuditEvidence::Incremental,
+        )
         .unwrap();
     env.store.claim_job().unwrap();
     // A Running Job's Audit row, as a stop part way through would leave it.
@@ -809,7 +879,13 @@ fn an_audit_job_that_cannot_read_its_source_set_fails() {
     env.add_dat_and_set();
     let job = env
         .store
-        .enqueue_audit("Test - System", None, "Operator", WORKERS)
+        .enqueue_audit(
+            "Test - System",
+            None,
+            "Operator",
+            WORKERS,
+            AuditEvidence::Incremental,
+        )
         .unwrap();
     env.store.claim_job().unwrap();
     std::fs::remove_dir_all(env.set_dir()).unwrap();
@@ -829,7 +905,13 @@ fn a_queued_job_holds_its_dat_revision_until_it_runs() {
     env.add_set();
     let job = env
         .store
-        .enqueue_audit("Test - System", None, "Operator", WORKERS)
+        .enqueue_audit(
+            "Test - System",
+            None,
+            "Operator",
+            WORKERS,
+            AuditEvidence::Incremental,
+        )
         .unwrap();
     assert_eq!(job.dat_revision, first);
 
@@ -850,7 +932,13 @@ fn failing_a_job_whose_audit_panicked_discards_its_running_audit_and_releases_it
     std::fs::write(env.set_dir().join("Pong (USA).a26"), b"pong").unwrap();
     let job = env
         .store
-        .enqueue_audit("Test - System", None, "Operator", WORKERS)
+        .enqueue_audit(
+            "Test - System",
+            None,
+            "Operator",
+            WORKERS,
+            AuditEvidence::Incremental,
+        )
         .unwrap();
     env.store.claim_job().unwrap();
 
@@ -1038,7 +1126,13 @@ mod profiles_and_selections {
         // An Audit may be queued beside the Selection; a second Selection may not.
         let audit_job = env
             .store
-            .enqueue_audit("Test - System", None, "Operator", WORKERS)
+            .enqueue_audit(
+                "Test - System",
+                None,
+                "Operator",
+                WORKERS,
+                AuditEvidence::Incremental,
+            )
             .unwrap();
         let second =
             env.store
@@ -1207,4 +1301,274 @@ mod profiles_and_selections {
         assert_eq!(again.kind, JobKind::Selection);
         assert_eq!(again.profile, job.profile);
     }
+}
+
+/// Each Entry's path and member, with when its payload was last read and whether this Audit reused that read.
+fn reads(
+    report: &title_select_engine::Report,
+) -> Vec<(String, Option<jiff::Timestamp>, Option<Reuse>)> {
+    report
+        .entries
+        .iter()
+        .map(|e| {
+            let evidence = e.evidence.as_ref().unwrap();
+            assert_eq!(evidence.level, EvidenceLevel::Payload, "{}", e.path);
+            (e.path.clone(), evidence.read_at, evidence.reused)
+        })
+        .collect()
+}
+
+/// A Source Set with Pong loose, Combat zipped and a file the DAT lacks.
+fn write_three_files(env: &Env) {
+    let set = env.set_dir();
+    write_file(&set.join("Pong (USA).a26"), b"pong");
+    write_zip(
+        &set.join("Combat (USA).zip"),
+        &[("Combat (USA).a26", b"combat")],
+    );
+    write_file(&set.join("notes.txt"), b"notes");
+}
+
+#[test]
+fn a_second_audit_of_an_unchanged_source_set_reads_no_payloads_and_shows_when_each_was_read() {
+    let env = Env::new(20);
+    env.add_dat_and_set();
+    write_three_files(&env);
+    let first = env.audit(None);
+    assert!(
+        reads(&first.report)
+            .iter()
+            .all(|(_, at, reused)| at.is_some() && reused.is_none())
+    );
+
+    let second = env.audit(None);
+
+    assert_eq!(second.report.evidence, AuditEvidence::Incremental);
+    let expected: Vec<_> = reads(&first.report)
+        .into_iter()
+        .map(|(path, at, _)| (path, at, Some(Reuse::UnchangedFileHeuristic)))
+        .collect();
+    assert_eq!(
+        reads(&second.report),
+        expected,
+        "every payload's read is reused, with its original read time"
+    );
+    assert_eq!(
+        env.store.report(second.id).unwrap(),
+        second.report,
+        "the stored report keeps what was reused"
+    );
+}
+
+#[test]
+fn a_changed_file_is_read_again() {
+    let env = Env::new(20);
+    env.add_dat_and_set();
+    write_three_files(&env);
+    let pong = env.set_dir().join("Pong (USA).a26");
+    let mtime = std::fs::metadata(&pong).unwrap().modified().unwrap();
+    let first = env.audit(None);
+
+    // The same size and modification time, so only the status change time and the bytes differ.
+    std::fs::write(&pong, b"gnop").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&pong)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let second = env.audit(None);
+
+    let entry = second
+        .report
+        .entries
+        .iter()
+        .find(|e| e.path == "Pong (USA).a26")
+        .unwrap();
+    assert_eq!(
+        entry.finding,
+        Finding::Mismatched,
+        "the new bytes were read"
+    );
+    assert_eq!(entry.evidence.as_ref().unwrap().reused, None);
+    let reused: Vec<_> = reads(&second.report)
+        .into_iter()
+        .filter(|(_, _, reused)| reused.is_some())
+        .map(|(path, _, _)| path)
+        .collect();
+    assert_eq!(reused, ["Combat (USA).zip", "notes.txt"]);
+    assert_eq!(first.report.entries.len(), second.report.entries.len());
+}
+
+#[test]
+fn a_full_audit_reads_every_payload_again() {
+    let env = Env::new(20);
+    env.add_dat_and_set();
+    write_three_files(&env);
+    let first = env.audit(None);
+
+    let full = env.audit_with(None, AuditEvidence::Full);
+
+    assert_eq!(full.report.evidence, AuditEvidence::Full);
+    for ((path, earlier, _), (_, at, reused)) in
+        reads(&first.report).into_iter().zip(reads(&full.report))
+    {
+        assert_eq!(reused, None, "{path}");
+        assert!(at > earlier, "{path}");
+    }
+    let next = env.audit(None);
+    assert_eq!(
+        reads(&next.report)
+            .into_iter()
+            .map(|(_, at, _)| at)
+            .collect::<Vec<_>>(),
+        reads(&full.report)
+            .into_iter()
+            .map(|(_, at, _)| at)
+            .collect::<Vec<_>>(),
+        "the full audit's reads are the ones reused next"
+    );
+}
+
+#[test]
+fn a_quick_audit_stores_claims_as_claims_and_leaves_nothing_to_reuse() {
+    let env = Env::new(20);
+    env.add_dat_and_set();
+    write_three_files(&env);
+
+    let quick = env.audit_with(None, AuditEvidence::Quick);
+
+    let combat = |report: &title_select_engine::Report| {
+        report
+            .entries
+            .iter()
+            .find(|e| e.path == "Combat (USA).zip")
+            .unwrap()
+            .clone()
+    };
+    let claimed = combat(&env.store.report(quick.id).unwrap());
+    assert_eq!(claimed.finding, Finding::Matched);
+    let evidence = claimed.evidence.unwrap();
+    assert_eq!(
+        (evidence.level, evidence.read_at),
+        (EvidenceLevel::Claim, None)
+    );
+    assert_eq!(
+        env.store.audit(quick.id).unwrap().evidence,
+        AuditEvidence::Quick
+    );
+
+    let next = env.audit(None);
+    let evidence = combat(&next.report).evidence.unwrap();
+    assert_eq!(
+        (evidence.level, evidence.reused),
+        (EvidenceLevel::Payload, None),
+        "a claim is never reused as a payload read"
+    );
+}
+
+#[test]
+fn an_audit_against_a_newer_dat_revision_reuses_hashes_and_matches_them_again() {
+    let env = Env::new(20);
+    env.add_dat_and_set();
+    write_three_files(&env);
+    write_file(&env.set_dir().join("Breakout (USA).a26"), b"break");
+    let first = env.audit(None);
+    let breakout = |report: &title_select_engine::Report| {
+        report
+            .entries
+            .iter()
+            .find(|e| e.path == "Breakout (USA).a26")
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(breakout(&first.report).finding, Finding::Unmatched);
+
+    let (newer, _) = env.import(2);
+    let second = env.audit(Some(&newer));
+
+    assert_eq!(second.report.dat_revision.sha256, newer);
+    assert_eq!(breakout(&second.report).finding, Finding::Matched);
+    assert!(
+        reads(&second.report)
+            .iter()
+            .all(|(_, _, reused)| reused.is_some()),
+        "no payload is read again"
+    );
+}
+
+#[test]
+fn an_interrupted_audit_job_resumes_without_reading_its_finished_files_again() {
+    use title_select_store::JobState;
+    let env = Env::new(20);
+    env.add_dat_and_set();
+    write_three_files(&env);
+    let one_each = title_select_store::Workers {
+        readers: 1,
+        hashers: 1,
+    };
+    // An earlier read of every file, which a full Audit must not reuse.
+    let earlier = env.audit(None);
+    let job = env
+        .store
+        .enqueue_audit(
+            "Test - System",
+            None,
+            "Operator",
+            one_each,
+            AuditEvidence::Full,
+        )
+        .unwrap();
+    env.store.claim_job().unwrap();
+    let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // The Service stops once the second file is read.
+        let progress = |p: title_select_engine::Progress| {
+            if p.files_done == 2 {
+                panic!("stopped");
+            }
+        };
+        env.store
+            .run_audit_job(&env.config, job.id, Some(&progress))
+    }));
+    assert!(stopped.is_err());
+
+    let (tmp, store) = env.reopen();
+    let requeued = store.recover_jobs(one_each).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+    assert_eq!(requeued.evidence, Some(AuditEvidence::Full));
+    store.claim_job().unwrap();
+    let done = store
+        .run_audit_job(&env_config(&tmp), requeued.id, None)
+        .unwrap();
+
+    assert_eq!(done.state, JobState::Succeeded);
+    let report = store.report(done.audit.unwrap()).unwrap();
+    let earlier: BTreeMap<_, _> = reads(&earlier.report)
+        .into_iter()
+        .map(|(p, at, _)| (p, at))
+        .collect();
+    let resumed: Vec<_> = reads(&report)
+        .into_iter()
+        .map(|(path, at, reused)| (path.clone(), at > earlier[&path], reused.is_some()))
+        .collect();
+    assert_eq!(
+        resumed,
+        [
+            // Walked in name order: the two the first attempt finished are reused, the third is read.
+            ("Combat (USA).zip".to_owned(), true, true),
+            ("Pong (USA).a26".to_owned(), true, true),
+            ("notes.txt".to_owned(), true, false),
+        ]
+    );
+}
+
+/// The configuration [`Env::new`] writes, for a store reopened without its `Env`.
+fn env_config(tmp: &tempfile::TempDir) -> Config {
+    Config::parse(&format!(
+        "[roots.sets]\npath = {:?}\n\n[audits]\nkeep = 20\n",
+        tmp.path().join("roots/sets").display().to_string()
+    ))
+    .unwrap()
 }

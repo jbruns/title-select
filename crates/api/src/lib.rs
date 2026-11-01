@@ -148,6 +148,13 @@ pub struct AuditSummary {
     pub findings: BTreeMap<Finding, usize>,
     pub games: BTreeMap<GameStatus, usize>,
     pub pruned: bool,
+    /// How the Audit got its Entries' checksums.
+    #[serde(default = "full_evidence")]
+    pub evidence: AuditEvidence,
+}
+
+fn full_evidence() -> AuditEvidence {
+    AuditEvidence::Full
 }
 
 /// A named Selection Profile and its newest version.
@@ -317,6 +324,9 @@ pub struct StartAudit {
     /// revision of the Source Set's DAT.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision: Option<String>,
+    /// How the Audit gets its checksums; incremental by default.
+    #[serde(default)]
+    pub evidence: AuditEvidence,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -440,6 +450,9 @@ pub struct Job {
     /// The approved plan a Build Job carries out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<i64>,
+    /// How an Audit Job's Audit gets its checksums.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<AuditEvidence>,
     /// Why a Job Failed or was Interrupted.
     pub error: Option<String>,
     pub workers: Workers,

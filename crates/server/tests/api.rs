@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use common::*;
 use serde::de::DeserializeOwned;
 use title_select_api::{
-    AuditSummary, EntryRow, ErrorBody, Finding, GameRow, ImportOutcome, ImportedDatRevision, Job,
-    JobEvent, JobState, Page, Report, SourceSetRecord,
+    AuditEvidence, AuditSummary, EntryRow, ErrorBody, Finding, GameRow, ImportOutcome,
+    ImportedDatRevision, Job, JobEvent, JobState, Page, Report, Reuse, SourceSetRecord,
 };
 use title_select_server::{Handle, Settings, StartError, TOKEN_ACTOR};
 use title_select_store::config::Config;
@@ -633,6 +633,48 @@ fn the_bulk_ndjson_endpoint_returns_every_entry() {
 }
 
 #[test]
+fn an_audit_is_incremental_unless_you_ask_the_api_for_a_full_one() {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System.dat", &env.dat());
+    client.add_set();
+    let first: Job = client.start_audit().body_mut().read_json().unwrap();
+    assert_eq!(first.evidence, Some(AuditEvidence::Incremental));
+    client.follow(first.id);
+
+    let second: Job = client.start_audit().body_mut().read_json().unwrap();
+    let (_, second) = client.follow(second.id);
+    let full: Job = client
+        .post("/audits")
+        .send_json(serde_json::json!({"source_set": SET, "evidence": "full"}))
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    assert_eq!(full.evidence, Some(AuditEvidence::Full));
+    let (_, full) = client.follow(full.id);
+
+    let reused: Report = client.json(&format!("/audits/{}/report", second.audit.unwrap()));
+    assert_eq!(reused.evidence, AuditEvidence::Incremental);
+    let payload = reused.entries.iter().filter_map(|e| e.evidence.as_ref());
+    assert!(payload.clone().count() > 0);
+    assert!(
+        payload
+            .clone()
+            .all(|e| e.reused == Some(Reuse::UnchangedFileHeuristic))
+    );
+    let read: Report = client.json(&format!("/audits/{}/report", full.audit.unwrap()));
+    assert_eq!(read.evidence, AuditEvidence::Full);
+    assert!(
+        read.entries
+            .iter()
+            .filter_map(|e| e.evidence.as_ref())
+            .all(|e| e.reused.is_none() && e.read_at.is_some())
+    );
+}
+
+#[test]
 fn a_second_audit_of_the_same_source_set_is_refused_naming_the_active_job() {
     let env = Env::new();
     let service = title_select_server::spawn(Settings {
@@ -673,7 +715,15 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
             readers: 1,
             hashers: 1,
         };
-        store.enqueue_audit(SET, None, "Operator", workers).unwrap();
+        store
+            .enqueue_audit(
+                SET,
+                None,
+                "Operator",
+                workers,
+                title_select_api::AuditEvidence::Incremental,
+            )
+            .unwrap();
         store.claim_job().unwrap();
     }
 
