@@ -62,6 +62,24 @@ impl Vocabulary {
         })
     }
 
+    /// The region order a Selection uses for `order`: Retool's default order when it is empty.
+    pub fn region_order<'a>(&'a self, order: &'a [String]) -> &'a [String] {
+        if order.is_empty() {
+            &self.regions
+        } else {
+            order
+        }
+    }
+
+    /// The video order a Selection uses for `order`: Retool's default order when it is empty.
+    pub fn video_order<'a>(&'a self, order: &'a [String]) -> &'a [String] {
+        if order.is_empty() {
+            &self.videos
+        } else {
+            order
+        }
+    }
+
     /// Checks every name in the Profile, so that a typo is an error rather than a silently different Selection.
     pub fn check(&self, profile: &SelectionProfile) -> Result<(), Error> {
         let mut scopes = vec![(
@@ -219,25 +237,26 @@ fn overrides(out: &mut String, overrides: &Overrides) {
 
 /// `user-config.yaml` for the Profile's global settings. An empty region or video order is Retool's default.
 pub(crate) fn user_config(profile: &SelectionProfile, vocabulary: &Vocabulary) -> String {
-    let or_default = |order: &[String], default: &[String]| {
-        if order.is_empty() {
-            default.to_vec()
-        } else {
-            order.to_vec()
-        }
-    };
     let mut out = format!("---\nconfig version: {CONFIG_VERSION}");
     list(&mut out, "language order", None, &profile.language_order);
-    let regions = or_default(&profile.region_order, &vocabulary.regions);
-    list(&mut out, "region order", None, &regions);
+    list(
+        &mut out,
+        "region order",
+        None,
+        vocabulary.region_order(&profile.region_order),
+    );
     list(
         &mut out,
         "localization order",
         None,
         &profile.localization_order,
     );
-    let videos = or_default(&profile.video_order, &vocabulary.videos);
-    list(&mut out, "video order", None, &videos);
+    list(
+        &mut out,
+        "video order",
+        None,
+        vocabulary.video_order(&profile.video_order),
+    );
     list(&mut out, "list prefix", None, &[]);
     list(&mut out, "list suffix", None, &[]);
     overrides(&mut out, &profile.overrides);
@@ -252,18 +271,28 @@ pub(crate) fn user_config(profile: &SelectionProfile, vocabulary: &Vocabulary) -
 /// DAT is processed again.
 pub(crate) const ALWAYS_OPTIONS: [&str; 3] = ["labelmia", "labelretro", "reprocess"];
 
-/// A system settings file, which Retool reads when the DAT's system name matches its file name.
-pub(crate) fn system_config(system: &SystemSettings) -> String {
+/// A system settings file, which Retool reads when the DAT's system name matches its file name. An empty region or
+/// video order of the system's own is Retool's default, as it is in the global settings: Retool would otherwise
+/// select nothing.
+pub(crate) fn system_config(system: &SystemSettings, vocabulary: &Vocabulary) -> String {
     let order = |out: &mut String, key: &str, order: &Option<Vec<String>>| match order {
         Some(items) => list(out, key, Some(true), items),
         None => list(out, key, Some(false), &[]),
     };
     let mut out = format!("---\nconfig version: {CONFIG_VERSION}");
     out.push_str("\npaths:\n- override: false");
+    let regions = system
+        .region_order
+        .as_deref()
+        .map(|o| vocabulary.region_order(o).to_vec());
+    let videos = system
+        .video_order
+        .as_deref()
+        .map(|o| vocabulary.video_order(o).to_vec());
     order(&mut out, "language order", &system.language_order);
-    order(&mut out, "region order", &system.region_order);
+    order(&mut out, "region order", &regions);
     order(&mut out, "localization order", &system.localization_order);
-    order(&mut out, "video order", &system.video_order);
+    order(&mut out, "video order", &videos);
     list(&mut out, "list prefix", None, &[]);
     list(&mut out, "list suffix", None, &[]);
     overrides(&mut out, &system.overrides);
@@ -329,6 +358,24 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_system_order_is_the_default_order() {
+        let system = SystemSettings {
+            region_order: Some(vec![]),
+            video_order: Some(vec![]),
+            ..Default::default()
+        };
+        let yaml = system_config(&system, &vocabulary());
+        assert!(
+            yaml.contains(
+                "\nregion order:\n- override: true\n- \"USA\"\n- \"Europe\"\n- \"Japan\"\n"
+            )
+        );
+        assert!(yaml.contains("\nvideo order:\n- override: true\n- \"NTSC\"\n- \"PAL\"\n"));
+        assert_eq!(vocabulary().region_order(&[]), ["USA", "Europe", "Japan"]);
+        assert_eq!(vocabulary().video_order(&["PAL".into()]), ["PAL"]);
+    }
+
+    #[test]
     fn system_settings_carry_override_flags_and_keep_required_options() {
         let system = SystemSettings {
             region_order: Some(vec!["Japan".into()]),
@@ -342,7 +389,7 @@ mod tests {
             replace_post_filters: true,
             ..Default::default()
         };
-        let yaml = system_config(&system);
+        let yaml = system_config(&system, &vocabulary());
         assert!(yaml.contains("\nregion order:\n- override: true\n- \"Japan\"\n"));
         assert!(yaml.contains("\nlanguage order:\n- override: false\n"));
         assert!(yaml.contains("\nfilters:\n- override: true\n- \"|Kept (Japan)\"\n"));

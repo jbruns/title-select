@@ -5,7 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use title_select_api::GameStatus;
 use title_select_api::selection::{
-    ChoiceStatus, ReleaseRow, Role, Selection, SelectionGroup, SelectionProfile, SystemSettings,
+    ChoiceStatus, ReleaseRow, Role, Selection, SelectionGroup, SelectionOptions, SelectionProfile,
+    SystemSettings,
 };
 
 use crate::model::{Sort, game_status_label};
@@ -480,6 +481,24 @@ pub fn reset_global(profile: &mut SelectionProfile) {
     };
 }
 
+/// Sets every setting of a system to the defaults, whatever the global settings say, keeping its choices. Global
+/// overrides still apply: a system's overrides only add to them.
+pub fn reset_system(profile: &mut SelectionProfile, system: &str) {
+    profile.systems.insert(
+        system.to_owned(),
+        SystemSettings {
+            region_order: Some(Vec::new()),
+            language_order: Some(Vec::new()),
+            localization_order: Some(Vec::new()),
+            video_order: Some(Vec::new()),
+            exclude: Some(BTreeSet::new()),
+            options: Some(SelectionOptions::default()),
+            replace_post_filters: true,
+            ..SystemSettings::default()
+        },
+    );
+}
+
 /// Moves the item at `from` to `to` in an ordered list.
 pub fn move_item(list: &mut Vec<String>, from: usize, to: usize) {
     if from >= list.len() || to >= list.len() || from == to {
@@ -502,8 +521,8 @@ pub fn lines(text: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use title_select_api::selection::{
-        Alternative, CoverageDrift, Exclusion, GroupChoice, Rule, SelectionPins, SelectionSummary,
-        Winner,
+        Alternative, Category, CoverageDrift, Exclusion, GroupChoice, Rule, SelectionOptions,
+        SelectionPins, SelectionSummary, Winner,
     };
 
     fn rule() -> Rule {
@@ -735,6 +754,28 @@ mod tests {
         assert!(profile.region_order.is_empty());
         assert!(profile.systems.contains_key("Atari"));
         assert!(profile.choices.contains_key("Atari"));
+    }
+
+    #[test]
+    fn resetting_a_system_to_the_defaults_ignores_the_global_settings_and_keeps_choices() {
+        let mut profile = SelectionProfile {
+            region_order: vec!["Japan".into()],
+            exclude: [Category::Demos].into(),
+            post_filters: vec!["/USA/".into()],
+            ..Default::default()
+        };
+        Setting::VideoOrder.set_for_system(&mut profile, "Atari");
+        profile.systems.get_mut("Atari").unwrap().video_order = Some(vec!["PAL".into()]);
+        profile.set_choice("Atari", "pong", BTreeSet::new(), &BTreeSet::new(), true);
+        reset_system(&mut profile, "Atari");
+        let own = &profile.systems["Atari"];
+        assert_eq!(own.region_order, Some(vec![]), "the default order");
+        assert_eq!(own.video_order, Some(vec![]), "the default order");
+        assert_eq!(own.exclude, Some(BTreeSet::new()));
+        assert_eq!(own.options, Some(SelectionOptions::default()));
+        assert!(own.replace_post_filters && own.post_filters.is_empty());
+        assert!(profile.choices.contains_key("Atari"));
+        assert_eq!(profile.region_order, ["Japan"], "the global settings stay");
     }
 
     #[test]

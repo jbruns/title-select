@@ -1,5 +1,7 @@
 use gloo_net::http::Request;
 use leptos::prelude::*;
+use leptos_router::components::A;
+use leptos_router::hooks::use_location;
 
 use crate::app::Loading;
 use crate::model::is_plain_text;
@@ -46,9 +48,13 @@ async fn fetch(file: &'static str) -> Option<String> {
     response.text().await.ok()
 }
 
-/// Where selection comes from, and the licences of Title Select and of the projects it is derived from.
+/// Where selection comes from, how its default orders work, and the licences of Title Select and of the projects
+/// it is derived from.
 #[component]
 pub fn About() -> impl IntoView {
+    let hash = Hash(StoredValue::new(use_location().hash.get_untracked()));
+    request_animation_frame(move || hash.scroll());
+    provide_context(hash);
     view! {
         <h1>"About Title Select"</h1>
         <p class="lede">
@@ -66,6 +72,22 @@ pub fn About() -> impl IntoView {
                 "."
             </p>
         </section>
+        <section id="default-orders" aria-labelledby="default-orders-title">
+            <h2 id="default-orders-title">"The default orders"</h2>
+            <p>
+                "When you leave the region order or the video order of a selection profile empty, for the whole profile or for one system, selection uses the default order. Your selection profile lists it in full: open \"The default order\" under the setting."
+            </p>
+            <p>
+                "The default region order puts USA first, then the regions whose releases are most often in English, then the rest of the world. The default video order prefers NTSC, then PAL. So the defaults suit English speakers."
+            </p>
+            <p>
+                "They are Retool's own default orders, the ones its \"Use default order for English speakers\" button fills in. Title Select uses them as the pinned copy of Retool ships them, and does not change them."
+            </p>
+            <p>
+                "To prefer other regions, open a " <A href="/profiles">"selection profile"</A>
+                " and choose \"Start from the default order\", then move, add or remove regions. A region you leave out of your own order is not selected. \"Reset to the default order\" empties the order again, so the default applies."
+            </p>
+        </section>
         <section aria-labelledby="licences-title">
             <h2 id="licences-title">"Licences"</h2>
             {LICENCES.iter().map(|licence| view! { <LicenceText licence /> }).collect_view()}
@@ -77,9 +99,34 @@ pub fn About() -> impl IntoView {
     }
 }
 
+/// The `#` part of the link that opened the page, naming a section.
+#[derive(Clone, Copy)]
+struct Hash(StoredValue<String>);
+
+impl Hash {
+    /// Scrolls to the section. The browser cannot do it itself: the link arrives before the section exists.
+    fn scroll(self) {
+        let hash = self.0.get_value();
+        let id = hash.trim_start_matches('#');
+        if let Some(section) = (!id.is_empty())
+            .then(|| document().get_element_by_id(id))
+            .flatten()
+        {
+            section.scroll_into_view();
+        }
+    }
+}
+
 #[component]
 fn LicenceText(licence: &'static Licence) -> impl IntoView {
     let text = LocalResource::new(move || fetch(licence.file));
+    // A licence text that arrives lengthens the page, so the section the link names may only now be reachable.
+    let hash = use_context::<Hash>();
+    Effect::new(move || {
+        if let (true, Some(hash)) = (text.with(Option::is_some), hash) {
+            request_animation_frame(move || hash.scroll());
+        }
+    });
     view! {
         <section class="licence" aria-label=licence.title>
             <h3>{licence.title}</h3>

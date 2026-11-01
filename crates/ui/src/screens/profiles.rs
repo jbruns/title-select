@@ -20,7 +20,8 @@ use crate::app::{Loading, Problem, navigator};
 use crate::model::{short_sha, when};
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
-    SelectionIndex, Setting, Source, lines, move_item, reset_global, use_global_settings,
+    SelectionIndex, Setting, Source, lines, move_item, reset_global, reset_system,
+    use_global_settings,
 };
 use crate::table::{DataTable, Grid, Rows, rows_of};
 
@@ -734,6 +735,9 @@ fn SystemSetting(
     label: &'static str,
     /// The global value, in words.
     global: Signal<String>,
+    /// The order the global value stands for, when it is an empty order that means the default one.
+    #[prop(optional)]
+    global_default: Option<Signal<Option<Vec<String>>>>,
     children: ChildrenFn,
 ) -> impl IntoView {
     let source = Memo::new(move |_| {
@@ -754,8 +758,11 @@ fn SystemSetting(
                 {move || match source.get() {
                     Source::Global => {
                         view! {
-                            <span>{global}</span>
-                            " "
+                            {move || {
+                                global_default
+                                    .is_none_or(|d| d.with(Option::is_none))
+                                    .then(|| view! { <span>{global}</span> " " })
+                            }}
                             <button
                                 type="button"
                                 on:click=move |_| profile.update(|p| setting.set_for_system(p, &system.get_value()))
@@ -778,10 +785,35 @@ fn SystemSetting(
                     }
                 }}
             </p>
+            {move || {
+                (source.get() == Source::Global)
+                    .then(|| global_default.and_then(|d| d.get()))
+                    .flatten()
+                    .map(|order| view! { <DefaultOrder order /> })
+            }}
             {move || (source.get() == Source::System).then(|| children())}
         </fieldset>
     }
 }
+
+/// The order an empty region or video order stands for, listed in full, with a link to how the defaults work.
+#[component]
+fn DefaultOrder(order: Vec<String>) -> impl IntoView {
+    view! {
+        <details class="default-order note small">
+            <summary>"The default order, which suits English speakers."</summary>
+            <ol class="default-list">
+                {order.into_iter().map(|name| view! { <li>{name}</li> }).collect_view()}
+            </ol>
+            <p>
+                <A href=DEFAULT_ORDERS_HREF>"How the default orders work"</A>
+            </p>
+        </details>
+    }
+}
+
+/// Where the About page explains the default orders.
+const DEFAULT_ORDERS_HREF: &str = "/about#default-orders";
 
 fn order_text(list: &[String], empty: &str) -> String {
     if list.is_empty() {
@@ -823,6 +855,7 @@ fn GlobalSettings(
                 note="A region left out is not selected."
                 empty=REGIONS_EMPTY
                 options=vocabulary.regions.clone()
+                default=vocabulary.default_region_order.clone()
                 items=Signal::derive(move || profile.with(|p| p.region_order.clone()))
                 on_change=Callback::new(move |v| profile.update(|p| p.region_order = v))
             />
@@ -841,6 +874,7 @@ fn GlobalSettings(
                 note=""
                 empty=VIDEO_EMPTY
                 options=vocabulary.videos.clone()
+                default=vocabulary.default_video_order.clone()
                 items=Signal::derive(move || profile.with(|p| p.video_order.clone()))
                 on_change=Callback::new(move |v| profile.update(|p| p.video_order = v))
             />
@@ -944,6 +978,9 @@ fn SystemSettingsForm(
     let has_own = move || profile.with(|p| p.systems.contains_key(&s.get_value()));
     let choices = move || profile.with(|p| p.choices.get(&s.get_value()).map_or(0, |c| c.len()));
     let global = move |f: fn(&SelectionProfile) -> String| Signal::derive(move || profile.with(f));
+    let global_default = move |f: fn(&SelectionProfile) -> &Vec<String>, order: Vec<String>| {
+        Signal::derive(move || profile.with(|p| f(p).is_empty().then(|| order.clone())))
+    };
     let v = StoredValue::new(vocabulary);
     view! {
         <div class="settings" role="tabpanel" aria-label=format!("System settings for {system}")>
@@ -964,6 +1001,9 @@ fn SystemSettingsForm(
                 >
                     "Use global settings for this system"
                 </button>
+                <button type="button" on:click=move |_| profile.update(|p| reset_system(p, &s.get_value()))>
+                    "Reset to defaults for this system"
+                </button>
                 <button
                     type="button"
                     disabled=move || choices() == 0
@@ -972,12 +1012,16 @@ fn SystemSettingsForm(
                     {move || format!("Reset to default choices for this system ({})", choices())}
                 </button>
             </div>
+            <p class="note small">
+                "Reset to defaults sets every setting for this system to the defaults, whatever your global settings say. Your global overrides still apply, and your choices stay."
+            </p>
             <SystemSetting
                 profile
                 system=s
                 setting=Setting::RegionOrder
                 label="Regions, in order of preference"
                 global=global(|p| order_text(&p.region_order, REGIONS_EMPTY))
+                global_default=global_default(|p| &p.region_order, v.with_value(|v| v.default_region_order.clone()))
             >
                 <OrderedList
                     id="s-regions"
@@ -985,6 +1029,7 @@ fn SystemSettingsForm(
                     note=""
                     empty=REGIONS_EMPTY
                     options=v.with_value(|v| v.regions.clone())
+                    default=v.with_value(|v| v.default_region_order.clone())
                     items=Signal::derive(move || profile.with(|p| own(p, &s.get_value()).region_order.unwrap_or_default()))
                     on_change=Callback::new(move |v| update_own(profile, &s.get_value(), |o| o.region_order = Some(v)))
                 />
@@ -1012,6 +1057,7 @@ fn SystemSettingsForm(
                 setting=Setting::VideoOrder
                 label="Video standards, in order of preference"
                 global=global(|p| order_text(&p.video_order, VIDEO_EMPTY))
+                global_default=global_default(|p| &p.video_order, v.with_value(|v| v.default_video_order.clone()))
             >
                 <OrderedList
                     id="s-video"
@@ -1019,6 +1065,7 @@ fn SystemSettingsForm(
                     note=""
                     empty=VIDEO_EMPTY
                     options=v.with_value(|v| v.videos.clone())
+                    default=v.with_value(|v| v.default_video_order.clone())
                     items=Signal::derive(move || profile.with(|p| own(p, &s.get_value()).video_order.unwrap_or_default()))
                     on_change=Callback::new(move |v| update_own(profile, &s.get_value(), |o| o.video_order = Some(v)))
                 />
@@ -1340,7 +1387,11 @@ fn OrderedList(
     options: Vec<String>,
     items: Signal<Vec<String>>,
     on_change: Callback<Vec<String>>,
+    /// The order an empty list stands for, shown in full and offered as a starting point.
+    #[prop(optional)]
+    default: Option<Vec<String>>,
 ) -> impl IntoView {
+    let default = StoredValue::new(default);
     let dragging = RwSignal::new(None::<usize>);
     let adding = RwSignal::new(String::new());
     let options = StoredValue::new(options);
@@ -1437,7 +1488,27 @@ fn OrderedList(
                         .collect_view()
                 }}
             </ol>
-            {move || items.with(Vec::is_empty).then(|| view! { <p class="note small">{empty}</p> })}
+            {move || match (items.with(Vec::is_empty), default.get_value()) {
+                (false, Some(_)) => view! {
+                    <div class="actions">
+                        <button type="button" class="small" on:click=move |_| on_change.run(Vec::new())>
+                            "Reset to the default order"
+                        </button>
+                    </div>
+                }
+                .into_any(),
+                (false, None) => ().into_any(),
+                (true, Some(order)) => view! {
+                    <DefaultOrder order=order.clone() />
+                    <div class="actions">
+                        <button type="button" class="small" on:click=move |_| on_change.run(order.clone())>
+                            "Start from the default order"
+                        </button>
+                    </div>
+                }
+                .into_any(),
+                (true, None) => view! { <p class="note small">{empty}</p> }.into_any(),
+            }}
             <div class="add">
                 <label class="inline">
                     <span class="visually-hidden">{format!("Add to {}", label.to_lowercase())}</span>

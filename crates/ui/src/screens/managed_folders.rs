@@ -25,7 +25,7 @@ use crate::build_model::{
     removal_kind_label, restore_kind_label, unfinished_label, with_adopt, with_keep_aside,
 };
 use crate::events::use_live;
-use crate::model::{short_sha, when};
+use crate::model::{age, earlier, short_sha, when};
 use crate::registration;
 use crate::screens::jobs::progress_view;
 use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
@@ -49,6 +49,51 @@ fn current_build(build: &Option<BuildSummary>) -> AnyView {
     }
 }
 
+/// The time now in milliseconds, ticking while the screen is open so that ages stay current without refetching.
+#[derive(Clone, Copy)]
+struct Now(ReadSignal<f64>);
+
+const NOW_TICK: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn provide_now() {
+    let (now, set_now) = signal(js_sys::Date::now());
+    if let Ok(handle) = set_interval_with_handle(move || set_now.set(js_sys::Date::now()), NOW_TICK)
+    {
+        on_cleanup(move || handle.clear());
+    }
+    provide_context(Now(now));
+}
+
+/// When the folder was last checked, how long ago, and whether a build has changed it since. `full` shows the time
+/// as well as the age.
+fn last_checked(folder: &ManagedFolder, full: bool) -> AnyView {
+    let Some(check) = &folder.check else {
+        return "Never checked".into_any();
+    };
+    let at = when(&check.at);
+    let checked = js_sys::Date::parse(&check.at);
+    let now = use_context::<Now>();
+    let title = at.clone();
+    let text = move || {
+        let elapsed = now.map_or_else(js_sys::Date::now, |n| n.0.get()) - checked;
+        match (elapsed.is_nan(), full) {
+            (true, _) => at.clone(),
+            (false, true) => format!("{at} ({})", age(elapsed)),
+            (false, false) => age(elapsed),
+        }
+    };
+    let stale = folder
+        .build
+        .as_ref()
+        .and_then(|b| b.finished_at.as_deref())
+        .is_some_and(|built| earlier(&check.at, built));
+    view! {
+        <span title=title>{text}</span>
+        {stale.then(|| view! { " " <span class="state review">"Before the current build"</span> })}
+    }
+    .into_any()
+}
+
 /// The folder's badges: incomplete, with its counts by reason, and a build that stopped before it finished.
 fn badges(folder: &ManagedFolder) -> AnyView {
     let incomplete = folder.incomplete.as_ref().map(|counts| {
@@ -69,6 +114,7 @@ enum FolderCol {
     SourceSet,
     Profile,
     Build,
+    Checked,
     Files,
     Status,
 }
@@ -84,6 +130,7 @@ impl Grid for FolderItem {
         FolderCol::SourceSet,
         FolderCol::Profile,
         FolderCol::Build,
+        FolderCol::Checked,
         FolderCol::Files,
         FolderCol::Status,
     ];
@@ -95,6 +142,7 @@ impl Grid for FolderItem {
             FolderCol::SourceSet => "Source set",
             FolderCol::Profile => "Selection profile",
             FolderCol::Build => "Current build",
+            FolderCol::Checked => "Last checked",
             FolderCol::Files => "Files",
             FolderCol::Status => "Status",
         }
@@ -126,6 +174,7 @@ impl Grid for FolderItem {
             FolderCol::SourceSet => f.source_set.clone().into_any(),
             FolderCol::Profile => f.profile.clone().into_any(),
             FolderCol::Build => current_build(&f.build),
+            FolderCol::Checked => last_checked(f, false),
             FolderCol::Files => f.files.to_string().into_any(),
             FolderCol::Status => badges(f),
         }
@@ -135,6 +184,7 @@ impl Grid for FolderItem {
 /// The managed folders, and the form to register another.
 #[component]
 pub fn ManagedFolders() -> impl IntoView {
+    provide_now();
     let live = use_live();
     let folders = LocalResource::new(move || {
         live.settled.track();
@@ -421,6 +471,7 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
 /// One managed folder: what it is bound to, its latest plan, its builds and its files.
 #[component]
 pub fn ManagedFolderScreen() -> impl IntoView {
+    provide_now();
     let params = use_params_map();
     let id = move || {
         params
@@ -487,6 +538,8 @@ fn FolderView(folder: ManagedFolder, refresh: RwSignal<u64>) -> impl IntoView {
             <dd>{folder.generation}</dd>
             <dt>"Current build"</dt>
             <dd>{current_build(&folder.build)}</dd>
+            <dt>"Last checked"</dt>
+            <dd>{last_checked(&folder, true)}</dd>
             <dt>"Files"</dt>
             <dd>{folder.files}</dd>
             <dt>"Registered"</dt>

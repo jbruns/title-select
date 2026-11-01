@@ -778,6 +778,8 @@ async fn vocabulary(State(state): State<AppState>) -> ApiResult<Json<Vocabulary>
         languages: names.languages,
         videos: names.videos,
         categories: title_select_api::selection::Category::ALL.to_vec(),
+        default_region_order: names.default_region_order,
+        default_video_order: names.default_video_order,
     }))
 }
 

@@ -824,6 +824,20 @@ textarea.lines {
   align-items: center;
 }
 
+.default-order {
+  margin: 0 0 var(--space-2);
+  max-width: 32rem;
+}
+
+.default-order summary {
+  cursor: pointer;
+}
+
+.default-list {
+  columns: 3 10rem;
+  margin: var(--space-2) 0;
+}
+
 /* Footer and About */
 
 .footer {
