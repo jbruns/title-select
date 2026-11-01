@@ -9,11 +9,10 @@
 //! - A ZIP holding a Game's ROMs among other members has the ROMs repacked as TorrentZip, read and hashed in one
 //!   pass, the repack checked, and the original kept aside in the folder's kept files.
 
-use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::{self, ErrorKind, Seek, SeekFrom};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use rustix::fs::FileType;
-use sha2::{Digest, Sha256};
 use title_select_api::build::{ExpectedRom, FileStat, kept_name};
 use title_select_api::ingest::IngestMarker;
 use title_select_engine::build::{repack_members, verify};
@@ -201,10 +200,6 @@ fn is_file(dir: &FolderDir, name: &str, id: Identity, file: Option<&FileStat>) -
 
 fn io(e: io::Error) -> Error {
     Error::Io(e.to_string())
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// A kept file to record as a move finishes.
@@ -837,27 +832,26 @@ fn open_source(src: &FolderDir, m: &MoveRow) -> std::result::Result<std::fs::Fil
     Ok(file)
 }
 
-/// Copies `source`, from its start, into `dest`, hashing it as it is read. Returns its SHA-256.
+/// Copies `source`, from its start, into `dest` with `io::copy`, which on Linux uses `copy_file_range` so that the
+/// filesystem may share or offload the copy. Returns the SHA-256 of `source`, read separately.
 fn copy_hashing(mut source: &std::fs::File, mut dest: &std::fs::File) -> io::Result<String> {
     source.seek(SeekFrom::Start(0))?;
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0; 1 << 16];
-    loop {
-        let n = source.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-        dest.write_all(&buf[..n])?;
-    }
-    Ok(hex(&hasher.finalize()))
+    io::copy(&mut source, &mut dest)?;
+    Ok(sha256_of(source)?.0)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
+    use sha2::{Digest, Sha256};
+
     use super::*;
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
 
     struct Env {
         tmp: tempfile::TempDir,
