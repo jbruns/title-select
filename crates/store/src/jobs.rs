@@ -44,7 +44,8 @@ pub(super) struct JobRow {
 pub(super) const JOB_QUERY: &str =
     "SELECT j.id, j.state, coalesce(s.name, ''), coalesce(r.sha256, ''), j.actor, j.attempt, j.requeued_from,
             j.audit_id, j.error, j.readers, j.hashers, j.created_at, j.started_at, j.finished_at, j.version,
-            j.kind, p.name, v.version, j.selection_id, j.managed_folder_id, j.plan_id, i.root, j.evidence
+            j.kind, p.name, v.version, j.selection_id, j.managed_folder_id, j.plan_id, i.root, j.evidence,
+            j.repair_plan_id, j.cancel_requested_at
      FROM jobs j
      LEFT JOIN source_sets s ON s.id = j.source_set_id
      LEFT JOIN dat_revisions r ON r.id = j.dat_revision_id
@@ -94,6 +95,8 @@ pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
             })?),
             None => None,
         },
+        repair: row.get(23)?,
+        cancel_requested_at: row.get(24)?,
         state,
         source_set: row.get(2)?,
         dat_revision: row.get(3)?,
@@ -171,7 +174,7 @@ pub(super) fn fail(tx: &Transaction, id: i64, error: &str) -> Result<()> {
 }
 
 /// Refuses a Job of `kind` while the Source Set has one Queued or Running.
-pub(super) fn check_no_active(
+pub(crate) fn check_no_active(
     c: &Connection,
     set_id: i64,
     set_name: &str,
@@ -215,6 +218,7 @@ impl Store {
         self.write(|tx| {
             let set = set_by_name(tx, name)?;
             check_no_active(tx, set.id, &set.record.name, JobKind::Audit)?;
+            crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             let (revision_id, chosen) = choose_revision(tx, &set, revision)?;
             check_blob_present(&chosen)?;
             tx.execute(
@@ -368,6 +372,20 @@ impl Store {
                         return Ok(Interruption {
                             job: job_by_id(tx, id)?,
                             requeued: None,
+                        });
+                    }
+                    if kind == JobKind::Repair.as_str() {
+                        // Every step is a durable intent, so the repair always runs on from where it stopped.
+                        finish_running(tx, id, JobState::Interrupted, Some(INTERRUPTED))?;
+                        let plan: i64 = tx.query_row(
+                            "SELECT repair_plan_id FROM jobs WHERE id = ?1",
+                            [id],
+                            |r| r.get(0),
+                        )?;
+                        let requeued = crate::repairs::queue_repair_job(tx, plan, Some(id))?;
+                        return Ok(Interruption {
+                            job: job_by_id(tx, id)?,
+                            requeued: Some(job_by_id(tx, requeued)?),
                         });
                     }
                     if attempt > 1 {

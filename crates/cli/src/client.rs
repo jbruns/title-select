@@ -363,6 +363,8 @@ mod tests {
             selection: None,
             managed_folder: None,
             ingest_folder: None,
+            repair: None,
+            cancel_requested_at: None,
             plan: None,
             evidence: None,
             error: None,

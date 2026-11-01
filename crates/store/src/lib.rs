@@ -190,6 +190,13 @@ pub enum Fault {
     RepairMoved(u32),
     /// After a repair's step with this sequence number is done on disk and synced, before the store records it done.
     RepairStepDone(u32),
+    /// After a repair's outcome, the Audit it owes and its Job's end are recorded, before that Audit is queued.
+    RepairFinished,
+    /// After a Source Set's first marker is written and synced under its recorded temporary name, before it is
+    /// renamed into place.
+    RepairMarkerWritten,
+    /// After a Source Set's first marker is renamed into place, before its folder is synced and the marker recorded.
+    RepairMarkerPublished,
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.

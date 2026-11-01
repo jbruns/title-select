@@ -36,7 +36,14 @@ pub(crate) fn progress_view(live: &LiveJob) -> AnyView {
         (JobState::Running, Some(p)) => view! {
             <span class="progress">
                 <progress max=p.files_total.max(1) value=p.files_done></progress>
-                <span class="data">{format!("{} / {} files", p.files_done, p.files_total)}</span>
+                <span class="data">
+                    {format!(
+                        "{} / {} {}",
+                        p.files_done,
+                        p.files_total,
+                        if live.job.kind == JobKind::Repair { "steps" } else { "files" },
+                    )}
+                </span>
             </span>
         }
         .into_any(),
@@ -137,11 +144,17 @@ fn kind_label(kind: JobKind) -> &'static str {
         JobKind::Build => "Build",
         JobKind::Check => "Check",
         JobKind::IngestScan => "Ingest scan",
+        JobKind::Repair => "Repair",
     }
 }
 
-/// A link to the Audit or Selection a Job recorded, or the Managed Folder a Build or Check Job is for.
+/// A link to the Audit or Selection a Job recorded, the Managed Folder a Build or Check Job is for, or the repair a
+/// Repair Job carries out.
 fn result_link(job: &Job) -> AnyView {
+    if job.repair.is_some() {
+        let href = format!("/source-sets/{}/repair", api::segment(&job.source_set));
+        return view! { <A href=href>"Repair"</A> }.into_any();
+    }
     if let Some(folder) = job.managed_folder {
         return view! {
             <A href=format!("/managed-folders/{folder}")>{format!("Managed folder #{folder}")}</A>

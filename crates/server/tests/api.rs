@@ -908,17 +908,40 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
         .send_json(serde_json::json!({"digest": plan.digest}))
         .unwrap();
     assert_eq!(response.status(), 200);
-    let done: RepairPlan = response.body_mut().read_json().unwrap();
+    let approved: RepairPlan = response.body_mut().read_json().unwrap();
+    let repair_job = approved.job.expect("approval queues a repair job");
+    let (_, ended) = client.follow(repair_job);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    let jobs: Vec<Job> = client.json("/jobs");
+    assert!(
+        jobs.iter()
+            .any(|j| j.id == repair_job && j.repair == Some(plan.id))
+    );
+    let refused = client
+        .post(&format!("/jobs/{repair_job}/cancellation"))
+        .send_empty();
+    assert_eq!(
+        status_of(refused),
+        409,
+        "a repair job that ended cannot be cancelled"
+    );
+    assert!(set.join("Pong (USA).zip").exists());
+    assert!(!set.join("notes.txt").exists());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let done = loop {
+        let fetched: RepairPlan = client.json(&format!("/repairs/{}", plan.id));
+        if fetched.audit_job.is_some() || std::time::Instant::now() > deadline {
+            break fetched;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
     assert!(
         done.finished_at.is_some() && done.outcomes.iter().all(|o| o.done),
         "{done:?}"
     );
-    assert!(set.join("Pong (USA).zip").exists());
-    assert!(!set.join("notes.txt").exists());
+    assert_eq!(done.digest, plan.digest);
     let job = done.audit_job.expect("a repair queues an audit");
     assert_eq!(client.follow(job).1.state, JobState::Succeeded);
-    let fetched: RepairPlan = client.json(&format!("/repairs/{}", plan.id));
-    assert_eq!(fetched.digest, plan.digest);
 
     let kept: Vec<SourceKeptFile> = client.json("/source-sets/Test%20-%20System/kept-files");
     let notes = kept

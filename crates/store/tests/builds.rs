@@ -4451,3 +4451,53 @@ fn an_interrupted_repack_of_a_file_no_longer_selected_leaves_the_folder_lacking_
         "{incomplete:?}"
     );
 }
+
+#[test]
+fn a_build_reading_a_source_set_and_a_repair_of_it_never_overlap() {
+    let mut env = Env::new();
+    env.config = Config::parse(&format!(
+        "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n[roots.play]\npath = {:?}\nwritable = true\n",
+        env.tmp.path().join("roots/sets").display().to_string(),
+        env.play().display().to_string(),
+    ))
+    .unwrap();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    let build = env.plan(&folder, id);
+    let repair = env
+        .store
+        .plan_repair(&env.config, SET, &Default::default())
+        .unwrap();
+
+    let job = env
+        .store
+        .approve_plan(&env.config, build.id, &build.digest, "Operator", WORKERS)
+        .unwrap();
+    let refused =
+        env.store
+            .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS);
+    assert!(
+        matches!(&refused, Err(Error::Conflict(why)) if why.contains(&format!("build job {}", job.id))),
+        "{refused:?}"
+    );
+
+    env.store.claim_job().unwrap().unwrap();
+    let built = env.store.run_build_job(&env.config, job.id, None).unwrap();
+    assert_eq!(built.state, JobState::Succeeded, "{built:?}");
+    let repair = env
+        .store
+        .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS)
+        .unwrap();
+    let again = env.plan(&folder, id);
+    let refused = env
+        .store
+        .approve_plan(&env.config, again.id, &again.digest, "Operator", WORKERS);
+    assert!(
+        matches!(
+            &refused,
+            Err(Error::JobActive { job, kind: JobKind::Repair, .. }) if Some(*job) == repair.job
+        ),
+        "{refused:?}"
+    );
+}

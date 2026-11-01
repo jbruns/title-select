@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use common::*;
 use title_select_api::build::PlanKeptDeletion;
-use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan};
-use title_select_api::{AuditEvidence, Finding, GameStatus, JobState};
+use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
+use title_select_api::{AuditEvidence, Finding, GameStatus, JobKind, JobState};
 use title_select_engine::build::is_torrentzip;
 use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
@@ -114,14 +114,28 @@ impl Env {
             .unwrap()
     }
 
+    /// Approves `plan`, runs the Repair Job that queues, and queues the Audit it owes.
     fn approve(&self, plan: &RepairPlan) -> RepairPlan {
-        let done = self
+        let approved = self
             .store
             .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
+        assert!(approved.finished_at.is_none(), "approval only queues it");
+        let ended = self.run_repair_job(&approved);
+        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        self.store.fulfil_repair_audits().unwrap();
+        let done = self.store.repair_plan(plan.id).unwrap();
         assert!(done.finished_at.is_some(), "{done:?}");
         assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
         done
+    }
+
+    /// Claims and runs the Repair Job queued for `plan`.
+    fn run_repair_job(&self, plan: &RepairPlan) -> title_select_api::Job {
+        let job = plan.job.expect("an approved repair has a job");
+        let claimed = self.store.claim_job().unwrap().unwrap();
+        assert_eq!(claimed.id, job);
+        self.store.run_repair_job(&self.config, job, None).unwrap()
     }
 
     /// Runs the incremental Audit a repair queued.
@@ -567,19 +581,28 @@ fn a_repair_the_service_stopped_in_is_finished_when_it_next_starts() {
         let plan = env.plan();
         assert_eq!(plan.content.steps.len(), 3, "{:#?}", plan.content.steps);
 
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
         env.store.inject_fault(Some(stop));
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            env.store
-                .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            env.run_repair_job(&approved)
         }));
         assert!(ran.is_err(), "{stop:?}: {ran:?}");
         env.store.inject_fault(None);
         let unfinished = env.store.repair_plan(plan.id).unwrap();
         assert!(unfinished.finished_at.is_none(), "{stop:?}");
 
-        let left = env.store.recover_repairs(&env.config).unwrap();
+        let recovered = env.store.recover_jobs(WORKERS).unwrap();
 
-        assert!(left.is_empty(), "{stop:?}: {left:?}");
+        assert_eq!(recovered.len(), 1, "{stop:?}");
+        assert_eq!(recovered[0].job.state, JobState::Interrupted, "{stop:?}");
+        let requeued = recovered[0].requeued.clone().expect("a repair runs on");
+        assert_eq!(requeued.repair, Some(plan.id), "{stop:?}");
+        let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+        assert_eq!(ended.state, JobState::Succeeded, "{stop:?}: {ended:?}");
+        env.store.fulfil_repair_audits().unwrap();
         let done = env.store.repair_plan(plan.id).unwrap();
         assert!(done.finished_at.is_some(), "{stop:?}");
         assert!(done.outcomes.iter().all(|o| o.done), "{stop:?}: {done:#?}");
@@ -594,4 +617,258 @@ fn a_repair_the_service_stopped_in_is_finished_when_it_next_starts() {
         );
         assert!(done.audit_job.is_some(), "{stop:?}");
     }
+}
+
+#[test]
+fn an_audit_of_a_source_set_and_a_repair_of_it_never_overlap() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let audit = env
+        .store
+        .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full)
+        .unwrap();
+
+    let refused = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    assert!(
+        matches!(&refused, Err(Error::Conflict(why)) if why.contains(&format!("audit job {}", audit.id))),
+        "{refused:?}"
+    );
+
+    env.store.claim_job().unwrap().unwrap();
+    env.store
+        .run_audit_job(&env.config, audit.id, None)
+        .unwrap();
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let queued = env
+        .store
+        .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full);
+    let direct = env
+        .store
+        .audit_source_set(&env.config, "Alpha", None, AuditEvidence::Full);
+    for refused in [queued.map(|_| ()), direct.map(|_| ())] {
+        assert!(
+            matches!(
+                &refused,
+                Err(Error::JobActive { job, kind: JobKind::Repair, .. }) if Some(*job) == approved.job
+            ),
+            "{refused:?}"
+        );
+    }
+}
+
+#[test]
+fn a_finished_repair_queues_the_audit_it_owes_even_after_a_stop_right_after_it_finished() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.inject_fault(Some(Fault::RepairFinished));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let finished = env.store.repair_plan(plan.id).unwrap();
+    assert!(finished.finished_at.is_some());
+    assert!(finished.audit_owed, "{finished:?}");
+
+    let owed = env.store.fulfil_repair_audits().unwrap();
+
+    assert_eq!(owed.queued.len(), 1, "{owed:?}");
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert_eq!(done.audit_job, Some(owed.queued[0].id));
+    env.run_queued_audit(&done);
+}
+
+#[test]
+fn a_repair_you_cancel_finishes_the_item_it_started_and_skips_the_rest() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let first_keep = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| matches!(s.step, RepairStep::Keep { .. }))
+        .unwrap();
+    let started = plan.content.steps[first_keep].item.clone();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store
+        .inject_fault(Some(Fault::RepairMoved(first_keep as u32)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+
+    let cancelling = env.store.cancel_job(requeued.id).unwrap();
+    assert!(cancelling.cancel_requested_at.is_some());
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(done.finished_at.is_some());
+    for outcome in &done.outcomes {
+        match outcome.item == started {
+            true => assert!(outcome.done, "{outcome:?}"),
+            false => assert!(
+                !outcome.done && outcome.error.as_deref().unwrap().contains("cancelled"),
+                "{outcome:?}"
+            ),
+        }
+    }
+    assert_eq!(done.outcomes.len(), 2, "{:#?}", done.outcomes);
+    let listing = env.listing();
+    assert!(
+        !listing
+            .iter()
+            .any(|p| p.contains("staging") || p.contains(".new")),
+        "{listing:?}"
+    );
+    assert_eq!(
+        listing.contains(&"Pong (USA).zip".to_owned()),
+        started == "game:Pong (USA)",
+        "{listing:?}"
+    );
+}
+
+#[test]
+fn a_repair_cancelled_before_it_ran_changes_nothing_not_even_the_marker() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let before = env.listing();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    env.store.cancel_job(approved.job.unwrap()).unwrap();
+    let ended = env.run_repair_job(&approved);
+
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_eq!(env.listing(), before);
+}
+
+#[test]
+fn a_kept_file_recorded_before_a_stop_is_accepted_when_its_step_runs_again() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let keep = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| matches!(s.step, RepairStep::Keep { .. }))
+        .unwrap();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store
+        .inject_fault(Some(Fault::RepairStepDone(keep as u32)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    // As a stop between recording the kept file and ending its step would leave it.
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "UPDATE repair_steps SET state = 'moving', kept_id = NULL, finished_at = NULL WHERE seq = ?1",
+        [keep as i64],
+    )
+    .unwrap();
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
+    assert_eq!(env.store.source_kept_files("Alpha").unwrap().len(), 1);
+}
+
+#[test]
+fn a_first_marker_a_stop_left_unpublished_is_published_when_the_repair_runs_again() {
+    for stop in [Fault::RepairMarkerWritten, Fault::RepairMarkerPublished] {
+        let env = Env::new();
+        env.put("readme.txt", b"hello");
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan();
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        env.store.inject_fault(Some(stop));
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.run_repair_job(&approved)
+        }));
+        assert!(ran.is_err(), "{stop:?}: {ran:?}");
+        env.store.inject_fault(None);
+        env.store.recover_jobs(WORKERS).unwrap();
+
+        let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+        assert_eq!(ended.state, JobState::Succeeded, "{stop:?}: {ended:?}");
+        assert_eq!(
+            env.listing(),
+            [".title-select", ".title-select-retained/1/readme.txt.kept"],
+            "{stop:?}"
+        );
+    }
+}
+
+#[test]
+fn a_marker_that_appears_while_the_first_one_is_written_is_never_replaced() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let marker = env.set().join(".title-select");
+    let planted = marker.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairMarkerWritten {
+                std::fs::write(&planted, b"someone else's").unwrap();
+            }
+        })));
+
+    let ended = env.run_repair_job(&approved);
+
+    env.store.hook_faults(None);
+    assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    assert!(
+        ended.error.as_deref().unwrap().contains("marker appeared"),
+        "{ended:?}"
+    );
+    assert_eq!(std::fs::read(&marker).unwrap(), b"someone else's");
+    assert!(env.set().join("readme.txt").exists());
 }

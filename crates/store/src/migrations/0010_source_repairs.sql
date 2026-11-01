@@ -5,7 +5,12 @@
 CREATE TABLE source_folders (
     source_set_id INTEGER PRIMARY KEY REFERENCES source_sets (id),
     generation INTEGER NOT NULL DEFAULT 0,
-    marker_at TEXT
+    marker_at TEXT,
+    -- The first marker's temporary file: marker_temp_pending is committed before it is created, and its identity
+    -- once it is, so that recovery writes and publishes that file, and only it.
+    marker_temp_pending INTEGER NOT NULL DEFAULT 0,
+    marker_temp_dev INTEGER,
+    marker_temp_ino INTEGER
 );
 -- As ingest_dirs, ingest_temps and ingest_temp_names, for the directories a repair creates in a Source Set.
 CREATE TABLE source_dirs (
@@ -114,3 +119,60 @@ CREATE TABLE source_kept_deletions (
     outcomes TEXT,
     recovery_error TEXT
 );
+
+-- An approved repair runs as a Repair Job of its Source Set, which carries the repair plan's id. cancel_requested_at
+-- is when you asked a Job to stop at its next safe point. jobs is rebuilt again to allow the new kind; the migration
+-- runs with foreign keys off and checks them before it commits.
+CREATE TABLE jobs_new (
+    id INTEGER PRIMARY KEY,
+    state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'interrupted')),
+    source_set_id INTEGER REFERENCES source_sets (id),
+    dat_revision_id INTEGER REFERENCES dat_revisions (id),
+    actor TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    requeued_from INTEGER REFERENCES jobs (id),
+    audit_id INTEGER REFERENCES audits (id),
+    error TEXT,
+    readers INTEGER NOT NULL,
+    hashers INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    kind TEXT NOT NULL DEFAULT 'audit'
+        CHECK (kind IN ('audit', 'selection', 'build', 'check', 'ingest_scan', 'repair')),
+    profile_version_id INTEGER REFERENCES profile_versions (id),
+    selection_id INTEGER REFERENCES selections (id),
+    managed_folder_id INTEGER REFERENCES managed_folders (id),
+    plan_id INTEGER REFERENCES plans (id),
+    evidence TEXT CHECK (evidence IN ('quick', 'incremental', 'full')),
+    ingest_folder_id INTEGER REFERENCES ingest_folders (id),
+    repair_plan_id INTEGER REFERENCES repair_plans (id),
+    cancel_requested_at TEXT,
+    CHECK ((kind = 'ingest_scan') = (source_set_id IS NULL AND dat_revision_id IS NULL)),
+    CHECK ((kind = 'ingest_scan') = (ingest_folder_id IS NOT NULL)),
+    CHECK ((kind = 'repair') = (repair_plan_id IS NOT NULL))
+);
+INSERT INTO jobs_new (id, state, source_set_id, dat_revision_id, actor, attempt, requeued_from, audit_id, error,
+                      readers, hashers, created_at, started_at, finished_at, version, kind, profile_version_id,
+                      selection_id, managed_folder_id, plan_id, evidence, ingest_folder_id)
+SELECT id, state, source_set_id, dat_revision_id, actor, attempt, requeued_from, audit_id, error, readers, hashers,
+       created_at, started_at, finished_at, version, kind, profile_version_id, selection_id, managed_folder_id, plan_id,
+       evidence, ingest_folder_id
+FROM jobs;
+DROP TABLE jobs;
+ALTER TABLE jobs_new RENAME TO jobs;
+CREATE INDEX jobs_by_state ON jobs (state, id);
+CREATE UNIQUE INDEX jobs_one_active_per_source_set ON jobs (source_set_id, kind)
+WHERE state IN ('queued', 'running') AND kind IN ('audit', 'selection', 'repair');
+CREATE UNIQUE INDEX jobs_one_active_per_folder ON jobs (managed_folder_id)
+WHERE state IN ('queued', 'running') AND kind IN ('build', 'check');
+CREATE UNIQUE INDEX jobs_one_active_per_ingest_folder ON jobs (ingest_folder_id)
+WHERE state IN ('queued', 'running') AND kind = 'ingest_scan';
+CREATE TRIGGER jobs_kind_profile BEFORE INSERT ON jobs
+WHEN (NEW.kind = 'selection') <> (NEW.profile_version_id IS NOT NULL)
+  OR (NEW.kind = 'build') <> (NEW.plan_id IS NOT NULL)
+  OR (NEW.kind IN ('build', 'check')) <> (NEW.managed_folder_id IS NOT NULL)
+BEGIN
+    SELECT RAISE(ABORT, 'a selection job runs a profile version, a build job an approved plan, a check job a managed folder, an audit job none');
+END;

@@ -164,6 +164,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/jobs", get(jobs))
         .route("/jobs/{id}", get(job))
         .route("/jobs/{id}/events", get(job_events))
+        .route("/jobs/{id}/cancellation", post(cancel_job))
         .route("/events", get(all_events))
         .layer(middleware::from_fn_with_state(auth, require_operator));
     let api = Router::new()
@@ -823,7 +824,7 @@ async fn repair_plan(
     ))
 }
 
-/// Approves a repair with the digest you reviewed, and carries it out before it answers.
+/// Approves a repair with the digest you reviewed, and queues the Repair Job that carries it out.
 async fn approve_repair(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
@@ -837,7 +838,7 @@ async fn approve_repair(
         store.approve_repair(&config, id, &approve.digest, &actor, workers)
     })
     .await?;
-    if let Some(job) = plan.audit_job {
+    if let Some(job) = plan.job {
         let found = blocking(&state, move |store| store.job(job)).await?;
         state.jobs.changed(found);
     }
@@ -1372,6 +1373,17 @@ async fn job(
 ) -> ApiResult<Json<title_select_api::Job>> {
     let Path(id) = id?;
     Ok(Json(blocking(&state, move |store| store.job(id)).await?))
+}
+
+/// Asks a Repair Job to stop at its next safe point.
+async fn cancel_job(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<title_select_api::Job>> {
+    let Path(id) = id?;
+    let job = blocking(&state, move |store| store.cancel_job(id)).await?;
+    state.jobs.changed(job.clone());
+    Ok(Json(job))
 }
 
 type EventStream = Sse<

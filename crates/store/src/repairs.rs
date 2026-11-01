@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io;
 
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::{Access, AtFlags, FileType};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, FileStat, MARKER, kept_name};
@@ -25,19 +25,20 @@ use title_select_api::repair::{
     PlanRepair, PlannedStep, RepairOutcome, RepairPlan, RepairPlanContent, RepairRom, RepairStep,
     SeenFile, SourceSetMarker,
 };
-use title_select_api::{AuditEvidence, JobKind, Workers};
-use title_select_engine::FileStamp;
+use title_select_api::{AuditEvidence, Job, JobKind, JobState, Workers};
 use title_select_engine::build::{FromSource, repack_sources, verify};
 use title_select_engine::dat::Dat;
+use title_select_engine::{FileStamp, Progress};
 
 use crate::builds::sha256_of;
 use crate::checks::Seen;
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, file_stat};
-use crate::folders::{MARKER_LIMIT, store_id, write_marker};
+use crate::folders::{MARKER_LIMIT, MARKER_NEW, store_id};
+use crate::ingest::OwedAudits;
 use crate::ingest::fill_candidates;
 use crate::ingest::moves::{Destination, Move};
-use crate::jobs::check_no_active;
+use crate::jobs::{finish_running, job_by_id};
 use crate::kept::{Scope, open_area_deleting, open_retention, settle_dir_temps, unique};
 use crate::plans::{json, to_json};
 use crate::sets::{set_by_id, set_by_name};
@@ -239,7 +240,8 @@ fn digest(content: &RepairPlanContent) -> String {
 }
 
 const PLAN_QUERY: &str = "SELECT id, digest, created_at, content, approved_digest, approved_by, approved_at, \
-     finished_at, outcomes, recovery_error, audit_job_id, audit_owed, audit_error FROM repair_plans";
+     finished_at, outcomes, recovery_error, audit_job_id, audit_owed, audit_error, \
+     (SELECT max(j.id) FROM jobs j WHERE j.repair_plan_id = repair_plans.id) FROM repair_plans";
 
 fn plan_from_row(r: &Row) -> rusqlite::Result<RepairPlan> {
     let outcomes: Option<String> = r.get(8)?;
@@ -265,6 +267,7 @@ fn plan_from_row(r: &Row) -> rusqlite::Result<RepairPlan> {
         audit_job: r.get(10)?,
         audit_owed: r.get(11)?,
         audit_error: r.get(12)?,
+        job: r.get(13)?,
     })
 }
 
@@ -297,7 +300,8 @@ pub(crate) fn repair_active(c: &Connection, set: i64) -> Result<Option<String>> 
         .optional()?;
     if let Some(id) = repair {
         return Ok(Some(format!(
-            "repair {id} of the source set is not finished; the service finishes it when it next starts"
+            "repair {id} of the source set is not finished; its repair job finishes it, or, if that job failed, the \
+             one queued when the service next starts"
         )));
     }
     let deletion: Option<i64> = c
@@ -314,6 +318,87 @@ pub(crate) fn repair_active(c: &Connection, set: i64) -> Result<Option<String>> 
              starts"
         )
     }))
+}
+
+/// Refuses to start reading Source Set `set_name` (`set`) while a repair reserves it: a Repair Job Queued or
+/// Running, or a repair or deletion of its kept files not finished. An Audit or a Build reading the Source Set calls
+/// this in the transaction that starts or queues it.
+pub(crate) fn check_no_repair(c: &Connection, set: i64, set_name: &str) -> Result<()> {
+    let job: Option<i64> = c
+        .query_row(
+            "SELECT id FROM jobs WHERE source_set_id = ?1 AND kind = 'repair' AND state IN ('queued', 'running')",
+            [set],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(job) = job {
+        return Err(Error::JobActive {
+            source_set: set_name.to_owned(),
+            job,
+            kind: JobKind::Repair,
+        });
+    }
+    match repair_active(c, set)? {
+        Some(why) => Err(Error::Conflict(format!("source set {set_name}: {why}"))),
+        None => Ok(()),
+    }
+}
+
+/// Why a repair of Source Set `set` cannot be approved now: an Audit, Build or repair of it Queued or Running, an
+/// Audit of it running outside a Job, or a repair or deletion of its kept files not finished.
+fn reserved(c: &Connection, set: i64) -> Result<Option<String>> {
+    if let Some(why) = repair_active(c, set)? {
+        return Ok(Some(why));
+    }
+    let job: Option<(i64, String)> = c
+        .query_row(
+            "SELECT id, kind FROM jobs WHERE source_set_id = ?1 AND kind IN ('audit', 'build', 'repair')
+             AND state IN ('queued', 'running') ORDER BY id LIMIT 1",
+            [set],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if let Some((job, kind)) = job {
+        return Ok(Some(format!(
+            "{kind} job {job}, which reads the source set, is queued or running; approve the repair once it ends"
+        )));
+    }
+    let owed: Option<i64> = c
+        .query_row(
+            "SELECT id FROM repair_plans WHERE source_set_id = ?1 AND audit_owed = 1",
+            [set],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(id) = owed {
+        return Ok(Some(format!(
+            "the incremental audit repair {id} owes is not queued yet; it is once the job it waits for ends"
+        )));
+    }
+    let audit: Option<i64> = c
+        .query_row(
+            "SELECT id FROM audits WHERE source_set_id = ?1 AND status = 'running'",
+            [set],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(audit.map(|id| {
+        format!("audit {id} of the source set is running; approve the repair once it ends")
+    }))
+}
+
+/// Queues a Repair Job for approved repair `plan`, as `last`'s next attempt when it is queued again. Returns its id.
+pub(crate) fn queue_repair_job(tx: &Transaction, plan: i64, last: Option<i64>) -> Result<i64> {
+    tx.execute(
+        "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, actor, attempt, requeued_from, readers,
+                           hashers, created_at, repair_plan_id, cancel_requested_at)
+         SELECT 'queued', 'repair', p.source_set_id, a.dat_revision_id, p.approved_by,
+                coalesce((SELECT attempt + 1 FROM jobs WHERE id = ?2), 1), ?2, max(p.readers, 1), max(p.hashers, 1),
+                ?3, p.id, (SELECT cancel_requested_at FROM jobs WHERE id = ?2)
+         FROM repair_plans p JOIN audits a ON a.id = p.audit_id WHERE p.id = ?1",
+        params![plan, last, now()],
+    )?;
+    Ok(tx.last_insert_rowid())
 }
 
 /// One step of an approved repair, as recorded.
@@ -545,13 +630,9 @@ impl Store {
                 content.source_set
             )));
         }
-        self.read(|c| {
-            check_no_active(c, content.set_id, &content.source_set, JobKind::Audit)?;
-            match repair_active(c, content.set_id)? {
-                Some(why) => Err(Error::Conflict(why)),
-                None => Ok(()),
-            }
-        })?;
+        if let Some(why) = self.read(|c| reserved(c, content.set_id))? {
+            return Err(Error::Conflict(why));
+        }
         for step in &content.steps {
             if let RepairStep::Fill { item, .. } = &step.step
                 && let Some(why) = self.read(|c| crate::ingest::item_unmovable(c, *item, false))?
@@ -565,6 +646,11 @@ impl Store {
             return Err(Error::Refused(why));
         }
         self.write(|tx| {
+            // The reservation: checked again in the transaction that queues the Repair Job, which Audits and Builds
+            // of the Source Set check in theirs.
+            if let Some(why) = reserved(tx, content.set_id)? {
+                return Err(Error::Conflict(why));
+            }
             let advanced = tx.execute(
                 "INSERT INTO source_folders (source_set_id, generation) VALUES (?1, ?2)
                  ON CONFLICT (source_set_id) DO UPDATE SET generation = excluded.generation
@@ -599,51 +685,104 @@ impl Store {
                     params![id, seq as i64, item, to_json(step)],
                 )?;
             }
+            queue_repair_job(tx, id, None)?;
             Ok(())
         })?;
-        drop(dir);
-        if let Err(why) = self.run_repair(config, id)? {
-            self.write(|tx| {
-                tx.execute(
-                    "UPDATE repair_plans SET recovery_error = ?2 WHERE id = ?1",
-                    params![id, why],
-                )?;
-                Ok(())
-            })?;
-        }
         self.repair_plan(id)
     }
 
-    /// Rolls forward every approved repair a stop interrupted, each only once its Source Set may be written and its
-    /// marker is this store's. Returns each left unfinished, with why.
-    pub fn recover_repairs(&self, config: &Config) -> Result<Vec<(i64, String)>> {
-        let unfinished: Vec<i64> = self.read(|c| {
-            let mut stmt = c.prepare(
-                "SELECT id FROM repair_plans WHERE approved_at IS NOT NULL AND finished_at IS NULL ORDER BY id",
+    /// Run when the service starts, after [`Store::recover_jobs`]: queues a Repair Job for each approved repair that
+    /// is not finished and has none Queued or Running, as when the last one failed. Returns the Jobs queued.
+    pub fn recover_repairs(&self) -> Result<Vec<Job>> {
+        self.write(|tx| {
+            let mut stmt = tx.prepare(
+                "SELECT p.id, (SELECT max(j.id) FROM jobs j WHERE j.repair_plan_id = p.id) FROM repair_plans p
+                 WHERE p.approved_at IS NOT NULL AND p.finished_at IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.repair_plan_id = p.id
+                                   AND j.state IN ('queued', 'running'))
+                 ORDER BY p.id",
             )?;
-            Ok(stmt
-                .query_map([], |r| r.get(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?)
-        })?;
-        let mut left = Vec::new();
-        for id in unfinished {
-            let ran = self.run_repair(config, id)?;
+            let unfinished = stmt
+                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            unfinished
+                .into_iter()
+                .map(|(plan, last)| {
+                    let job = queue_repair_job(tx, plan, last)?;
+                    job_by_id(tx, job)
+                })
+                .collect()
+        })
+    }
+
+    /// Runs the Running Repair Job `id`: carries out each step of its repair not yet ended, calling `progress` as
+    /// steps end, and stopping at the next safe point once you cancel it. Once every step has ended, the repair's
+    /// outcome, the incremental Audit it owes and the Job's end are recorded in one transaction; that Audit is
+    /// queued by [`Store::fulfil_repair_audits`], which the service runs after every Job ends. A repair it cannot go on with is left unfinished, with why, and the Job Failed; nothing else is done
+    /// to its Source Set until a later Job, queued when the service next starts, finishes it. Returns the Job as it
+    /// ends.
+    pub fn run_repair_job(
+        &self,
+        config: &Config,
+        id: i64,
+        progress: Option<&(dyn Fn(Progress) + Sync)>,
+    ) -> Result<Job> {
+        let job = self.job(id)?;
+        let Some(plan) = job.repair else {
+            return Err(Error::Refused(format!("job {id} is not a repair")));
+        };
+        if job.state != JobState::Running {
+            return Err(Error::Refused(format!(
+                "job {id} is {}, not running",
+                job.state.as_str()
+            )));
+        }
+        let ran = self.run_repair(config, plan, id, progress);
+        let why = match &ran {
+            Ok(Ok(())) => None,
+            Ok(Err(why)) => Some(why.clone()),
+            Err(err) => Some(err.to_string()),
+        };
+        if let Some(why) = why {
             self.write(|tx| {
                 tx.execute(
                     "UPDATE repair_plans SET recovery_error = ?2 WHERE id = ?1",
-                    params![id, ran.as_ref().err()],
+                    params![plan, why],
                 )?;
-                Ok(())
+                match finish_running(tx, id, JobState::Failed, Some(&why)) {
+                    Err(Error::Io(_)) | Ok(()) => Ok(()),
+                    Err(err) => Err(err),
+                }
             })?;
-            if let Err(why) = ran {
-                left.push((id, why));
-            }
         }
-        Ok(left)
+        drop(ran);
+        self.job(id)
+    }
+
+    /// Asks the Queued or Running Repair Job `id` to stop at its next safe point: between two steps. Each step that
+    /// changed something, and every step of the same item, still ends as planned; every other is skipped.
+    pub fn cancel_job(&self, id: i64) -> Result<Job> {
+        self.write(|tx| {
+            let job = job_by_id(tx, id)?;
+            if job.kind != JobKind::Repair {
+                return Err(Error::Refused(format!(
+                    "job {id} is not a repair; only a repair job can be cancelled"
+                )));
+            }
+            if job.state.is_final() {
+                return Err(Error::Conflict(format!("job {id} has already ended")));
+            }
+            tx.execute(
+                "UPDATE jobs SET cancel_requested_at = ?2, version = version + 1
+                 WHERE id = ?1 AND cancel_requested_at IS NULL",
+                params![id, now()],
+            )?;
+            job_by_id(tx, id)
+        })
     }
 
     /// Queues each incremental Audit a finished repair owes, once no other Job of its Source Set stands in the way.
-    pub fn fulfil_repair_audits(&self) -> Result<Vec<String>> {
+    pub fn fulfil_repair_audits(&self) -> Result<OwedAudits> {
         let owed: Vec<i64> = self.read(|c| {
             let mut stmt =
                 c.prepare("SELECT id FROM repair_plans WHERE audit_owed = 1 ORDER BY id")?;
@@ -651,13 +790,16 @@ impl Store {
                 .query_map([], |r| r.get(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })?;
-        let mut failed = Vec::new();
+        let mut done = OwedAudits::default();
         for id in owed {
             if let Some(why) = self.queue_repair_audit(id)? {
-                failed.push(why);
+                done.failed.push(why);
+            }
+            if let Some(job) = self.repair_plan(id)?.audit_job {
+                done.queued.push(self.job(job)?);
             }
         }
-        Ok(failed)
+        Ok(done)
     }
 
     /// Queues the incremental Audit repair `id` owes; one that must wait for another Job stays owed. Returns why it
@@ -691,9 +833,15 @@ impl Store {
         Ok(error.map(|why| format!("an incremental audit of {set} after repair {id}: {why}")))
     }
 
-    /// Carries out each step of approved repair `id` not yet ended, then, once every step has ended, records what it
-    /// did and queues an incremental Audit. `Err` says why it was left unfinished.
-    fn run_repair(&self, config: &Config, id: i64) -> Ran {
+    /// Carries out each step of approved repair `id` not yet ended, as Running Job `job`, then, once every step has
+    /// ended, records what it did. `Err` says why it was left unfinished.
+    fn run_repair(
+        &self,
+        config: &Config,
+        id: i64,
+        job: i64,
+        progress: Option<&(dyn Fn(Progress) + Sync)>,
+    ) -> Ran {
         let plan = self.repair_plan(id)?;
         let content = &plan.content;
         let (_, marked) = self.read(|c| source_folder(c, content.set_id))?;
@@ -711,40 +859,269 @@ impl Store {
                 dir.path().display()
             )));
         }
-        if !marked {
-            let marker = SourceSetMarker {
-                store: self.read(store_id)?,
-                source_set: content.set_id,
-            };
-            if let Err(err) = write_marker(&dir, &marker, &mut |_| Ok(())) {
-                return Ok(Err(err.to_string()));
-            }
-            self.write(|tx| {
-                tx.execute(
-                    "UPDATE source_folders SET marker_at = ?2 WHERE source_set_id = ?1",
-                    params![content.set_id, now()],
-                )?;
-                Ok(())
-            })?;
+        // Cancelled before its first repair wrote the marker, nothing in the Source Set was changed, nor is.
+        let untouched = !marked && self.cancel_requested(job)?;
+        if !marked
+            && !untouched
+            && let Err(why) = self.bootstrap_marker(content.set_id, &dir)?
+        {
+            return Ok(Err(why));
         }
-        if let Err(why) = settle_dir_temps(self, Scope::Source(content.set_id), &dir)? {
+        if !untouched && let Err(why) = settle_dir_temps(self, Scope::Source(content.set_id), &dir)?
+        {
             return Ok(Err(why));
         }
         let repairing = Repairing { plan: &plan, dir };
-        let steps = self.read(|c| steps_of(c, id))?;
-        for step in &steps {
-            if is_terminal(&step.state) {
-                continue;
+        let total = self.read(|c| steps_of(c, id))?.len();
+        let mut cancelled = false;
+        for seq in 0..total {
+            if !cancelled && (untouched || self.cancel_requested(job)?) {
+                cancelled = true;
+                self.cancel_uncommitted(&repairing)?;
             }
-            if let Err(why) = self.run_step(config, &repairing, step)? {
+            let step = self.other_step(id, seq as u32)?;
+            if !is_terminal(&step.state)
+                && let Err(why) = self.run_step(config, &repairing, &step)?
+            {
                 return Ok(Err(why));
             }
+            if let Some(progress) = progress {
+                progress(Progress {
+                    files_done: seq + 1,
+                    files_total: total,
+                });
+            }
         }
-        self.finish_repair(&plan)?;
+        self.finish_repair(&plan, job, cancelled)?;
         Ok(Ok(()))
     }
 
-    fn finish_repair(&self, plan: &RepairPlan) -> Result<()> {
+    /// Writes Source Set `set`'s first marker through `dir`, durably: that its temporary file is about to be created
+    /// is committed first, and its identity as soon as it is; it is written and synced, renamed to the marker only
+    /// while it is still that file and by a rename that never replaces anything, and the folder synced before the
+    /// marker is recorded. A temporary file a stop left is written again and published, but only while it is the
+    /// file recorded, or, when its identity was not yet committed, the empty file this service's user just made.
+    /// Anything else at either name, a marker that appeared meanwhile included, stops the repair with nothing changed.
+    fn bootstrap_marker(
+        &self,
+        set: i64,
+        dir: &FolderDir,
+    ) -> Result<std::result::Result<(), String>> {
+        let path = dir.path().display().to_string();
+        let marker = SourceSetMarker {
+            store: self.read(store_id)?,
+            source_set: set,
+        };
+        let mut json = serde_json::to_vec_pretty(&marker).expect("a marker always serializes");
+        json.push(b'\n');
+        let (pending, recorded) = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT marker_temp_pending, marker_temp_dev, marker_temp_ino FROM source_folders
+                 WHERE source_set_id = ?1",
+                [set],
+                |r| {
+                    let id = match (r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?) {
+                        (Some(dev), Some(ino)) => Some(Identity::from_sql(dev, ino)),
+                        _ => None,
+                    };
+                    Ok((r.get::<_, bool>(0)?, id))
+                },
+            )?)
+        })?;
+        let stat = |name: &str| dir.stat(name).map_err(io_err);
+        let is_file = |st: &rustix::fs::Stat, id: Identity| {
+            FolderDir::kind(st) == FileType::RegularFile && Identity::of(st) == id
+        };
+        let forget = |store: &Store| {
+            store.write(|tx| {
+                tx.execute(
+                    "UPDATE source_folders SET marker_temp_pending = 0, marker_temp_dev = NULL,
+                         marker_temp_ino = NULL WHERE source_set_id = ?1",
+                    [set],
+                )?;
+                Ok(())
+            })
+        };
+        if let Some(st) = stat(MARKER)? {
+            // Renamed into place before a stop, or put there by something else.
+            if let Some(id) = recorded
+                && is_file(&st, id)
+                && dir.read(MARKER, MARKER_LIMIT).map_err(io_err)? == json
+            {
+                dir.sync().map_err(io_err)?;
+                return self.record_marker(set).map(Ok);
+            }
+            forget(self)?;
+            return Ok(Err(format!(
+                "{path}: a .title-select marker appeared in it before its first repair wrote one; is this the right \
+                 folder? Nothing in it was changed"
+            )));
+        }
+        let left = stat(MARKER_NEW)?;
+        let id = match (left, recorded) {
+            (Some(st), Some(id)) if is_file(&st, id) => id,
+            (Some(st), None)
+                if pending
+                    && FolderDir::kind(&st) == FileType::RegularFile
+                    && st.st_size == 0
+                    && st.st_nlink == 1
+                    && st.st_uid == rustix::process::geteuid().as_raw() =>
+            {
+                self.record_marker_temp(set, Identity::of(&st))?;
+                Identity::of(&st)
+            }
+            (Some(_), _) => {
+                forget(self)?;
+                return Ok(Err(format!(
+                    "{path}: {MARKER_NEW} is not the file Title Select was writing its marker to; move it out of the \
+                     folder, then approve the repair again. Nothing in it was changed"
+                )));
+            }
+            (None, _) => {
+                self.write(|tx| {
+                    tx.execute(
+                        "UPDATE source_folders SET marker_temp_pending = 1, marker_temp_dev = NULL,
+                             marker_temp_ino = NULL WHERE source_set_id = ?1",
+                        [set],
+                    )?;
+                    Ok(())
+                })?;
+                let file = match dir.create_new(MARKER_NEW) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        forget(self)?;
+                        return Ok(Err(format!("{path}: {e}; nothing in it was changed")));
+                    }
+                };
+                let id = Identity::of_fd(&file).map_err(io_err)?;
+                self.record_marker_temp(set, id)?;
+                id
+            }
+        };
+        let mut file = dir.open_write(MARKER_NEW).map_err(io_err)?;
+        if Identity::of_fd(&file).map_err(io_err)? != id {
+            forget(self)?;
+            return Ok(Err(format!(
+                "{path}: {MARKER_NEW} was replaced while the marker was written; nothing in it was changed"
+            )));
+        }
+        {
+            use std::io::Write;
+            file.set_len(0)
+                .and_then(|()| file.write_all(&json))
+                .and_then(|()| file.sync_all())
+                .map_err(io_err)?;
+        }
+        drop(file);
+        self.fault_point(Fault::RepairMarkerWritten);
+        if !stat(MARKER_NEW)?.is_some_and(|st| is_file(&st, id)) {
+            forget(self)?;
+            return Ok(Err(format!(
+                "{path}: {MARKER_NEW} was replaced while the marker was written; nothing in it was changed"
+            )));
+        }
+        if let Err(e) = dir.rename_new(MARKER_NEW, dir, MARKER) {
+            return Ok(Err(match e.kind() {
+                io::ErrorKind::AlreadyExists => format!(
+                    "{path}: a .title-select marker appeared in it while its first repair wrote one; is this the \
+                     right folder? Nothing in it was changed"
+                ),
+                _ => format!("{path}: {e}; nothing in it was changed"),
+            }));
+        }
+        self.fault_point(Fault::RepairMarkerPublished);
+        dir.sync().map_err(io_err)?;
+        if !stat(MARKER)?.is_some_and(|st| is_file(&st, id)) {
+            return Ok(Err(format!(
+                "{path}: its .title-select marker was replaced as it was written; nothing in it was changed"
+            )));
+        }
+        self.record_marker(set).map(Ok)
+    }
+
+    fn record_marker_temp(&self, set: i64, id: Identity) -> Result<()> {
+        let (dev, ino) = id.to_sql();
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE source_folders SET marker_temp_pending = 1, marker_temp_dev = ?2, marker_temp_ino = ?3
+                 WHERE source_set_id = ?1",
+                params![set, dev, ino],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn record_marker(&self, set: i64) -> Result<()> {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE source_folders SET marker_at = ?2, marker_temp_pending = 0, marker_temp_dev = NULL,
+                     marker_temp_ino = NULL WHERE source_set_id = ?1",
+                params![set, now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn cancel_requested(&self, job: i64) -> Result<bool> {
+        self.read(|c| {
+            Ok(c.query_row(
+                "SELECT cancel_requested_at IS NOT NULL FROM jobs WHERE id = ?1",
+                [job],
+                |r| r.get(0),
+            )?)
+        })
+    }
+
+    /// Once you cancel a repair: skips every step of each item nothing was yet changed for, deleting the files its
+    /// Builds staged. An item is committed, and runs to its end, once one of its steps other than a Build has
+    /// started, or a committed or started step keeping a file aside needs one of its Builds.
+    fn cancel_uncommitted(&self, r: &Repairing) -> Result<()> {
+        let steps = self.read(|c| steps_of(c, r.plan.id))?;
+        let mut committed: std::collections::HashSet<&str> = steps
+            .iter()
+            .filter(|s| !matches!(s.step, RepairStep::Build { .. }) && s.state != "pending")
+            .map(|s| s.item.as_str())
+            .collect();
+        loop {
+            let before = committed.len();
+            for step in &steps {
+                if let RepairStep::Keep { needs, .. } = &step.step
+                    && (step.state != "pending" || committed.contains(step.item.as_str()))
+                {
+                    for need in needs {
+                        if let Some(build) = steps.iter().find(|b| b.seq == *need) {
+                            committed.insert(build.item.as_str());
+                        }
+                    }
+                }
+            }
+            if committed.len() == before {
+                break;
+            }
+        }
+        for step in &steps {
+            if committed.contains(step.item.as_str())
+                || matches!(step.state.as_str(), "failed" | "skipped")
+            {
+                continue;
+            }
+            if let (RepairStep::Build { .. }, Some(name), Some(id)) =
+                (&step.step, &step.staged_name, step.staged)
+            {
+                self.discard_staged(r, name, id)?;
+            }
+            self.fail_step(
+                step,
+                "skipped",
+                "you cancelled the repair before it changed anything for this".into(),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Records what repair `plan` did, the incremental Audit it owes, and the end of its Job `job`, in one
+    /// transaction.
+    fn finish_repair(&self, plan: &RepairPlan, job: i64, cancelled: bool) -> Result<()> {
         let steps = self.read(|c| steps_of(c, plan.id))?;
         let mut outcomes: Vec<RepairOutcome> = Vec::new();
         for step in &steps {
@@ -774,12 +1151,24 @@ impl Store {
         }
         self.write(|tx| {
             tx.execute(
-                "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
+                "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL, audit_owed = 1
+                 WHERE id = ?1",
                 params![plan.id, now(), to_json(&outcomes)],
             )?;
-            Ok(())
+            match cancelled {
+                true => finish_running(
+                    tx,
+                    job,
+                    JobState::Interrupted,
+                    Some(
+                        "you cancelled the repair; what it had started was finished, and the rest was left as it \
+                         was",
+                    ),
+                ),
+                false => finish_running(tx, job, JobState::Succeeded, None),
+            }
         })?;
-        self.queue_repair_audit(plan.id)?;
+        self.fault_point(Fault::RepairFinished);
         Ok(())
     }
 
@@ -1021,15 +1410,15 @@ impl Store {
         reason: &str,
         seen: &Seen,
     ) -> Ran {
-        match self.keep_file(r, step, path, kept, reason, seen)? {
-            Ok(Some(kept_id)) => {
-                self.write(|tx| {
-                    tx.execute(
-                        "UPDATE repair_steps SET state = 'done', kept_id = ?2, finished_at = ?3 WHERE id = ?1",
-                        params![step.id, kept_id, now()],
-                    )?;
-                    Ok(())
-                })?;
+        let done = |tx: &Transaction, kept_id: i64| -> Result<()> {
+            tx.execute(
+                "UPDATE repair_steps SET state = 'done', kept_id = ?2, finished_at = ?3 WHERE id = ?1",
+                params![step.id, kept_id, now()],
+            )?;
+            Ok(())
+        };
+        match self.keep_file(r, step, path, kept, reason, seen, &done)? {
+            Ok(Some(_)) => {
                 self.fault_point(Fault::RepairStepDone(step.seq));
                 Ok(Ok(()))
             }
@@ -1039,7 +1428,10 @@ impl Store {
     }
 
     /// Moves `path` into the kept files of this repair's generation as `kept`, while it is the file `seen`, then
-    /// records it kept. `None` when the step failed instead, as recorded; `Err` leaves it for recovery.
+    /// records it kept and runs `finish` in the same transaction, so that the step ends with the record. A record a
+    /// stop left, of this file under this name, is taken as this one. `None` when the step failed instead, as
+    /// recorded; `Err` leaves it for recovery.
+    #[allow(clippy::too_many_arguments)]
     fn keep_file(
         &self,
         r: &Repairing,
@@ -1048,6 +1440,7 @@ impl Store {
         kept: &str,
         reason: &str,
         seen: &Seen,
+        finish: &dyn Fn(&Transaction, i64) -> Result<()>,
     ) -> Result<std::result::Result<Option<i64>, String>> {
         let content = &r.plan.content;
         let (parent, name) = match parent_of(&r.dir, path) {
@@ -1102,6 +1495,23 @@ impl Store {
         let file = file_stat(&st);
         let (dev, ino) = seen.identity.to_sql();
         let kept_id = self.write(|tx| {
+            let recorded: Option<(i64, i64, i64, String)> = tx
+                .query_row(
+                    "SELECT id, dev, ino, name FROM source_kept
+                     WHERE source_set_id = ?1 AND generation = ?2 AND kept_name = ?3",
+                    params![content.set_id, content.generation as i64, kept],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .optional()?;
+            if let Some((id, rdev, rino, name)) = recorded {
+                if (rdev, rino) != (dev, ino) || name != path {
+                    return Ok(Err(format!(
+                        "{kept} in the kept files is recorded as another file than {path}; it was left as it is"
+                    )));
+                }
+                finish(tx, id)?;
+                return Ok(Ok(id));
+            }
             tx.execute(
                 "INSERT INTO source_kept (source_set_id, plan_id, generation, name, kept_name, reason, size,
                                           mtime_ns, dev, ino, kept_at)
@@ -1120,9 +1530,11 @@ impl Store {
                     now()
                 ],
             )?;
-            Ok(tx.last_insert_rowid())
+            let id = tx.last_insert_rowid();
+            finish(tx, id)?;
+            Ok(Ok(id))
         })?;
-        Ok(Ok(Some(kept_id)))
+        Ok(kept_id.map(Some))
     }
 
     /// Renames `from` to `to`, by one rename that never replaces anything, while `from` is the file `seen`.
@@ -1247,12 +1659,15 @@ impl Store {
             ..self.other_step(r.plan.id, step.seq)?
         };
         let reason = format!("a repair's new {target}, which could not be put in place");
-        match self.keep_file(r, &keeping, staged_name, &kept, &reason, &seen)? {
-            Ok(Some(_)) => self.step_failed(
-                step,
-                "failed",
-                format!("{why}; it was kept aside as {kept}"),
-            ),
+        let failed = |tx: &Transaction, _: i64| -> Result<()> {
+            tx.execute(
+                "UPDATE repair_steps SET state = 'failed', error = ?2, finished_at = ?3 WHERE id = ?1",
+                params![step.id, format!("{why}; it was kept aside as {kept}"), now()],
+            )?;
+            Ok(())
+        };
+        match self.keep_file(r, &keeping, staged_name, &kept, &reason, &seen, &failed)? {
+            Ok(Some(_)) => Ok(Ok(())),
             Ok(None) => {
                 let left = self
                     .other_step(r.plan.id, step.seq)?

@@ -594,6 +594,7 @@ impl Store {
         let resolved = resolve(config, &set.record.root, &set.record.path)?;
         let source_set_path = resolved.path.display().to_string();
         let (id, revision) = self.write(|tx| {
+            crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             let (revision_id, revision) = choose(tx, &set)?;
             check_blob_present(&revision)?;
             tx.execute(

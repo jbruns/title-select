@@ -248,6 +248,9 @@ pub struct RepairPlan {
     pub audit_owed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audit_error: Option<String>,
+    /// The latest Repair Job that carries it out, once it is approved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<i64>,
 }
 
 /// The body of a request for a repair plan: a choice for each item whose default you change, by its key.
