@@ -137,11 +137,12 @@ pub enum RepairStep {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         affects: Vec<String>,
     },
-    /// Renames `from` to `to` without replacing anything.
+    /// Renames `from` to `to` without replacing anything, once `from` is read again as exactly `roms`.
     Rename {
         from: String,
         to: String,
         seen: SeenFile,
+        roms: Vec<ExpectedRom>,
     },
     /// Publishes the staged file of the Build step `build` as its target, without replacing anything.
     Publish { build: u32, target: String },

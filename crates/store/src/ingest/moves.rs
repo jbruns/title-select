@@ -789,8 +789,42 @@ impl Store {
         // Whether this call or one before a stop renamed it, both folders are synced before it is recorded kept.
         dir.sync().map_err(io)?;
         retention.sync().map_err(io)?;
-        let Some(st) = holds(&retention, &aside)? else {
-            return Ok(Err(left()));
+        let st = match retention.stat(&aside).map_err(io)? {
+            Some(st) if Identity::of(&st) == found => st,
+            None => return Ok(Err(left())),
+            // Another entry was renamed in place of the one found: recorded kept under its own identity, or put back.
+            Some(st) if FolderDir::kind(&st) == FileType::RegularFile => {
+                let recorded = self.read(|c| {
+                    Ok(c.query_row(
+                        "SELECT 1 FROM ingest_kept WHERE folder_id = ?1 AND generation = ?2 AND kept_name = ?3",
+                        params![m.folder, generation as i64, aside],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some())
+                })?;
+                if !recorded {
+                    let kept = KeptRow {
+                        generation,
+                        kept_name: aside.clone(),
+                        reason: format!("found in place of {name} as it was kept aside"),
+                        identity: Identity::of(&st),
+                        file: file_stat(&st),
+                        sha256: None,
+                    };
+                    self.write(|tx| insert_kept(tx, m, &kept).map(|_| ()))?;
+                }
+                return Ok(Err(format!(
+                    "{}; another file was moved in its place as it was kept aside, and was kept as {aside}",
+                    left()
+                )));
+            }
+            Some(_) => {
+                retention.rename_new(&aside, dir, name).map_err(io)?;
+                dir.sync().map_err(io)?;
+                retention.sync().map_err(io)?;
+                return Ok(Err(left()));
+            }
         };
         let recorded = self.read(|c| {
             Ok(c.query_row(
@@ -1056,6 +1090,16 @@ impl Store {
             return self.fail_move(m.id, why).map(|r| r.map(|_| String::new()));
         }
         dest.sync().map_err(io)?;
+        if let Some(staged) = m.staged
+            && !is_file(dest, dest_name, staged, None).map_err(io)?
+        {
+            let why = format!(
+                "{}/{dest_name} is not the copy Title Select wrote, so it and {} were left as they are",
+                dest.path().display(),
+                m.name
+            );
+            return self.fail_move(m.id, why).map(|r| r.map(|_| String::new()));
+        }
         self.published(m.id, &sha)?;
         Ok(Ok(sha))
     }
@@ -1300,9 +1344,35 @@ impl Store {
             )));
         };
         if Identity::of(&st) != m.seen.identity {
-            return Ok(Err(format!(
-                "{kept} in the kept files is not {}; the {made} is in place",
+            // Another file was renamed in place of the original: recorded kept under its own identity, as the move
+            // ends, or, when not a regular file, put back; never left in the kept files unrecorded.
+            let note = format!(
+                "{} was replaced by another file as it was kept aside; the {made} is in place",
                 m.name
+            );
+            if FolderDir::kind(&st) != FileType::RegularFile {
+                if let Err(e) = retention.generation.rename_new(&kept, src, &m.name) {
+                    return Ok(Err(format!(
+                        "{note}, and what replaced it, at {kept} in the kept files, could not be put back ({e})"
+                    )));
+                }
+                src.sync().map_err(io)?;
+                retention.generation.sync().map_err(io)?;
+                return Ok(Ok((
+                    None,
+                    Some(format!("{note}; what replaced it was put back")),
+                )));
+            }
+            return Ok(Ok((
+                Some(KeptRow {
+                    generation,
+                    kept_name: kept.clone(),
+                    reason: format!("found in place of {} as it was kept aside", m.name),
+                    identity: Identity::of(&st),
+                    file: file_stat(&st),
+                    sha256: None,
+                }),
+                Some(format!("{note}; what replaced it was kept as {kept}")),
             )));
         }
         Ok(Ok((

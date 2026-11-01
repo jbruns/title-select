@@ -24,6 +24,20 @@ CREATE TABLE unreadable_reads (
     ctime_ns INTEGER NOT NULL,
     PRIMARY KEY (source_set_id, path)
 );
+-- The stamp of each file an Audit read, as payload_reads (unreadable = 0) or unreadable_reads (unreadable = 1) held
+-- it when that Audit finished, so that a repair acts only on files still as the Audit it is planned from read them,
+-- never on a stamp a later, unfinished Audit recorded.
+CREATE TABLE audit_stamps (
+    audit_id INTEGER NOT NULL REFERENCES audits (id),
+    path TEXT NOT NULL,
+    unreadable INTEGER NOT NULL,
+    dev INTEGER NOT NULL,
+    ino INTEGER NOT NULL,
+    size INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    ctime_ns INTEGER NOT NULL,
+    PRIMARY KEY (audit_id, unreadable, path)
+);
 -- As ingest_dirs, ingest_temps and ingest_temp_names, for the directories a repair creates in a Source Set.
 CREATE TABLE source_dirs (
     folder_id INTEGER NOT NULL REFERENCES source_sets (id),

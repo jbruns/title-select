@@ -579,8 +579,9 @@ source set, is refused while the marker is missing or names another store or sou
 
 A repair is proposed from the source set's latest audit and from items assessed in ingest folders. It acts only on
 what the audit read from payloads, as a full audit, or an incremental audit reading a file, does; a file the audit
-judged by name and size alone, or that changed since, is left as it is and listed with why. Each item has a choice
-you can change before approving:
+judged by name and size alone, or that changed since that audit read it, is left as it is and listed with why,
+even when a later audit that didn't finish read it again. A rename checks again that the file holds exactly the
+game's ROMs before it renames it. Each item has a choice you can change before approving:
 
 - a game whose files are named otherwise than the DAT says is renamed, or written under its name: on by default;
 - a game not stored as TorrentZip, `<game>.zip`, is repacked as one: always proposed for now;
@@ -597,7 +598,8 @@ another item, and an unreadable entry is replaced only while it is as the audit 
 change in order: each file written, renamed, published or kept aside. It binds the source set's folder, and every
 entry in it, by device, inode, size, modification time, change time and link count, and its audit: approving is
 refused if anything changed or a newer audit finished, or while an audit of the source set, or a build reading it,
-is queued or running.
+is queued or running. If something else puts another file in place of one a repair is moving, that file is never
+deleted or left untracked: it's put back under its old name, or recorded among the kept files as what it is.
 
 Approving queues the repair as a job, run by the same scheduler as audits, within `jobs.concurrent`; the repair
 screen and the jobs screen show its progress, one step at a time. While it is queued or running, and until its

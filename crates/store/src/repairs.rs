@@ -19,7 +19,7 @@ use std::io;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::{Access, AtFlags, FileType};
 use sha2::{Digest, Sha256};
-use title_select_api::build::{Approval, FileStat, MARKER, kept_name};
+use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, kept_name};
 use title_select_api::ingest::FolderEntry;
 use title_select_api::repair::{
     PlanRepair, PlannedStep, RepairOutcome, RepairPlan, RepairPlanContent, RepairRom, RepairStep,
@@ -219,6 +219,21 @@ fn seen_of(seen: &SeenFile) -> Seen {
 fn is_seen(dir: &FolderDir, name: &str, seen: &Seen) -> io::Result<bool> {
     Ok(matches!(dir.stat(name)?, Some(st)
         if FolderDir::kind(&st) == FileType::RegularFile && Seen::of(&st) == *seen))
+}
+
+/// Whether `name` in `dir`, opened without following a symlink, is still the file `seen` and is valid TorrentZip
+/// holding exactly `roms`, each payload hashed again.
+fn holds_exactly(
+    dir: &FolderDir,
+    name: &str,
+    seen: &Seen,
+    roms: &[ExpectedRom],
+) -> io::Result<std::result::Result<(), String>> {
+    let file = dir.open_file(name)?;
+    if Seen::of(&rustix::fs::fstat(&file)?) != *seen {
+        return Ok(Err("it changed while it was opened".into()));
+    }
+    Ok(verify(&file, roms))
 }
 
 /// Whether `name` in `dir` is, without following a symlink, the regular file `id`.
@@ -512,8 +527,8 @@ impl Store {
         let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
         let folder = dir.identity().map_err(io_err)?;
         let (fingerprint, files) = walk(&dir).map_err(io_err)?;
-        let stamps = self.read(|c| payload_stamps(c, set.id, "payload_reads"))?;
-        let unreadable = self.read(|c| payload_stamps(c, set.id, "unreadable_reads"))?;
+        let stamps = self.read(|c| audit_stamps(c, audit.id, false))?;
+        let unreadable = self.read(|c| audit_stamps(c, audit.id, true))?;
         let candidates =
             self.read(|c| fill_candidates(c, &record.name, &report.dat_revision.sha256))?;
         let torrentzip = |path: &str| -> bool {
@@ -993,6 +1008,10 @@ impl Store {
                 dir.sync().map_err(io_err)?;
                 return self.record_marker(set).map(Ok);
             }
+            // The temporary file recorded is gone, so what is there may be what the rename published in its place.
+            if recorded.is_some() && stat(MARKER_NEW)?.is_none() {
+                return self.unpublish_marker(set, dir);
+            }
             forget(self)?;
             return Ok(Err(format!(
                 "{path}: a .title-select marker appeared in it before its first repair wrote one; is this the right \
@@ -1074,11 +1093,36 @@ impl Store {
         self.fault_point(Fault::RepairMarkerPublished);
         dir.sync().map_err(io_err)?;
         if !stat(MARKER)?.is_some_and(|st| is_file(&st, id)) {
-            return Ok(Err(format!(
-                "{path}: its .title-select marker was replaced as it was written; nothing in it was changed"
-            )));
+            return self.unpublish_marker(set, dir);
         }
         self.record_marker(set).map(Ok)
+    }
+
+    /// Puts back, as the temporary name, what the first marker's rename published in place of the file recorded, by
+    /// a rename that never replaces anything, then forgets the temporary file; never leaves it as the marker.
+    fn unpublish_marker(
+        &self,
+        set: i64,
+        dir: &FolderDir,
+    ) -> Result<std::result::Result<(), String>> {
+        let path = dir.path().display().to_string();
+        if let Err(e) = dir.rename_new(MARKER, dir, MARKER_NEW) {
+            return Ok(Err(format!(
+                "{path}: its .title-select marker was replaced as it was written, and what replaced it could not be                  moved back to {MARKER_NEW} ({e}); move it out of the folder, then approve the repair again"
+            )));
+        }
+        dir.sync().map_err(io_err)?;
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE source_folders SET marker_temp_pending = 0, marker_temp_dev = NULL,
+                     marker_temp_ino = NULL WHERE source_set_id = ?1",
+                [set],
+            )?;
+            Ok(())
+        })?;
+        Ok(Err(format!(
+            "{path}: its .title-select marker was replaced as it was written, so what replaced it was moved back to              {MARKER_NEW}; move it out of the folder, then approve the repair again. Nothing else in it was changed"
+        )))
     }
 
     fn record_marker_temp(&self, set: i64, id: Identity) -> Result<()> {
@@ -1324,9 +1368,12 @@ impl Store {
                 }
                 self.run_keep(r, step, path, kept_name, reason, &seen_of(seen))
             }
-            RepairStep::Rename { from, to, seen } => {
-                self.run_rename(r, step, from, to, &seen_of(seen))
-            }
+            RepairStep::Rename {
+                from,
+                to,
+                seen,
+                roms,
+            } => self.run_rename(r, step, from, to, &seen_of(seen), roms),
             RepairStep::Publish { build, target } => self.run_publish(r, step, *build, target),
             RepairStep::Fill { .. } => self.run_fill(config, r, step),
         }
@@ -1631,16 +1678,24 @@ impl Store {
         // Whether this call or one before a stop moved it, both folders are synced before it is recorded kept.
         parent.sync().map_err(io_err)?;
         generation.sync().map_err(io_err)?;
-        let found = generation.stat(kept).map_err(io_err)?;
-        let Some(st) = found.filter(|st| {
-            FolderDir::kind(st) == FileType::RegularFile && Identity::of(st) == seen.identity
-        }) else {
-            self.fail_step(
-                step,
-                "failed",
-                format!("{path} is neither where it was nor kept as {kept}"),
-            )?;
-            return Ok(Ok(None));
+        let st = match generation.stat(kept).map_err(io_err)? {
+            Some(st)
+                if FolderDir::kind(&st) == FileType::RegularFile
+                    && Identity::of(&st) == seen.identity =>
+            {
+                st
+            }
+            Some(st) => {
+                return self.keep_substitute(r, step, path, (parent, name), generation, kept, &st);
+            }
+            None => {
+                self.fail_step(
+                    step,
+                    "failed",
+                    format!("{path} is neither where it was nor kept as {kept}"),
+                )?;
+                return Ok(Ok(None));
+            }
         };
         let file = file_stat(&st);
         let (dev, ino) = seen.identity.to_sql();
@@ -1687,8 +1742,102 @@ impl Store {
         Ok(kept_id.map(Some))
     }
 
-    /// Renames `from` to `to`, by one rename that never replaces anything, while `from` is the file `seen`.
-    fn run_rename(&self, r: &Repairing, step: &StepRow, from: &str, to: &str, seen: &Seen) -> Ran {
+    /// Settles `st`, found kept as `kept` where the rename of `path` should have put the file planned: another file
+    /// was moved in its place. A regular file is recorded kept under its own identity, in the same transaction that
+    /// fails the step; anything else is put back as `path` without replacing anything. Until one of them is durable
+    /// the step stays unfinished, so it is never left in the kept files unrecorded.
+    #[allow(clippy::too_many_arguments)]
+    fn keep_substitute(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        path: &str,
+        (parent, name): (&FolderDir, &str),
+        generation: &FolderDir,
+        kept: &str,
+        st: &rustix::fs::Stat,
+    ) -> Result<std::result::Result<Option<i64>, String>> {
+        let content = &r.plan.content;
+        if FolderDir::kind(st) != FileType::RegularFile {
+            if let Err(e) = generation.rename_new(kept, parent, name) {
+                return Ok(Err(format!(
+                    "what was moved in place of {path} as it was kept aside, now at {kept} in the kept files, could                      not be put back ({e})"
+                )));
+            }
+            parent.sync().map_err(io_err)?;
+            generation.sync().map_err(io_err)?;
+            self.fail_step(
+                step,
+                "failed",
+                format!(
+                    "{path} was replaced by something else as it was kept aside; that was put back as {path}, which                      was left as it is"
+                ),
+            )?;
+            return Ok(Ok(None));
+        }
+        let found = Identity::of(st);
+        let (dev, ino) = found.to_sql();
+        let file = file_stat(st);
+        let why = format!(
+            "{path} was replaced by another file as it was kept aside; that file was kept as {kept} instead, and {path}              left as it is"
+        );
+        let settled = self.write(|tx| {
+            let recorded: Option<(i64, i64)> = tx
+                .query_row(
+                    "SELECT dev, ino FROM source_kept
+                     WHERE source_set_id = ?1 AND generation = ?2 AND kept_name = ?3",
+                    params![content.set_id, content.generation as i64, kept],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            match recorded {
+                Some(ids) if ids != (dev, ino) => {
+                    return Ok(Err(format!(
+                        "{kept} in the kept files is recorded as another file than the one found there"
+                    )));
+                }
+                Some(_) => {}
+                None => {
+                    tx.execute(
+                        "INSERT INTO source_kept (source_set_id, plan_id, generation, name, kept_name, reason, size,
+                                                  mtime_ns, dev, ino, kept_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                        params![
+                            content.set_id,
+                            r.plan.id,
+                            content.generation as i64,
+                            path,
+                            kept,
+                            format!("found in place of {path} as it was kept aside"),
+                            file.size as i64,
+                            file.mtime_ns.to_string(),
+                            dev,
+                            ino,
+                            now()
+                        ],
+                    )?;
+                }
+            }
+            tx.execute(
+                "UPDATE repair_steps SET state = 'failed', error = ?2, finished_at = ?3 WHERE id = ?1",
+                params![step.id, why, now()],
+            )?;
+            Ok(Ok(()))
+        })?;
+        Ok(settled.map(|()| None))
+    }
+
+    /// Renames `from` to `to`, by one rename that never replaces anything, while `from` is the file `seen` and reads
+    /// as exactly `roms`.
+    fn run_rename(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        from: &str,
+        to: &str,
+        seen: &Seen,
+        roms: &[ExpectedRom],
+    ) -> Ran {
         let (parent, name) = match parent_of(&r.dir, from) {
             Ok(found) => found,
             Err(e) => {
@@ -1705,6 +1854,15 @@ impl Store {
                     format!("{from} changed since the plan was made; it was left as it is"),
                 );
             }
+            if let Err(why) = holds_exactly(parent, name, seen, roms).map_err(io_err)? {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!(
+                        "{from} no longer reads as the audit found it: {why}; it was left as it is"
+                    ),
+                );
+            }
             self.step_state(step, "moving")?;
             if let Err(e) = parent.rename_new(name, &r.dir, to) {
                 return self.step_failed(
@@ -1718,11 +1876,27 @@ impl Store {
         parent.sync().map_err(io_err)?;
         r.dir.sync().map_err(io_err)?;
         if !is_file(&r.dir, to, seen.identity).map_err(io_err)? {
-            return self.step_failed(
-                step,
-                "failed",
-                format!("{from} is neither where it was nor at {to}"),
-            );
+            if r.dir.stat(to).map_err(io_err)?.is_none() {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!("{from} is neither where it was nor at {to}"),
+                );
+            }
+            // Something else was renamed in place of the file planned: it is put back, never left under the name.
+            let why = match r.dir.rename_new(to, parent, name) {
+                Ok(()) => {
+                    parent.sync().map_err(io_err)?;
+                    r.dir.sync().map_err(io_err)?;
+                    format!(
+                        "{from} was replaced by another file as it was renamed; that file was put back as {from}"
+                    )
+                }
+                Err(e) => format!(
+                    "{from} was replaced by another file as it was renamed, and that file could not be put back                      ({e}); it was left as {to}, for the audit this repair queues to read"
+                ),
+            };
+            return self.step_failed(step, "failed", why);
         }
         self.step_done(step, None)?;
         self.fault_point(Fault::RepairStepDone(step.seq));
@@ -2000,14 +2174,18 @@ impl Store {
     }
 }
 
-/// The stamp each file had when an Audit last read its payloads, by path: from `table`, `payload_reads` for files
-/// read in full, or `unreadable_reads` for those with a payload it could not read.
-fn payload_stamps(c: &Connection, set: i64, table: &str) -> Result<HashMap<String, FileStamp>> {
-    let mut stmt = c.prepare(&format!(
-        "SELECT path, dev, ino, size, mtime_ns, ctime_ns FROM {table} WHERE source_set_id = ?1"
-    ))?;
+/// The stamp each file had when Audit `audit` read its payloads, by path: those it read in full, or, when
+/// `unreadable`, those with a payload it could not read.
+fn audit_stamps(
+    c: &Connection,
+    audit: i64,
+    unreadable: bool,
+) -> Result<HashMap<String, FileStamp>> {
+    let mut stmt = c.prepare(
+        "SELECT path, dev, ino, size, mtime_ns, ctime_ns FROM audit_stamps WHERE audit_id = ?1 AND unreadable = ?2",
+    )?;
     Ok(stmt
-        .query_map([set], |r| {
+        .query_map(params![audit, unreadable], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 FileStamp {

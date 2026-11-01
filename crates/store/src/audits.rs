@@ -385,6 +385,16 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         )?;
     }
 
+    for (table, unreadable) in [("payload_reads", false), ("unreadable_reads", true)] {
+        tx.execute(
+            &format!(
+                "INSERT INTO audit_stamps (audit_id, path, unreadable, dev, ino, size, mtime_ns, ctime_ns)
+                 SELECT ?1, path, ?2, dev, ino, size, mtime_ns, ctime_ns FROM {table} WHERE source_set_id = ?3"
+            ),
+            params![id, unreadable, set_id],
+        )?;
+    }
+
     let mut entry = tx.prepare(
         "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
                                     evidence_level, algorithms, reason, read_at, reused)
@@ -901,6 +911,7 @@ impl Store {
             for id in &pruned {
                 tx.execute("DELETE FROM audit_entries WHERE audit_id = ?1", [id])?;
                 tx.execute("DELETE FROM audit_games WHERE audit_id = ?1", [id])?;
+                tx.execute("DELETE FROM audit_stamps WHERE audit_id = ?1", [id])?;
                 tx.execute(
                     "UPDATE audits SET pruned_at = ?1 WHERE id = ?2",
                     params![at, id],

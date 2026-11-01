@@ -1359,3 +1359,211 @@ fn a_game_filled_from_ingest_never_displaces_a_conflicting_entry_you_left() {
         kept.content.items
     );
 }
+
+/// Writes the TorrentZip of the single ROM `name` holding `payload` to `path`.
+fn write_torrentzip(path: &Path, name: &str, payload: &[u8]) {
+    let loose = path.with_extension("loose");
+    write_file(&loose, payload);
+    let rom = title_select_api::build::ExpectedRom {
+        name: name.into(),
+        size: payload.len() as u64,
+        crc: None,
+        md5: None,
+        sha1: None,
+        sha256: None,
+    };
+    let dest = std::fs::File::create_new(path).unwrap();
+    let source = title_select_engine::build::Source {
+        path: &loose,
+        member: None,
+    };
+    title_select_engine::build::repack(&dest, &[(&rom, source)]).unwrap();
+    std::fs::remove_file(&loose).unwrap();
+}
+
+#[test]
+fn a_file_swapped_after_its_audit_is_left_alone_even_once_an_interrupted_audit_read_it() {
+    let env = Env::new();
+    write_torrentzip(&env.set().join("Wrong.zip"), "Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    assert_eq!(
+        item(&env.plan(), "game:Pong (USA)").kind,
+        RepairKind::Rename
+    );
+    std::fs::remove_file(env.set().join("Wrong.zip")).unwrap();
+    write_torrentzip(&env.set().join("Wrong.zip"), "Combat (USA).a26", b"combat");
+    // An Audit that reads the swapped file, and stops before it finishes.
+    let job = env
+        .store
+        .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full)
+        .unwrap();
+    env.store.claim_job().unwrap();
+    let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let progress = |p: title_select_engine::Progress| {
+            if p.files_done == 1 {
+                panic!("stopped");
+            }
+        };
+        env.store
+            .run_audit_job(&env.config, job.id, Some(&progress))
+    }));
+    assert!(stopped.is_err());
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    let plan = env.plan();
+
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.key != "game:Pong (USA)"),
+        "{:#?}",
+        plan.content.items
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Wrong.zip changed since the audit")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+/// Approves `plan` and runs its Repair Job with `swap` called at every fault point, returning the plan as it ended.
+fn run_with_hook(
+    env: &Env,
+    plan: &RepairPlan,
+    swap: impl Fn(Fault) + Send + Sync + 'static,
+) -> RepairPlan {
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.hook_faults(Some(std::sync::Arc::new(swap)));
+    env.run_repair_job(&approved);
+    env.store.hook_faults(None);
+    env.store.repair_plan(plan.id).unwrap()
+}
+
+/// Replaces the file at `path` with another holding `bytes`, as something else renaming one in its place would.
+fn substitute(path: &Path, bytes: &[u8]) {
+    std::fs::remove_file(path).unwrap();
+    write_file(path, bytes);
+}
+
+#[test]
+fn a_file_moved_in_place_of_one_being_kept_aside_is_recorded_kept_under_its_own_identity() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let kept = env.set().join(".title-select-retained/1/readme.txt.kept");
+
+    let ended = run_with_hook(&env, &plan, move |fault| {
+        if matches!(fault, Fault::RepairMoved(_)) {
+            substitute(&kept, b"intruder");
+        }
+    });
+
+    assert!(
+        ended.outcomes.iter().all(|o| !o.done),
+        "{:#?}",
+        ended.outcomes
+    );
+    let recorded = env.store.source_kept_files("Alpha").unwrap();
+    assert_eq!(recorded.len(), 1, "{recorded:?}");
+    assert!(recorded[0].reason.contains("found in place of readme.txt"));
+    let at = std::fs::metadata(env.set().join(".title-select-retained/1/readme.txt.kept")).unwrap();
+    use std::os::unix::fs::MetadataExt;
+    assert_eq!(
+        (recorded[0].identity.dev, recorded[0].identity.ino),
+        (at.dev(), at.ino())
+    );
+}
+
+#[test]
+fn a_file_moved_in_place_of_one_being_renamed_is_put_back_under_its_old_name() {
+    let env = Env::new();
+    write_torrentzip(&env.set().join("Wrong.zip"), "Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Rename);
+    let renamed = env.set().join("Pong (USA).zip");
+
+    let ended = run_with_hook(&env, &plan, move |fault| {
+        if matches!(fault, Fault::RepairMoved(_)) && renamed.exists() {
+            substitute(&renamed, b"intruder");
+        }
+    });
+
+    assert!(
+        ended.outcomes.iter().all(|o| !o.done),
+        "{:#?}",
+        ended.outcomes
+    );
+    assert_eq!(env.listing(), [".title-select", "Wrong.zip"]);
+    assert_eq!(
+        std::fs::read(env.set().join("Wrong.zip")).unwrap(),
+        b"intruder"
+    );
+}
+
+#[test]
+fn a_file_published_in_place_of_the_first_marker_is_moved_back_and_never_left_as_the_marker() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let marker = env.set().join(".title-select");
+
+    let ended = run_with_hook(&env, &plan, move |fault| {
+        if fault == Fault::RepairMarkerPublished {
+            substitute(&marker, b"intruder");
+        }
+    });
+
+    assert!(ended.finished_at.is_none() || ended.outcomes.iter().all(|o| !o.done));
+    assert!(!env.set().join(".title-select").exists());
+    assert_eq!(
+        std::fs::read(env.set().join(".title-select.new")).unwrap(),
+        b"intruder"
+    );
+    assert!(
+        env.set().join("readme.txt").exists(),
+        "nothing else changed"
+    );
+}
+
+#[test]
+fn a_file_moved_in_place_of_an_ingest_original_being_kept_is_recorded_kept_under_its_own_identity()
+{
+    let env = Env::new();
+    env.audit(AuditEvidence::Full);
+    env.ingest("combat.zip", |p| {
+        write_zip(p, &[("Combat (USA).a26", b"combat")])
+    });
+    let plan = env.plan();
+    let ingest = env.tmp.path().join("in");
+
+    let ended = run_with_hook(&env, &plan, move |fault| {
+        if fault == Fault::IngestSetAside {
+            let retained = ingest.join(".title-select-retained");
+            for generation in std::fs::read_dir(&retained).unwrap() {
+                let kept = generation.unwrap().path().join("combat.zip.kept");
+                if kept.exists() {
+                    substitute(&kept, b"intruder");
+                }
+            }
+        }
+    });
+
+    assert!(ended.finished_at.is_some(), "{ended:#?}");
+    let kept = env.store.ingest_kept_files("in").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(
+        kept[0].reason.contains("found in place of combat.zip"),
+        "{kept:?}"
+    );
+    assert_eq!(kept[0].file.size, b"intruder".len() as u64);
+}

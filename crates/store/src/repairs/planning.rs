@@ -71,8 +71,11 @@ impl Usable<'_> {
 enum Proposal {
     /// Written from ROMs read in the Source Set.
     Build { roms: Vec<RepairRom> },
-    /// A file already as it should be but for its name, renamed.
-    Rename { from: String },
+    /// A file already as it should be but for its name, renamed once it is read again as the Game's ROMs.
+    Rename {
+        from: String,
+        roms: Vec<ExpectedRom>,
+    },
     /// Filled from the ingest candidate at this index.
     Fill { candidate: usize },
 }
@@ -392,6 +395,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 Some(from) if from != target && exact(from) => (
                     Proposal::Rename {
                         from: from.to_owned(),
+                        roms: roms.clone(),
                     },
                     RepairKind::Rename,
                     format!("rename {from} to {target}"),
@@ -771,13 +775,14 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
     }
     steps.extend(keeps);
     for p in &applied {
-        if let Some(Proposal::Rename { from }) = &p.proposal {
+        if let Some(Proposal::Rename { from, roms }) = &p.proposal {
             steps.push(PlannedStep {
                 item: p.item.key.clone(),
                 step: RepairStep::Rename {
                     from: from.clone(),
                     to: storage_name(p.item.game.as_deref().expect("a game")),
                     seen: seen_file(&i.files[from]),
+                    roms: roms.clone(),
                 },
             });
         }
