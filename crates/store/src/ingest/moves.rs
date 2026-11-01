@@ -15,8 +15,11 @@
 //!   `.deleting` area, read back there, and deleted only when it is still exactly what was copied. Every other
 //!   original is kept aside in the folder's kept files, and the move says so.
 //! - Into the folder's own kept files it is always a rename: kept files are never copied.
-//! - A ZIP holding a Game's ROMs among other members has the ROMs repacked as TorrentZip, read and hashed in one
-//!   pass, the repack checked, and the original kept aside in the folder's kept files.
+//! - A Game's ROMs, from a ZIP or a loose file, are repacked as TorrentZip, read and hashed in one pass, and the repack
+//!   checked. The original is deleted, as a copy's is, only when it is a loose file whose repack holds exactly the one
+//!   ROM the move names, the whole file and nothing else; every other original is kept aside in the folder's kept
+//!   files.
+//! - Into a Source Set, only one a repair may write to, with this store's marker.
 
 use std::io::{self, ErrorKind, Seek, SeekFrom};
 
@@ -24,7 +27,7 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
 use title_select_api::build::{ExpectedRom, FileStat, kept_name};
 use title_select_api::ingest::IngestMarker;
-use title_select_engine::build::{repack_members, verify};
+use title_select_engine::build::{FromSource, repack_sources, verify};
 use title_select_engine::payload::{Checksums, Hasher};
 
 use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
@@ -35,6 +38,7 @@ use crate::folder_dir::{FolderDir, Identity, file_stat};
 use crate::folders::store_id;
 use crate::kept::{Scope, open_area_deleting, open_retention, unique};
 use crate::plans::{json, to_json};
+use crate::repairs::{MarkerRule, open_repairable};
 use crate::{Error, Fault, Result, Store, now};
 
 /// Where a move puts an entry.
@@ -46,8 +50,7 @@ pub(crate) enum Destination {
         kept_name: String,
         reason: String,
     },
-    /// The file `name` in the folder `rel` of the writable Root `root`.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The file `name` in the folder `rel` of the Root `root`: a writable Root, or a Source Set a repair may write to.
     Path {
         root: String,
         rel: String,
@@ -66,8 +69,9 @@ pub(crate) struct Move<'a> {
     pub seen: Seen,
     pub sha256: Option<String>,
     pub dest: Destination,
-    /// For a ZIP repacked as TorrentZip: each ROM and the member it is read from.
-    pub repack: Option<Vec<(ExpectedRom, String)>>,
+    /// For an entry repacked as TorrentZip: each ROM and the member it is read from, or none to read the whole entry,
+    /// a loose file.
+    pub repack: Option<Vec<(ExpectedRom, Option<String>)>>,
     /// The ROM a copy must read as, exactly, for its original to be deleted.
     pub exact: Option<ExpectedRom>,
 }
@@ -111,7 +115,7 @@ struct MoveRow {
     seen: Seen,
     sha256: Option<String>,
     dest: Destination,
-    roms: Option<Vec<(ExpectedRom, String)>>,
+    roms: Option<Vec<(ExpectedRom, Option<String>)>>,
     exact: Option<ExpectedRom>,
     staged_name: Option<String>,
     staged: Option<Identity>,
@@ -348,6 +352,20 @@ impl Store {
     /// Records the intent to make `mv`, then makes it. `Err` says why it was not made, or not finished; one not
     /// finished is rolled forward when the service next starts.
     pub(crate) fn move_out(&self, config: &Config, mv: Move) -> Outcome {
+        match self.record_move(config, mv, &mut |_, _| Ok(()))? {
+            Ok(id) => self.drive_move(config, id),
+            Err(why) => Ok(Err(why)),
+        }
+    }
+
+    /// Records the intent to make `mv`, and runs `also` with its id in the same transaction, without making it.
+    /// Returns its id, or why it cannot be made.
+    pub(crate) fn record_move(
+        &self,
+        config: &Config,
+        mv: Move,
+        also: &mut dyn FnMut(&Transaction, i64) -> Result<()>,
+    ) -> Result<std::result::Result<i64, String>> {
         let row = self.read(|c| ingest_by_id(c, mv.folder))?;
         let src = match open_ingest(config, &row.root) {
             Ok(dir) => dir,
@@ -357,7 +375,7 @@ impl Store {
             (Some(_), _) => "repack",
             (None, Destination::Kept { .. }) => "rename",
             (None, Destination::Path { root, rel, .. }) => {
-                let dest = match open_dest_folder(config, root, rel) {
+                let dest = match self.open_dest_folder(config, root, rel)? {
                     Ok(dest) => dest,
                     Err(why) => return Ok(Err(why)),
                 };
@@ -413,9 +431,11 @@ impl Store {
                     now()
                 ],
             )?;
-            Ok(tx.last_insert_rowid())
+            let id = tx.last_insert_rowid();
+            also(tx, id)?;
+            Ok(id)
         })?;
-        self.drive_move(config, id)
+        Ok(Ok(id))
     }
 
     /// Advances move `id` from the step it was recorded at to its end, after checking that its folder is open, in a
@@ -464,10 +484,12 @@ impl Store {
                     Err(why) => return precondition(why),
                 }
             }
-            Destination::Path { root, rel, .. } => match open_dest_folder(config, root, rel) {
-                Ok(dest) => dest,
-                Err(why) => return precondition(why),
-            },
+            Destination::Path { root, rel, .. } => {
+                match self.open_dest_folder(config, root, rel)? {
+                    Ok(dest) => dest,
+                    Err(why) => return precondition(why),
+                }
+            }
         };
         match m.kind.as_str() {
             "rename" => self.drive_rename(config, &m, &src, &dest),
@@ -820,9 +842,9 @@ impl Store {
             }
         };
         let delete = match (m.kind.as_str(), m.state.as_str()) {
-            ("repack", _) | (_, "retaining") => false,
+            (_, "retaining") => false,
             (_, "disposing" | "keeping") => true,
-            _ => match &m.exact {
+            (kind, _) => match &m.exact {
                 Some(rom) => {
                     let file = dest.open_file(&dest_name).map_err(io)?;
                     if Identity::of_fd(&file).map_err(io)? != staged {
@@ -832,16 +854,25 @@ impl Store {
                             m.name
                         )));
                     }
-                    exactly(rom, &checksums_of(&file).map_err(io)?)
+                    if kind == "repack" {
+                        exactly_repacked(m, rom, &file)
+                    } else {
+                        exactly(rom, &checksums_of(&file).map_err(io)?)
+                    }
                 }
                 None => false,
             },
         };
-        let disposed = match delete {
-            true => self
-                .delete_original(m, src, &published_sha)?
+        // What the original must still hash as to be deleted: what was copied, or, for a repack, what was read.
+        let original_sha = match m.kind.as_str() {
+            "repack" => m.sha256.clone(),
+            _ => Some(published_sha.clone()),
+        };
+        let disposed = match (delete, original_sha) {
+            (true, Some(original_sha)) => self
+                .delete_original(m, src, &original_sha)?
                 .map(|note| (None, note)),
-            false => self.keep_original(m, src)?,
+            _ => self.keep_original(m, src)?,
         };
         let (original, note) = match disposed {
             Ok(disposed) => disposed,
@@ -922,11 +953,11 @@ impl Store {
         };
         let written = match &m.roms {
             Some(roms) => {
-                let named: Vec<(&ExpectedRom, &str)> = roms
+                let named: Vec<FromSource> = roms
                     .iter()
-                    .map(|(rom, member)| (rom, member.as_str()))
+                    .map(|(rom, member)| (rom, 0, member.as_deref()))
                     .collect();
-                repack_members(&file, &named, &source).map(|(sha, _)| sha)
+                repack_sources(&file, &named, &[&source]).map(|mut read| read.remove(0).0)
             }
             None => copy_hashing(&source, &file).map_err(|e| e.to_string()),
         };
@@ -1016,6 +1047,34 @@ impl Store {
                 params![id, sha],
             )?;
             Ok(())
+        })
+    }
+
+    /// Opens the folder `rel` of the Root `root`, a move's destination: a Source Set there only when a repair may write
+    /// to it and its marker is this store's; any other folder only in a writable Root.
+    fn open_dest_folder(
+        &self,
+        config: &Config,
+        root: &str,
+        rel: &str,
+    ) -> Result<std::result::Result<FolderDir, String>> {
+        let set: Option<i64> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT id FROM source_sets WHERE root = ?1 AND path = ?2",
+                params![root, rel],
+                |r| r.get(0),
+            )
+            .optional()?)
+        })?;
+        if let Some(set) = set {
+            return open_repairable(self, config, set, MarkerRule::Required);
+        }
+        Ok(match config.root(root) {
+            Some(r) if r.writable => FolderDir::open(&r.path, rel).map_err(|e| e.to_string()),
+            Some(_) => Err(format!(
+                "root {root} is not writable now; declare it with writable = true, then restart the service"
+            )),
+            None => Err(format!("there is no root {root} in the configuration")),
         })
     }
 
@@ -1139,6 +1198,17 @@ impl Store {
             Err(why) => return Ok(Err(why)),
         };
         let (made, reason, note) = match m.kind.as_str() {
+            "repack" if m.exact.is_some() => (
+                "repack",
+                "the original of a repack into a game's ZIP that is not exactly the ROM the plan names, so it is not \
+                 deleted"
+                    .to_owned(),
+                Some(format!(
+                    "{} was repacked, and kept rather than deleted, since only an original whose repack is exactly \
+                     a ROM is deleted",
+                    m.name
+                )),
+            ),
             "repack" => (
                 "repack",
                 "the original of a repack into a game's ZIP".to_owned(),
@@ -1223,6 +1293,18 @@ fn exactly(rom: &ExpectedRom, sums: &Checksums) -> bool {
         && same(&rom.sha256, &sums.sha256)
 }
 
+/// Whether the published repack `file` of `m` shows that its original is exactly `rom`: the original is one loose
+/// file of `rom`'s size that the repack read whole, and the repack is valid TorrentZip holding exactly `rom`, its
+/// payload hashed again. The original is then deleted only while it still hashes as what was read.
+fn exactly_repacked(m: &MoveRow, rom: &ExpectedRom, file: &std::fs::File) -> bool {
+    let loose_whole = matches!(m.roms.as_deref(), Some([(only, None)]) if only == rom);
+    loose_whole
+        && m.sha256.is_some()
+        && m.seen.file.size == rom.size
+        && (rom.crc.is_some() || rom.md5.is_some() || rom.sha1.is_some() || rom.sha256.is_some())
+        && verify(file, std::slice::from_ref(rom)).is_ok()
+}
+
 fn checksums_of(mut file: &std::fs::File) -> io::Result<Checksums> {
     file.seek(SeekFrom::Start(0))?;
     let mut hasher = Hasher::new();
@@ -1265,21 +1347,6 @@ fn check_written(
         None => {}
     }
     Ok(sha)
-}
-
-/// Opens the folder `rel` of the writable Root `root`, a move's destination.
-fn open_dest_folder(
-    config: &Config,
-    root: &str,
-    rel: &str,
-) -> std::result::Result<FolderDir, String> {
-    match config.root(root) {
-        Some(r) if r.writable => FolderDir::open(&r.path, rel).map_err(|e| e.to_string()),
-        Some(_) => Err(format!(
-            "root {root} is not writable now; declare it with writable = true, then restart the service"
-        )),
-        None => Err(format!("there is no root {root} in the configuration")),
-    }
 }
 
 /// Opens the original of `m` without following a symlink, only while it is the file planned.
@@ -1357,7 +1424,7 @@ mod tests {
             &self,
             name: &'a str,
             dest: Destination,
-            repack: Option<Vec<(ExpectedRom, String)>>,
+            repack: Option<Vec<(ExpectedRom, Option<String>)>>,
         ) -> Move<'a> {
             let path = self.tmp.path().join("in").join(name);
             let st = rustix::fs::lstat(&path).unwrap();
@@ -1527,7 +1594,7 @@ mod tests {
             env.mv(
                 "pong.zip",
                 atari("Pong (USA).zip"),
-                Some(vec![(rom.clone(), "pong.bin".into())]),
+                Some(vec![(rom.clone(), Some("pong.bin".into()))]),
             ),
             Fault::IngestPublished,
         );

@@ -434,7 +434,10 @@ fn title_selects_own_entries_in_a_source_set_are_not_audited() {
     write_file(&f.set_path(".title-select"), b"{}");
     write_file(&f.set_path(".title-select-retained/1/old.a26"), b"old");
     write_file(&f.set_path(".title-select-retained/.deleting/7"), b"gone");
-    write_file(&f.set_path("sub/.Pong (USA).zip.title-select-new-1-2-3"), b"partial");
+    write_file(
+        &f.set_path("sub/.Pong (USA).zip.title-select-new-1-2-3"),
+        b"partial",
+    );
     write_file(&f.set_path(".deleting/9"), b"x");
     write_file(&f.set_path(".hidden.a26"), b"pong");
 

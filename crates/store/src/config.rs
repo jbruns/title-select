@@ -76,8 +76,11 @@ impl Root {
     /// its `writable_paths`.
     pub fn may_write(&self, rel: &str) -> bool {
         self.writable
-            || relative_path(rel)
-                .is_ok_and(|rel| self.writable_paths.iter().any(|p| relative_path(p).is_ok_and(|p| p == rel)))
+            || relative_path(rel).is_ok_and(|rel| {
+                self.writable_paths
+                    .iter()
+                    .any(|p| relative_path(p).is_ok_and(|p| p == rel))
+            })
     }
 
     /// For an Ingest Folder, the settle interval in seconds.

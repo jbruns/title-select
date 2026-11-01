@@ -120,11 +120,7 @@ impl Env {
             .approve_repair(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
         assert!(done.finished_at.is_some(), "{done:?}");
-        assert!(
-            done.outcomes.iter().all(|o| o.done),
-            "{:#?}",
-            done.outcomes
-        );
+        assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
         done
     }
 
@@ -133,10 +129,7 @@ impl Env {
         let job = plan.audit_job.expect("a repair queues an audit");
         let claimed = self.store.claim_job().unwrap().unwrap();
         assert_eq!(claimed.id, job);
-        let ended = self
-            .store
-            .run_audit_job(&self.config, job, None)
-            .unwrap();
+        let ended = self.store.run_audit_job(&self.config, job, None).unwrap();
         assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
     }
 
@@ -297,7 +290,11 @@ fn a_game_not_stored_as_torrentzip_is_repacked_and_its_original_kept() {
         "{:#?}",
         report.entries
     );
-    assert_eq!(report.entries.len(), 4, "the extra member is only in the kept original");
+    assert_eq!(
+        report.entries.len(),
+        4,
+        "the extra member is only in the kept original"
+    );
 }
 
 #[test]
@@ -328,9 +325,9 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
         )
         .unwrap();
     assert_eq!(env.listing().len(), 2, "planning deletes nothing");
-    let wrong = env
-        .store
-        .approve_source_kept_deletion(&env.config, deletion.id, "0000", "Operator");
+    let wrong =
+        env.store
+            .approve_source_kept_deletion(&env.config, deletion.id, "0000", "Operator");
     assert!(matches!(wrong, Err(Error::Conflict(_))), "{wrong:?}");
 
     let deleted = env
@@ -357,17 +354,17 @@ fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
 
     env.put("new arrival.a26", b"new");
     let before = env.listing();
-    let changed =
-        env.store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let changed = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
     assert!(matches!(changed, Err(Error::Conflict(_))), "{changed:?}");
     assert_eq!(env.listing(), before, "nothing changed");
 
     std::fs::remove_file(env.set().join("new arrival.a26")).unwrap();
     env.audit(AuditEvidence::Full);
-    let audited =
-        env.store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let audited = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
     assert!(
         matches!(&audited, Err(Error::Conflict(why)) if why.contains("audit")),
         "{audited:?}"
@@ -376,9 +373,9 @@ fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
     let first = env.plan();
     let second = env.plan();
     env.approve(&second);
-    let stale =
-        env.store
-            .approve_repair(&env.config, first.id, &first.digest, "Operator", WORKERS);
+    let stale = env
+        .store
+        .approve_repair(&env.config, first.id, &first.digest, "Operator", WORKERS);
     assert!(matches!(stale, Err(Error::Conflict(_))), "{stale:?}");
 }
 
@@ -395,9 +392,9 @@ fn once_a_source_set_has_been_repaired_a_repair_is_refused_without_its_marker() 
 
     std::fs::remove_file(env.set().join(".title-select")).unwrap();
     let before = env.listing();
-    let refused =
-        env.store
-            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    let refused = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
 
     match refused {
         Err(Error::Refused(why)) => assert!(why.contains("marker"), "{why}"),
@@ -546,7 +543,10 @@ fn a_file_read_only_by_its_claim_is_never_touched() {
 
     assert!(plan.content.steps.is_empty(), "{:#?}", plan.content.steps);
     assert!(
-        plan.content.notes.iter().any(|n| n.contains("Combat (USA).zip")),
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Combat (USA).zip")),
         "{:?}",
         plan.content.notes
     );

@@ -1,0 +1,1418 @@
+//! Repairing a Source Set: a Change Plan proposed from its latest Audit, on Payload Evidence only, and from assessed
+//! items of Ingest Folders, carried out once you approve it. A repair writes only to a Source Set its Root lets it
+//! write to, found writable when it runs, with this store's marker, which the first approved repair writes.
+//!
+//! Every change is a step recorded as a durable intent with the approval, before anything changes, and advanced
+//! before each change, so that recovery rolls it forward from where it stopped. A Game is written to a staged name
+//! recorded first, checked against the DAT, and published by a rename that never replaces anything, only once each
+//! file it reads or displaces is kept aside, by one rename that never replaces anything, into the Source Set's kept
+//! files: nothing in a Source Set is deleted, except kept files you approve deleting. A Game filled from an Ingest
+//! Folder is moved with the one move out of an Ingest Folder there is.
+
+mod deletion;
+mod planning;
+
+use std::collections::{BTreeMap, HashMap};
+use std::fs::File;
+use std::io;
+
+use rusqlite::{Connection, OptionalExtension, Row, params};
+use rustix::fs::{Access, AtFlags, FileType};
+use sha2::{Digest, Sha256};
+use title_select_api::build::{Approval, FileStat, MARKER, kept_name};
+use title_select_api::ingest::FolderEntry;
+use title_select_api::repair::{
+    PlanRepair, PlannedStep, RepairOutcome, RepairPlan, RepairPlanContent, RepairRom, RepairStep,
+    SeenFile, SourceSetMarker,
+};
+use title_select_api::{AuditEvidence, JobKind, Workers};
+use title_select_engine::FileStamp;
+use title_select_engine::build::{FromSource, repack_sources, verify};
+use title_select_engine::dat::Dat;
+
+use crate::builds::sha256_of;
+use crate::checks::Seen;
+use crate::config::Config;
+use crate::folder_dir::{FolderDir, Identity, file_stat};
+use crate::folders::{MARKER_LIMIT, store_id, write_marker};
+use crate::ingest::fill_candidates;
+use crate::ingest::moves::{Destination, Move};
+use crate::jobs::check_no_active;
+use crate::kept::{Scope, open_area_deleting, open_retention, settle_dir_temps, unique};
+use crate::plans::{json, to_json};
+use crate::sets::{set_by_id, set_by_name};
+use crate::{Error, Fault, Result, Store, now};
+
+/// What a Source Set's marker must be for a repair to go on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MarkerRule {
+    /// This store's marker for the Source Set.
+    Required,
+    /// This store's marker, or none yet: the first repair writes it.
+    Creating,
+}
+
+/// Why a Root does not let a repair write to `path`.
+fn not_writable(set: &str, root: &str, path: &str) -> String {
+    format!(
+        "source set {set} is in root {root}, which does not let Title Select write to it. Declare the root writable, \
+         or list \"{path}\" in its writable_paths, then restart the service"
+    )
+}
+
+enum MarkerFound {
+    Absent,
+    Unreadable(String),
+    Present(SourceSetMarker),
+}
+
+fn read_set_marker(dir: &FolderDir) -> MarkerFound {
+    match dir.read(MARKER, MARKER_LIMIT) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => MarkerFound::Absent,
+        Err(e) => MarkerFound::Unreadable(e.to_string()),
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(marker) => MarkerFound::Present(marker),
+            Err(e) => MarkerFound::Unreadable(e.to_string()),
+        },
+    }
+}
+
+/// Checks, through `dir`, that the Source Set's marker is `expected`, or, under [`MarkerRule::Creating`], absent.
+fn check_set_marker(
+    dir: &FolderDir,
+    expected: &SourceSetMarker,
+    rule: MarkerRule,
+) -> std::result::Result<(), String> {
+    let path = dir.path().display();
+    match read_set_marker(dir) {
+        MarkerFound::Present(marker) if marker == *expected => Ok(()),
+        MarkerFound::Absent if rule == MarkerRule::Creating => Ok(()),
+        MarkerFound::Present(marker) if marker.store != expected.store => Err(format!(
+            "{path}: its .title-select marker is from another store; is this the right folder, or the right mount? \
+             Nothing in it was changed"
+        )),
+        MarkerFound::Present(marker) => Err(format!(
+            "{path}: its .title-select marker is for source set {}, not {}; is this the right mount? Nothing in it \
+             was changed",
+            marker.source_set, expected.source_set
+        )),
+        MarkerFound::Absent => Err(format!(
+            "{path}: its .title-select marker, which its first repair wrote, is gone; is its share mounted? Nothing \
+             in it was changed"
+        )),
+        MarkerFound::Unreadable(e) => Err(format!(
+            "{path}: its .title-select marker cannot be read ({e}); nothing in it was changed"
+        )),
+    }
+}
+
+/// Opens Source Set `set` for a repair to write to: only when its Root lets a repair write to it, the folder is
+/// found writable now, and its marker is as `rule` says.
+pub(crate) fn open_repairable(
+    store: &Store,
+    config: &Config,
+    set: i64,
+    rule: MarkerRule,
+) -> Result<std::result::Result<FolderDir, String>> {
+    let row = store.read(|c| set_by_id(c, set))?;
+    let record = &row.record;
+    let Some(root) = config.root(&record.root) else {
+        return Ok(Err(format!(
+            "there is no root {} in the configuration",
+            record.root
+        )));
+    };
+    if !root.may_write(&record.path) {
+        return Ok(Err(not_writable(&record.name, &record.root, &record.path)));
+    }
+    let dir = match FolderDir::open(&root.path, &record.path) {
+        Ok(dir) => dir,
+        Err(e) => return Ok(Err(e.to_string())),
+    };
+    if let Err(e) = rustix::fs::accessat(&dir, ".", Access::WRITE_OK, AtFlags::EACCESS) {
+        return Ok(Err(format!(
+            "{}: Title Select cannot write to it ({e}); nothing in it was changed",
+            dir.path().display()
+        )));
+    }
+    let expected = SourceSetMarker {
+        store: store.read(store_id)?,
+        source_set: set,
+    };
+    Ok(check_set_marker(&dir, &expected, rule).map(|()| dir))
+}
+
+/// Opens the folder holding `rel`, a path relative to `dir`, without following a symlink: `None` for `dir` itself.
+/// Returns it with the last component.
+fn parent_of<'a>(dir: &FolderDir, rel: &'a str) -> io::Result<(Option<FolderDir>, &'a str)> {
+    let Some((parents, name)) = rel.rsplit_once('/') else {
+        return Ok((None, rel));
+    };
+    let mut parts = parents.split('/');
+    let mut found = dir.sub(parts.next().unwrap_or_default())?;
+    for part in parts {
+        found = found.sub(part)?;
+    }
+    Ok((Some(found), name))
+}
+
+/// Every entry under `dir` but Title Select's own, by path relative to it, and the regular files among them as seen.
+// `st_nlink` is narrower than u64 on some platforms.
+#[allow(clippy::unnecessary_cast)]
+fn walk(dir: &FolderDir) -> io::Result<(Vec<FolderEntry>, BTreeMap<String, Seen>)> {
+    fn visit(
+        dir: &FolderDir,
+        prefix: &str,
+        entries: &mut Vec<FolderEntry>,
+        files: &mut BTreeMap<String, Seen>,
+    ) -> io::Result<()> {
+        for (name, _) in dir.entries()? {
+            if title_select_engine::is_own_entry(&name) {
+                continue;
+            }
+            let Some(st) = dir.stat(&name)? else {
+                continue;
+            };
+            let rel = format!("{prefix}{name}");
+            let seen = Seen::of(&st);
+            entries.push(FolderEntry {
+                name: rel.clone(),
+                identity: seen.identity.into(),
+                file: seen.file.clone(),
+                ctime_ns: seen.ctime_ns,
+                nlink: st.st_nlink as u64,
+            });
+            match FolderDir::kind(&st) {
+                FileType::RegularFile => {
+                    files.insert(rel, seen);
+                }
+                FileType::Directory => visit(&dir.sub(&name)?, &format!("{rel}/"), entries, files)?,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+    let (mut entries, mut files) = (Vec::new(), BTreeMap::new());
+    visit(dir, "", &mut entries, &mut files)?;
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok((entries, files))
+}
+
+fn seen_file(seen: &Seen) -> SeenFile {
+    SeenFile {
+        identity: seen.identity.into(),
+        file: seen.file.clone(),
+        ctime_ns: seen.ctime_ns,
+    }
+}
+
+fn seen_of(seen: &SeenFile) -> Seen {
+    Seen {
+        identity: seen.identity.into(),
+        file: seen.file.clone(),
+        ctime_ns: seen.ctime_ns,
+    }
+}
+
+/// Whether `name` in `dir` is, without following a symlink, the regular file `seen`, unchanged.
+fn is_seen(dir: &FolderDir, name: &str, seen: &Seen) -> io::Result<bool> {
+    Ok(matches!(dir.stat(name)?, Some(st)
+        if FolderDir::kind(&st) == FileType::RegularFile && Seen::of(&st) == *seen))
+}
+
+/// Whether `name` in `dir` is, without following a symlink, the regular file `id`.
+fn is_file(dir: &FolderDir, name: &str, id: Identity) -> io::Result<bool> {
+    Ok(matches!(dir.stat(name)?, Some(st)
+        if FolderDir::kind(&st) == FileType::RegularFile && Identity::of(&st) == id))
+}
+
+fn io_err(e: io::Error) -> Error {
+    Error::Io(e.to_string())
+}
+
+fn digest(content: &RepairPlanContent) -> String {
+    let bytes = serde_json::to_vec(content).expect("a plan always serializes");
+    Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+const PLAN_QUERY: &str = "SELECT id, digest, created_at, content, approved_digest, approved_by, approved_at, \
+     finished_at, outcomes, recovery_error, audit_job_id, audit_owed, audit_error FROM repair_plans";
+
+fn plan_from_row(r: &Row) -> rusqlite::Result<RepairPlan> {
+    let outcomes: Option<String> = r.get(8)?;
+    Ok(RepairPlan {
+        id: r.get(0)?,
+        digest: r.get(1)?,
+        created_at: r.get(2)?,
+        content: json(r, 3)?,
+        approval: match r.get::<_, Option<String>>(4)? {
+            Some(digest) => Some(Approval {
+                digest,
+                actor: r.get(5)?,
+                at: r.get(6)?,
+            }),
+            None => None,
+        },
+        finished_at: r.get(7)?,
+        outcomes: match outcomes {
+            Some(_) => json(r, 8)?,
+            None => Vec::new(),
+        },
+        recovery_error: r.get(9)?,
+        audit_job: r.get(10)?,
+        audit_owed: r.get(11)?,
+        audit_error: r.get(12)?,
+    })
+}
+
+fn plan_by_id(c: &Connection, id: i64) -> Result<RepairPlan> {
+    c.query_row(&format!("{PLAN_QUERY} WHERE id = ?1"), [id], plan_from_row)
+        .optional()?
+        .ok_or_else(|| Error::NotFound(format!("no repair plan {id}")))
+}
+
+/// The generation the Source Set's last approved repair kept files under, and whether its marker was written.
+fn source_folder(c: &Connection, set: i64) -> Result<(u64, bool)> {
+    Ok(c.query_row(
+        "SELECT generation, marker_at IS NOT NULL FROM source_folders WHERE source_set_id = ?1",
+        [set],
+        |r| Ok((r.get::<_, i64>(0)? as u64, r.get(1)?)),
+    )
+    .optional()?
+    .unwrap_or((0, false)))
+}
+
+/// Why nothing else is done to Source Set `set` now, when a repair or a deletion of its kept files is unfinished.
+pub(crate) fn repair_active(c: &Connection, set: i64) -> Result<Option<String>> {
+    let repair: Option<i64> = c
+        .query_row(
+            "SELECT id FROM repair_plans
+             WHERE source_set_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
+            [set],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(id) = repair {
+        return Ok(Some(format!(
+            "repair {id} of the source set is not finished; the service finishes it when it next starts"
+        )));
+    }
+    let deletion: Option<i64> = c
+        .query_row(
+            "SELECT id FROM source_kept_deletions
+             WHERE source_set_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
+            [set],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(deletion.map(|id| {
+        format!(
+            "deletion {id} of kept files of the source set is not finished; the service finishes it when it next \
+             starts"
+        )
+    }))
+}
+
+/// One step of an approved repair, as recorded.
+struct StepRow {
+    id: i64,
+    seq: u32,
+    item: String,
+    step: RepairStep,
+    state: String,
+    staged_name: Option<String>,
+    staged: Option<Identity>,
+    move_id: Option<i64>,
+    error: Option<String>,
+    note: Option<String>,
+}
+
+const STEP_QUERY: &str = "SELECT id, seq, item, detail, state, staged_name, staged_dev, staged_ino, move_id, \
+     error, note FROM repair_steps";
+
+fn step_from_row(r: &Row) -> rusqlite::Result<StepRow> {
+    let staged = match (r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(7)?) {
+        (Some(dev), Some(ino)) => Some(Identity::from_sql(dev, ino)),
+        _ => None,
+    };
+    Ok(StepRow {
+        id: r.get(0)?,
+        seq: r.get::<_, i64>(1)? as u32,
+        item: r.get(2)?,
+        step: json(r, 3)?,
+        state: r.get(4)?,
+        staged_name: r.get(5)?,
+        staged,
+        move_id: r.get(8)?,
+        error: r.get(9)?,
+        note: r.get(10)?,
+    })
+}
+
+fn steps_of(c: &Connection, plan: i64) -> Result<Vec<StepRow>> {
+    let mut stmt = c.prepare(&format!("{STEP_QUERY} WHERE plan_id = ?1 ORDER BY seq"))?;
+    Ok(stmt
+        .query_map([plan], step_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+fn is_terminal(state: &str) -> bool {
+    matches!(state, "done" | "failed" | "skipped")
+}
+
+/// How running a step ended: `Err` leaves it unfinished, for recovery.
+type Ran = Result<std::result::Result<(), String>>;
+
+/// A Source Set being repaired: the plan, and its folder opened.
+struct Repairing<'a> {
+    plan: &'a RepairPlan,
+    dir: FolderDir,
+}
+
+impl Repairing<'_> {
+    fn scope(&self) -> Scope {
+        Scope::Source(self.plan.content.set_id)
+    }
+}
+
+impl Store {
+    /// Proposes a repair of Source Set `name` from its latest Audit and the assessed items of Ingest Folders, with
+    /// the choices `request` makes in place of the defaults. Refused unless the Source Set's Root lets a repair write
+    /// to it. Changes nothing in the Source Set.
+    pub fn plan_repair(
+        &self,
+        config: &Config,
+        name: &str,
+        request: &PlanRepair,
+    ) -> Result<RepairPlan> {
+        let set = self.read(|c| set_by_name(c, name))?;
+        let record = &set.record;
+        let root = config.root(&record.root).ok_or_else(|| {
+            Error::Refused(format!(
+                "there is no root {} in the configuration",
+                record.root
+            ))
+        })?;
+        if !root.may_write(&record.path) {
+            return Err(Error::Refused(not_writable(
+                &record.name,
+                &record.root,
+                &record.path,
+            )));
+        }
+        let audit = self
+            .history(name)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::Refused(format!("audit {name} before you repair it")))?;
+        let report = self.report(audit.id)?;
+        let dat = Dat::read(&self.blob_path(&report.dat_revision.sha256))
+            .map_err(|e| Error::Io(e.to_string()))?;
+        let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
+        let folder = dir.identity().map_err(io_err)?;
+        let (fingerprint, files) = walk(&dir).map_err(io_err)?;
+        let stamps = self.read(|c| payload_stamps(c, set.id))?;
+        let candidates =
+            self.read(|c| fill_candidates(c, &record.name, &report.dat_revision.sha256))?;
+        let torrentzip = |path: &str| -> bool {
+            let Ok((parent, name)) = parent_of(&dir, path) else {
+                return false;
+            };
+            parent
+                .as_ref()
+                .unwrap_or(&dir)
+                .open_file(name)
+                .is_ok_and(|file| {
+                    title_select_engine::torrentzip::central(&mut io::BufReader::new(file)).is_ok()
+                })
+        };
+        let planned = planning::plan(&planning::Inputs {
+            report: &report,
+            dat: &dat,
+            files: &files,
+            stamps: &stamps,
+            torrentzip: &torrentzip,
+            candidates: &candidates,
+            choices: &request.choices,
+        })?;
+        let (generation, marked) = self.read(|c| source_folder(c, set.id))?;
+        let content = RepairPlanContent {
+            source_set: record.name.clone(),
+            set_id: set.id,
+            root: record.root.clone(),
+            path: record.path.clone(),
+            audit: audit.id,
+            dat_revision: report.dat_revision.sha256.clone(),
+            generation: generation + 1,
+            creates_marker: !marked,
+            folder: folder.into(),
+            items: planned.items,
+            steps: planned.steps,
+            fingerprint,
+            notes: planned.notes,
+        };
+        let digest = digest(&content);
+        self.write(|tx| {
+            tx.execute(
+                "INSERT INTO repair_plans (source_set_id, audit_id, content, digest, created_at, readers, hashers)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0, 0)",
+                params![set.id, audit.id, to_json(&content), digest, now()],
+            )?;
+            plan_by_id(tx, tx.last_insert_rowid())
+        })
+    }
+
+    pub fn repair_plan(&self, id: i64) -> Result<RepairPlan> {
+        self.read(|c| plan_by_id(c, id))
+    }
+
+    /// The repair plans of Source Set `name`, newest first.
+    pub fn repair_plans(&self, name: &str) -> Result<Vec<RepairPlan>> {
+        self.read(|c| {
+            let set = set_by_name(c, name)?;
+            let mut stmt = c.prepare(&format!(
+                "{PLAN_QUERY} WHERE source_set_id = ?1 ORDER BY id DESC"
+            ))?;
+            Ok(stmt
+                .query_map([set.id], plan_from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    /// Approves repair plan `id`, reviewed as `digest`, as `actor`, and carries it out. Refused unless its Audit is
+    /// still the Source Set's latest, no other repair was approved since it was made, the Root still lets a repair
+    /// write to the Source Set and it is writable, its marker is this store's (or, for its first repair, absent),
+    /// every entry in it is as the plan saw it, and no Job of the Source Set is Queued or Running. Once it ends, an
+    /// incremental Audit of the Source Set is queued, with `workers`.
+    pub fn approve_repair(
+        &self,
+        config: &Config,
+        id: i64,
+        digest: &str,
+        actor: &str,
+        workers: Workers,
+    ) -> Result<RepairPlan> {
+        let plan = self.repair_plan(id)?;
+        if plan.approval.is_some() {
+            return Err(Error::Conflict(format!(
+                "repair plan {id} was already approved"
+            )));
+        }
+        if plan.digest != digest {
+            return Err(Error::Conflict(format!(
+                "repair plan {id} is not the plan you reviewed (its digest is {}); review it again",
+                plan.digest
+            )));
+        }
+        let content = &plan.content;
+        let set = self.read(|c| set_by_id(c, content.set_id))?;
+        if set.record.root != content.root || set.record.path != content.path {
+            return Err(Error::Conflict(format!(
+                "source set {} moved since the plan was made; plan it again",
+                content.source_set
+            )));
+        }
+        let latest = self.history(&set.record.name)?.into_iter().next();
+        if latest.as_ref().map(|a| a.id) != Some(content.audit) {
+            return Err(Error::Conflict(format!(
+                "source set {} was audited again since the plan was made; plan the repair again from the latest \
+                 audit",
+                content.source_set
+            )));
+        }
+        let (generation, _) = self.read(|c| source_folder(c, content.set_id))?;
+        if generation + 1 != content.generation {
+            return Err(Error::Conflict(format!(
+                "another repair of source set {} was approved since this one was made; plan it again",
+                content.source_set
+            )));
+        }
+        let rule = match content.creates_marker {
+            true => MarkerRule::Creating,
+            false => MarkerRule::Required,
+        };
+        let dir = open_repairable(self, config, content.set_id, rule)?.map_err(Error::Refused)?;
+        let (fingerprint, _) = walk(&dir).map_err(io_err)?;
+        if Identity::from(content.folder) != dir.identity().map_err(io_err)?
+            || fingerprint != content.fingerprint
+        {
+            return Err(Error::Conflict(format!(
+                "source set {} changed since the plan was made; nothing was changed. Audit it, plan again and \
+                 review the new plan",
+                content.source_set
+            )));
+        }
+        self.read(|c| {
+            check_no_active(c, content.set_id, &content.source_set, JobKind::Audit)?;
+            match repair_active(c, content.set_id)? {
+                Some(why) => Err(Error::Conflict(why)),
+                None => Ok(()),
+            }
+        })?;
+        for step in &content.steps {
+            if let RepairStep::Fill { item, .. } = &step.step
+                && let Some(why) = self.read(|c| crate::ingest::item_unmovable(c, *item, false))?
+            {
+                return Err(Error::Conflict(format!(
+                    "{why}; nothing was changed. Plan the repair again and review the new plan"
+                )));
+            }
+        }
+        if let Err(why) = settle_dir_temps(self, Scope::Source(content.set_id), &dir)? {
+            return Err(Error::Refused(why));
+        }
+        self.write(|tx| {
+            let advanced = tx.execute(
+                "INSERT INTO source_folders (source_set_id, generation) VALUES (?1, ?2)
+                 ON CONFLICT (source_set_id) DO UPDATE SET generation = excluded.generation
+                 WHERE generation = ?3",
+                params![
+                    content.set_id,
+                    content.generation as i64,
+                    generation as i64
+                ],
+            )?;
+            let approved = tx.execute(
+                "UPDATE repair_plans SET approved_digest = ?2, approved_by = ?3, approved_at = ?4, readers = ?5,
+                                         hashers = ?6
+                 WHERE id = ?1 AND approved_at IS NULL",
+                params![
+                    id,
+                    digest,
+                    actor,
+                    now(),
+                    workers.readers as i64,
+                    workers.hashers as i64
+                ],
+            )?;
+            if advanced != 1 || approved != 1 {
+                return Err(Error::Conflict(format!(
+                    "repair plan {id} was approved, or another repair applied, meanwhile; review it again"
+                )));
+            }
+            for (seq, PlannedStep { item, step }) in content.steps.iter().enumerate() {
+                tx.execute(
+                    "INSERT INTO repair_steps (plan_id, seq, item, detail, state) VALUES (?1, ?2, ?3, ?4, 'pending')",
+                    params![id, seq as i64, item, to_json(step)],
+                )?;
+            }
+            Ok(())
+        })?;
+        drop(dir);
+        if let Err(why) = self.run_repair(config, id)? {
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE repair_plans SET recovery_error = ?2 WHERE id = ?1",
+                    params![id, why],
+                )?;
+                Ok(())
+            })?;
+        }
+        self.repair_plan(id)
+    }
+
+    /// Rolls forward every approved repair a stop interrupted, each only once its Source Set may be written and its
+    /// marker is this store's. Returns each left unfinished, with why.
+    pub fn recover_repairs(&self, config: &Config) -> Result<Vec<(i64, String)>> {
+        let unfinished: Vec<i64> = self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT id FROM repair_plans WHERE approved_at IS NOT NULL AND finished_at IS NULL ORDER BY id",
+            )?;
+            Ok(stmt
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })?;
+        let mut left = Vec::new();
+        for id in unfinished {
+            let ran = self.run_repair(config, id)?;
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE repair_plans SET recovery_error = ?2 WHERE id = ?1",
+                    params![id, ran.as_ref().err()],
+                )?;
+                Ok(())
+            })?;
+            if let Err(why) = ran {
+                left.push((id, why));
+            }
+        }
+        Ok(left)
+    }
+
+    /// Queues each incremental Audit a finished repair owes, once no other Job of its Source Set stands in the way.
+    pub fn fulfil_repair_audits(&self) -> Result<Vec<String>> {
+        let owed: Vec<i64> = self.read(|c| {
+            let mut stmt =
+                c.prepare("SELECT id FROM repair_plans WHERE audit_owed = 1 ORDER BY id")?;
+            Ok(stmt
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })?;
+        let mut failed = Vec::new();
+        for id in owed {
+            if let Some(why) = self.queue_repair_audit(id)? {
+                failed.push(why);
+            }
+        }
+        Ok(failed)
+    }
+
+    /// Queues the incremental Audit repair `id` owes; one that must wait for another Job stays owed. Returns why it
+    /// could not be queued, if it could not.
+    fn queue_repair_audit(&self, id: i64) -> Result<Option<String>> {
+        let (set, actor, readers, hashers): (String, String, i64, i64) = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT s.name, p.approved_by, p.readers, p.hashers
+                 FROM repair_plans p JOIN source_sets s ON s.id = p.source_set_id WHERE p.id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?)
+        })?;
+        let workers = Workers {
+            readers: (readers as usize).max(1),
+            hashers: (hashers as usize).max(1),
+        };
+        let (job, owed, error) =
+            match self.enqueue_audit(&set, None, &actor, workers, AuditEvidence::Incremental) {
+                Ok(job) => (Some(job.id), false, None),
+                Err(Error::JobActive { .. }) => (None, true, None),
+                Err(err) => (None, false, Some(err.to_string())),
+            };
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_plans SET audit_job_id = ?2, audit_owed = ?3, audit_error = ?4 WHERE id = ?1",
+                params![id, job, owed, error],
+            )?;
+            Ok(())
+        })?;
+        Ok(error.map(|why| format!("an incremental audit of {set} after repair {id}: {why}")))
+    }
+
+    /// Carries out each step of approved repair `id` not yet ended, then, once every step has ended, records what it
+    /// did and queues an incremental Audit. `Err` says why it was left unfinished.
+    fn run_repair(&self, config: &Config, id: i64) -> Ran {
+        let plan = self.repair_plan(id)?;
+        let content = &plan.content;
+        let (_, marked) = self.read(|c| source_folder(c, content.set_id))?;
+        let rule = match marked {
+            true => MarkerRule::Required,
+            false => MarkerRule::Creating,
+        };
+        let dir = match open_repairable(self, config, content.set_id, rule)? {
+            Ok(dir) => dir,
+            Err(why) => return Ok(Err(why)),
+        };
+        if Identity::from(content.folder) != dir.identity().map_err(io_err)? {
+            return Ok(Err(format!(
+                "{} is no longer the folder the plan was made for; nothing in it was changed",
+                dir.path().display()
+            )));
+        }
+        if !marked {
+            let marker = SourceSetMarker {
+                store: self.read(store_id)?,
+                source_set: content.set_id,
+            };
+            if let Err(err) = write_marker(&dir, &marker, &mut |_| Ok(())) {
+                return Ok(Err(err.to_string()));
+            }
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE source_folders SET marker_at = ?2 WHERE source_set_id = ?1",
+                    params![content.set_id, now()],
+                )?;
+                Ok(())
+            })?;
+        }
+        if let Err(why) = settle_dir_temps(self, Scope::Source(content.set_id), &dir)? {
+            return Ok(Err(why));
+        }
+        let repairing = Repairing { plan: &plan, dir };
+        let steps = self.read(|c| steps_of(c, id))?;
+        for step in &steps {
+            if is_terminal(&step.state) {
+                continue;
+            }
+            if let Err(why) = self.run_step(config, &repairing, step)? {
+                return Ok(Err(why));
+            }
+        }
+        self.finish_repair(&plan)?;
+        Ok(Ok(()))
+    }
+
+    fn finish_repair(&self, plan: &RepairPlan) -> Result<()> {
+        let steps = self.read(|c| steps_of(c, plan.id))?;
+        let mut outcomes: Vec<RepairOutcome> = Vec::new();
+        for step in &steps {
+            let outcome = match outcomes.iter_mut().find(|o| o.item == step.item) {
+                Some(outcome) => outcome,
+                None => {
+                    outcomes.push(RepairOutcome {
+                        item: step.item.clone(),
+                        done: true,
+                        detail: Vec::new(),
+                        error: None,
+                    });
+                    outcomes.last_mut().expect("just pushed")
+                }
+            };
+            let describe = step.step.describe();
+            match step.state.as_str() {
+                "done" => outcome.detail.push(describe),
+                _ => {
+                    outcome.done = false;
+                    let why = step.error.clone().unwrap_or_else(|| "not done".into());
+                    outcome.detail.push(format!("did not {describe}: {why}"));
+                    outcome.error.get_or_insert(why);
+                }
+            }
+            outcome.detail.extend(step.note.clone());
+        }
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
+                params![plan.id, now(), to_json(&outcomes)],
+            )?;
+            Ok(())
+        })?;
+        self.queue_repair_audit(plan.id)?;
+        Ok(())
+    }
+
+    fn step_failed(&self, step: &StepRow, state: &str, why: String) -> Ran {
+        self.fail_step(step, state, why)?;
+        Ok(Ok(()))
+    }
+
+    fn fail_step(&self, step: &StepRow, state: &str, why: String) -> Result<()> {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET state = ?2, error = ?3, finished_at = ?4 WHERE id = ?1",
+                params![step.id, state, why, now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn step_state(&self, step: &StepRow, state: &str) -> Result<()> {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET state = ?2 WHERE id = ?1",
+                params![step.id, state],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn step_done(&self, step: &StepRow, note: Option<String>) -> Result<()> {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET state = 'done', note = ?2, finished_at = ?3 WHERE id = ?1",
+                params![step.id, note, now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The state of step `seq` of the plan, and the step itself.
+    fn other_step(&self, plan: i64, seq: u32) -> Result<StepRow> {
+        self.read(|c| {
+            c.query_row(
+                &format!("{STEP_QUERY} WHERE plan_id = ?1 AND seq = ?2"),
+                params![plan, seq as i64],
+                step_from_row,
+            )
+            .optional()?
+            .ok_or_else(|| Error::NotFound(format!("no step {seq} of repair plan {plan}")))
+        })
+    }
+
+    fn run_step(&self, config: &Config, r: &Repairing, step: &StepRow) -> Ran {
+        match &step.step {
+            RepairStep::Build {
+                target,
+                roms,
+                sources,
+            } => self.run_build(r, step, target, roms, sources),
+            RepairStep::Keep {
+                path,
+                kept_name,
+                reason,
+                seen,
+                needs,
+            } => {
+                for need in needs {
+                    let build = self.other_step(r.plan.id, *need)?;
+                    if build.state != "done" {
+                        return self.step_failed(
+                            step,
+                            "skipped",
+                            format!(
+                                "{path} was left as it is, since its game's new file was not written: {}",
+                                build.error.unwrap_or_default()
+                            ),
+                        );
+                    }
+                }
+                self.run_keep(r, step, path, kept_name, reason, &seen_of(seen))
+            }
+            RepairStep::Rename { from, to, seen } => {
+                self.run_rename(r, step, from, to, &seen_of(seen))
+            }
+            RepairStep::Publish { build, target } => self.run_publish(r, step, *build, target),
+            RepairStep::Fill { .. } => self.run_fill(config, r, step),
+        }
+    }
+
+    /// Writes a Build step's file under a staged name recorded first, from its sources while each is still the file
+    /// the plan saw, and checks it against the DAT.
+    fn run_build(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        target: &str,
+        roms: &[RepairRom],
+        sources: &BTreeMap<String, SeenFile>,
+    ) -> Ran {
+        let dir = &r.dir;
+        if let (Some(staged_name), "staging") = (&step.staged_name, step.state.as_str()) {
+            match step.staged {
+                Some(id) if is_file(dir, staged_name, id).map_err(io_err)? => {
+                    let file = dir.open_file(staged_name).map_err(io_err)?;
+                    let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
+                    if verify(&file, &expected).is_ok() && file.sync_all().is_ok() {
+                        dir.sync().map_err(io_err)?;
+                        return self.build_staged(step, &file);
+                    }
+                    drop(file);
+                    self.discard_staged(r, staged_name, id)?;
+                }
+                Some(_) => {}
+                None if dir.stat(staged_name).map_err(io_err)?.is_some() => {
+                    return self.step_failed(
+                        step,
+                        "failed",
+                        format!(
+                            "{}/{staged_name} is not the file Title Select was writing; it was left as it is",
+                            dir.path().display()
+                        ),
+                    );
+                }
+                None => {}
+            }
+        }
+        let staged_name = format!(".{target}.title-select-new-{}", unique());
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL
+                 WHERE id = ?1",
+                params![step.id, staged_name],
+            )?;
+            Ok(())
+        })?;
+        let file = match dir.create_new(&staged_name) {
+            Ok(file) => file,
+            Err(e) => return self.step_failed(step, "failed", e.to_string()),
+        };
+        let id = Identity::of_fd(&file).map_err(io_err)?;
+        let (dev, ino) = id.to_sql();
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET staged_dev = ?2, staged_ino = ?3 WHERE id = ?1",
+                params![step.id, dev, ino],
+            )?;
+            Ok(())
+        })?;
+        let written = (|| -> std::result::Result<(), String> {
+            let mut opened: Vec<File> = Vec::new();
+            let mut index: HashMap<&str, usize> = HashMap::new();
+            for (path, seen) in sources {
+                let (parent, name) = parent_of(dir, path).map_err(|e| e.to_string())?;
+                let file = parent
+                    .as_ref()
+                    .unwrap_or(dir)
+                    .open_file(name)
+                    .map_err(|e| e.to_string())?;
+                let st = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
+                if Seen::of(&st) != seen_of(seen) {
+                    return Err(format!(
+                        "{path} changed since the plan was made; it was left as it is"
+                    ));
+                }
+                index.insert(path, opened.len());
+                opened.push(file);
+            }
+            let from: Vec<FromSource> = roms
+                .iter()
+                .map(|rom| (&rom.rom, index[rom.from.as_str()], rom.member.as_deref()))
+                .collect();
+            let refs: Vec<&File> = opened.iter().collect();
+            repack_sources(&file, &from, &refs)?;
+            let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
+            verify(&file, &expected)
+                .map_err(|why| format!("the new {target} did not check: {why}"))?;
+            for ((path, seen), source) in sources.iter().zip(&opened) {
+                let st = rustix::fs::fstat(source).map_err(|e| e.to_string())?;
+                if Seen::of(&st) != seen_of(seen) {
+                    return Err(format!(
+                        "{path} changed while it was read; it was left as it is"
+                    ));
+                }
+            }
+            file.sync_all().map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        if let Err(why) = written {
+            drop(file);
+            self.discard_staged(r, &staged_name, id)?;
+            return self.step_failed(step, "failed", why);
+        }
+        dir.sync().map_err(io_err)?;
+        self.build_staged(step, &file)
+    }
+
+    fn build_staged(&self, step: &StepRow, file: &File) -> Ran {
+        let (sha, _) = sha256_of(file).map_err(io_err)?;
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET state = 'done', sha256 = ?2, finished_at = ?3 WHERE id = ?1",
+                params![step.id, sha, now()],
+            )?;
+            Ok(())
+        })?;
+        self.fault_point(Fault::RepairStaged(step.seq));
+        Ok(Ok(()))
+    }
+
+    /// Deletes a staged file Title Select wrote and will not publish: moved into the private `.deleting` folder, and
+    /// deleted there only while it is still the file `id`. Anything else is left where it is.
+    fn discard_staged(&self, r: &Repairing, staged_name: &str, id: Identity) -> Result<()> {
+        let dir = &r.dir;
+        if !is_file(dir, staged_name, id).map_err(io_err)? {
+            return Ok(());
+        }
+        let Ok(Some(deleting)) = open_area_deleting(self, r.scope(), dir, true)? else {
+            return Ok(());
+        };
+        let slot = format!("repair-staged-{}", unique());
+        if dir.rename_new(staged_name, &deleting, &slot).is_err() {
+            return Ok(());
+        }
+        dir.sync().map_err(io_err)?;
+        deleting.sync().map_err(io_err)?;
+        if is_file(&deleting, &slot, id).map_err(io_err)? {
+            deleting.unlink(&slot).map_err(io_err)?;
+            deleting.sync().map_err(io_err)?;
+        }
+        Ok(())
+    }
+
+    /// Keeps `path` aside as `kept`, by one rename that never replaces anything, with the intent recorded first.
+    fn run_keep(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        path: &str,
+        kept: &str,
+        reason: &str,
+        seen: &Seen,
+    ) -> Ran {
+        match self.keep_file(r, step, path, kept, reason, seen)? {
+            Ok(Some(kept_id)) => {
+                self.write(|tx| {
+                    tx.execute(
+                        "UPDATE repair_steps SET state = 'done', kept_id = ?2, finished_at = ?3 WHERE id = ?1",
+                        params![step.id, kept_id, now()],
+                    )?;
+                    Ok(())
+                })?;
+                self.fault_point(Fault::RepairStepDone(step.seq));
+                Ok(Ok(()))
+            }
+            Ok(None) => Ok(Ok(())),
+            Err(why) => Ok(Err(why)),
+        }
+    }
+
+    /// Moves `path` into the kept files of this repair's generation as `kept`, while it is the file `seen`, then
+    /// records it kept. `None` when the step failed instead, as recorded; `Err` leaves it for recovery.
+    fn keep_file(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        path: &str,
+        kept: &str,
+        reason: &str,
+        seen: &Seen,
+    ) -> Result<std::result::Result<Option<i64>, String>> {
+        let content = &r.plan.content;
+        let (parent, name) = match parent_of(&r.dir, path) {
+            Ok(found) => found,
+            Err(e) => {
+                self.fail_step(step, "failed", format!("{e}; it was left as it is"))?;
+                return Ok(Ok(None));
+            }
+        };
+        let parent = parent.as_ref().unwrap_or(&r.dir);
+        let retention = match open_retention(self, r.scope(), &r.dir, content.generation, true)? {
+            Ok(Some(retention)) => retention,
+            Ok(None) => return Ok(Err("the kept files folder is missing".into())),
+            Err(why) => return Ok(Err(why)),
+        };
+        let generation = &retention.generation;
+        let in_place = is_seen(parent, name, seen).map_err(io_err)?;
+        if step.state == "pending" || (in_place && step.state == "moving") {
+            if !in_place {
+                self.fail_step(
+                    step,
+                    "failed",
+                    format!("{path} changed since the plan was made; it was left as it is"),
+                )?;
+                return Ok(Ok(None));
+            }
+            self.step_state(step, "moving")?;
+            if let Err(e) = parent.rename_new(name, generation, kept) {
+                self.fail_step(
+                    step,
+                    "failed",
+                    format!("{path} could not be kept aside: {e}; it was left as it is"),
+                )?;
+                return Ok(Ok(None));
+            }
+            self.fault_point(Fault::RepairMoved(step.seq));
+        }
+        // Whether this call or one before a stop moved it, both folders are synced before it is recorded kept.
+        parent.sync().map_err(io_err)?;
+        generation.sync().map_err(io_err)?;
+        let found = generation.stat(kept).map_err(io_err)?;
+        let Some(st) = found.filter(|st| {
+            FolderDir::kind(st) == FileType::RegularFile && Identity::of(st) == seen.identity
+        }) else {
+            self.fail_step(
+                step,
+                "failed",
+                format!("{path} is neither where it was nor kept as {kept}"),
+            )?;
+            return Ok(Ok(None));
+        };
+        let file = file_stat(&st);
+        let (dev, ino) = seen.identity.to_sql();
+        let kept_id = self.write(|tx| {
+            tx.execute(
+                "INSERT INTO source_kept (source_set_id, plan_id, generation, name, kept_name, reason, size,
+                                          mtime_ns, dev, ino, kept_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    content.set_id,
+                    r.plan.id,
+                    content.generation as i64,
+                    path,
+                    kept,
+                    reason,
+                    file.size as i64,
+                    file.mtime_ns.to_string(),
+                    dev,
+                    ino,
+                    now()
+                ],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })?;
+        Ok(Ok(Some(kept_id)))
+    }
+
+    /// Renames `from` to `to`, by one rename that never replaces anything, while `from` is the file `seen`.
+    fn run_rename(&self, r: &Repairing, step: &StepRow, from: &str, to: &str, seen: &Seen) -> Ran {
+        let (parent, name) = match parent_of(&r.dir, from) {
+            Ok(found) => found,
+            Err(e) => {
+                return self.step_failed(step, "failed", format!("{e}; it was left as it is"));
+            }
+        };
+        let parent = parent.as_ref().unwrap_or(&r.dir);
+        let in_place = is_seen(parent, name, seen).map_err(io_err)?;
+        if step.state == "pending" || (in_place && step.state == "moving") {
+            if !in_place {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!("{from} changed since the plan was made; it was left as it is"),
+                );
+            }
+            self.step_state(step, "moving")?;
+            if let Err(e) = parent.rename_new(name, &r.dir, to) {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!("{from} could not be renamed: {e}; it was left as it is"),
+                );
+            }
+            self.fault_point(Fault::RepairMoved(step.seq));
+        }
+        parent.sync().map_err(io_err)?;
+        r.dir.sync().map_err(io_err)?;
+        if !is_file(&r.dir, to, seen.identity).map_err(io_err)? {
+            return self.step_failed(
+                step,
+                "failed",
+                format!("{from} is neither where it was nor at {to}"),
+            );
+        }
+        self.step_done(step, None)?;
+        self.fault_point(Fault::RepairStepDone(step.seq));
+        Ok(Ok(()))
+    }
+
+    /// Publishes the staged file of Build step `build` as `target`, by one rename that never replaces anything. A
+    /// staged file that cannot be published is kept aside rather than left.
+    fn run_publish(&self, r: &Repairing, step: &StepRow, build: u32, target: &str) -> Ran {
+        let built = self.other_step(r.plan.id, build)?;
+        let (Some(staged_name), Some(staged), "done") =
+            (&built.staged_name, built.staged, built.state.as_str())
+        else {
+            return self.step_failed(
+                step,
+                "skipped",
+                format!(
+                    "the new {target} was not written: {}",
+                    built.error.unwrap_or_default()
+                ),
+            );
+        };
+        let dir = &r.dir;
+        let at_staged = is_file(dir, staged_name, staged).map_err(io_err)?;
+        if step.state == "pending" || (at_staged && step.state == "moving") {
+            if !at_staged {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!("the new {target} is no longer at {staged_name}"),
+                );
+            }
+            self.step_state(step, "moving")?;
+            if let Err(e) = dir.rename_new(staged_name, dir, target) {
+                let why = format!("the new {target} could not be put in place: {e}");
+                return self.keep_unpublished(r, step, staged_name, target, why);
+            }
+            self.fault_point(Fault::RepairMoved(step.seq));
+        }
+        dir.sync().map_err(io_err)?;
+        if !is_file(dir, target, staged).map_err(io_err)? {
+            return self.step_failed(
+                step,
+                "failed",
+                format!("{target} is not the new file Title Select wrote"),
+            );
+        }
+        self.step_done(step, None)?;
+        self.fault_point(Fault::RepairStepDone(step.seq));
+        Ok(Ok(()))
+    }
+
+    /// Keeps a staged file that could not be published aside, under the first name free in this repair's
+    /// generation, and fails the step with `why`.
+    fn keep_unpublished(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        staged_name: &str,
+        target: &str,
+        why: String,
+    ) -> Ran {
+        let Some(st) = r.dir.stat(staged_name).map_err(io_err)? else {
+            return self.step_failed(step, "failed", why);
+        };
+        let seen = Seen::of(&st);
+        let generation =
+            match open_retention(self, r.scope(), &r.dir, r.plan.content.generation, true)? {
+                Ok(Some(retention)) => retention.generation,
+                _ => {
+                    return self.step_failed(
+                        step,
+                        "failed",
+                        format!("{why}; it was left at {staged_name}"),
+                    );
+                }
+            };
+        let kept = (1..)
+            .map(|n| kept_name(target, n))
+            .find(|name| matches!(generation.stat(name), Ok(None)))
+            .expect("a free name");
+        let keeping = StepRow {
+            state: "pending".into(),
+            ..self.other_step(r.plan.id, step.seq)?
+        };
+        let reason = format!("a repair's new {target}, which could not be put in place");
+        match self.keep_file(r, &keeping, staged_name, &kept, &reason, &seen)? {
+            Ok(Some(_)) => self.step_failed(
+                step,
+                "failed",
+                format!("{why}; it was kept aside as {kept}"),
+            ),
+            Ok(None) => {
+                let left = self
+                    .other_step(r.plan.id, step.seq)?
+                    .error
+                    .unwrap_or_default();
+                self.step_failed(step, "failed", format!("{why}; {left}"))
+            }
+            Err(left) => Ok(Err(left)),
+        }
+    }
+
+    /// Fills a Game from an Ingest Folder item with the move out of an Ingest Folder, its intent recorded with the
+    /// step. The item's original is deleted only when the move names the one ROM it is, exactly.
+    fn run_fill(&self, config: &Config, r: &Repairing, step: &StepRow) -> Ran {
+        let RepairStep::Fill {
+            target,
+            ingest_root,
+            item,
+            name,
+            seen,
+            sha256,
+            roms,
+            exact,
+        } = &step.step
+        else {
+            unreachable!("a fill step");
+        };
+        let move_id = match (step.state.as_str(), step.move_id) {
+            ("moving", Some(move_id)) => move_id,
+            _ => {
+                let steps = self.read(|c| steps_of(c, r.plan.id))?;
+                if let Some(left) = steps.iter().find(|s| {
+                    s.item == step.item
+                        && matches!(s.step, RepairStep::Keep { .. })
+                        && matches!(s.state.as_str(), "failed" | "skipped")
+                }) {
+                    return self.step_failed(
+                        step,
+                        "skipped",
+                        format!(
+                            "{name} in ingest folder {ingest_root} was left as it is, since {}",
+                            left.error.clone().unwrap_or_default()
+                        ),
+                    );
+                }
+                let Some((folder, generation)) = self.write(|tx| {
+                    let folder: Option<i64> = tx
+                        .query_row(
+                            "SELECT id FROM ingest_folders WHERE root = ?1",
+                            [ingest_root],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    let Some(folder) = folder else {
+                        return Ok(None);
+                    };
+                    tx.execute(
+                        "UPDATE ingest_folders SET generation = generation + 1 WHERE id = ?1",
+                        [folder],
+                    )?;
+                    let generation: i64 = tx.query_row(
+                        "SELECT generation FROM ingest_folders WHERE id = ?1",
+                        [folder],
+                        |r| r.get(0),
+                    )?;
+                    Ok(Some((folder, generation as u64)))
+                })?
+                else {
+                    return self.step_failed(
+                        step,
+                        "failed",
+                        format!("ingest folder {ingest_root} is no longer registered"),
+                    );
+                };
+                let content = &r.plan.content;
+                let mv = Move {
+                    folder,
+                    plan: None,
+                    item: Some(*item),
+                    name,
+                    seen: seen_of(seen),
+                    sha256: sha256.clone(),
+                    dest: Destination::Path {
+                        root: content.root.clone(),
+                        rel: content.path.clone(),
+                        name: target.clone(),
+                        generation,
+                    },
+                    repack: Some(
+                        roms.iter()
+                            .map(|rom| (rom.rom.clone(), rom.member.clone()))
+                            .collect(),
+                    ),
+                    exact: exact.clone(),
+                };
+                let recorded = self.record_move(config, mv, &mut |tx, move_id| {
+                    tx.execute(
+                        "UPDATE repair_steps SET state = 'moving', move_id = ?2 WHERE id = ?1",
+                        params![step.id, move_id],
+                    )?;
+                    Ok(())
+                })?;
+                match recorded {
+                    Ok(move_id) => move_id,
+                    Err(why) => return self.step_failed(step, "failed", why),
+                }
+            }
+        };
+        match self.drive_move(config, move_id)? {
+            Ok(moved) => {
+                self.step_done(step, moved.note)?;
+                Ok(Ok(()))
+            }
+            Err(why) => {
+                let state: String = self.read(|c| {
+                    Ok(c.query_row(
+                        "SELECT state FROM ingest_moves WHERE id = ?1",
+                        [move_id],
+                        |r| r.get(0),
+                    )?)
+                })?;
+                match state.as_str() {
+                    "failed" => self.step_failed(step, "failed", why),
+                    _ => Ok(Err(why)),
+                }
+            }
+        }
+    }
+}
+
+/// The stamp each file had when an Audit last read its payloads, by path.
+fn payload_stamps(c: &Connection, set: i64) -> Result<HashMap<String, FileStamp>> {
+    let mut stmt = c.prepare(
+        "SELECT path, dev, ino, size, mtime_ns, ctime_ns FROM payload_reads WHERE source_set_id = ?1",
+    )?;
+    Ok(stmt
+        .query_map([set], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                FileStamp {
+                    dev: r.get::<_, i64>(1)? as u64,
+                    ino: r.get::<_, i64>(2)? as u64,
+                    size: r.get::<_, i64>(3)? as u64,
+                    mtime_ns: r.get::<_, i64>(4)? as i128,
+                    ctime_ns: r.get::<_, i64>(5)? as i128,
+                },
+            ))
+        })?
+        .collect::<rusqlite::Result<HashMap<_, _>>>()?)
+}
+
+/// Whether the file seen as `seen` is still as `stamp` recorded it when its payloads were read.
+fn as_read(seen: &Seen, stamp: &FileStamp) -> bool {
+    let id: title_select_api::build::FileIdentity = seen.identity.into();
+    id.dev == stamp.dev
+        && id.ino == stamp.ino
+        && seen.file
+            == FileStat {
+                size: stamp.size,
+                mtime_ns: stamp.mtime_ns,
+            }
+        && seen.ctime_ns == stamp.ctime_ns
+}

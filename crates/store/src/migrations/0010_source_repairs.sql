@@ -30,7 +30,8 @@ CREATE TABLE source_temp_names (
 
 -- A repair Change Plan: RepairPlanContent JSON and the SHA-256 of that JSON, which an approval binds to. It is carried
 -- out when approved; outcomes is a JSON array of RepairOutcome. audit_job_id is the incremental Audit it queued;
--- audit_owed is set while that Audit waits for another Job of the Source Set to end.
+-- audit_owed is set while that Audit waits for another Job of the Source Set to end; readers and
+-- hashers are the workers it runs with.
 CREATE TABLE repair_plans (
     id INTEGER PRIMARY KEY,
     source_set_id INTEGER NOT NULL REFERENCES source_sets (id),
@@ -46,7 +47,9 @@ CREATE TABLE repair_plans (
     recovery_error TEXT,
     audit_owed INTEGER NOT NULL DEFAULT 0,
     audit_job_id INTEGER REFERENCES jobs (id),
-    audit_error TEXT
+    audit_error TEXT,
+    readers INTEGER NOT NULL,
+    hashers INTEGER NOT NULL
 );
 CREATE INDEX repair_plans_unfinished ON repair_plans (source_set_id) WHERE approved_at IS NOT NULL
     AND finished_at IS NULL;

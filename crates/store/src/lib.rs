@@ -14,6 +14,7 @@ mod kept;
 mod migrations;
 mod plans;
 mod profiles;
+mod repairs;
 mod selections;
 mod sets;
 

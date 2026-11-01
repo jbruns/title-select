@@ -111,9 +111,10 @@ pub struct RepairRom {
     pub member: Option<String>,
 }
 
-/// One change a repair makes, in the order it is made.
+/// One change a repair makes, in the order it is made. Externally tagged: a buffered (internally tagged or flattened)
+/// form cannot carry the 128-bit times a [`SeenFile`] holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "step", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum RepairStep {
     /// Writes `target` from `roms`, each read from a file the plan saw as in `sources`, under a staged name; it is
     /// published once every file it displaces is kept aside.
@@ -184,7 +185,6 @@ impl RepairStep {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlannedStep {
     pub item: String,
-    #[serde(flatten)]
     pub step: RepairStep,
 }
 
