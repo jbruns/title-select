@@ -335,6 +335,187 @@ pub fn probe(file: &File) -> io::Result<Probe> {
     Ok(probe)
 }
 
+/// How much of a ZIP archive [`probe_within`] reads before it gives up on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ZipLimits {
+    pub members: usize,
+    /// The most bytes one member may expand to.
+    pub member_bytes: u64,
+    /// The most bytes all members together may expand to.
+    pub total_bytes: u64,
+}
+
+impl Default for ZipLimits {
+    fn default() -> ZipLimits {
+        ZipLimits {
+            members: 4096,
+            member_bytes: 16 << 30,
+            total_bytes: 32 << 30,
+        }
+    }
+}
+
+/// What [`probe_within`] made of a file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Probed {
+    Read(Probe),
+    /// A ZIP archive it would not read further, and why: it holds another archive, or more than the limits allow.
+    Refused(String),
+}
+
+/// Endings of member names that make a ZIP a nested archive.
+pub const NESTED_ENDINGS: [&str; 12] = [
+    "zip", "7z", "rar", "gz", "tgz", "tar", "bz2", "xz", "zst", "lzh", "lha", "arj",
+];
+
+/// The archive format the first bytes of a member start with, if any.
+fn archive_magic(head: &[u8]) -> Option<&'static str> {
+    const MAGIC: [(&[u8], &str); 6] = [
+        (b"PK\x03\x04", "ZIP"),
+        (b"7z\xbc\xaf\x27\x1c", "7z"),
+        (b"Rar!\x1a\x07", "RAR"),
+        (b"\x1f\x8b\x08", "gzip"),
+        (b"\xfd7zXZ\x00", "xz"),
+        (b"\x28\xb5\x2f\xfd", "zstd"),
+    ];
+    MAGIC
+        .iter()
+        .find(|(magic, _)| head.starts_with(magic))
+        .map(|(_, format)| *format)
+}
+
+/// As [`probe`], but a ZIP archive is first judged from its central directory alone: refused, before any member
+/// is decompressed, when it has more members than `limits` allow, declares more bytes than they allow, has members
+/// that overlap, or holds another archive by name; then from each member's first bytes, refused when one starts as
+/// another archive; and only then read, refused as soon as the bytes actually decompressed pass a limit, whatever
+/// the archive declared.
+pub fn probe_within(file: &File, limits: &ZipLimits) -> io::Result<Probed> {
+    let mut reader = BufReader::new(file);
+    reader.seek(SeekFrom::Start(0))?;
+    let whole = hash_all(&mut reader)?;
+    reader.seek(SeekFrom::Start(0))?;
+    let torrentzip = torrentzip::validate(&mut reader).is_ok();
+    reader.seek(SeekFrom::Start(0))?;
+    let mut probe = Probe {
+        sha256: whole.sha256.clone(),
+        size: whole.size,
+        zip: false,
+        torrentzip,
+        payloads: Vec::new(),
+        error: None,
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(reader) else {
+        probe.torrentzip = false;
+        probe.payloads.push(Payload::new(None, whole));
+        return Ok(Probed::Read(probe));
+    };
+    probe.zip = true;
+    if archive.len() > limits.members {
+        return Ok(Probed::Refused(format!(
+            "it has {} members, more than the {} a game's ZIP is read with",
+            archive.len(),
+            limits.members
+        )));
+    }
+    let mut members = Vec::new();
+    let mut declared = 0u64;
+    let mut spans = Vec::new();
+    for i in 0..archive.len() {
+        let member = match archive.by_index_raw(i) {
+            Ok(member) => member,
+            Err(e) => {
+                probe.error = Some(e.to_string());
+                return Ok(Probed::Read(probe));
+            }
+        };
+        spans.push((member.header_start(), member.compressed_size()));
+        if member.is_dir() {
+            continue;
+        }
+        let name = match member.name() {
+            Ok(name) => name.into_owned(),
+            Err(e) => {
+                probe.error = Some(e.to_string());
+                return Ok(Probed::Read(probe));
+            }
+        };
+        if let Some((_, ext)) = name.rsplit_once('.')
+            && NESTED_ENDINGS.contains(&ext.to_ascii_lowercase().as_str())
+        {
+            return Ok(Probed::Refused(format!(
+                "it holds another archive, {name}; nested archives are not opened"
+            )));
+        }
+        if member.size() > limits.member_bytes {
+            return Ok(Probed::Refused(format!(
+                "{name} expands to {} bytes, more than the {} one member is read to",
+                member.size(),
+                limits.member_bytes
+            )));
+        }
+        declared = declared.saturating_add(member.size());
+        members.push((i, name, member.size()));
+    }
+    if declared > limits.total_bytes {
+        return Ok(Probed::Refused(format!(
+            "it expands to {declared} bytes, more than the {} a game's ZIP is read to",
+            limits.total_bytes
+        )));
+    }
+    spans.sort_unstable();
+    if spans
+        .windows(2)
+        .any(|pair| pair[0].0.saturating_add(pair[0].1) > pair[1].0)
+    {
+        return Ok(Probed::Refused(
+            "its members overlap one another, as only a crafted archive's do".into(),
+        ));
+    }
+    for (i, name, _) in &members {
+        let mut head = Vec::with_capacity(8);
+        let read = archive
+            .by_index(*i)
+            .and_then(|member| Ok(member.take(8).read_to_end(&mut head)?));
+        if let Err(e) = read {
+            probe.error = Some(format!("{name}: {e}"));
+            return Ok(Probed::Read(probe));
+        }
+        if let Some(format) = archive_magic(&head) {
+            return Ok(Probed::Refused(format!(
+                "it holds another archive, {name}, which reads as {format}; nested archives are not opened"
+            )));
+        }
+    }
+    let mut left = limits.total_bytes;
+    for (i, name, size) in members {
+        let mut member = match archive.by_index(i) {
+            Ok(member) => member,
+            Err(e) => {
+                probe.error = Some(e.to_string());
+                break;
+            }
+        };
+        let cap = size.min(left);
+        let mut bounded = (&mut member).take(cap.saturating_add(1));
+        match hash_all(&mut bounded) {
+            Ok(sums) if sums.size > cap => {
+                return Ok(Probed::Refused(format!(
+                    "{name} expands to more than its archive says; it was not read further"
+                )));
+            }
+            Ok(sums) => {
+                left -= sums.size;
+                probe.payloads.push(Payload::new(Some(name), sums));
+            }
+            Err(e) => {
+                probe.error = Some(format!("{name}: {e}"));
+                break;
+            }
+        }
+    }
+    Ok(Probed::Read(probe))
+}
+
 /// Whether `probe` is a ZIP holding exactly `roms`, under their names, each with the payload the DAT expects.
 pub fn holds(probe: &Probe, roms: &[ExpectedRom]) -> bool {
     probe.zip
@@ -426,5 +607,77 @@ mod tests {
         let (sha256, size) = reader.finish().unwrap();
         assert_eq!(size, bytes.len() as u64);
         assert_eq!(sha256, crate::hex(&Sha256::digest(&bytes)));
+    }
+
+    fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut zip = zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+        for (name, bytes) in members {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            io::Write::write_all(&mut zip, bytes).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    fn probed(bytes: &[u8], limits: &ZipLimits) -> Probed {
+        let mut file = tempfile::tempfile().unwrap();
+        io::Write::write_all(&mut file, bytes).unwrap();
+        probe_within(&file, limits).unwrap()
+    }
+
+    fn refused(probed: Probed) -> String {
+        match probed {
+            Probed::Refused(why) => why,
+            Probed::Read(probe) => panic!("read: {probe:?}"),
+        }
+    }
+
+    #[test]
+    fn a_zip_past_its_limits_or_holding_an_archive_is_refused_before_its_members_are_read() {
+        let roomy = ZipLimits::default();
+        let one_game = zip_of(&[("a.bin", b"aaaa"), ("b.bin", b"bbbb")]);
+        assert!(matches!(probed(&one_game, &roomy), Probed::Read(p) if p.payloads.len() == 2));
+
+        let few = ZipLimits {
+            members: 1,
+            ..roomy
+        };
+        assert!(refused(probed(&one_game, &few)).contains("2 members"));
+        let small = ZipLimits {
+            member_bytes: 3,
+            ..roomy
+        };
+        assert!(refused(probed(&one_game, &small)).contains("a.bin expands to 4 bytes"));
+        let tight = ZipLimits {
+            total_bytes: 7,
+            ..roomy
+        };
+        assert!(refused(probed(&one_game, &tight)).contains("expands to 8 bytes"));
+
+        let by_name = zip_of(&[("game.bin", b"rom"), ("disc.7z", b"not really")]);
+        assert!(refused(probed(&by_name, &roomy)).contains("disc.7z"));
+        let by_magic = zip_of(&[("game.bin", b"rom"), ("data.bin", &one_game)]);
+        assert!(refused(probed(&by_magic, &roomy)).contains("data.bin, which reads as ZIP"));
+    }
+
+    #[test]
+    fn a_member_that_expands_past_its_declared_size_is_refused_without_reading_on() {
+        let mut bytes = zip_of(&[("zeros.bin", &[0u8; 100_000])]);
+        // Declare 10 bytes, in both the local and central headers, for what expands to 100000.
+        for (signature, offset) in [(b"PK\x03\x04", 22), (b"PK\x01\x02", 24)] {
+            let at = bytes
+                .windows(4)
+                .position(|w| w == signature.as_slice())
+                .unwrap();
+            bytes[at + offset..at + offset + 4].copy_from_slice(&10u32.to_le_bytes());
+        }
+
+        match probed(&bytes, &ZipLimits::default()) {
+            Probed::Refused(why) => assert!(why.contains("more than its archive says"), "{why}"),
+            Probed::Read(probe) => {
+                assert!(probe.payloads.is_empty(), "{probe:?}");
+                assert!(probe.error.unwrap().contains("declared"));
+            }
+        }
     }
 }

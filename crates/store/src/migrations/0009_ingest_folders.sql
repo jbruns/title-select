@@ -107,13 +107,14 @@ CREATE TABLE ingest_moves (
     plan_id INTEGER REFERENCES ingest_plans (id),
     item_id INTEGER REFERENCES ingest_items (id),
     kind TEXT NOT NULL CHECK (kind IN ('rename', 'copy', 'repack')),
-    state TEXT NOT NULL CHECK (state IN ('pending', 'moving', 'staging', 'published', 'disposing', 'done',
-                                         'failed')),
+    state TEXT NOT NULL CHECK (state IN ('pending', 'moving', 'restoring', 'staging', 'published', 'disposing',
+                                         'keeping', 'done', 'failed')),
     name TEXT NOT NULL,
     dev INTEGER NOT NULL,
     ino INTEGER NOT NULL,
     size INTEGER NOT NULL,
     mtime_ns TEXT NOT NULL,
+    ctime_ns TEXT NOT NULL,
     sha256 TEXT,
     dest_kind TEXT NOT NULL CHECK (dest_kind IN ('kept', 'path')),
     dest_root TEXT,
@@ -126,8 +127,14 @@ CREATE TABLE ingest_moves (
     staged_dev INTEGER,
     staged_ino INTEGER,
     dest_sha256 TEXT,
+    -- An entry found where the planned one should have been, and the kept files name it is set aside under.
+    found_dev INTEGER,
+    found_ino INTEGER,
+    aside_name TEXT,
     kept_id INTEGER REFERENCES ingest_kept (id),
     error TEXT,
+    -- What a move that ended did besides what was planned, such as keeping an original that changed.
+    note TEXT,
     created_at TEXT NOT NULL,
     finished_at TEXT
 );
@@ -184,3 +191,21 @@ WHEN (NEW.kind = 'selection') <> (NEW.profile_version_id IS NOT NULL)
 BEGIN
     SELECT RAISE(ABORT, 'a selection job runs a profile version, a build job an approved plan, a check job a managed folder, an audit job none');
 END;
+
+-- An Audit a DAT import owes each Source Set bound to the imported DAT, recorded before the import so that one
+-- missed while another Audit of the set ran, or by a stop, is queued later.
+CREATE TABLE ingest_reaudits (
+    id INTEGER PRIMARY KEY,
+    plan_id INTEGER NOT NULL REFERENCES ingest_plans (id),
+    item_id INTEGER NOT NULL REFERENCES ingest_items (id),
+    source_set_id INTEGER NOT NULL REFERENCES source_sets (id),
+    sha256 TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    readers INTEGER NOT NULL,
+    hashers INTEGER NOT NULL,
+    job_id INTEGER,
+    created_at TEXT NOT NULL,
+    fulfilled_at TEXT,
+    UNIQUE (plan_id, item_id, source_set_id)
+);
+CREATE INDEX ingest_reaudits_owed ON ingest_reaudits (id) WHERE fulfilled_at IS NULL;

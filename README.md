@@ -532,21 +532,30 @@ A scan reads the folder and changes nothing in it. It is a job you start, or tha
 folder is not watched. Dotfiles and partial downloads (`.part`, `.!qB`, `.crdownload`, `.tmp`) are ignored. A new or
 changed item is arriving until its size, modification time and change time stay the same for `settle_secs`; then it
 is assessed: hashed once, and matched against the current DAT revision of every source set. Its hashes are reused
-while its device, inode, size and times are unchanged. Each item is one of:
+while its device, inode, size, modification time and change time are unchanged, as an incremental audit reuses an
+entry's. A ZIP is judged from its directory before any member is read. Its members are read only up to the limits of
+one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all. Each item is one of:
 
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
   a candidate operator addition, with the system its extension suggests when exactly one registered system uses it;
   or a DAT you may import;
 - already held, when every source set it matches holds it, or it is a DAT revision already imported;
-- unsupported: 7z, RAR, an archive holding archives, a ZIP of several games, or a folder, never opened;
+- unsupported: 7z, RAR, an archive holding archives (by name or by content), a ZIP of several games that no one
+  game accounts for, a ZIP past the limits, or a folder, never read further;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
-Items leave the folder only through a plan you approve. A plan lists each item, where it goes and why, and binds
-every entry of the folder by device, inode, size and modification time; approving it is refused if anything changed.
+Items leave the folder only through a plan you approve. Only an item that has settled and been assessed can be in a
+plan, and an item with other hard links to it cannot. A plan lists each item, where it goes and why, and binds every
+entry of the folder by device, inode, size, modification time, change time and link count. Approving it is refused if
+anything changed.
 Discarding an item moves it into the folder's kept files, `.title-select-retained/<generation>/<name>.kept`. Importing
-a DAT imports it as an upload would, queues an audit of each source set bound to its DAT when it is a newer revision,
-then keeps the file the same way. Within one filesystem a move is a rename that never replaces anything; across
-filesystems the file is copied, the copy checked by hash and renamed into place, and only then the original deleted.
+a DAT imports it as an upload would, then keeps the file the same way. When it is a newer revision, it queues an
+incremental audit of each source set bound to its DAT. If another job of that source set is queued or running, the
+audit is queued once that job ends. Within one filesystem a move is a rename that never replaces anything. What
+arrives is then read back and hashed; anything other than the file planned is put back, or kept if its name was taken
+meanwhile, and the move fails. Across filesystems the file is copied, the copy checked by hash and renamed into place.
+Only then is the original set aside and read back again, and deleted only if it is still exactly what was copied. An
+original that changed meanwhile is left in the folder, or kept, and never deleted; the plan's outcome says which.
 A move cut off by a stop is finished when the service next starts, once the folder's root and marker check out.
 
 ### API

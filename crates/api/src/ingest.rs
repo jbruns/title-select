@@ -280,6 +280,11 @@ pub struct FolderEntry {
     pub name: String,
     pub identity: FileIdentity,
     pub file: FileStat,
+    /// Its status change time, in nanoseconds since the Unix epoch: changed by any write, any change of its times,
+    /// and any link made to it or removed.
+    pub ctime_ns: i128,
+    /// How many names link to it.
+    pub nlink: u64,
 }
 
 /// One item a plan moves: where it goes and why.
@@ -289,6 +294,8 @@ pub struct IngestPlanItem {
     pub name: String,
     pub identity: FileIdentity,
     pub file: FileStat,
+    /// Its status change time, in nanoseconds since the Unix epoch.
+    pub ctime_ns: i128,
     pub sha256: Option<String>,
     /// Where it goes, relative to the Ingest Folder.
     pub destination: String,

@@ -21,14 +21,15 @@ use title_select_api::ingest::{
     IngestMarker, IngestOutcome, IngestPlan, IngestPlanContent, IngestPlanItem, ItemMatch,
     ItemPayload, ItemState, MatchedRom, Need, PlanIngest, Proposal,
 };
-use title_select_api::{ImportOutcome, Job, JobKind, JobState, Workers};
-use title_select_engine::build::{Payload, Probe, probe};
+use title_select_api::{AuditEvidence, ImportOutcome, Job, JobKind, JobState, Workers};
+use title_select_engine::FileStamp;
+use title_select_engine::build::{Payload, Probe, Probed, ZipLimits, probe_within};
 use title_select_engine::dat::Dat;
 
 use self::moves::{Destination, Move};
 use super::audits::choose_revision;
 use super::checks::Seen;
-use super::folder_dir::{FolderDir, Identity, file_stat};
+use super::folder_dir::{FolderDir, Identity};
 use super::folders::{MARKER_LIMIT, store_id, write_marker};
 use super::jobs::{finish_running, job_by_id};
 use super::kept::{Scope, settle_dir_temps};
@@ -42,11 +43,6 @@ const PARTIAL: [&str; 4] = [".part", ".!qB", ".crdownload", ".tmp"];
 
 /// Archive formats Title Select never opens.
 const UNSUPPORTED_ARCHIVES: [&str; 2] = ["7z", "rar"];
-
-/// Endings of archive members that make a ZIP a nested archive.
-const NESTED: [&str; 12] = [
-    "zip", "7z", "rar", "gz", "tgz", "tar", "bz2", "xz", "zst", "lzh", "lha", "arj",
-];
 
 /// The largest file read as a possible DAT.
 const DAT_LIMIT: u64 = 512 << 20;
@@ -185,7 +181,9 @@ fn open_checked(
     Ok(check_ingest_marker(&dir, &expected).map(|()| dir))
 }
 
-/// Every top-level entry of the folder a scan does not pass over, as it is now, by name.
+/// Every top-level entry of the folder a scan does not pass over, as it is now, by name: identity, size, modification
+/// and change times, and link count. A write that puts the size and modification time back still changes the change
+/// time, as does a link made to an entry under a name a scan passes over.
 fn fingerprint(dir: &FolderDir) -> std::io::Result<Vec<FolderEntry>> {
     let mut found = Vec::new();
     for (name, _) in dir.entries()? {
@@ -193,10 +191,13 @@ fn fingerprint(dir: &FolderDir) -> std::io::Result<Vec<FolderEntry>> {
             continue;
         }
         if let Some(st) = dir.stat(&name)? {
+            let seen = Seen::of(&st);
             found.push(FolderEntry {
                 name,
-                identity: Identity::of(&st).into(),
-                file: file_stat(&st),
+                identity: seen.identity.into(),
+                file: seen.file,
+                ctime_ns: seen.ctime_ns,
+                nlink: st.st_nlink as u64,
             });
         }
     }
@@ -297,6 +298,18 @@ fn present_items(c: &Connection, folder: i64) -> Result<HashMap<String, ItemRow>
         .query_map([folder], item_from_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows.into_iter().map(|r| (r.item.name.clone(), r)).collect())
+}
+
+/// The change test's view of `seen`: an item's hashes are reused under exactly the test an incremental Audit reuses
+/// a payload read under.
+fn stamp(seen: &Seen) -> FileStamp {
+    FileStamp {
+        dev: seen.identity.dev,
+        ino: seen.identity.ino,
+        size: seen.file.size,
+        mtime_ns: seen.file.mtime_ns,
+        ctime_ns: seen.ctime_ns,
+    }
 }
 
 fn stat_params(seen: &Seen) -> (i64, i64, i64, String, String) {
@@ -457,8 +470,14 @@ impl Matcher {
         Ok(matcher)
     }
 
-    /// Each Source Set Game the payloads hold ROMs of.
-    fn matches(&self, payloads: &[Payload]) -> Vec<ItemMatch> {
+    /// Each Source Set Game the payloads hold ROMs of. In a ZIP, ROMs one Game shares with others match those too;
+    /// where one Game accounts for every payload that matches a Source Set, only the Games that do are kept, and a
+    /// ZIP no single Game accounts for is a whole-set archive, refused with why.
+    fn matches(
+        &self,
+        payloads: &[Payload],
+        zip: bool,
+    ) -> std::result::Result<Vec<ItemMatch>, String> {
         let mut found = Vec::new();
         for set in &self.sets {
             let index = &self.dats[set.index];
@@ -480,6 +499,18 @@ impl Matcher {
                     used.insert(at);
                 }
             }
+            if zip && games.len() > 1 {
+                let matched: BTreeSet<usize> =
+                    games.values().flat_map(|(_, used)| used).copied().collect();
+                games.retain(|_, (_, used)| *used == matched);
+                if games.is_empty() {
+                    return Err(format!(
+                        "it holds ROMs of more than one game of {} and no one game accounts for them; whole-set \
+                         archives are not opened, only one game's ZIP",
+                        set.name
+                    ));
+                }
+            }
             for (game, (roms, used)) in games {
                 let name = index.dat.games[game].clone();
                 let need = set.need(&name, &roms);
@@ -494,7 +525,7 @@ impl Matcher {
                 });
             }
         }
-        found
+        Ok(found)
     }
 
     /// The one DAT, as `<provider>/<name>`, of a registered Source Set with a ROM ending `.ext`, if exactly one has.
@@ -597,23 +628,14 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
             Some("it is not a readable ZIP archive".into()),
         ));
     }
-    if probe.zip {
-        if let Some(error) = &probe.error {
-            return Ok(found(
-                ItemState::Unreadable,
-                assessment,
-                Some(format!("a member cannot be read: {error}")),
-            ));
-        }
-        if let Some(member) = probe.payloads.iter().find_map(|p| {
-            p.name
-                .as_deref()
-                .filter(|m| extension(m).is_some_and(|e| NESTED.contains(&e.as_str())))
-        }) {
-            return Ok(Found::unsupported(format!(
-                "it holds another archive, {member}; nested archives are not opened"
-            )));
-        }
+    if probe.zip
+        && let Some(error) = &probe.error
+    {
+        return Ok(found(
+            ItemState::Unreadable,
+            assessment,
+            Some(format!("a member cannot be read: {error}")),
+        ));
     }
     if let Some((dat_name, version)) = &read.dat {
         let dat = store.read(|c| found_dat(c, dat_name, version, &probe.sha256))?;
@@ -626,19 +648,10 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
             found(ItemState::Assessed, assessment, None)
         });
     }
-    let matches = matcher.matches(&probe.payloads);
-    if probe.zip {
-        let mut games: HashMap<&str, BTreeSet<&str>> = HashMap::new();
-        for m in &matches {
-            games.entry(&m.source_set).or_default().insert(&m.game);
-        }
-        if let Some((set, held)) = games.iter().find(|(_, games)| games.len() > 1) {
-            return Ok(Found::unsupported(format!(
-                "it holds {} games of {set}; whole-set archives are not opened, only one game's ZIP",
-                held.len()
-            )));
-        }
-    }
+    let matches = match matcher.matches(&probe.payloads, probe.zip) {
+        Ok(matches) => matches,
+        Err(why) => return Ok(Found::unsupported(why)),
+    };
     assessment.payloads = probe
         .payloads
         .iter()
@@ -689,15 +702,29 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
 
 /// Reads the regular file `name`, found by `lstat` as `seen`, through `dir`: hashed whole and, for a ZIP, by
 /// member; parsed as a DAT when its name says it may be one. Trusted only if it is the same file, unchanged, before
-/// and after.
-fn read_item(dir: &FolderDir, name: &str, seen: &Seen) -> std::result::Result<ItemRead, String> {
+/// and after. A ZIP is judged from its directory before any member is decompressed, and its reading stops at the
+/// limits of a game's ZIP; one refused is `Ok(Err(why))`.
+fn read_item(
+    dir: &FolderDir,
+    name: &str,
+    seen: &Seen,
+) -> std::result::Result<std::result::Result<ItemRead, String>, String> {
     let changed = || "it changed while it was read".to_owned();
     let mut file = dir.open_file(name).map_err(|e| e.to_string())?;
     let before = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
     if Seen::of(&before) != *seen {
         return Err(changed());
     }
-    let probe = probe(&file).map_err(|e| e.to_string())?;
+    let probe = match probe_within(&file, &ZipLimits::default()).map_err(|e| e.to_string())? {
+        Probed::Read(probe) => probe,
+        Probed::Refused(why) => {
+            let after = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
+            return match Seen::of(&after) == *seen {
+                true => Ok(Err(why)),
+                false => Err(changed()),
+            };
+        }
+    };
     let mut dat = None;
     if !probe.zip
         && probe.size <= DAT_LIMIT
@@ -716,7 +743,7 @@ fn read_item(dir: &FolderDir, name: &str, seen: &Seen) -> std::result::Result<It
     let after = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
     match dir.stat(name) {
         Ok(Some(st)) if Seen::of(&after) == *seen && Seen::of(&st) == *seen => {
-            Ok(ItemRead { probe, dat })
+            Ok(Ok(ItemRead { probe, dat }))
         }
         _ => Err(changed()),
     }
@@ -820,23 +847,28 @@ fn kept_from_row(r: &Row) -> rusqlite::Result<IngestKeptFile> {
 fn outcomes_from_moves(c: &Connection, plan: &IngestPlan) -> Result<Vec<IngestOutcome>> {
     let mut outcomes = Vec::new();
     for item in &plan.content.items {
-        let found: Option<(String, Option<String>)> = c
+        let found: Option<(String, Option<String>, Option<String>)> = c
             .query_row(
-                "SELECT state, error FROM ingest_moves WHERE plan_id = ?1 AND item_id = ?2
+                "SELECT state, error, note FROM ingest_moves WHERE plan_id = ?1 AND item_id = ?2
                  ORDER BY id DESC LIMIT 1",
                 params![plan.id, item.item],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()?;
         outcomes.push(match found {
-            Some((state, _)) if state == "done" => IngestOutcome {
+            Some((state, _, note)) if state == "done" => IngestOutcome {
                 item: item.item,
                 name: item.name.clone(),
                 moved: true,
-                detail: Some(format!("moved to {}", item.destination)),
+                detail: Some(
+                    std::iter::once(format!("moved to {}", item.destination))
+                        .chain(note)
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ),
                 error: None,
             },
-            Some((_, error)) => IngestOutcome {
+            Some((_, error, _)) => IngestOutcome {
                 item: item.item,
                 name: item.name.clone(),
                 moved: false,
@@ -1047,6 +1079,9 @@ impl Store {
             }
             let settled = match existing.item.state {
                 ItemState::Dismissed => continue,
+                // Refused unread, as an archive within the archive or past the limits: reading it again would only
+                // refuse it again.
+                ItemState::Unsupported if existing.read.is_none() => continue,
                 ItemState::Arriving | ItemState::Stale | ItemState::Failed => {
                     let since: jiff::Timestamp = existing
                         .stable_since
@@ -1067,13 +1102,19 @@ impl Store {
             let reused = existing
                 .read
                 .clone()
-                .filter(|_| existing.hashed.as_ref() == Some(&seen));
+                .filter(|_| existing.hashed.as_ref().map(stamp) == Some(stamp(&seen)));
             let (read, fresh) = match reused {
                 Some(read) => (read, false),
                 None => {
                     self.fault_point(Fault::IngestRead);
                     match read_item(&dir, &name, &seen) {
-                        Ok(read) => (read, true),
+                        Ok(Ok(read)) => (read, true),
+                        Ok(Err(why)) => {
+                            self.write(|tx| {
+                                store_found(tx, existing.item.id, &Found::unsupported(why))
+                            })?;
+                            continue;
+                        }
                         Err(why) => {
                             let failed = Found {
                                 state: ItemState::Failed,
@@ -1235,17 +1276,24 @@ impl Store {
                     "item {id} is not in ingest folder {root}"
                 )));
             }
-            if matches!(item.state, ItemState::Gone | ItemState::Moved) {
-                return Err(Error::Conflict(format!(
-                    "{} is {}; scan the folder again",
-                    item.name,
-                    item.state.label()
-                )));
+            if let Some(why) = unmovable(item) {
+                return Err(Error::Conflict(why));
             }
             if !names.insert(item.name.clone()) {
                 return Err(Error::Refused(format!("{} is listed twice", item.name)));
             }
             match dir.stat(&item.name).map_err(|e| Error::Io(e.to_string()))? {
+                Some(st)
+                    if FolderDir::kind(&st) == FileType::RegularFile
+                        && Seen::of(&st) == found.seen
+                        && st.st_nlink != 1 =>
+                {
+                    return Err(Error::Refused(format!(
+                        "{} has other links to it, so moving it would not move all of it; remove the other links, \
+                         then scan again",
+                        item.name
+                    )));
+                }
                 Some(st)
                     if FolderDir::kind(&st) == FileType::RegularFile
                         && Seen::of(&st) == found.seen => {}
@@ -1308,6 +1356,7 @@ impl Store {
                 name: item.name.clone(),
                 identity: item.identity,
                 file: item.file.clone(),
+                ctime_ns: found.seen.ctime_ns,
                 sha256: item.assessment.sha256.clone(),
                 destination: format!("{RETENTION}/{generation}/{kept}"),
                 reason,
@@ -1387,6 +1436,13 @@ impl Store {
                 row.root
             )));
         }
+        for item in &content.items {
+            if let Some(why) = self.read(|c| item_unmovable(c, item.item))? {
+                return Err(Error::Conflict(format!(
+                    "{why}; nothing was moved. Scan the folder, plan again and review the new plan"
+                )));
+            }
+        }
         if let Err(why) = settle_dir_temps(self, Scope::Ingest(row.id), &dir)? {
             return Err(Error::Refused(why));
         }
@@ -1411,7 +1467,7 @@ impl Store {
         for item in &content.items {
             let mut detail = Vec::new();
             if content.action == IngestAction::DatImport {
-                match self.import_from_ingest(&dir, item, actor, workers) {
+                match self.import_from_ingest(&dir, id, item, actor, workers) {
                     Ok(done) => detail.extend(done),
                     Err(err) => {
                         outcomes.push(IngestOutcome {
@@ -1432,8 +1488,11 @@ impl Store {
                     plan: Some(id),
                     item: Some(item.item),
                     name: &item.name,
-                    identity: item.identity.into(),
-                    file: item.file.clone(),
+                    seen: Seen {
+                        identity: item.identity.into(),
+                        file: item.file.clone(),
+                        ctime_ns: item.ctime_ns,
+                    },
                     sha256: item.sha256.clone(),
                     dest: Destination::Kept {
                         generation: content.generation,
@@ -1444,8 +1503,9 @@ impl Store {
                 },
             )?;
             outcomes.push(match moved {
-                Ok(_) => {
+                Ok(moved) => {
                     detail.push(format!("kept as {}", item.destination));
+                    detail.extend(moved.note);
                     IngestOutcome {
                         item: item.item,
                         name: item.name.clone(),
@@ -1472,11 +1532,14 @@ impl Store {
         })
     }
 
-    /// Imports the DAT file `item`, read through `dir` while it is still the file planned, and queues an Audit with
-    /// the new revision of each Source Set bound to its DAT. Returns what it did.
+    /// Imports the DAT file `item` of plan `plan`, read through `dir` while it is still the file planned. A new
+    /// revision of a DAT already imported owes each Source Set bound to it an incremental Audit with it; that is
+    /// recorded before the import and queued as soon as no other Job is, here, once a Job ends, or on recovery.
+    /// Returns what it did.
     fn import_from_ingest(
         &self,
         dir: &FolderDir,
+        plan: i64,
         item: &IngestPlanItem,
         actor: &str,
         workers: Workers,
@@ -1485,8 +1548,13 @@ impl Store {
         let file = dir
             .open_file(&item.name)
             .map_err(|e| Error::Io(e.to_string()))?;
+        let planned = Seen {
+            identity: item.identity.into(),
+            file: item.file.clone(),
+            ctime_ns: item.ctime_ns,
+        };
         let st = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
-        if Identity::of(&st) != Identity::from(item.identity) || file_stat(&st) != item.file {
+        if Seen::of(&st) != planned || st.st_nlink != 1 {
             return Err(changed());
         }
         let mut bytes = Vec::new();
@@ -1498,22 +1566,43 @@ impl Store {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
-        if item.sha256.as_deref() != Some(sha.as_str()) {
+        let after = rustix::fs::fstat(&file).map_err(|e| Error::Io(e.to_string()))?;
+        if item.sha256.as_deref() != Some(sha.as_str()) || Seen::of(&after) != planned {
             return Err(changed());
         }
         let provider = item.provider.as_deref().ok_or_else(|| {
             Error::Refused(format!("{} has no provider to import it under", item.name))
         })?;
         let name = Dat::parse(&bytes, Path::new(&item.name))?.name;
-        let existed = self.read(|c| {
-            Ok(c.query_row(
-                "SELECT 1 FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
-                 WHERE d.provider = ?1 AND d.name = ?2 LIMIT 1",
-                params![provider, name],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
+        self.write(|tx| {
+            let newer: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
+                                WHERE d.provider = ?1 AND d.name = ?2)
+                 AND NOT EXISTS (SELECT 1 FROM dat_revisions WHERE sha256 = ?3)",
+                params![provider, name, sha],
+                |r| r.get(0),
+            )?;
+            if newer {
+                tx.execute(
+                    "INSERT OR IGNORE INTO ingest_reaudits
+                         (plan_id, item_id, source_set_id, sha256, actor, readers, hashers, created_at)
+                     SELECT ?1, ?2, s.id, ?3, ?4, ?5, ?6, ?7
+                     FROM source_sets s JOIN dats d ON d.id = s.dat_id
+                     WHERE d.provider = ?8 AND d.name = ?9",
+                    params![
+                        plan,
+                        item.item,
+                        sha,
+                        actor,
+                        workers.readers as i64,
+                        workers.hashers as i64,
+                        now(),
+                        provider,
+                        name
+                    ],
+                )?;
+            }
+            Ok(())
         })?;
         let (revision, outcome) = self.import_dat_bytes(&bytes, &item.name, provider, None)?;
         let mut done = vec![match outcome {
@@ -1531,30 +1620,86 @@ impl Store {
                 revision.version
             ),
         }];
-        if outcome == ImportOutcome::Added && existed {
-            let sets = self.read(|c| {
-                let mut stmt = c.prepare(
-                    "SELECT s.name FROM source_sets s JOIN dats d ON d.id = s.dat_id
-                     WHERE d.provider = ?1 AND d.name = ?2 ORDER BY s.name",
-                )?;
-                Ok(stmt
-                    .query_map(params![provider, name], |r| r.get::<_, String>(0))?
-                    .collect::<rusqlite::Result<Vec<String>>>()?)
-            })?;
-            for set in sets {
-                done.push(
-                    match self.enqueue_audit(&set, Some(&revision.sha256), actor, workers) {
-                        Ok(job) => format!("queued an audit of {set} with it: job {}", job.id),
-                        Err(Error::JobActive { job, .. }) => format!(
-                            "{set} already has an audit queued or running (job {job}); audit it with the new \
-                             revision once that ends"
-                        ),
-                        Err(err) => format!("could not queue an audit of {set}: {err}"),
-                    },
-                );
-            }
+        self.fulfil_ingest_reaudits()?;
+        let owed = self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT s.name, a.job_id FROM ingest_reaudits a JOIN source_sets s ON s.id = a.source_set_id
+                 WHERE a.plan_id = ?1 AND a.item_id = ?2 ORDER BY s.name",
+            )?;
+            Ok(stmt
+                .query_map(params![plan, item.item], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })?;
+        for (set, job) in owed {
+            done.push(match job {
+                Some(job) => format!("queued an incremental audit of {set} with it: job {job}"),
+                None => format!(
+                    "an incremental audit of {set} with it is queued as soon as the job running now ends"
+                ),
+            });
         }
         Ok(done)
+    }
+
+    /// Queues each incremental Audit a DAT imported from an Ingest Folder owes and no other Job stands in the way of.
+    /// Returns the Jobs queued.
+    pub fn fulfil_ingest_reaudits(&self) -> Result<Vec<Job>> {
+        let owed = self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT a.id, s.name, a.sha256, a.actor, a.readers, a.hashers,
+                        EXISTS (SELECT 1 FROM dat_revisions r WHERE r.sha256 = a.sha256)
+                 FROM ingest_reaudits a JOIN source_sets s ON s.id = a.source_set_id
+                 WHERE a.fulfilled_at IS NULL ORDER BY a.id",
+            )?;
+            Ok(stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, i64>(4)?,
+                        r.get::<_, i64>(5)?,
+                        r.get::<_, bool>(6)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })?;
+        let mut queued = Vec::new();
+        for (id, set, sha, actor, readers, hashers, imported) in owed {
+            // A stop between recording what an import owes and the import itself owes nothing.
+            let job = match imported {
+                false => None,
+                true => {
+                    let workers = Workers {
+                        readers: readers as usize,
+                        hashers: hashers as usize,
+                    };
+                    match self.enqueue_audit(
+                        &set,
+                        Some(&sha),
+                        &actor,
+                        workers,
+                        AuditEvidence::Incremental,
+                    ) {
+                        Ok(job) => Some(job),
+                        Err(Error::JobActive { .. }) => continue,
+                        Err(err) => return Err(err),
+                    }
+                }
+            };
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE ingest_reaudits SET job_id = ?2, fulfilled_at = ?3 WHERE id = ?1",
+                    params![id, job.as_ref().map(|j| j.id), now()],
+                )?;
+                Ok(())
+            })?;
+            queued.extend(job);
+        }
+        Ok(queued)
     }
 
     /// The files plans kept aside in the Ingest Folder of Root `root`.
@@ -1602,6 +1747,7 @@ impl Store {
                 left.push((id, why));
             }
         }
+        self.fulfil_ingest_reaudits()?;
         let plans = self.read(|c| {
             let mut stmt = c.prepare(&format!(
                 "{PLAN_QUERY} WHERE approved_at IS NOT NULL AND finished_at IS NULL
@@ -1624,6 +1770,33 @@ impl Store {
         }
         Ok(left)
     }
+}
+
+/// Why `item` cannot be moved now, if it cannot: only an item that has settled, and was assessed or found
+/// unsupported, can be.
+fn unmovable(item: &IngestItem) -> Option<String> {
+    match item.state {
+        ItemState::Assessed
+        | ItemState::AlreadyHeld
+        | ItemState::Unreadable
+        | ItemState::Unsupported
+        | ItemState::Dismissed => None,
+        ItemState::Arriving | ItemState::Stale => Some(format!(
+            "{} is {}; it is moved only once it has stopped changing and been assessed",
+            item.name,
+            item.state.label()
+        )),
+        _ => Some(format!(
+            "{} is {}; scan the folder again",
+            item.name,
+            item.state.label()
+        )),
+    }
+}
+
+/// Why the item `id` cannot be moved now, if it cannot.
+pub(super) fn item_unmovable(c: &Connection, id: i64) -> Result<Option<String>> {
+    Ok(unmovable(&item_by_id(c, id)?.item))
 }
 
 fn current_id(c: &Connection, folder: i64, name: &str) -> Result<i64> {

@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::*;
-use title_select_api::JobKind;
 use title_select_api::ingest::{IngestAction, IngestItem, ItemState, Need, PlanIngest, Proposal};
+use title_select_api::{AuditEvidence, JobKind};
 use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
 
@@ -93,7 +93,9 @@ impl Env {
         write_file(&sets.join("Alpha/Pong (USA).a26"), b"pong");
         write_file(&sets.join("Alpha/Combat (USA).a26"), b"combat");
         for set in ["Alpha", "Beta"] {
-            store.audit_source_set(&config, set, None).unwrap();
+            store
+                .audit_source_set(&config, set, None, AuditEvidence::Full)
+                .unwrap();
         }
         let env = Env { tmp, store, config };
         env.store.register_ingest_folder(&env.config, "in").unwrap();
@@ -393,7 +395,7 @@ fn an_unchanged_item_is_not_read_again_but_matched_again() {
     // Beta gains Pong: the item, read once, is now held by every Source Set it matches.
     write_file(&env.dir("roots/sets/Beta/Pong (Beta).bin"), b"pong");
     env.store
-        .audit_source_set(&env.config, "Beta", None)
+        .audit_source_set(&env.config, "Beta", None, AuditEvidence::Full)
         .unwrap();
     env.scan();
     assert_eq!(reads.load(Ordering::SeqCst), 1);
@@ -596,4 +598,239 @@ fn only_an_ingest_root_is_registered_and_it_holds_no_managed_folder() {
     )
     .unwrap();
     assert!(env.store.register_ingest_folder(&env.config, "in").is_err());
+}
+
+#[test]
+fn an_item_still_arriving_cannot_be_planned() {
+    let env = Env::new();
+    write_file(&env.dir("slow").join("pong.a26"), b"pong");
+    env.scan_root("slow");
+    let item = &env.store.ingest_items("slow").unwrap()[0];
+    assert_eq!(item.state, ItemState::Arriving);
+
+    let refused = env.store.plan_ingest(
+        &env.config,
+        "slow",
+        &PlanIngest {
+            action: IngestAction::Discard,
+            items: vec![item.id],
+            provider: None,
+        },
+    );
+
+    assert!(matches!(refused, Err(Error::Conflict(_))), "{refused:?}");
+}
+
+#[test]
+fn approval_is_refused_after_an_overwrite_that_hides_itself_or_a_new_link_to_the_item() {
+    for change in ["overwrite", "link"] {
+        let env = Env::new();
+        let path = env.put("mystery.a26", b"homebrew");
+        env.scan();
+        env.scan();
+        let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
+
+        match change {
+            "overwrite" => {
+                let before = std::fs::metadata(&path).unwrap();
+                let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+                std::io::Write::write_all(&mut &file, b"HOMEBREW").unwrap();
+                file.set_modified(before.modified().unwrap()).unwrap();
+                assert_eq!(std::fs::metadata(&path).unwrap().len(), before.len());
+            }
+            _ => std::fs::hard_link(&path, env.dir("in").join(".hidden link")).unwrap(),
+        }
+        let before = env.listing();
+        let refused =
+            env.store
+                .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+
+        assert!(
+            matches!(refused, Err(Error::Conflict(_))),
+            "{change}: {refused:?}"
+        );
+        assert_eq!(env.listing(), before, "{change}");
+    }
+}
+
+#[test]
+fn an_item_with_another_link_to_it_cannot_be_planned() {
+    let env = Env::new();
+    let path = env.put("mystery.a26", b"homebrew");
+    std::fs::hard_link(&path, env.dir("in").join(".hidden link")).unwrap();
+    env.scan();
+    env.scan();
+    let id = env.item("mystery.a26").id;
+
+    let refused = env.store.plan_ingest(
+        &env.config,
+        "in",
+        &PlanIngest {
+            action: IngestAction::Discard,
+            items: vec![id],
+            provider: None,
+        },
+    );
+
+    assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
+}
+
+#[test]
+fn a_zip_judged_by_its_directory_is_refused_before_any_member_is_hashed() {
+    let env = Env::new();
+    let mut inner = Vec::new();
+    {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut inner));
+        zip.start_file("x", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zip, b"x").unwrap();
+        zip.finish().unwrap();
+    }
+    write_zip(
+        &env.dir("in").join("disguised.zip"),
+        &[("Pong (USA).a26", b"pong"), ("readme.txt", &inner)],
+    );
+    let many: Vec<(String, Vec<u8>)> = (0..4097)
+        .map(|n| (format!("{n}.bin"), vec![n as u8]))
+        .collect();
+    let many: Vec<(&str, &[u8])> = many
+        .iter()
+        .map(|(n, b)| (n.as_str(), b.as_slice()))
+        .collect();
+    write_zip(&env.dir("in").join("many.zip"), &many);
+    let reads = Arc::new(AtomicUsize::new(0));
+    let counted = reads.clone();
+    env.store.hook_faults(Some(Arc::new(move |fault| {
+        if fault == Fault::IngestRead {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }
+    })));
+
+    env.scan();
+    env.scan();
+    env.scan();
+
+    for name in ["disguised.zip", "many.zip"] {
+        let item = env.item(name);
+        assert_eq!(item.state, ItemState::Unsupported, "{item:?}");
+        assert!(item.assessment.payloads.is_empty(), "{item:?}");
+    }
+    assert_eq!(reads.load(Ordering::SeqCst), 2, "each read once");
+}
+
+#[test]
+fn a_games_zip_holding_a_rom_it_shares_with_other_games_is_that_games_zip() {
+    let env = Env::new();
+    std::fs::create_dir_all(env.dir("roots/sets/Gamma")).unwrap();
+    let dat = write_named_dat(
+        &env.dir("dats"),
+        "gamma.dat",
+        "Gamma System",
+        "1",
+        &[
+            (
+                "Pac (USA)",
+                vec![rom("pac.a", b"pac usa"), rom("common.b", b"common")],
+            ),
+            (
+                "Pac (Japan)",
+                vec![rom("pacj.a", b"pac japan"), rom("common.b", b"common")],
+            ),
+        ],
+    );
+    env.store.import_dat(&dat, "Test", None).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "Gamma", "Test/Gamma System")
+        .unwrap();
+    env.store
+        .audit_source_set(&env.config, "Gamma", None, AuditEvidence::Full)
+        .unwrap();
+    write_zip(
+        &env.dir("in").join("pac.zip"),
+        &[("pac.a", b"pac usa"), ("common.b", b"common")],
+    );
+    write_zip(
+        &env.dir("in").join("both.zip"),
+        &[
+            ("pac.a", b"pac usa"),
+            ("pacj.a", b"pac japan"),
+            ("common.b", b"common"),
+        ],
+    );
+    env.scan();
+    env.scan();
+
+    let pac = env.item("pac.zip");
+    assert_eq!(pac.state, ItemState::Assessed, "{pac:?}");
+    assert_eq!(
+        pac.assessment.proposal,
+        Some(Proposal::SourceSet {
+            source_set: "Gamma".into(),
+            game: "Pac (USA)".into(),
+            need: Need::Missing,
+        })
+    );
+    assert_eq!(env.state("both.zip"), ItemState::Unsupported);
+}
+
+#[test]
+fn an_audit_a_dat_import_owes_is_queued_once_the_job_in_its_way_ends_or_on_recovery() {
+    for recovered in [false, true] {
+        let env = Env::new();
+        write_named_dat(
+            &env.dir("in"),
+            "Alpha System (2).dat",
+            "Alpha System",
+            "2",
+            &alpha_games()[..2],
+        );
+        env.scan();
+        env.scan();
+        let plan = env.plan(IngestAction::DatImport, &["Alpha System (2).dat"]);
+        let blocking = env
+            .store
+            .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full)
+            .unwrap();
+
+        let applied = env
+            .store
+            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+
+        let detail = applied.outcomes[0].detail.clone().unwrap();
+        assert!(detail.contains("as soon as"), "{detail}");
+        let queued = |env: &Env| -> Vec<(i64, Option<AuditEvidence>)> {
+            env.store
+                .jobs(10)
+                .unwrap()
+                .into_iter()
+                .filter(|j| {
+                    j.kind == JobKind::Audit && j.state == title_select_api::JobState::Queued
+                })
+                .map(|j| (j.id, j.evidence))
+                .collect()
+        };
+        assert_eq!(queued(&env), [(blocking.id, Some(AuditEvidence::Full))]);
+        assert!(env.store.fulfil_ingest_reaudits().unwrap().is_empty());
+
+        env.store.claim_job().unwrap().unwrap();
+        env.store.fail_job(blocking.id, "stopped").unwrap();
+        match recovered {
+            true => assert!(
+                env.store
+                    .recover_ingest_moves(&env.config)
+                    .unwrap()
+                    .is_empty()
+            ),
+            false => assert_eq!(env.store.fulfil_ingest_reaudits().unwrap().len(), 1),
+        }
+
+        let owed = queued(&env);
+        assert_eq!(owed.len(), 1, "{owed:?}");
+        assert_eq!(owed[0].1, Some(AuditEvidence::Incremental));
+        assert!(
+            env.store.fulfil_ingest_reaudits().unwrap().is_empty(),
+            "queued once"
+        );
+    }
 }

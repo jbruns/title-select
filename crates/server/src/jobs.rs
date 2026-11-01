@@ -118,6 +118,16 @@ pub async fn run(
                 eprintln!("title-select: job {} {}", job.id, job.state.as_str());
                 jobs.changed(job);
             }
+            // An Audit a DAT imported from an Ingest Folder owes waits for the Job it met to end.
+            let owed = {
+                let store = store.clone();
+                tokio::task::spawn_blocking(move || store.fulfil_ingest_reaudits()).await
+            };
+            match owed {
+                Ok(Ok(queued)) => queued.into_iter().for_each(|job| jobs.changed(job)),
+                Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
+                Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
+            }
             drop(slot);
             jobs.wake.notify_one();
         });
