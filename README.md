@@ -11,7 +11,7 @@ The words used here are defined in [GLOSSARY.md](GLOSSARY.md).
 ## Audit
 
 ```sh
-title-select audit --dat <DAT file> <source set directory> [--output <report file>]
+title-select audit --dat <DAT file> <source set directory> [--evidence <quick|full>] [--output <report file>]
 ```
 
 This audit is stateless: it needs no store or configuration. `audit --set` (below) audits a registered source set
@@ -22,6 +22,9 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 - Every payload is read and checksummed (size, CRC32, MD5, SHA-1, SHA-256). Each member of a `.zip` archive is
   an entry; any other file, including other archive formats, is one entry. Nested archives are not opened.
+- `--evidence quick` is a quick inventory: each ZIP member's size and CRC32 are taken from the archive's directory
+  as claim evidence, without reading its payload. Claim evidence never makes an entry verified. Other files are
+  still read. A stateless audit has nothing earlier to reuse, so it is otherwise a full audit.
 - A finding is decided by payload before name: a file whose name is wrong but whose payload matches a ROM is
   misnamed, not unmatched. A payload matches a ROM when every checksum the DAT supplies for it agrees.
 - An unreadable file, directory, archive or member becomes an unreadable entry and the audit continues.
@@ -33,7 +36,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 2,                       // version of this report's shape
+  "schema": 3,                       // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -43,6 +46,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   "source_set": "/path/to/set",
   "started_at": "2026-10-28T22:45:46.539Z",
   "finished_at": "2026-10-28T22:45:46.942Z",
+  "evidence": "incremental",         // quick, incremental or full: how the audit got its checksums
   "summary": {
     "findings": { "matched": 786, "misnamed": 19, "conflicting": 3, "mismatched": 0, "unmatched": 41, "unreadable": 0 },
     "games": { "complete": 802, "incomplete": 0, "missing": 70 }
@@ -54,7 +58,12 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
       "finding": "conflicting",
       "roms": [{ "game": "Breakout (Europe) (Rev 1)", "name": "Breakout (Europe) (Rev 1).a26" }],
       "named_rom": { "game": "Breakout (Europe)", "name": "Breakout (Europe).a26" },
-      "evidence": { "level": "payload", "algorithms": ["size", "crc32", "md5", "sha1", "sha256"] }
+      "evidence": {
+        "level": "payload",                      // or "claim"
+        "algorithms": ["size", "crc32", "md5", "sha1", "sha256"],
+        "read_at": "2026-10-21T08:12:03.117Z",   // when the payload was read
+        "reused": "unchanged_file_heuristic"     // present when this audit reused that read
+      }
     }
   ],
   "games": [
@@ -72,6 +81,10 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 - `evidence.algorithms` lists what the finding rests on. For a payload match, it is size plus each checksum that
   every ROM in `roms` supplies; all of them were compared and agreed. A mismatched or unmatched entry has only size and
   CRC32, the lookup that found no matching ROM. An unreadable entry has no evidence and a `reason` instead.
+- `evidence.level` is `payload` when the checksums were computed by reading the payload, and `claim` when a quick
+  inventory took them from a ZIP archive's directory; a claim's `algorithms` are always size and CRC32, and it has
+  no `read_at`. `read_at` is when the payload was read. `reused` is `unchanged_file_heuristic` when the audit reused
+  an earlier read because the file looked unchanged; see `audit --set`.
 - A game is `complete`, `incomplete` or `missing`; `missing_roms` lists its ROMs no entry's payload matched.
 
 ## Selection
@@ -274,10 +287,11 @@ DAT. The source set is named by its folder (`Atari - 2600`). Without a path, it 
 proposes for the DAT: `--template`, else `path_templates.source_set`, by default `{provider}/{dat}` (see "Path
 templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. `set list` prints each source set with the DAT revision it was last verified against:
 its latest audit's, the latest being the last to finish. `set history` lists a source set's audits, latest first, with
-the time, DAT revision, counts, and whether the full audit is kept or only its summary.
+the time, DAT revision, counts, evidence, and whether the full audit is kept or only its summary.
 
 ```sh
-title-select audit --set <source set> [--revision <sha256 prefix>] [--output <report file>]
+title-select audit --set <source set> [--revision <sha256 prefix>] [--evidence <quick|incremental|full>]
+  [--output <report file>]
 ```
 
 Audits a registered source set, read-only, and records it. Unlike the stateless audit, it does not follow a symlink
@@ -286,6 +300,16 @@ the DAT revision is the latest audit's, else the newest imported revision of the
 adopted only when you name it. The entries and game statuses are written in one transaction when the audit finishes,
 and the report below is generated from them. Afterwards, audits beyond the newest `audits.keep` are pruned to a
 one-row summary; the latest audit, and any audit cited as provenance, are never pruned.
+
+An audit is incremental unless you choose otherwise. The store records, for each file whose payloads were all read,
+the checksums and the file's device, inode, size, modification time and status change time. An incremental audit
+reuses that read when all five are unchanged, and reads the file again otherwise. This change test is a heuristic: a
+file rewritten in place with its times put back would pass it, so its entries keep the time their payload was read
+and say the read was reused. `--evidence full` reads every payload again. `--evidence quick` reuses reads as an
+incremental audit does, and takes the remaining ZIP members as claims, as for the stateless audit. Each entry is
+matched against the DAT revision afresh, so an audit against a newer DAT revision reuses the checksums and compares
+them with the new ROMs. The read, reused and claimed counts go to stderr, and `set history` shows each audit's
+evidence.
 
 ## Service
 
@@ -325,7 +349,11 @@ the job is queued, as for `audit --set`, and its file is kept until the job ends
 or running job; starting another is refused with `409`, naming the job.
 
 A job found running when the Service starts was cut off by a stop: its unfinished audit is discarded, the job becomes
-`interrupted`, and a fresh job (attempt 2) is queued for it. If that job is cut off too, it becomes `failed`.
+`interrupted`, and a fresh job (attempt 2) is queued for it. If that job is cut off too, it becomes `failed`. An audit
+records each file's read as soon as the file is finished, so the fresh job resumes after the last finished file: it
+reuses the reads the interrupted job made, and for an incremental audit or quick inventory any earlier ones too, but
+only for files that pass the change test above. Claims are not
+recorded; a resumed quick inventory takes them again.
 
 `[jobs] concurrent` jobs run at once, 1 by default. Each audit reads payloads on `readers` threads, which also
 decompress ZIP members, and checksums them on `hashers` threads. The pace sets both:
@@ -490,9 +518,9 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat"}`; with no `path`, the path `template`, else the default, proposes |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
-| `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?}`; `202`     |
+| `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 2` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 3` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
@@ -558,11 +586,13 @@ client should do the same: ignore a `state` whose `version` is at or below the o
 ### Headless audit
 
 ```sh
-title-select audit --server <url> --set <source set> [--revision <sha256 prefix>] [--output <report file>]
+title-select audit --server <url> --set <source set> [--revision <sha256 prefix>]
+  [--evidence <quick|incremental|full>] [--output <report file>]
 ```
 
 Starts an audit job on the Service at `<url>`, sending your operator token from `TITLE_SELECT_OPERATOR_TOKEN_FILE` (or
-`--token-file`), and follows it to the end. Progress and a summary of the findings and game statuses go to stderr; the
+`--token-file`), and follows it to the end. `--evidence` chooses the audit's evidence as for `audit --set`. Progress
+and a summary of the findings, game statuses and the read, reused and claimed counts go to stderr; the
 report goes to stdout, or to `--output`. If the job's event stream sends nothing, not even its keep-alive, for 45
 seconds, the client polls the job's state instead. Exits 0 when the audit completes, and non-zero when the job fails,
 the token is refused or the Service cannot be reached.
@@ -611,17 +641,18 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   registers another from a root, a DAT and a path in the root. The path template proposes the path from the DAT, with a
   live preview of the folder it names; change the template, or type over the path and use "Use the proposed path" to
   go back. When the DAT has no `{platform}`, the preview says so and you type the path. Opening a source set shows its facts, starts an audit against
-  the default DAT revision or a newer one, makes a selection with a selection profile, lists its selections, and
-  lists its audit history, latest first, with a Re-audit for each row.
+  the default DAT revision or a newer one, as a quick inventory or an incremental (the default) or full audit, makes a selection with a selection profile, lists its selections, and
+  lists its audit history, latest first, with a Re-audit for each row. A re-audit is incremental.
 - **DAT revisions** lists every DAT revision, newest import first within each DAT, with its provenance (provider,
   source URL, file, SHA-256, import time), whether its file is kept, and the audits that refer to it. It uploads a DAT
   file as a new DAT revision.
-- **Audit** shows the audit's source set, DAT revision and times, exports its JSON report and re-audits. Its summary
+- **Audit** shows the audit's source set, DAT revision, times and evidence, exports its JSON report and re-audits. Its summary
   counts each finding and game status, and two derived states: an entry is verified when it is matched with payload
   evidence, and needs review when it is misnamed, conflicting, mismatched, unmatched or unreadable. Its entries load in
   one request from the bulk NDJSON endpoint, then filter by name, finding, state, game status and evidence algorithm,
-  and sort by any column, in the browser as each key is typed. Selecting an entry shows its evidence and the ROMs it
-  matches. A pruned audit shows only its summary.
+  and sort by any column, in the browser as each key is typed. Selecting an entry shows its evidence level and algorithms,
+  when its payload was last read and whether this audit reused that read because the file looked unchanged (a
+  heuristic), and the ROMs it matches. A pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has a global settings tab and
   a tab per system; each system setting says whether it comes from your global settings or is set for that system,

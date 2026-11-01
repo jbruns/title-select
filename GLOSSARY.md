@@ -73,6 +73,16 @@ What an Audit actually checked for an Entry: the Evidence Level and the checksum
 How an Audit knows an Entry's checksums. _Claim_: taken from an archive's directory without reading the payload.
 _Payload_: computed by reading every byte.
 
+**Incremental Audit**:
+An Audit that reuses an earlier read of a file's payloads when the file looks unchanged since that read; the
+default. Looking unchanged is a heuristic, not proof.
+
+**Full Audit**:
+An Audit that reads every payload, reusing no earlier read.
+
+**Quick Inventory**:
+An Audit that takes Claim Evidence for a ZIP archive's members instead of reading their payloads.
+
 **Finding**:
 An Audit's verdict on one Entry:
 
