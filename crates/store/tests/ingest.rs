@@ -991,3 +991,33 @@ fn an_owed_audit_whose_revision_is_not_imported_yet_stays_owed() {
         .collect();
     assert_eq!(audits, [Some(AuditEvidence::Incremental)]);
 }
+
+#[test]
+fn a_game_held_only_on_its_claim_is_not_already_held() {
+    let env = Env::new();
+    let alpha = env.dir("roots/sets/Alpha");
+    std::fs::remove_file(alpha.join("Combat (USA).a26")).unwrap();
+    write_zip(
+        &alpha.join("Combat (USA).zip"),
+        &[("Combat (USA).a26", b"combat")],
+    );
+    env.store
+        .audit_source_set(&env.config, "Alpha", None, AuditEvidence::Quick)
+        .unwrap();
+    env.put("combat.a26", b"combat");
+    env.scan();
+    env.scan();
+
+    let combat = env.item("combat.a26");
+
+    assert_eq!(combat.state, ItemState::Assessed);
+    assert_eq!(
+        combat.assessment.proposal,
+        Some(Proposal::SourceSet {
+            source_set: "Alpha".into(),
+            game: "Combat (USA)".into(),
+            need: Need::Claimed,
+        })
+    );
+    assert!(Need::Claimed.label().contains("never verified"));
+}

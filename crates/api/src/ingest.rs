@@ -118,6 +118,9 @@ pub enum Need {
     Mismatched,
     /// An Entry for the Game is Unreadable: the item replaces it.
     Unreadable,
+    /// The Game counts as held only on Claim Evidence for a ROM the item has: no Entry's payload was read and matched
+    /// it, so the item would replace a copy that was never verified.
+    Claimed,
     /// The Source Set has no Audit with its current DAT Revision yet.
     Unaudited,
     /// The Source Set already holds the Game complete.
@@ -130,6 +133,9 @@ impl Need {
             Need::Missing => "fills a missing game",
             Need::Mismatched => "replaces a mismatched entry",
             Need::Unreadable => "replaces an unreadable entry",
+            Need::Claimed => {
+                "replaces a copy that is held only by its claim; its payload was never verified"
+            }
             Need::Unaudited => "matches; the source set has no audit yet",
             Need::Held => "already held",
         }

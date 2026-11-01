@@ -386,8 +386,8 @@ struct SetIndex {
 }
 
 struct AuditIndex {
-    /// Each Game's status and missing ROMs.
-    games: HashMap<String, (String, Vec<String>)>,
+    /// Each Game's status, missing ROMs, and ROMs counted present on Claim Evidence alone.
+    games: HashMap<String, (String, Vec<String>, Vec<String>)>,
     /// The Games with a Mismatched or Unreadable Entry.
     bad: HashMap<String, Need>,
 }
@@ -412,13 +412,18 @@ impl SetIndex {
         };
         match audit.games.get(game) {
             None => Need::Missing,
-            Some((status, _)) if status == "missing" => Need::Missing,
-            Some((status, missing))
+            Some((status, _, _)) if status == "missing" => Need::Missing,
+            Some((status, missing, _))
                 if status == "incomplete" && roms.iter().any(|r| missing.contains(&r.rom)) =>
             {
                 Need::Missing
             }
-            _ => audit.bad.get(game).copied().unwrap_or(Need::Held),
+            Some((_, _, claimed)) => audit.bad.get(game).copied().unwrap_or(
+                match roms.iter().any(|r| claimed.contains(&r.rom)) {
+                    true => Need::Claimed,
+                    false => Need::Held,
+                },
+            ),
         }
     }
 }
@@ -569,12 +574,17 @@ fn audit_index(c: &Connection, set: i64, revision: i64) -> Result<Option<AuditIn
     let Some(audit) = audit else {
         return Ok(None);
     };
-    let mut stmt =
-        c.prepare("SELECT name, status, missing_roms FROM audit_games WHERE audit_id = ?1")?;
+    let mut stmt = c.prepare(
+        "SELECT name, status, missing_roms, claimed_roms FROM audit_games WHERE audit_id = ?1",
+    )?;
     let games = stmt
         .query_map([audit], |r| {
             let missing: Vec<String> = json(r, 2)?;
-            Ok((r.get::<_, String>(0)?, (r.get::<_, String>(1)?, missing)))
+            let claimed: Vec<String> = json(r, 3)?;
+            Ok((
+                r.get::<_, String>(0)?,
+                (r.get::<_, String>(1)?, missing, claimed),
+            ))
         })?
         .collect::<rusqlite::Result<HashMap<_, _>>>()?;
     let mut stmt = c.prepare(
