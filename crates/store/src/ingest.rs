@@ -1542,6 +1542,7 @@ impl Store {
                         reason: item.reason.clone(),
                     },
                     repack: None,
+                    exact: None,
                 },
             )?;
             outcomes.push(match moved {

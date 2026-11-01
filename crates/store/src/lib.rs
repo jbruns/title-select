@@ -174,9 +174,13 @@ pub enum Fault {
     /// After the copy or repack of an entry of an Ingest Folder is renamed into place, before its original is
     /// disposed of.
     IngestPublished,
-    /// After the original of a published copy is moved into the private `.deleting` area, before it is read back
-    /// and deleted.
+    /// After the original of a published copy is moved into the private `.deleting` area, before either folder is
+    /// synced.
     IngestIsolated,
+    /// After a rename puts back what was moved in place of an Ingest Folder's entry, before either folder is synced.
+    IngestRestored,
+    /// After an entry is renamed aside into an Ingest Folder's kept files, before either folder is synced.
+    IngestSetAside,
     /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
     IngestDatOwed,
 }

@@ -102,7 +102,9 @@ CREATE TABLE ingest_kept (
 -- before each step, so that a stop rolls forward from where it was. kind is how it moves: one rename that never
 -- replaces anything, a verified copy whose original is then deleted, or a verified TorrentZip repack whose original
 -- is then kept. dest_kind 'kept' is the folder's own kept files, under generation; 'path' is the folder rel in the
--- writable Root dest_root. staged_* is the file a copy or repack writes before it is renamed to dest_name.
+-- writable Root dest_root. staged_* is the file a copy or repack writes before it is renamed to dest_name. A copy's
+-- original is deleted only when the copy reads as exactly the ROM exact_rom; any other original is kept, in state
+-- 'retaining', as a repack's is.
 CREATE TABLE ingest_moves (
     id INTEGER PRIMARY KEY,
     folder_id INTEGER NOT NULL REFERENCES ingest_folders (id),
@@ -110,7 +112,7 @@ CREATE TABLE ingest_moves (
     item_id INTEGER REFERENCES ingest_items (id),
     kind TEXT NOT NULL CHECK (kind IN ('rename', 'copy', 'repack')),
     state TEXT NOT NULL CHECK (state IN ('pending', 'moving', 'restoring', 'staging', 'published', 'disposing',
-                                         'keeping', 'done', 'failed')),
+                                         'keeping', 'retaining', 'done', 'failed')),
     name TEXT NOT NULL,
     dev INTEGER NOT NULL,
     ino INTEGER NOT NULL,
@@ -125,6 +127,7 @@ CREATE TABLE ingest_moves (
     dest_name TEXT NOT NULL,
     reason TEXT,
     roms TEXT,
+    exact_rom TEXT,
     staged_name TEXT,
     staged_dev INTEGER,
     staged_ino INTEGER,

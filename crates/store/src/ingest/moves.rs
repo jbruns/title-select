@@ -8,10 +8,13 @@
 //!   still the file planned: the same identity, size, modification and change times, and no other links. What was
 //!   moved is then read back; anything other than the file planned is put back, or kept aside when its name was
 //!   taken meanwhile.
-//! - Otherwise it is copied to a staged name recorded first, the copy is read back and its hash checked, the copy is
-//!   renamed into place without replacing anything, and only then is the original moved into the folder's private
-//!   `.deleting` area and read back there. It is deleted only when it is still exactly what was copied; otherwise it
-//!   is kept aside in the folder's kept files, and the move says so.
+//! - Otherwise it is copied to a staged name recorded first, the copy is read back and its hash checked, and the copy
+//!   is renamed into place without replacing anything. The original is deleted only when the published copy reads as
+//!   exactly the ROM the move names: a file that already matches a ROM exactly is complete, so a write to it after
+//!   the last check could only spoil it, never add something wanted. It is then moved into the folder's private
+//!   `.deleting` area, read back there, and deleted only when it is still exactly what was copied. Every other
+//!   original is kept aside in the folder's kept files, and the move says so.
+//! - Into the folder's own kept files it is always a rename: kept files are never copied.
 //! - A ZIP holding a Game's ROMs among other members has the ROMs repacked as TorrentZip, read and hashed in one
 //!   pass, the repack checked, and the original kept aside in the folder's kept files.
 
@@ -22,6 +25,7 @@ use rustix::fs::FileType;
 use title_select_api::build::{ExpectedRom, FileStat, kept_name};
 use title_select_api::ingest::IngestMarker;
 use title_select_engine::build::{repack_members, verify};
+use title_select_engine::payload::{Checksums, Hasher};
 
 use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
 use crate::builds::sha256_of;
@@ -64,6 +68,8 @@ pub(crate) struct Move<'a> {
     pub dest: Destination,
     /// For a ZIP repacked as TorrentZip: each ROM and the member it is read from.
     pub repack: Option<Vec<(ExpectedRom, String)>>,
+    /// The ROM a copy must read as, exactly, for its original to be deleted.
+    pub exact: Option<ExpectedRom>,
 }
 
 /// How a move ended.
@@ -106,6 +112,7 @@ struct MoveRow {
     sha256: Option<String>,
     dest: Destination,
     roms: Option<Vec<(ExpectedRom, String)>>,
+    exact: Option<ExpectedRom>,
     staged_name: Option<String>,
     staged: Option<Identity>,
     dest_sha256: Option<String>,
@@ -116,7 +123,7 @@ struct MoveRow {
 
 const MOVE_QUERY: &str = "SELECT id, folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns, \
      sha256, dest_kind, dest_root, dest_rel, generation, dest_name, reason, roms, staged_name, staged_dev, \
-     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error FROM ingest_moves";
+     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom FROM ingest_moves";
 
 fn parse_ns(r: &Row, at: usize) -> rusqlite::Result<i128> {
     r.get::<_, String>(at)?.parse().map_err(|e| {
@@ -154,6 +161,7 @@ fn move_from_row(r: &Row) -> rusqlite::Result<MoveRow> {
         }
     };
     let roms: Option<String> = r.get(18)?;
+    let exact: Option<String> = r.get(28)?;
     Ok(MoveRow {
         id: r.get(0)?,
         folder: r.get(1)?,
@@ -174,6 +182,10 @@ fn move_from_row(r: &Row) -> rusqlite::Result<MoveRow> {
         dest,
         roms: match roms {
             Some(_) => Some(json(r, 18)?),
+            None => None,
+        },
+        exact: match exact {
+            Some(_) => Some(json(r, 28)?),
             None => None,
         },
         staged_name: r.get(19)?,
@@ -343,8 +355,7 @@ impl Store {
         };
         let kind = match (&mv.repack, &mv.dest) {
             (Some(_), _) => "repack",
-            (None, Destination::Kept { .. }) if !force_copy() => "rename",
-            (None, Destination::Kept { .. }) => "copy",
+            (None, Destination::Kept { .. }) => "rename",
             (None, Destination::Path { root, rel, .. }) => {
                 let dest = match open_dest_folder(config, root, rel) {
                     Ok(dest) => dest,
@@ -376,9 +387,9 @@ impl Store {
             tx.execute(
                 "INSERT INTO ingest_moves (folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns,
                                            ctime_ns, sha256, dest_kind, dest_root, dest_rel, generation, dest_name,
-                                           reason, roms, created_at)
+                                           reason, roms, exact_rom, created_at)
                  VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                         ?19)",
+                         ?19, ?20)",
                 params![
                     mv.folder,
                     mv.plan,
@@ -398,6 +409,7 @@ impl Store {
                     dest_name,
                     reason,
                     mv.repack.as_ref().map(to_json),
+                    mv.exact.as_ref().map(to_json),
                     now()
                 ],
             )?;
@@ -569,6 +581,19 @@ impl Store {
                 self.fault_point(Fault::IngestRenaming);
                 match src.rename_new(&m.name, dest, dest_name) {
                     Ok(()) => {}
+                    Err(e)
+                        if e.kind() == ErrorKind::CrossesDevices
+                            && matches!(m.dest, Destination::Kept { .. }) =>
+                    {
+                        return self.fail_move(
+                            m.id,
+                            format!(
+                                "the kept files folder is on another filesystem from {}, and kept files are never \
+                                 copied; it was left as it is",
+                                m.name
+                            ),
+                        );
+                    }
                     Err(e) if e.kind() == ErrorKind::CrossesDevices => {
                         self.write(|tx| {
                             tx.execute(
@@ -655,10 +680,7 @@ impl Store {
         let dest_name = m.dest_name();
         if m.aside_name.is_none() && holds(dest, dest_name)? {
             match dest.rename_new(dest_name, src, &m.name) {
-                Ok(()) => {
-                    src.sync().map_err(io)?;
-                    dest.sync().map_err(io)?;
-                }
+                Ok(()) => self.fault_point(Fault::IngestRestored),
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
                 Err(e) => {
                     return self.fail_move(
@@ -671,6 +693,9 @@ impl Store {
                 }
             }
         }
+        // Whether this call or one before a stop renamed it, both folders are synced before the move ends.
+        src.sync().map_err(io)?;
+        dest.sync().map_err(io)?;
         if m.aside_name.is_none() && holds(src, &m.name)? {
             return self.fail_move(m.id, format!("{why}; it was put back as {}", m.name));
         }
@@ -736,9 +761,11 @@ impl Store {
             if let Err(e) = dir.rename_new(name, &retention, &aside) {
                 return Ok(Err(format!("it could not be kept aside ({e}); {}", left())));
             }
-            dir.sync().map_err(io)?;
-            retention.sync().map_err(io)?;
+            self.fault_point(Fault::IngestSetAside);
         }
+        // Whether this call or one before a stop renamed it, both folders are synced before it is recorded kept.
+        dir.sync().map_err(io)?;
+        retention.sync().map_err(io)?;
         let Some(st) = holds(&retention, &aside)? else {
             return Ok(Err(left()));
         };
@@ -792,11 +819,29 @@ impl Store {
                 )));
             }
         };
-        let disposed = if m.kind == "repack" {
-            self.keep_original(m, src)?
-        } else {
-            self.delete_original(m, src, &published_sha)?
-                .map(|note| (None, note))
+        let delete = match (m.kind.as_str(), m.state.as_str()) {
+            ("repack", _) | (_, "retaining") => false,
+            (_, "disposing" | "keeping") => true,
+            _ => match &m.exact {
+                Some(rom) => {
+                    let file = dest.open_file(&dest_name).map_err(io)?;
+                    if Identity::of_fd(&file).map_err(io)? != staged {
+                        return Ok(Err(format!(
+                            "{}/{dest_name} is no longer the copy that was published; {} was left as it is",
+                            dest.path().display(),
+                            m.name
+                        )));
+                    }
+                    exactly(rom, &checksums_of(&file).map_err(io)?)
+                }
+                None => false,
+            },
+        };
+        let disposed = match delete {
+            true => self
+                .delete_original(m, src, &published_sha)?
+                .map(|note| (None, note)),
+            false => self.keep_original(m, src)?,
         };
         let (original, note) = match disposed {
             Ok(disposed) => disposed,
@@ -1020,8 +1065,6 @@ impl Store {
                         m.name
                     )));
                 }
-                src.sync().map_err(io)?;
-                deleting.sync().map_err(io)?;
                 self.fault_point(Fault::IngestIsolated);
             } else if m.state != "disposing" {
                 return Ok(Ok(Some(format!(
@@ -1029,6 +1072,9 @@ impl Store {
                     m.name
                 ))));
             }
+            // Whether this call or one before a stop set it aside, both folders are synced before it goes on.
+            src.sync().map_err(io)?;
+            deleting.sync().map_err(io)?;
             let found = match read_back(&deleting, &slot, &m.seen, Some(copied)).map_err(io)? {
                 Moving::Planned { .. } if !self.unsettled(m)? => {
                     deleting.unlink(&slot).map_err(io)?;
@@ -1036,8 +1082,11 @@ impl Store {
                     return Ok(Ok(None));
                 }
                 Moving::Planned { .. } => (m.seen.identity, "a scan found it changing".to_owned()),
-                // Gone: deleted before a stop.
-                Moving::Other { identity: None, .. } => return Ok(Ok(None)),
+                // Gone: deleted before a stop, which may have come before the deletion was synced.
+                Moving::Other { identity: None, .. } => {
+                    deleting.sync().map_err(io)?;
+                    return Ok(Ok(None));
+                }
                 Moving::Other {
                     identity: Some(found),
                     why,
@@ -1075,7 +1124,8 @@ impl Store {
         )
     }
 
-    /// Keeps the original of a published repack in the folder's kept files.
+    /// Keeps the original of a published repack, or of a published copy that may not delete it, in the folder's
+    /// kept files. Returns the kept file to record and a note on anything done besides what was planned.
     fn keep_original(
         &self,
         m: &MoveRow,
@@ -1088,35 +1138,59 @@ impl Store {
             Ok(None) => return Ok(Err("the kept files folder is missing".into())),
             Err(why) => return Ok(Err(why)),
         };
+        let (made, reason, note) = match m.kind.as_str() {
+            "repack" => (
+                "repack",
+                "the original of a repack into a game's ZIP".to_owned(),
+                None,
+            ),
+            _ => (
+                "copy",
+"the original of a copy that is not exactly a ROM the plan names, so it is not deleted"
+                    .to_owned(),
+                Some(format!(
+                    "{} was copied, and kept rather than deleted, since only an original whose copy is exactly a \
+                     ROM is deleted",
+                    m.name
+                )),
+            ),
+        };
         let kept = kept_name(&m.name, 1);
         if is_seen(src, &m.name, &m.seen).map_err(io)? {
-            self.set_state(m.id, "disposing")?;
+            self.set_state(m.id, "retaining")?;
             if let Err(e) = src.rename_new(&m.name, &retention.generation, &kept) {
                 return Ok(Err(format!(
-                    "the repack is in place, but {} could not be kept aside: {e}; it was left as it is",
+                    "the {made} is in place, but {} could not be kept aside: {e}; it was left as it is",
                     m.name
                 )));
             }
-            src.sync().map_err(io)?;
-            retention.generation.sync().map_err(io)?;
-        } else if m.state != "disposing" {
+            self.fault_point(Fault::IngestSetAside);
+        } else if m.state != "retaining" {
             return Ok(Ok((
                 None,
                 Some(format!(
-                    "{} changed after it was repacked, so it was left in the folder as it is",
-                    m.name
+                    "{} changed after it was {}, so it was left in the folder as it is",
+                    m.name,
+                    if made == "repack" {
+                        "repacked"
+                    } else {
+                        "copied"
+                    }
                 )),
             )));
         }
+        // Whether this call or one before a stop renamed it, both folders are synced before it is recorded kept.
+        src.sync().map_err(io)?;
+        retention.generation.sync().map_err(io)?;
         let Some(st) = retention.generation.stat(&kept).map_err(io)? else {
             return Ok(Err(format!(
-                "{} is neither in the folder nor kept; the repack is in place",
+                "{} is neither in the folder nor kept; the {made} is in place",
                 m.name
             )));
         };
         if Identity::of(&st) != m.seen.identity {
             return Ok(Err(format!(
-                "{kept} in the kept files is not {}; the repack is in place",
+                "{kept} in the kept files is not {}; the {made} is in place",
                 m.name
             )));
         }
@@ -1124,14 +1198,43 @@ impl Store {
             Some(KeptRow {
                 generation,
                 kept_name: kept,
-                reason: "the original of a repack into a game's ZIP".into(),
+                reason,
                 identity: m.seen.identity,
                 file: file_stat(&st),
                 sha256: m.sha256.clone(),
             }),
-            None,
+            note,
         )))
     }
+}
+
+/// Whether `sums` are exactly those of `rom`: the same size, and every checksum the ROM lists, of which it lists one at
+/// least.
+fn exactly(rom: &ExpectedRom, sums: &Checksums) -> bool {
+    let same = |want: &Option<String>, have: &str| {
+        want.as_deref()
+            .is_none_or(|want| want.eq_ignore_ascii_case(have))
+    };
+    rom.size == sums.size
+        && (rom.crc.is_some() || rom.md5.is_some() || rom.sha1.is_some() || rom.sha256.is_some())
+        && same(&rom.crc, &sums.crc)
+        && same(&rom.md5, &sums.md5)
+        && same(&rom.sha1, &sums.sha1)
+        && same(&rom.sha256, &sums.sha256)
+}
+
+fn checksums_of(mut file: &std::fs::File) -> io::Result<Checksums> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut hasher = Hasher::new();
+    let mut buf = vec![0; 1 << 16];
+    loop {
+        let n = io::Read::read(&mut file, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finish())
 }
 
 /// Checks the staged file `file` of `m`: a copy reads back as `source_sha`; a repack is valid TorrentZip of its ROMs.
@@ -1268,6 +1371,7 @@ mod tests {
                 sha256: Some(hex(&Sha256::digest(&bytes))),
                 dest,
                 repack,
+                exact: None,
             }
         }
 
@@ -1322,6 +1426,21 @@ mod tests {
         }
     }
 
+    /// The ROM `name` whose payload is `bytes`.
+    fn rom_of(name: &str, bytes: &[u8]) -> ExpectedRom {
+        let mut hasher = title_select_engine::payload::Hasher::new();
+        hasher.update(bytes);
+        let sums = hasher.finish();
+        ExpectedRom {
+            name: name.into(),
+            size: sums.size,
+            crc: Some(sums.crc),
+            md5: None,
+            sha1: Some(sums.sha1),
+            sha256: Some(sums.sha256),
+        }
+    }
+
     fn atari(name: &str) -> Destination {
         Destination::Path {
             root: "lib".into(),
@@ -1355,7 +1474,9 @@ mod tests {
             let env = env();
             env.put("pong.a26", b"pong");
 
-            env.interrupted(env.mv("pong.a26", atari("Pong (USA).a26"), None), fault);
+            let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+            mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+            env.interrupted(mv, fault);
 
             assert_eq!(env.listing(), ["lib/Atari/Pong (USA).a26"], "{fault:?}");
             assert_eq!(
@@ -1400,19 +1521,7 @@ mod tests {
             zip.write_all(b"pong").unwrap();
             zip.finish().unwrap();
         }
-        let sums = {
-            let mut hasher = title_select_engine::payload::Hasher::new();
-            hasher.update(b"pong");
-            hasher.finish()
-        };
-        let rom = ExpectedRom {
-            name: "Pong (USA).a26".into(),
-            size: 4,
-            crc: Some(sums.crc),
-            md5: None,
-            sha1: Some(sums.sha1),
-            sha256: Some(sums.sha256),
-        };
+        let rom = rom_of("Pong (USA).a26", b"pong");
 
         env.interrupted(
             env.mv(
@@ -1498,14 +1607,9 @@ mod tests {
             env.put("pong.a26", b"pong");
             when(&env, at, change);
 
-            let moved = env
-                .store
-                .move_out(
-                    &env.config,
-                    env.mv("pong.a26", atari("Pong (USA).a26"), None),
-                )
-                .unwrap()
-                .unwrap();
+            let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+            mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+            let moved = env.store.move_out(&env.config, mv).unwrap().unwrap();
 
             assert_eq!(env.listing(), [kept, "lib/Atari/Pong (USA).a26"], "{at:?}");
             assert_eq!(std::fs::read(env.tmp.path().join(kept)).unwrap(), left);
@@ -1577,5 +1681,223 @@ mod tests {
             std::fs::read(env.tmp.path().join("in/pong.a26")).unwrap(),
             b"newer"
         );
+    }
+
+    #[test]
+    fn a_copy_that_is_not_exactly_a_rom_keeps_its_original_and_never_deletes_it() {
+        FORCE_COPY.with(|f| f.set(true));
+        let mut other = rom_of("Pong (USA).a26", b"gnop");
+        other.sha256 = None;
+        for exact in [None, Some(other)] {
+            let env = env();
+            env.put("pong.a26", b"pong");
+            let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+            mv.exact = exact.clone();
+
+            let moved = env.store.move_out(&env.config, mv).unwrap().unwrap();
+
+            assert_eq!(
+                env.listing(),
+                [
+                    "in/.title-select-retained/1/pong.a26.kept",
+                    "lib/Atari/Pong (USA).a26"
+                ],
+                "{exact:?}"
+            );
+            assert!(
+                moved
+                    .note
+                    .is_some_and(|n| n.contains("kept rather than deleted")),
+                "{exact:?}"
+            );
+            let kept = env.store.ingest_kept_files("in").unwrap();
+            assert_eq!(kept.len(), 1, "{exact:?}");
+            assert_eq!(kept[0].name, "pong.a26");
+        }
+        FORCE_COPY.with(|f| f.set(false));
+    }
+
+    /// The state, error and note of the last move.
+    fn last_move(env: &Env) -> (String, Option<String>, Option<String>) {
+        env.store
+            .read(|c| {
+                Ok(c.query_row(
+                    "SELECT state, error, note FROM ingest_moves ORDER BY id DESC LIMIT 1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )?)
+            })
+            .unwrap()
+    }
+
+    /// Makes `mv` with `hook` run at each fault point, stopping as a kill would at `stop`, then recovers it. Returns
+    /// each directory recovery synced, as the path below the test's directory.
+    fn synced_on_recovery(
+        env: &Env,
+        mv: Move,
+        stop: Fault,
+        hook: fn(&std::path::Path, Fault),
+    ) -> Vec<String> {
+        let base = env.tmp.path().join("in");
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
+                hook(&base, fault);
+                if fault == stop {
+                    panic!("stopped at {fault:?}");
+                }
+            })));
+        let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+        assert!(ran.is_err(), "{stop:?} was not reached");
+        env.store.hook_faults(None);
+        crate::folder_dir::SYNCED.with(|synced| synced.borrow_mut().clear());
+        env.store.recover_ingest_moves(&env.config).unwrap();
+        assert_eq!(env.unfinished(), 0, "{stop:?}");
+        let tmp = env.tmp.path().to_string_lossy().into_owned();
+        crate::folder_dir::SYNCED.with(|synced| {
+            synced
+                .borrow()
+                .iter()
+                .map(|p| {
+                    let p = p.to_string_lossy();
+                    p.strip_prefix(&tmp)
+                        .unwrap_or(&p)
+                        .trim_start_matches('/')
+                        .to_owned()
+                })
+                .collect()
+        })
+    }
+
+    fn swap(base: &std::path::Path, fault: Fault) {
+        if fault == Fault::IngestRenaming {
+            std::fs::rename(base.join("pong.a26"), base.join("pong.a26.orig")).unwrap();
+            std::fs::write(base.join("pong.a26"), b"gnop").unwrap();
+        }
+    }
+
+    #[test]
+    fn a_stop_after_any_rename_ends_the_move_only_once_both_folders_are_synced() {
+        const KEPT: &str = "in/.title-select-retained/1";
+        const DELETING: &str = "in/.title-select-retained/.deleting";
+        type Case = (
+            &'static str,
+            Fault,
+            fn(&std::path::Path, Fault),
+            &'static [&'static str],
+            &'static str,
+        );
+        let cases: [Case; 7] = [
+            (
+                "rename",
+                Fault::IngestMoved,
+                |_, _| {},
+                &["in", KEPT],
+                "done",
+            ),
+            (
+                "rename put back",
+                Fault::IngestRestored,
+                swap,
+                &["in", KEPT],
+                "failed",
+            ),
+            (
+                "rename kept aside",
+                Fault::IngestSetAside,
+                |base, fault| {
+                    swap(base, fault);
+                    if fault == Fault::IngestMoved {
+                        std::fs::write(base.join("pong.a26"), b"newer").unwrap();
+                    }
+                },
+                &[KEPT],
+                "failed",
+            ),
+            (
+                "copy deleted",
+                Fault::IngestIsolated,
+                |_, _| {},
+                &["in", DELETING],
+                "done",
+            ),
+            (
+                "copy kept when changed",
+                Fault::IngestSetAside,
+                |base, fault| {
+                    if fault == Fault::IngestIsolated {
+                        let slot = base.join(".title-select-retained/.deleting/move-1");
+                        overwrite_in_place(&slot);
+                    }
+                },
+                &[DELETING, KEPT],
+                "done",
+            ),
+            (
+                "copy not exactly a rom",
+                Fault::IngestSetAside,
+                |_, _| {},
+                &["in", KEPT],
+                "done",
+            ),
+            (
+                "repack",
+                Fault::IngestSetAside,
+                |_, _| {},
+                &["in", KEPT],
+                "done",
+            ),
+        ];
+        for (case, stop, hook, dirs, state) in cases {
+            let env = env();
+            let mut mv = match case {
+                "repack" => {
+                    let path = env.tmp.path().join("in/pong.zip");
+                    let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+                    let options = zip::write::SimpleFileOptions::default();
+                    zip.start_file("readme.txt", options).unwrap();
+                    zip.write_all(b"from the scene").unwrap();
+                    zip.start_file("pong.bin", options).unwrap();
+                    zip.write_all(b"pong").unwrap();
+                    zip.finish().unwrap();
+                    let roms = vec![(rom_of("Pong (USA).a26", b"pong"), "pong.bin".into())];
+                    env.mv("pong.zip", atari("Pong (USA).zip"), Some(roms))
+                }
+                _ if case.starts_with("rename") => {
+                    env.put("pong.a26", b"pong");
+                    env.mv("pong.a26", kept("pong.a26"), None)
+                }
+                _ => {
+                    env.put("pong.a26", b"pong");
+                    env.mv("pong.a26", atari("Pong (USA).a26"), None)
+                }
+            };
+            if matches!(case, "copy deleted" | "copy kept when changed") {
+                mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+            }
+            FORCE_COPY.with(|f| f.set(case.starts_with("copy")));
+
+            let synced = synced_on_recovery(&env, mv, stop, hook);
+
+            FORCE_COPY.with(|f| f.set(false));
+            for dir in dirs {
+                assert!(
+                    synced.iter().any(|s| s == dir),
+                    "{case}: {dir} not in {synced:?}"
+                );
+            }
+            let (ended, error, note) = last_move(&env);
+            assert_eq!(ended, state, "{case}: {error:?} {note:?}");
+            let listing = env.listing();
+            match case {
+                "copy deleted" => assert_eq!(listing, ["lib/Atari/Pong (USA).a26"], "{case}"),
+                "rename" => assert_eq!(listing, [format!("{KEPT}/pong.a26.kept")], "{case}"),
+                _ => assert!(
+                    listing
+                        .iter()
+                        .any(|p| p.starts_with(KEPT) || p == "in/pong.a26"),
+                    "{case}: {listing:?}"
+                ),
+            }
+        }
     }
 }
