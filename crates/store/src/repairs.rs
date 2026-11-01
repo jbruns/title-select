@@ -1103,9 +1103,13 @@ impl Store {
         loop {
             let before = committed.len();
             for step in &steps {
-                if let RepairStep::Keep { needs, .. } = &step.step
-                    && (step.state != "pending" || committed.contains(step.item.as_str()))
+                if let RepairStep::Keep { needs, affects, .. } = &step.step
+                    && (step.state != "pending"
+                        || committed.contains(step.item.as_str())
+                        || affects.iter().any(|a| committed.contains(a.as_str())))
                 {
+                    committed.insert(step.item.as_str());
+                    committed.extend(affects.iter().map(String::as_str));
                     for need in needs {
                         if let Some(build) = steps.iter().find(|b| b.seq == *need) {
                             committed.insert(build.item.as_str());
@@ -1251,6 +1255,7 @@ impl Store {
                 reason,
                 seen,
                 needs,
+                ..
             } => {
                 for need in needs {
                     let build = self.other_step(r.plan.id, *need)?;

@@ -737,12 +737,17 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
     let mut keeps: Vec<PlannedStep> = Vec::new();
     for p in &applied {
         for (path, reason) in &p.displaces {
-            if let Some(RepairStep::Keep { needs, .. }) = keeps
+            if let Some(keep) = keeps
                 .iter_mut()
-                .map(|k| &mut k.step)
-                .find(|k| matches!(k, RepairStep::Keep { path: at, .. } if at == path))
+                .find(|k| matches!(&k.step, RepairStep::Keep { path: at, .. } if at == path))
             {
+                let RepairStep::Keep { needs, affects, .. } = &mut keep.step else {
+                    unreachable!("a keep step");
+                };
                 needs.extend(built_by(&p.item.key));
+                if keep.item != p.item.key && !affects.contains(&p.item.key) {
+                    affects.push(p.item.key.clone());
+                }
                 continue;
             }
             let base = base_name(path);
@@ -759,6 +764,7 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
                     reason: reason.clone(),
                     seen: seen_file(&i.files[path]),
                     needs: built_by(&p.item.key),
+                    affects: Vec::new(),
                 },
             });
         }

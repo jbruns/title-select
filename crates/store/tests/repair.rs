@@ -868,6 +868,60 @@ fn a_repair_you_cancel_finishes_the_item_it_started_and_skips_the_rest() {
 }
 
 #[test]
+fn a_repair_cancelled_after_a_shared_keep_finishes_every_item_that_keep_displaced_for() {
+    let env = Env::new();
+    write_zip(
+        &env.set().join("Mixed.zip"),
+        &[("pong.a26", b"pong"), ("Combat (USA).a26", b"cmbt")],
+    );
+    env.audit(AuditEvidence::Full);
+    env.ingest("combat.a26", |p| write_file(p, b"combat"));
+    let plan = env.plan();
+    let keeps: Vec<usize> = plan
+        .content
+        .steps
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| matches!(&s.step, RepairStep::Keep { path, .. } if path == "Mixed.zip"))
+        .map(|(n, _)| n)
+        .collect();
+    assert_eq!(keeps.len(), 1, "{:#?}", plan.content.steps);
+    assert_eq!(item(&plan, "game:Combat (USA)").kind, RepairKind::Replace);
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store
+        .inject_fault(Some(Fault::RepairStepDone(keeps[0] as u32)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+
+    env.store.cancel_job(requeued.id).unwrap();
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    let done = env.store.repair_plan(plan.id).unwrap();
+    for game in ["game:Pong (USA)", "game:Combat (USA)"] {
+        let outcome = done.outcomes.iter().find(|o| o.item == game);
+        assert!(
+            outcome.is_some_and(|o| o.done),
+            "{game}: {:#?}",
+            done.outcomes
+        );
+    }
+    let listing = env.listing();
+    for game in ["Pong (USA).zip", "Combat (USA).zip"] {
+        assert!(listing.contains(&game.to_owned()), "{listing:?}");
+    }
+}
+
+#[test]
 fn a_repair_cancelled_before_it_ran_changes_nothing_not_even_the_marker() {
     let env = Env::new();
     env.put("readme.txt", b"hello");

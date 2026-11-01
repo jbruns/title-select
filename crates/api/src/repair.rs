@@ -124,7 +124,9 @@ pub enum RepairStep {
         sources: BTreeMap<String, SeenFile>,
     },
     /// Moves `path` into the kept files as `kept_name` in this repair's generation, without replacing anything; only
-    /// once each Build step it `needs`, which reads it or replaces it, has staged its file.
+    /// once each Build step it `needs`, which reads it or replaces it, has staged its file. Besides the item it
+    /// belongs to, it displaces `path` for each item it `affects`, whose steps a cancellation then never skips once it
+    /// has run.
     Keep {
         path: String,
         kept_name: String,
@@ -132,6 +134,8 @@ pub enum RepairStep {
         seen: SeenFile,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         needs: Vec<u32>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        affects: Vec<String>,
     },
     /// Renames `from` to `to` without replacing anything.
     Rename {
