@@ -54,6 +54,8 @@ pub(super) struct RunningAudit {
 struct StoredReads<'s> {
     store: &'s Store,
     set_id: i64,
+    /// The running Audit, whose own stamps are recorded with each read it makes or reuses.
+    audit: i64,
     /// The Job recording its reads, if any.
     job: Option<i64>,
     /// Which recorded reads may be reused: any, only those of one Job, or none.
@@ -73,10 +75,40 @@ impl<'s> StoredReads<'s> {
         StoredReads {
             store,
             set_id: running.set_id,
+            audit: running.id,
             job: running.job,
             reuse,
             error: Mutex::new(None),
         }
+    }
+
+    /// Records `stamp` as what this Audit read of `path`, in `tx`.
+    fn stamp(
+        &self,
+        tx: &Transaction,
+        path: &str,
+        unreadable: bool,
+        stamp: &FileStamp,
+    ) -> Result<()> {
+        tx.execute(
+            "DELETE FROM audit_stamps WHERE audit_id = ?1 AND path = ?2",
+            params![self.audit, path],
+        )?;
+        tx.execute(
+            "INSERT INTO audit_stamps (audit_id, path, unreadable, dev, ino, size, mtime_ns, ctime_ns)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                self.audit,
+                path,
+                unreadable,
+                stamp.dev as i64,
+                stamp.ino as i64,
+                stamp.size as i64,
+                stamp.mtime_ns as i64,
+                stamp.ctime_ns as i64,
+            ],
+        )?;
+        Ok(())
     }
 
     fn keep(&self, err: Error) {
@@ -134,10 +166,6 @@ impl PayloadReads for StoredReads<'_> {
             .and_then(|members| {
                 self.store.write(|tx| {
                     tx.execute(
-                        "DELETE FROM unreadable_reads WHERE source_set_id = ?1 AND path = ?2",
-                        params![self.set_id, path],
-                    )?;
-                    tx.execute(
                         "INSERT OR REPLACE INTO payload_reads
                              (source_set_id, path, dev, ino, size, mtime_ns, ctime_ns, read_at, job_id, members)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -154,7 +182,7 @@ impl PayloadReads for StoredReads<'_> {
                             members
                         ],
                     )?;
-                    Ok(())
+                    self.stamp(tx, path, false, &read.stamp)
                 })
             });
         if let Err(err) = recorded {
@@ -163,24 +191,13 @@ impl PayloadReads for StoredReads<'_> {
     }
 
     fn record_unreadable(&self, path: &str, stamp: &FileStamp) {
-        let recorded = self.store.write(|tx| {
-            tx.execute(
-                "INSERT OR REPLACE INTO unreadable_reads
-                     (source_set_id, path, dev, ino, size, mtime_ns, ctime_ns)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    self.set_id,
-                    path,
-                    stamp.dev as i64,
-                    stamp.ino as i64,
-                    stamp.size as i64,
-                    stamp.mtime_ns as i64,
-                    stamp.ctime_ns as i64,
-                ],
-            )?;
-            Ok(())
-        });
-        if let Err(err) = recorded {
+        if let Err(err) = self.store.write(|tx| self.stamp(tx, path, true, stamp)) {
+            self.keep(err);
+        }
+    }
+
+    fn reused(&self, path: &str, stamp: &FileStamp) {
+        if let Err(err) = self.store.write(|tx| self.stamp(tx, path, false, stamp)) {
             self.keep(err);
         }
     }
@@ -372,26 +389,6 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         tx.execute(
             "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
             params![set_id, path],
-        )?;
-    }
-    let unreadable: Vec<String> = tx
-        .prepare("SELECT path FROM unreadable_reads WHERE source_set_id = ?1")?
-        .query_map([set_id], |r| r.get(0))?
-        .collect::<Result<_, _>>()?;
-    for path in unreadable.iter().filter(|p| !found.contains(p.as_str())) {
-        tx.execute(
-            "DELETE FROM unreadable_reads WHERE source_set_id = ?1 AND path = ?2",
-            params![set_id, path],
-        )?;
-    }
-
-    for (table, unreadable) in [("payload_reads", false), ("unreadable_reads", true)] {
-        tx.execute(
-            &format!(
-                "INSERT INTO audit_stamps (audit_id, path, unreadable, dev, ino, size, mtime_ns, ctime_ns)
-                 SELECT ?1, path, ?2, dev, ino, size, mtime_ns, ctime_ns FROM {table} WHERE source_set_id = ?3"
-            ),
-            params![id, unreadable, set_id],
         )?;
     }
 
@@ -911,7 +908,6 @@ impl Store {
             for id in &pruned {
                 tx.execute("DELETE FROM audit_entries WHERE audit_id = ?1", [id])?;
                 tx.execute("DELETE FROM audit_games WHERE audit_id = ?1", [id])?;
-                tx.execute("DELETE FROM audit_stamps WHERE audit_id = ?1", [id])?;
                 tx.execute(
                     "UPDATE audits SET pruned_at = ?1 WHERE id = ?2",
                     params![at, id],

@@ -957,7 +957,7 @@ impl Store {
             let staged_name = m.staged_name.clone().unwrap_or_default();
             if is_file(dest, &staged_name, staged, None).map_err(io)? {
                 return match self.check_staged(m, src, dest, &staged_name)? {
-                    Ok(sha) => self.publish(m, dest, &staged_name, dest_name, sha),
+                    Ok(sha) => self.publish(m, staged, dest, &staged_name, dest_name, sha),
                     Err(why) => self.fail_move(m.id, why).map(|r| r.map(|_| String::new())),
                 };
             }
@@ -993,7 +993,8 @@ impl Store {
             Ok(file) => file,
             Err(e) => return fail(format!("{e}; {} was left as it is", m.name)),
         };
-        let (dev, ino) = Identity::of_fd(&file).map_err(io)?.to_sql();
+        let staged = Identity::of_fd(&file).map_err(io)?;
+        let (dev, ino) = staged.to_sql();
         self.write(|tx| {
             tx.execute(
                 "UPDATE ingest_moves SET staged_dev = ?2, staged_ino = ?3 WHERE id = ?1",
@@ -1045,7 +1046,7 @@ impl Store {
             ));
         }
         self.fault_point(Fault::IngestStaged);
-        self.publish(m, dest, &staged_name, dest_name, sha)
+        self.publish(m, staged, dest, &staged_name, dest_name, sha)
     }
 
     /// Checks a staged file a stop left, reading the source again.
@@ -1074,9 +1075,13 @@ impl Store {
         Ok(check_written(m, &file, &source_sha))
     }
 
+    /// Renames the staged file, whose identity is `staged`, to `dest_name` without replacing anything, and records it
+    /// published only if `dest_name` is then that file. Otherwise the move ends failed, leaving what is at
+    /// `dest_name` and the original as they are.
     fn publish(
         &self,
         m: &MoveRow,
+        staged: Identity,
         dest: &FolderDir,
         staged_name: &str,
         dest_name: &str,
@@ -1090,9 +1095,8 @@ impl Store {
             return self.fail_move(m.id, why).map(|r| r.map(|_| String::new()));
         }
         dest.sync().map_err(io)?;
-        if let Some(staged) = m.staged
-            && !is_file(dest, dest_name, staged, None).map_err(io)?
-        {
+        self.fault_point(Fault::IngestRenamed);
+        if !is_file(dest, dest_name, staged, None).map_err(io)? {
             let why = format!(
                 "{}/{dest_name} is not the copy Title Select wrote, so it and {} were left as they are",
                 dest.path().display(),

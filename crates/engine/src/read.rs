@@ -133,6 +133,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
         if let (Some(now), Some(prior)) = (now, reads.prior(&file.rel))
             && prior.stamp == now
         {
+            reads.reused(&file.rel, &now);
             return FileRead {
                 members: prior
                     .members

@@ -1567,3 +1567,102 @@ fn a_file_moved_in_place_of_an_ingest_original_being_kept_is_recorded_kept_under
     );
     assert_eq!(kept[0].file.size, b"intruder".len() as u64);
 }
+
+#[test]
+fn a_repair_uses_the_stamps_its_own_audit_read_even_when_an_overlapping_audit_read_the_file_since()
+{
+    let env = Env::new();
+    write_torrentzip(&env.set().join("Wrong.zip"), "Pong (USA).a26", b"pong");
+    let job = env
+        .store
+        .enqueue_audit("Alpha", None, "Operator", WORKERS, AuditEvidence::Full)
+        .unwrap();
+    env.store.claim_job().unwrap();
+    // Once this Audit has read Wrong.zip as Pong, the file is swapped and another Audit reads and finishes first.
+    let progress = |p: title_select_engine::Progress| {
+        if p.files_done == 1 {
+            std::fs::remove_file(env.set().join("Wrong.zip")).unwrap();
+            write_torrentzip(&env.set().join("Wrong.zip"), "Combat (USA).a26", b"combat");
+            env.audit(AuditEvidence::Full);
+        }
+    };
+    let ended = env
+        .store
+        .run_audit_job(&env.config, job.id, Some(&progress))
+        .unwrap();
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    assert_eq!(
+        env.latest_report().entries[0].roms[0].game,
+        "Pong (USA)",
+        "the latest audit is the one that read Pong"
+    );
+
+    let plan = env.plan();
+
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.key != "game:Pong (USA)"),
+        "{:#?}",
+        plan.content.items
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Wrong.zip changed since the audit")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+#[test]
+fn a_file_moved_in_place_of_a_published_fill_ends_the_fill_and_leaves_the_ingest_original_in_place()
+{
+    let env = Env::new();
+    env.audit(AuditEvidence::Full);
+    env.ingest("combat.zip", |p| {
+        write_zip(p, &[("Combat (USA).a26", b"combat")])
+    });
+    let plan = env.plan();
+    let published = env.set().join("Combat (USA).zip");
+
+    let ended = run_with_hook(&env, &plan, move |fault| {
+        if fault == Fault::IngestRenamed {
+            substitute(&published, b"intruder");
+        }
+    });
+
+    assert!(ended.finished_at.is_some(), "{ended:#?}");
+    let fill = ended
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Combat (USA)")
+        .unwrap();
+    assert!(!fill.done, "{fill:?}");
+    assert_eq!(
+        std::fs::read(env.set().join("Combat (USA).zip")).unwrap(),
+        b"intruder"
+    );
+    assert_eq!(env.ingest_listing(), ["combat.zip"]);
+    assert!(env.store.ingest_kept_files("in").unwrap().is_empty());
+}
+
+#[test]
+fn a_repair_planned_from_an_incremental_audit_trusts_the_reads_that_audit_reused() {
+    let env = Env::new();
+    write_torrentzip(&env.set().join("Wrong.zip"), "Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(env.latest_report().evidence, AuditEvidence::Incremental);
+
+    let plan = env.plan();
+
+    assert_eq!(
+        item(&plan, "game:Pong (USA)").kind,
+        RepairKind::Rename,
+        "{:?}",
+        plan.content.notes
+    );
+}

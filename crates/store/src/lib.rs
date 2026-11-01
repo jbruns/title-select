@@ -172,6 +172,9 @@ pub enum Fault {
     IngestMoved,
     /// After the verified copy or repack of an entry of an Ingest Folder is written, before it is renamed into place.
     IngestStaged,
+    /// After the staged copy or repack of an entry of an Ingest Folder is renamed into place and its folder synced,
+    /// before the published file's identity is checked.
+    IngestRenamed,
     /// After the copy or repack of an entry of an Ingest Folder is renamed into place, before its original is
     /// disposed of.
     IngestPublished,

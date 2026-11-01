@@ -119,6 +119,8 @@ pub trait PayloadReads: Sync {
     /// Records the stamp the file at `path` had when this Audit could not read one of its payloads, so that what is
     /// done about it later can tell whether it changed since.
     fn record_unreadable(&self, _path: &str, _stamp: &FileStamp) {}
+    /// Notes that this Audit reused the read `prior` returned for the file at `path`, whose stamp is still `stamp`.
+    fn reused(&self, _path: &str, _stamp: &FileStamp) {}
 }
 
 /// Whether `name`, an entry anywhere in a Source Set, is one Title Select keeps there for itself and an Audit passes

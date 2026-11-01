@@ -12,23 +12,11 @@ CREATE TABLE source_folders (
     marker_temp_dev INTEGER,
     marker_temp_ino INTEGER
 );
--- The stamp each file of a Source Set had when its last Audit could not read one of its payloads, as payload_reads
--- records one it read in full, so that a repair tells whether it changed since.
-CREATE TABLE unreadable_reads (
-    source_set_id INTEGER NOT NULL REFERENCES source_sets (id),
-    path TEXT NOT NULL,
-    dev INTEGER NOT NULL,
-    ino INTEGER NOT NULL,
-    size INTEGER NOT NULL,
-    mtime_ns INTEGER NOT NULL,
-    ctime_ns INTEGER NOT NULL,
-    PRIMARY KEY (source_set_id, path)
-);
--- The stamp of each file an Audit read, as payload_reads (unreadable = 0) or unreadable_reads (unreadable = 1) held
--- it when that Audit finished, so that a repair acts only on files still as the Audit it is planned from read them,
--- never on a stamp a later, unfinished Audit recorded.
+-- The stamp of each file an Audit read in full or reused (unreadable = 0), or could not read (unreadable = 1), recorded
+-- by that Audit as it read it, so that a repair acts only on files still as the Audit it is planned from read them,
+-- never on a stamp another Audit recorded. An abandoned Audit's are deleted with it.
 CREATE TABLE audit_stamps (
-    audit_id INTEGER NOT NULL REFERENCES audits (id),
+    audit_id INTEGER NOT NULL REFERENCES audits (id) ON DELETE CASCADE,
     path TEXT NOT NULL,
     unreadable INTEGER NOT NULL,
     dev INTEGER NOT NULL,
