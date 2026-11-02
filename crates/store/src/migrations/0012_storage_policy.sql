@@ -34,3 +34,26 @@ ALTER TABLE kept_files ADD COLUMN slot_ctime_ns TEXT;
 -- A deletion of a conversion's original, approved with the plan that converted it: its file is deleted only by its
 -- trusted stamp, in recovery too.
 ALTER TABLE kept_deletions ADD COLUMN converted INTEGER NOT NULL DEFAULT 0;
+
+-- What a Play Library conversion read of each original before it put the converted file in place: its SHA-256,
+-- identity and stamp, read through one descriptor while they held still, and recorded before the publish. Never
+-- updated, whatever a check later records of the file: an original is deleted only while it still reads as this.
+CREATE TABLE conversion_originals (
+    id INTEGER PRIMARY KEY,
+    folder_id INTEGER NOT NULL REFERENCES managed_folders(id),
+    build_id INTEGER NOT NULL REFERENCES builds(id),
+    target TEXT NOT NULL,
+    converts_to TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    ctime_ns INTEGER NOT NULL,
+    dev INTEGER NOT NULL,
+    ino INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX conversion_originals_by_target ON conversion_originals (folder_id, target);
+CREATE TRIGGER conversion_originals_never_change BEFORE UPDATE ON conversion_originals
+BEGIN
+    SELECT RAISE(ABORT, 'a conversion record is never changed');
+END;

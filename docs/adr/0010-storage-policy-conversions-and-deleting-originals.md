@@ -33,17 +33,23 @@ the one a Conversion read.
 - **Originals go to Kept Files.** The converted file is written, verified and published without replacing anything
   before the original is kept aside. Each Conversion disposes of its original before the next is written, so a
   Conversion never needs room for a second copy of the folder. If the converted file's name is taken, the original
-  stays in place.
-- **The built files are the durable intent.** Once a converted file is published, the store records it among the
-  built files beside the original's row, which holds the hashes the Conversion read. If the Service stops before the
-  original is disposed of, the next plan proposes keeping it aside, or deleting it under the rule below, from that
-  recorded stamp.
+  stays in place, unless you approved keeping the occupant aside: it is kept aside before the converted file is
+  published, and the original is still disposed of only after.
+- **Only the same ROMs make a Conversion.** A file is converted only when the old and new files list the same ROM
+  names, sizes and every hash. A Game whose ROMs changed is an ordinary replacement: its old file is kept, and Delete
+  Originals After Conversion never applies.
+- **A conversion record is the durable intent.** Before the converted file is published, the Conversion reads the
+  original whole through one descriptor, while its change time, size and modification time hold still, and records
+  its hash, stamp and identity in a record nothing ever updates; folder checks, which refresh the built files' rows,
+  never touch it. If the Service stops before the original is disposed of, the next plan proposes keeping it aside,
+  or deleting it under the rule below, against that record, and disposes of every such original before it writes
+  any new Conversion. An original that changed in any way since, even repacked with the same payload, is only kept.
 - **Delete Originals After Conversion** is a setting with the same scopes and overrides, off by default. When on, an
   original is deleted only when:
   - its converted file verifies: a ZIP is canonical as `zipdir` opens it and its members' payloads match the ROMs'
     hashes and sizes exactly; a loose file's hashes match the ROM exactly; and
   - the original, read back in `.title-select-retained/.deleting` through a descriptor held across the rename,
-    matches the hashes, size and stamp the Conversion recorded when it read it, its change time unchanged while it
+    matches the hash, size and stamp of its conversion record, its change time unchanged while it
     was hashed. The change time after the rename is read through that descriptor and recorded before the unlink.
 - **A stamp from a path never authorizes a deletion.** Recovery deletes a file stopped in `.deleting` only when it
   matches the recorded post-rename change time and hashes through a fresh descriptor; otherwise it is put back, or

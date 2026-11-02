@@ -596,6 +596,17 @@ pub(super) struct Keep<'a> {
     /// The SHA-256 of the file, read whole by this Build while it was, before and after the read, as seen: trusted,
     /// rather than read again, while the file is still as seen, change time included.
     pub hashed: Option<(Seen, String)>,
+    /// For a conversion's original, what the conversion read of it before it put the converted file in place: the
+    /// file is then held as a stamp a deletion may trust only while it still reads exactly as that.
+    pub original: Option<Original>,
+}
+
+/// An original as its conversion read it, through one descriptor while it held still, before the converted file was
+/// put in place: from the store's conversion record, which nothing updates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Original {
+    pub seen: Seen,
+    pub sha256: String,
 }
 
 /// Records kept file `id` kept: its state, the citations of its provenance while not pruned, and, the file being no
@@ -625,6 +636,10 @@ pub(super) fn settle_kept(tx: &Transaction, id: i64) -> Result<()> {
     )?;
     tx.execute(
         "DELETE FROM built_files WHERE folder_id = ?1 AND target = ?2",
+        params![folder, name],
+    )?;
+    tx.execute(
+        "DELETE FROM conversion_originals WHERE folder_id = ?1 AND target = ?2",
         params![folder, name],
     )?;
     tx.execute(
@@ -724,7 +739,13 @@ impl Store {
             };
             match rustix::fs::fstat(&file) {
                 Ok(st) if same(&st) && is_kept_file(dir, name, id, Some(&k.keep.file)) => {
-                    if Seen::of(&st) == before {
+                    // A conversion's original changed in any way since its conversion read it is still kept, but
+                    // never by a stamp a deletion trusts.
+                    let as_read = k
+                        .original
+                        .as_ref()
+                        .is_none_or(|o| o.seen == before && o.sha256 == sha256);
+                    if Seen::of(&st) == before && as_read {
                         held = Some(file);
                     }
                 }

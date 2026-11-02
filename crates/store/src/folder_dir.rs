@@ -52,7 +52,7 @@ thread_local! {
 }
 
 /// What a file or directory is, as opposed to the name it is found at: its device and inode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct Identity {
     pub dev: u64,
     pub ino: u64,

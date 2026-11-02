@@ -5154,6 +5154,185 @@ fn a_build_you_cancel_stops_between_two_files_and_a_new_plan_finishes_the_folder
 }
 
 /// Approves `plan` and runs its Build Job until the first fault `stop` picks stops it as a kill would.
+#[test]
+fn a_surviving_original_that_changed_since_its_conversion_read_it_is_kept_never_deleted() {
+    // Touched, so a check refreshes its record; rezipped from the same ROM, so a check records it repacked.
+    for change in ["touched", "repacked"] {
+        let env = Env::new();
+        env.audit();
+        let id = titles(&env, &["Pong (USA)"]);
+        let folder = env.folder("atari2600");
+        assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+        set_play_policy(&env, StorageFormat::Loose, None, true);
+        let plan = env.plan(&folder, id);
+        crash_at(&env, &plan, |f| matches!(f, Fault::AfterPublish(_)));
+        let (env, _) = env.restart();
+        let dir = env.play().join("atari2600");
+        let zip = dir.join("Pong (USA).zip");
+        if change == "touched" {
+            std::fs::File::options()
+                .write(true)
+                .open(&zip)
+                .unwrap()
+                .set_modified(SystemTime::now() - Duration::from_secs(3600))
+                .unwrap();
+        } else {
+            write_stored_zip(&zip, &[("Pong (USA).a26", b"pong")]);
+        }
+        let checked = check(&env, &folder);
+        let outcome = checked
+            .files
+            .iter()
+            .find(|f| f.target == "Pong (USA).zip")
+            .map(|f| f.outcome);
+        assert!(
+            matches!(
+                outcome,
+                Some(FileOutcome::Refreshed | FileOutcome::Repacked)
+            ),
+            "{change}: {outcome:?}"
+        );
+
+        let next = env.plan(&folder, id);
+        assert!(next.approvable(), "{:?}", next.content.blockers);
+        let removal = &next.content.removals[0];
+        assert_eq!(
+            (removal.target.as_str(), removal.kind),
+            ("Pong (USA).zip", RemovalKind::Keep),
+            "{change}"
+        );
+        assert_eq!(env.build(&next).state, JobState::Succeeded);
+
+        assert!(!zip.exists(), "{change}");
+        let kept = env.store.kept_files(folder.id).unwrap();
+        assert_eq!(
+            kept.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(),
+            ["Pong (USA).zip"],
+            "{change}: it changed since the conversion read it, so it is never deleted"
+        );
+    }
+}
+
+#[test]
+fn a_game_whose_roms_changed_is_replaced_not_converted_and_its_original_is_never_deleted() {
+    let env = Env::new();
+    env.audit();
+    let id = titles(&env, &["Pong (USA)", "Combat (USA)"]);
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+    let old = std::fs::read(dir.join("Pong (USA).zip")).unwrap();
+    set_play_policy(&env, StorageFormat::Loose, None, true);
+
+    // The newer revision lists another ROM for Pong, under the same name, which the source set now has.
+    let mut newer = games();
+    newer
+        .iter_mut()
+        .find(|(game, _)| *game == "Pong (USA)")
+        .unwrap()
+        .1 = vec![rom("Pong (USA).a26", b"pong, revised")];
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (2).dat",
+        "20260102-000000",
+        &newer,
+    );
+    let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
+    write_file(&env.set_dir().join("pong-revised.bin"), b"pong, revised");
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Incremental,
+        )
+        .unwrap();
+    let id = env.record(&selection(
+        &revision.sha256,
+        vec![group("Pong (USA)"), group("Combat (USA)")],
+    ));
+    let plan = env.plan(&folder, id);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    let pong = item(&plan, "Pong (USA)");
+    assert!(pong.kind.writes() && pong.loose, "{pong:?}");
+    assert_eq!(pong.converts, None, "another payload is no conversion");
+    let removal = plan
+        .content
+        .removals
+        .iter()
+        .find(|r| r.target == "Pong (USA).zip")
+        .unwrap();
+    assert_eq!(
+        (removal.kind, removal.converts_to.as_deref()),
+        (RemovalKind::Keep, None),
+        "{removal:?}"
+    );
+
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    assert_eq!(
+        std::fs::read(dir.join("Pong (USA).a26")).unwrap(),
+        b"pong, revised"
+    );
+    assert!(!dir.join("Pong (USA).zip").exists());
+    let kept = env.store.kept_files(folder.id).unwrap();
+    let pong = kept.iter().find(|k| k.name == "Pong (USA).zip");
+    assert_eq!(
+        pong.map(|k| k.reason),
+        Some(KeepReason::Replacement),
+        "{kept:?}"
+    );
+    let pong = pong.unwrap();
+    assert_eq!(
+        std::fs::read(
+            dir.join(RETAINED)
+                .join(pong.generation.to_string())
+                .join(&pong.kept_name)
+        )
+        .unwrap(),
+        old
+    );
+}
+
+#[test]
+fn surviving_originals_are_disposed_of_before_the_next_conversion_is_written() {
+    let env = Env::new();
+    let (folder, id) = built_as_zips(&env);
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    let plan = env.plan(&folder, id);
+    crash_at(&env, &plan, |f| matches!(f, Fault::AfterPublish(0)));
+    let (env, _) = env.restart();
+    let dir = env.play().join("atari2600");
+    let survivors: Vec<String> = ["Pong (USA)", "Combat (USA)", "Breakout (USA)"]
+        .into_iter()
+        .filter(|g| dir.join(format!("{g}.zip")).exists() && dir.join(format!("{g}.a26")).exists())
+        .map(|g| format!("{g}.zip"))
+        .collect();
+    assert_eq!(survivors.len(), 1, "{:?}", names(&dir));
+
+    let next = env.plan(&folder, id);
+    assert!(next.approvable(), "{:?}", next.content.blockers);
+    assert!(next.content.items.iter().any(|i| i.converts.is_some()));
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (at, survivor) = (seen.clone(), dir.join(&survivors[0]));
+    let job = build_hooked(&env, &next, move |fault| {
+        if matches!(fault, Fault::BeforePublish(_)) {
+            at.lock().unwrap().push(survivor.exists());
+        }
+    });
+
+    assert_eq!(job.state, JobState::Succeeded);
+    let seen = seen.lock().unwrap().clone();
+    assert!(!seen.is_empty());
+    assert!(
+        seen.iter().all(|there| !there),
+        "{} was still in place while a new conversion was written: {seen:?}",
+        survivors[0]
+    );
+    let kept = env.store.kept_files(folder.id).unwrap();
+    assert!(kept.iter().any(|k| k.name == survivors[0]), "{kept:?}");
+}
+
 fn crash_at(env: &Env, plan: &Plan, stop: impl Fn(Fault) -> bool + Send + Sync + 'static) {
     let job = env
         .store

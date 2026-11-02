@@ -27,13 +27,14 @@ use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{Source, copy, repack, verify, verify_loose, write_loose};
 
+use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat};
 use super::folders::{
     MARKER_NEW, MarkerState, build_by_id, builds_where, check_marker, folder_by_id,
     open_writable_folder, read_marker, store_id, write_marker,
 };
 use super::jobs::finish_running;
-use super::kept::{Keep, Retention, create_dir, open_retention, settle_dir_temps};
+use super::kept::{Keep, Original, Retention, create_dir, open_retention, settle_dir_temps};
 use super::plans::{digest, json, to_json};
 use super::{Error, Fault, Result, Store, now};
 use crate::config::Config;
@@ -102,6 +103,102 @@ pub(super) fn still_sha256(file: &File, ctime: i128) -> io::Result<Option<String
     let (sha256, _) = sha256_of(file)?;
     let after = rustix::fs::fstat(file)?;
     Ok((at(&before) == at(&after)).then_some(sha256))
+}
+
+/// Reads `keep`, the original that writing `converts_to` converts, whole through one descriptor while its ctime, size
+/// and mtime hold still, and records what it read as the conversion's record of it, which nothing updates: before the
+/// converted file is put in place, so that the original may later be deleted only while it is still exactly that.
+/// Returns why it was not recorded, when it is not the file the plan was made with or did not hold still.
+fn record_original(
+    store: &Store,
+    dir: &FolderDir,
+    folder: i64,
+    build: i64,
+    keep: &title_select_api::build::KeepAside,
+    converts_to: &str,
+) -> Result<std::result::Result<Original, String>> {
+    let name = keep.name.as_str();
+    let changed = || {
+        Ok(Err(format!(
+            "{name} changed since you approved the plan; {converts_to} was not written, and {name} stays as it is"
+        )))
+    };
+    let Ok(file) = dir.open_file(name) else {
+        return changed();
+    };
+    let expected =
+        |st: &Stat| Identity::of(st) == Identity::from(keep.identity) && file_stat(st) == keep.file;
+    let before = match rustix::fs::fstat(&file) {
+        Ok(st) if expected(&st) => Seen::of(&st),
+        _ => return changed(),
+    };
+    let Ok((sha256, _)) = sha256_of(&file) else {
+        return changed();
+    };
+    match rustix::fs::fstat(&file) {
+        Ok(st) if Seen::of(&st) == before => {}
+        _ => return changed(),
+    }
+    if keep.sha256.as_ref().is_some_and(|s| *s != sha256) {
+        return changed();
+    }
+    let (dev, ino) = before.identity.to_sql();
+    store.write(|tx| {
+        tx.execute(
+            "INSERT INTO conversion_originals (folder_id, build_id, target, converts_to, sha256, size, mtime_ns,
+                                               ctime_ns, dev, ino, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                folder,
+                build,
+                name,
+                converts_to,
+                sha256,
+                before.file.size as i64,
+                before.file.mtime_ns as i64,
+                before.ctime_ns as i64,
+                dev,
+                ino,
+                now()
+            ],
+        )?;
+        Ok(())
+    })?;
+    Ok(Ok(Original {
+        seen: before,
+        sha256,
+    }))
+}
+
+/// The conversion's record of the original `keep` that writing `converts_to` converted, while `keep` is still the
+/// file it recorded, by identity.
+pub(super) fn conversion_record(
+    c: &rusqlite::Connection,
+    folder: i64,
+    keep: &title_select_api::build::KeepAside,
+    converts_to: &str,
+) -> Result<Option<Original>> {
+    let (dev, ino) = Identity::from(keep.identity).to_sql();
+    Ok(c.query_row(
+        "SELECT sha256, size, mtime_ns, ctime_ns FROM conversion_originals
+             WHERE folder_id = ?1 AND target = ?2 AND converts_to = ?3 AND dev = ?4 AND ino = ?5
+             ORDER BY id DESC LIMIT 1",
+        params![folder, keep.name, converts_to, dev, ino],
+        |r| {
+            Ok(Original {
+                sha256: r.get(0)?,
+                seen: Seen {
+                    file: FileStat {
+                        size: r.get::<_, i64>(1)? as u64,
+                        mtime_ns: r.get::<_, i64>(2)? as i128,
+                    },
+                    identity: Identity::from(keep.identity),
+                    ctime_ns: r.get::<_, i64>(3)? as i128,
+                },
+            })
+        },
+    )
+    .optional()?)
 }
 
 /// Opens `source` in the Source Set's folder `set` for reading, through held directory handles that follow no
@@ -849,10 +946,119 @@ impl Store {
                 });
             }
         };
+        // An original whose game's file is already in place in the format the storage policy says, left by a
+        // conversion that stopped before it was disposed of.
+        let survivor = |removal: &PlanRemoval| {
+            removal.converts_to.as_ref().and_then(|target| {
+                content
+                    .items
+                    .iter()
+                    .find(|i| i.target == *target && i.kind == ItemKind::Unchanged)
+            })
+        };
+        let remove = |seq: i64,
+                      removal: &PlanRemoval,
+                      retention: &mut Option<Retention>|
+         -> Result<()> {
+            check_marker(&dir, &expected).map_err(Error::Refused)?;
+            // A file another of its game's items replaces is kept aside only once that item's file is in place.
+            let replacing = all.iter().find(|w| {
+                w.item.game == removal.game
+                    && w.item.target != removal.target
+                    && w.item.kind.writes()
+            });
+            let outcome = match (&removal.kind, &removal.keep) {
+                (RemovalKind::Keep, Some(keep)) if survivor(removal).is_some() => {
+                    open_area(retention)?;
+                    let item = survivor(removal).expect("matched above");
+                    let original = self.read(|c| conversion_record(c, folder, keep, &item.target))?;
+                    let k = Keep {
+                        folder,
+                        build: id,
+                        seq,
+                        generation,
+                        keep,
+                        hashed: None,
+                        original,
+                    };
+                    let area = retention.as_ref().expect("opened above");
+                    record_disposal(
+                        self,
+                        id,
+                        seq,
+                        self.dispose_original(&dir, area, &k, item, delete, &approved.actor)?,
+                    )?;
+                    Ok(())
+                }
+                (RemovalKind::Keep, Some(_))
+                    if replacing.is_some()
+                        && item_state(self, id, replacing.expect("matched").seq)?.as_deref()
+                            != Some("applied") =>
+                {
+                    Err(format!(
+                        "{} was not written, so {} stays as it is",
+                        replacing.expect("matched").item.target,
+                        removal.target
+                    ))
+                }
+                (RemovalKind::Keep, Some(keep)) => {
+                    open_area(retention)?;
+                    let k = Keep {
+                        folder,
+                        build: id,
+                        seq,
+                        generation,
+                        keep,
+                        hashed: None,
+                        original: None,
+                    };
+                    let area = retention.as_ref().expect("opened above");
+                    self.keep_aside(&dir, area, &k)?.map(|_| ())
+                }
+                (RemovalKind::Forget, _) => match dir.stat(&removal.target).map_err(folder_io)? {
+                    None => self.write(|tx| {
+                        tx.execute(
+                            "DELETE FROM built_files WHERE folder_id = ?1 AND target = ?2",
+                            params![folder, removal.target],
+                        )?;
+                        tx.execute(
+                            "DELETE FROM conversion_originals WHERE folder_id = ?1 AND target = ?2",
+                            params![folder, removal.target],
+                        )?;
+                        tx.execute(
+                            "UPDATE build_items SET state = 'applied' WHERE build_id = ?1 AND seq = ?2",
+                            params![id, seq],
+                        )?;
+                        Ok(Ok(()))
+                    })?,
+                    Some(_) => Err(format!(
+                        "{} is back in the folder since you approved the plan; it was left as it is",
+                        removal.target
+                    )),
+                },
+                _ => Err(format!("{} has nothing to remove", removal.target)),
+            };
+            if let Err(error) = outcome {
+                self.write(|tx| set_item(tx, id, seq, ItemState::Failed, &error))?;
+            }
+            Ok(())
+        };
+        let mut cancelled = false;
+        // The originals earlier conversions left are disposed of first, before any new file is written.
+        for (seq, removal) in removals.iter().filter(|(_, r)| survivor(r).is_some()) {
+            if self.cancel_requested(job)? {
+                cancelled = true;
+                break;
+            }
+            remove(*seq, removal, &mut retention)?;
+            tick(&mut done);
+        }
         // Each item is done before the next starts: its file written, put in place and recorded, and the original it
         // converts kept aside, or deleted. A cancelled Build stops between two items.
-        let mut cancelled = false;
         for w in work {
+            if cancelled {
+                break;
+            }
             if self.cancel_requested(job)? {
                 cancelled = true;
                 break;
@@ -862,64 +1068,78 @@ impl Store {
             let fail = |state: ItemState, error: &str| {
                 self.write(|tx| set_item(tx, id, w.seq, state, error))
             };
-            let created = staging.create_new(&name).and_then(|file| {
-                let id = Identity::of_fd(&file)?;
-                Ok((file, id))
-            });
-            let (mut file, file_id) = match created {
-                Ok(created) => created,
-                Err(e) => {
-                    fail(ItemState::Failed, &e.to_string())?;
-                    return Err(Error::Io(e.to_string()));
-                }
-            };
-            record_temp(self, folder, &staged_temp(&name), file_id)?;
-            staged_ids.insert(name.clone(), file_id);
-            let staged_path = staging.path().join(&name);
-            match stage(
-                w.item,
-                &mut file,
-                &staged_path,
-                (&set_dir, &set_root, &set_fd),
-                built_at,
-            ) {
-                Err(Failure::Item(error)) => {
-                    drop(file);
-                    if let Err(e) = remove_staged(&staging, &name, file_id) {
-                        fail(ItemState::Failed, &error)?;
-                        return Err(Error::Refused(e));
-                    }
-                    fail(ItemState::Failed, &error)?;
-                }
-                Err(Failure::Folder(error)) => {
-                    fail(ItemState::Failed, &error)?;
-                    return Err(Error::Io(error));
-                }
-                Ok(staged) => 'publish: {
-                    if let Some(keep) = &w.item.keep {
-                        check_marker(&dir, &expected).map_err(Error::Refused)?;
-                        open_area(&mut retention)?;
-                        let k = Keep {
-                            folder,
-                            build: id,
-                            seq: w.seq,
-                            generation,
-                            keep,
-                            hashed: None,
-                        };
-                        let area = retention.as_ref().expect("opened above");
-                        if let Err(error) = self.keep_aside(&dir, area, &k)? {
-                            drop(file);
-                            if let Err(e) = remove_staged(&staging, &name, file_id) {
-                                fail(ItemState::Failed, &error)?;
-                                return Err(Error::Refused(e));
-                            }
+            // The original a conversion replaces is read and recorded before anything is written for it.
+            let mut original = None;
+            'item: {
+                if let Some(keep) = &w.item.converts {
+                    check_marker(&dir, &expected).map_err(Error::Refused)?;
+                    match record_original(self, &dir, folder, id, keep, target)? {
+                        Ok(read) => original = Some(read),
+                        Err(error) => {
                             fail(ItemState::Failed, &error)?;
-                            break 'publish;
+                            break 'item;
                         }
                     }
-                    let (dev, ino) = file_id.to_sql();
-                    self.write(|tx| {
+                }
+                let created = staging.create_new(&name).and_then(|file| {
+                    let id = Identity::of_fd(&file)?;
+                    Ok((file, id))
+                });
+                let (mut file, file_id) = match created {
+                    Ok(created) => created,
+                    Err(e) => {
+                        fail(ItemState::Failed, &e.to_string())?;
+                        return Err(Error::Io(e.to_string()));
+                    }
+                };
+                record_temp(self, folder, &staged_temp(&name), file_id)?;
+                staged_ids.insert(name.clone(), file_id);
+                let staged_path = staging.path().join(&name);
+                match stage(
+                    w.item,
+                    &mut file,
+                    &staged_path,
+                    (&set_dir, &set_root, &set_fd),
+                    built_at,
+                ) {
+                    Err(Failure::Item(error)) => {
+                        drop(file);
+                        if let Err(e) = remove_staged(&staging, &name, file_id) {
+                            fail(ItemState::Failed, &error)?;
+                            return Err(Error::Refused(e));
+                        }
+                        fail(ItemState::Failed, &error)?;
+                    }
+                    Err(Failure::Folder(error)) => {
+                        fail(ItemState::Failed, &error)?;
+                        return Err(Error::Io(error));
+                    }
+                    Ok(staged) => 'publish: {
+                        if let Some(keep) = &w.item.keep {
+                            check_marker(&dir, &expected).map_err(Error::Refused)?;
+                            open_area(&mut retention)?;
+                            let k = Keep {
+                                folder,
+                                build: id,
+                                seq: w.seq,
+                                generation,
+                                keep,
+                                hashed: None,
+                                original: None,
+                            };
+                            let area = retention.as_ref().expect("opened above");
+                            if let Err(error) = self.keep_aside(&dir, area, &k)? {
+                                drop(file);
+                                if let Err(e) = remove_staged(&staging, &name, file_id) {
+                                    fail(ItemState::Failed, &error)?;
+                                    return Err(Error::Refused(e));
+                                }
+                                fail(ItemState::Failed, &error)?;
+                                break 'publish;
+                            }
+                        }
+                        let (dev, ino) = file_id.to_sql();
+                        self.write(|tx| {
                         tx.execute(
                             "UPDATE build_items SET state = 'publishing', sha256 = ?3, size = ?4, dev = ?5, ino = ?6
                              WHERE build_id = ?1 AND seq = ?2",
@@ -927,10 +1147,10 @@ impl Store {
                         )?;
                         Ok(())
                     })?;
-                    self.fault_point(Fault::BeforePublish(w.seq));
-                    // The file renamed is the one verified: the staged name must still be it, and the target must
-                    // be it once renamed. The verified file stays open until then.
-                    let renamed = check_marker(&dir, &expected)
+                        self.fault_point(Fault::BeforePublish(w.seq));
+                        // The file renamed is the one verified: the staged name must still be it, and the target must
+                        // be it once renamed. The verified file stays open until then.
+                        let renamed = check_marker(&dir, &expected)
                         .and_then(|()| match is_file(&staging, &name, file_id)? {
                             true => Ok(()),
                             false => Err(format!(
@@ -948,36 +1168,38 @@ impl Store {
                                     _ => e.to_string(),
                                 })
                         });
-                    if let Err(error) = renamed {
-                        fail(ItemState::Failed, &error)?;
-                        return Err(Error::Refused(error));
-                    }
-                    // From here until the item is recorded applied, recovery settles it from its publish intent.
-                    self.fault_point(Fault::PublishedUnsynced(w.seq));
-                    staging
-                        .sync()
-                        .and_then(|()| dir.sync())
-                        .map_err(folder_io)?;
-                    self.fault_point(Fault::AfterPublish(w.seq));
-                    let found = dir.stat(target).map_err(folder_io)?;
-                    let applied = match &found {
-                        Some(st) => self
-                            .write(|tx| record_applied(tx, id, folder, w.seq, w.item, st, true))?,
-                        None => {
-                            fail(
-                                ItemState::Uncertain,
-                                &format!("{target} vanished once it was put in place"),
-                            )?;
-                            false
+                        if let Err(error) = renamed {
+                            fail(ItemState::Failed, &error)?;
+                            return Err(Error::Refused(error));
                         }
-                    };
-                    if !applied {
-                        return Err(Error::Refused(format!(
-                            "{}: {target} is not the file the build put there; it was left as it is",
-                            dir.path().display()
-                        )));
+                        // From here until the item is recorded applied, recovery settles it from its publish intent.
+                        self.fault_point(Fault::PublishedUnsynced(w.seq));
+                        staging
+                            .sync()
+                            .and_then(|()| dir.sync())
+                            .map_err(folder_io)?;
+                        self.fault_point(Fault::AfterPublish(w.seq));
+                        let found = dir.stat(target).map_err(folder_io)?;
+                        let applied = match &found {
+                            Some(st) => self.write(|tx| {
+                                record_applied(tx, id, folder, w.seq, w.item, st, true)
+                            })?,
+                            None => {
+                                fail(
+                                    ItemState::Uncertain,
+                                    &format!("{target} vanished once it was put in place"),
+                                )?;
+                                false
+                            }
+                        };
+                        if !applied {
+                            return Err(Error::Refused(format!(
+                                "{}: {target} is not the file the build put there; it was left as it is",
+                                dir.path().display()
+                            )));
+                        }
+                        drop(file);
                     }
-                    drop(file);
                 }
             }
             tick(&mut done);
@@ -997,6 +1219,7 @@ impl Store {
                         generation,
                         keep,
                         hashed: None,
+                        original,
                     };
                     let area = retention.as_ref().expect("opened above");
                     self.dispose_original(&dir, area, &k, w.item, delete, &approved.actor)?
@@ -1031,77 +1254,12 @@ impl Store {
             }
             tick(&mut done);
         }
-        for (seq, removal) in &removals {
+        for (seq, removal) in removals.iter().filter(|(_, r)| survivor(r).is_none()) {
             if cancelled || self.cancel_requested(job)? {
                 cancelled = true;
                 break;
             }
-            check_marker(&dir, &expected).map_err(Error::Refused)?;
-            let seq = *seq;
-            // An original whose game's file is already in place in the format the storage policy says, left by a
-            // conversion that stopped before it was disposed of.
-            let converted = removal.converts_to.as_ref().and_then(|target| {
-                content
-                    .items
-                    .iter()
-                    .find(|i| i.target == *target && i.kind == ItemKind::Unchanged)
-            });
-            let outcome = match (&removal.kind, &removal.keep) {
-                (RemovalKind::Keep, Some(keep)) if converted.is_some() => {
-                    open_area(&mut retention)?;
-                    let k = Keep {
-                        folder,
-                        build: id,
-                        seq,
-                        generation,
-                        keep,
-                        hashed: None,
-                    };
-                    let area = retention.as_ref().expect("opened above");
-                    let item = converted.expect("matched above");
-                    record_disposal(
-                        self,
-                        id,
-                        seq,
-                        self.dispose_original(&dir, area, &k, item, delete, &approved.actor)?,
-                    )?;
-                    Ok(())
-                }
-                (RemovalKind::Keep, Some(keep)) => {
-                    open_area(&mut retention)?;
-                    let k = Keep {
-                        folder,
-                        build: id,
-                        seq,
-                        generation,
-                        keep,
-                        hashed: None,
-                    };
-                    let area = retention.as_ref().expect("opened above");
-                    self.keep_aside(&dir, area, &k)?.map(|_| ())
-                }
-                (RemovalKind::Forget, _) => match dir.stat(&removal.target).map_err(folder_io)? {
-                    None => self.write(|tx| {
-                        tx.execute(
-                            "DELETE FROM built_files WHERE folder_id = ?1 AND target = ?2",
-                            params![folder, removal.target],
-                        )?;
-                        tx.execute(
-                            "UPDATE build_items SET state = 'applied' WHERE build_id = ?1 AND seq = ?2",
-                            params![id, seq],
-                        )?;
-                        Ok(Ok(()))
-                    })?,
-                    Some(_) => Err(format!(
-                        "{} is back in the folder since you approved the plan; it was left as it is",
-                        removal.target
-                    )),
-                },
-                _ => Err(format!("{} has nothing to remove", removal.target)),
-            };
-            if let Err(error) = outcome {
-                self.write(|tx| set_item(tx, id, seq, ItemState::Failed, &error))?;
-            }
+            remove(*seq, removal, &mut retention)?;
             tick(&mut done);
         }
         drop(retention);
@@ -1188,6 +1346,11 @@ impl Store {
             return Ok(Ok(None));
         }
         let name = &k.keep.name;
+        if k.original.is_none() {
+            return Ok(Ok(Some(format!(
+                "{name} stays in the kept files: the conversion has no record of it as it read it"
+            ))));
+        }
         let note = match converted_verified(dir, item)? {
             Err(why) => format!("{name} stays in the kept files: {why}"),
             Ok(()) => match self.delete_converted_kept(dir, kept, actor)? {

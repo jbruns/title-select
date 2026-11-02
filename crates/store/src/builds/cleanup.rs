@@ -272,6 +272,7 @@ impl Run<'_> {
             generation,
             keep: &keep,
             hashed: None,
+            original: None,
         };
         let area = self.retention.as_ref().expect("opened above");
         Ok(store.keep_aside(&self.dir, area, &k)?.map(|_| ()))
@@ -607,6 +608,7 @@ impl Run<'_> {
             generation: self.generation,
             keep: &keep,
             hashed,
+            original: None,
         };
         let area = self.retention.as_ref().expect("opened above");
         if let Err(why) = self.store.keep_aside(&self.dir, area, &k)? {

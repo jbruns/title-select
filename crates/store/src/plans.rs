@@ -51,6 +51,31 @@ pub(super) struct Built {
     pub loose: bool,
 }
 
+fn read_originals(c: &Connection, folder: i64) -> Result<HashSet<(String, String, Identity)>> {
+    let mut stmt = c.prepare(
+        "SELECT target, converts_to, dev, ino FROM conversion_originals WHERE folder_id = ?1",
+    )?;
+    let rows = stmt.query_map([folder], |r| {
+        Ok((
+            r.get(0)?,
+            r.get(1)?,
+            Identity::from_sql(r.get(2)?, r.get(3)?),
+        ))
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Whether `a` and `b` list the same ROMs: the same names, sizes and every hash. Only a file of the same ROMs in the
+/// other format is a conversion; anything else replaces it.
+fn same_roms(a: &[ExpectedRom], b: &[ExpectedRom]) -> bool {
+    let sorted = |roms: &[ExpectedRom]| {
+        let mut roms = roms.to_vec();
+        roms.sort_by(|x, y| x.name.cmp(&y.name));
+        roms
+    };
+    a.len() == b.len() && sorted(a) == sorted(b)
+}
+
 pub(super) fn read_built(c: &Connection, folder: i64) -> Result<BTreeMap<String, Built>> {
     let mut stmt = c.prepare(
         "SELECT target, game, roms, size, mtime_ns, build_id, sha256, torrentzip, loose FROM built_files
@@ -153,6 +178,9 @@ struct Inputs {
     acks: HashMap<String, Ack>,
     /// What the storage policy says for the folder's system.
     storage: Storage,
+    /// The originals conversions recorded before they put their converted files in place: by name, the name each
+    /// was converted to, and the original's identity.
+    originals: HashSet<(String, String, Identity)>,
 }
 
 fn load(
@@ -259,6 +287,7 @@ fn load(
         dirs: folder_dirs(c, folder.id)?,
         store: store_id(c)?,
         built: read_built(c, folder.id)?,
+        originals: read_originals(c, folder.id)?,
         folder,
         set_root: set.record.root,
         set_path: set.record.path,
@@ -555,12 +584,21 @@ fn removals(
                         )
                     )
             });
+            // A conversion put the game's file in place, then stopped before it disposed of the original: only the
+            // same ROMs, and only the very file the conversion recorded before it did.
+            let recorded = |found: &Found| {
+                same_roms(&built.roms, &item.roms)
+                    && inputs.originals.contains(&(
+                        target.clone(),
+                        item.target.clone(),
+                        found.identity,
+                    ))
+            };
             if outcome == Some(FileOutcome::Missing) {
                 removal.kind = RemovalKind::Forget;
                 removal.reason = format!("{target} is gone already; its record is dropped");
-            } else if let Some(found) = intact.filter(|_| {
-                // A conversion put the game's file in place, then stopped before it disposed of the original.
-                item.kind == ItemKind::Unchanged && built.loose != item.loose
+            } else if let Some(found) = intact.filter(|f| {
+                item.kind == ItemKind::Unchanged && built.loose != item.loose && recorded(f)
             }) {
                 removal.kind = RemovalKind::Keep;
                 removal.reason = format!(
@@ -578,6 +616,22 @@ fn removals(
                     built.sha256.as_ref(),
                 ));
                 removal.converts_to = Some(item.target.clone());
+            } else if let Some(found) = intact.filter(|_| {
+                built.loose != item.loose
+                    && (item.kind == ItemKind::Unchanged || item.kind.writes())
+            }) {
+                // Another file for the game, not a conversion of this one: it is replaced, and only ever kept.
+                removal.kind = RemovalKind::Keep;
+                removal.reason = format!(
+                    "{target} is replaced by {}; it is kept aside once {} is in place",
+                    item.target, item.target
+                );
+                removal.keep = Some(keep_of(
+                    KeepReason::Replacement,
+                    found,
+                    Some(scan),
+                    built.sha256.as_ref(),
+                ));
             }
             out.push(removal);
             continue;
@@ -1240,10 +1294,12 @@ fn converts(
     scan: Option<&Scan>,
     item: &PlanItem,
 ) -> Option<KeepAside> {
-    let (target, built) = inputs
-        .built
-        .iter()
-        .find(|(t, b)| **t != item.target && b.game == item.game && b.loose != item.loose)?;
+    let (target, built) = inputs.built.iter().find(|(t, b)| {
+        **t != item.target
+            && b.game == item.game
+            && b.loose != item.loose
+            && same_roms(&b.roms, &item.roms)
+    })?;
     let found = files?
         .get(&target.to_lowercase())
         .filter(|f| f.regular && f.name == *target)?;

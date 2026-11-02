@@ -170,8 +170,8 @@ follows it.
 _Avoid_: Format setting, compression
 
 **Conversion**:
-Rewriting a Game stored in one format into the one the Storage Policy now gives its folder, as an item of an approved
-Change Plan: a Repair of a Source Set, or a Build of a Play Library. The original becomes a Kept File, unless Delete
+Rewriting a Game stored in one format into the one the Storage Policy now gives its folder, with exactly the same
+ROMs, as an item of an approved Change Plan: a Repair of a Source Set, or a Build of a Play Library. The original becomes a Kept File, unless Delete
 Originals After Conversion is on.
 _Avoid_: Recompress, migration
 
