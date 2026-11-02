@@ -8,11 +8,14 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use rustix::fs::FileType;
 use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, KeptDeletionOutcome, PlanKeptDeletion};
-use title_select_api::repair::{SourceKeptDeletion, SourceKeptDeletionContent, SourceKeptFile};
+use title_select_api::repair::{
+    KeptFileReviewed, SourceKeptDeletion, SourceKeptDeletionContent, SourceKeptFile,
+};
 
 use super::{MarkerRule, open_repairable, repair_active};
+use crate::builds::sha256_of;
 use crate::config::Config;
-use crate::folder_dir::{FolderDir, Identity, file_stat};
+use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::kept::{Scope, open_area_deleting, open_retention};
 use crate::plans::{json, to_json};
 use crate::sets::set_by_name;
@@ -115,6 +118,69 @@ fn is_kept(dir: &FolderDir, name: &str, file: &SourceKeptFile) -> Result<bool> {
     }))
 }
 
+/// Kept file `file` as read now through `held`, opened on it: whether it is still the file kept and reads as it did
+/// when you reviewed its deletion. `check_ctime` is false once it was renamed, which moves its ctime.
+fn reads_as_reviewed(
+    held: &std::fs::File,
+    file: &SourceKeptFile,
+    reviewed: Option<&KeptFileReviewed>,
+    check_ctime: bool,
+) -> Result<bool> {
+    let io = |e: std::io::Error| Error::Io(e.to_string());
+    let Some(reviewed) = reviewed else {
+        return Ok(false);
+    };
+    let st = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
+    if Identity::of(&st) != Identity::from(file.identity)
+        || file_stat(&st) != file.file
+        || (check_ctime && ctime_ns(&st) != reviewed.ctime_ns)
+    {
+        return Ok(false);
+    }
+    Ok(sha256_of(held).map_err(io)?.0 == reviewed.sha256)
+}
+
+/// Reads kept file `file` of Source Set folder `dir` through a descriptor, for you to review its deletion. `Err`
+/// says why it cannot be: it is no longer the file that was kept, or cannot be read.
+fn review(
+    store: &Store,
+    dir: &FolderDir,
+    file: &SourceKeptFile,
+) -> Result<std::result::Result<KeptFileReviewed, String>> {
+    let kept = &file.kept_name;
+    let generation = match open_retention(
+        store,
+        Scope::Source(file.source_set),
+        dir,
+        file.generation,
+        false,
+    )? {
+        Ok(Some(retention)) => retention.generation,
+        Ok(None) => {
+            return Ok(Err(format!(
+                "the kept files folder holding {kept} is missing"
+            )));
+        }
+        Err(why) => return Ok(Err(why)),
+    };
+    let held = match generation.open_file(kept) {
+        Ok(held) => held,
+        Err(e) => return Ok(Err(format!("{kept} could not be read: {e}"))),
+    };
+    let st = rustix::fs::fstat(&held).map_err(|e| Error::Io(e.to_string()))?;
+    if Identity::of(&st) != Identity::from(file.identity) || file_stat(&st) != file.file {
+        return Ok(Err(format!("{kept} is no longer the file that was kept")));
+    }
+    let (sha256, _) = sha256_of(&held).map_err(|e| Error::Io(e.to_string()))?;
+    Ok(Ok(KeptFileReviewed {
+        id: file.id,
+        ctime_ns: ctime_ns(&st),
+        sha256,
+    }))
+}
+
+const CHANGED: &str = "it changed since you reviewed its deletion";
+
 fn slot(file: &SourceKeptFile) -> String {
     format!("source-kept-{}", file.id)
 }
@@ -125,16 +191,18 @@ impl Store {
         self.read(|c| kept_of(c, set_by_name(c, name)?.id, "kept"))
     }
 
-    /// Plans deleting the kept files of Source Set `name` that `request` picks, and stores the plan for review.
-    /// Nothing is deleted until you approve it.
+    /// Plans deleting the kept files of Source Set `name` that `request` picks, each read through a descriptor so
+    /// the plan binds what it holds, and stores the plan for review. Nothing is deleted until you approve it. A kept
+    /// file that is no longer the file kept is left out of "all", and refuses a plan that picks it.
     pub fn plan_source_kept_deletion(
         &self,
+        config: &Config,
         name: &str,
         request: &PlanKeptDeletion,
     ) -> Result<SourceKeptDeletion> {
-        self.write(|tx| {
-            let set = set_by_name(tx, name)?;
-            let kept = kept_of(tx, set.id, "kept")?;
+        let (set, picked) = self.read(|c| {
+            let set = set_by_name(c, name)?;
+            let kept = kept_of(c, set.id, "kept")?;
             let files: Vec<SourceKeptFile> = if request.all {
                 kept
             } else {
@@ -151,19 +219,42 @@ impl Store {
                 }
                 files
             };
-            if files.is_empty() {
-                return Err(Error::Refused(
-                    "pick at least one kept file to delete".into(),
+            Ok((set.id, files))
+        })?;
+        let dir =
+            open_repairable(self, config, set, MarkerRule::Required)?.map_err(Error::Refused)?;
+        let (mut files, mut reviewed) = (Vec::new(), Vec::new());
+        for file in picked {
+            match review(self, &dir, &file)? {
+                Ok(read) => {
+                    files.push(file);
+                    reviewed.push(read);
+                }
+                Err(_) if request.all => {}
+                Err(why) => return Err(Error::Refused(why)),
+            }
+        }
+        if files.is_empty() {
+            return Err(Error::Refused(
+                "pick at least one kept file to delete".into(),
+            ));
+        }
+        self.write(|tx| {
+            let now_kept = kept_of(tx, set, "kept")?;
+            if files.iter().any(|f| !now_kept.contains(f)) {
+                return Err(Error::Conflict(
+                    "the kept files changed while the deletion was planned; plan it again".into(),
                 ));
             }
             let content = SourceKeptDeletionContent {
-                source_set: set.id,
+                source_set: set,
                 files,
+                reviewed,
             };
             tx.execute(
                 "INSERT INTO source_kept_deletions (source_set_id, content, digest, created_at)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![set.id, to_json(&content), digest(&content), now()],
+                params![set, to_json(&content), digest(&content), now()],
             )?;
             deletion_by_id(tx, tx.last_insert_rowid())
         })
@@ -292,7 +383,10 @@ impl Store {
                 )?)
             })?;
             let done = match state.as_str() {
-                "deleting" => self.delete_source_kept(&dir, &deleting, file)?,
+                "deleting" => {
+                    let reviewed = plan.content.reviewed.iter().find(|r| r.id == file.id);
+                    self.delete_source_kept(&dir, &deleting, file, reviewed)?
+                }
                 "deleted" => outcome(file, true, None),
                 "gone" => outcome(
                     file,
@@ -339,6 +433,7 @@ impl Store {
         dir: &FolderDir,
         deleting: &FolderDir,
         file: &SourceKeptFile,
+        reviewed: Option<&KeptFileReviewed>,
     ) -> Result<KeptDeletionOutcome> {
         let io = |e: std::io::Error| Error::Io(e.to_string());
         let slot = slot(file);
@@ -359,6 +454,7 @@ impl Store {
         deleting.sync().map_err(io)?;
         self.fault_point(crate::Fault::SourceKeptSynced(file.id));
         let in_slot = deleting.stat(&slot).map_err(io)?.is_some();
+        let mut held = None;
         if !in_slot {
             let Some(generation) = &generation else {
                 self.settle_source_kept(
@@ -381,23 +477,43 @@ impl Store {
                 self.settle_source_kept(file, "kept", Some(why))?;
                 return Ok(outcome(file, false, Some(why.into())));
             }
+            // Read as reviewed before the rename, which moves its ctime, and held through it.
+            let read = match generation.open_file(&file.kept_name) {
+                Ok(read) if reads_as_reviewed(&read, file, reviewed, true)? => read,
+                _ => {
+                    let why = format!("{CHANGED}, so it was left kept");
+                    self.settle_source_kept(file, "kept", Some(&why))?;
+                    return Ok(outcome(file, false, Some(why)));
+                }
+            };
             if let Err(e) = generation.rename_new(&file.kept_name, deleting, &slot) {
                 let why =
                     format!("it could not be moved to be deleted ({e}), so it is never deleted");
                 self.settle_source_kept(file, "kept", Some(&why))?;
                 return Ok(outcome(file, false, Some(why)));
             }
+            held = Some(read);
             self.fault_point(crate::Fault::SourceKeptMoved(file.id));
             generation.sync().map_err(io)?;
             deleting.sync().map_err(io)?;
         }
-        if is_kept(deleting, &slot, file)? {
+        let kept = is_kept(deleting, &slot, file)?;
+        let held = match held {
+            Some(held) => Some(held),
+            None if kept => deleting.open_file(&slot).ok(),
+            None => None,
+        };
+        let unchanged = match &held {
+            Some(held) => kept && reads_as_reviewed(held, file, reviewed, false)?,
+            None => false,
+        };
+        if unchanged && is_kept(deleting, &slot, file)? {
             deleting.unlink(&slot).map_err(io)?;
             deleting.sync().map_err(io)?;
             self.settle_source_kept(file, "deleted", None)?;
             return Ok(outcome(file, true, None));
         }
-        // Not the file that was kept: put back, never deleted.
+        // Not the file that was kept, or changed since you reviewed it: put back, never deleted.
         let back = match &generation {
             Some(generation) => deleting
                 .rename_new(&slot, generation, &file.kept_name)
@@ -407,9 +523,13 @@ impl Store {
         };
         match back {
             Ok(()) => {
-                let why = "what was moved to be deleted was not the file that was kept, so it was moved back";
-                self.settle_source_kept(file, "kept", Some(why))?;
-                Ok(outcome(file, false, Some(why.into())))
+                let why = if kept {
+                    format!("{CHANGED}, so it was moved back and left kept")
+                } else {
+                    "what was moved to be deleted was not the file that was kept, so it was moved back".into()
+                };
+                self.settle_source_kept(file, "kept", Some(&why))?;
+                Ok(outcome(file, false, Some(why)))
             }
             Err(e) => Err(Error::Io(format!(
                 "what was moved to be deleted, at .title-select-retained/.deleting/{slot}, is not kept file {} and \

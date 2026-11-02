@@ -331,6 +331,7 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
     let deletion = env
         .store
         .plan_source_kept_deletion(
+            &env.config,
             "Alpha",
             &PlanKeptDeletion {
                 ids: vec![kept[0].id],
@@ -354,6 +355,76 @@ fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_appr
     assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
 }
 
+/// Rewrites `path` in place, through a descriptor, to `bytes` of the same length, and sets its mtime back.
+fn rewrite_unnoticed(path: &Path, bytes: &[u8]) {
+    use std::io::Write;
+    let mtime = std::fs::metadata(path).unwrap().modified().unwrap();
+    let mut file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    assert_eq!(file.metadata().unwrap().len(), bytes.len() as u64);
+    file.write_all(bytes).unwrap();
+    file.set_modified(mtime).unwrap();
+}
+
+#[test]
+fn a_kept_file_rewritten_since_you_reviewed_its_deletion_is_never_deleted() {
+    for once_moved in [false, true] {
+        let env = Env::new();
+        env.put("readme.txt", b"hello");
+        env.audit(AuditEvidence::Full);
+        env.approve(&env.plan());
+        let id = env.store.source_kept_files("Alpha").unwrap()[0].id;
+        let deletion = env
+            .store
+            .plan_source_kept_deletion(
+                &env.config,
+                "Alpha",
+                &PlanKeptDeletion {
+                    ids: vec![id],
+                    all: false,
+                },
+            )
+            .unwrap();
+        let set = env.set();
+        let kept = set.join(".title-select-retained/1/readme.txt.kept");
+        if once_moved {
+            let deleting = set.join(".title-select-retained/.deleting");
+            env.store
+                .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                    if fault == Fault::SourceKeptMoved(id) {
+                        let slot = std::fs::read_dir(&deleting)
+                            .unwrap()
+                            .next()
+                            .unwrap()
+                            .unwrap();
+                        rewrite_unnoticed(&slot.path(), b"jello");
+                    }
+                })));
+        } else {
+            rewrite_unnoticed(&kept, b"jello");
+        }
+
+        let done = env.store.approve_source_kept_deletion(
+            &env.config,
+            deletion.id,
+            &deletion.digest,
+            "Operator",
+        );
+        env.store.hook_faults(None);
+
+        let done = done.unwrap();
+        assert!(
+            done.outcomes.iter().all(|o| !o.deleted
+                && o.detail
+                    .as_deref()
+                    .is_some_and(|d| d.contains("changed since you reviewed"))),
+            "once_moved {once_moved}: {:#?}",
+            done.outcomes
+        );
+        assert_eq!(std::fs::read(&kept).unwrap(), b"jello");
+        assert_eq!(env.store.source_kept_files("Alpha").unwrap().len(), 1);
+    }
+}
+
 #[test]
 fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_synced() {
     let env = Env::new();
@@ -364,6 +435,7 @@ fn a_stopped_deletion_of_a_kept_file_is_finished_only_once_both_folders_are_sync
     let deletion = env
         .store
         .plan_source_kept_deletion(
+            &env.config,
             "Alpha",
             &PlanKeptDeletion {
                 ids: vec![id],
@@ -1203,6 +1275,75 @@ fn a_new_file_kept_aside_is_recorded_as_title_selects_only_while_it_matches_what
             .all(|k| !k.reason.contains("could not be put in place")),
         "{kept:#?}"
     );
+}
+
+#[test]
+fn a_file_found_in_place_of_a_new_file_being_kept_aside_is_recorded_kept_after_a_stop() {
+    for at_staged_name in [false, true] {
+        let env = Env::new();
+        env.put("Pong (Anthology).a26", b"pong");
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan();
+        let publish = plan
+            .content
+            .steps
+            .iter()
+            .position(|s| matches!(s.step, RepairStep::Publish { .. }))
+            .unwrap() as u32;
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        let set = env.set();
+        let kept = set.join(".title-select-retained/1/Pong (USA).zip.kept");
+        let staged = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let found = staged.clone();
+        let kept_path = kept.clone();
+        // Once the new file is moved aside, another file takes its kept name, or its staged name, before a stop.
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if fault == Fault::RepairStaged(0) {
+                    std::fs::write(set.join("Pong (USA).zip"), b"someone else's").unwrap();
+                    *found.lock().unwrap() = std::fs::read_dir(&set)
+                        .unwrap()
+                        .map(|e| e.unwrap().path())
+                        .find(|p| {
+                            p.file_name()
+                                .unwrap()
+                                .to_string_lossy()
+                                .starts_with(".Pong (USA).zip.title-select-new-")
+                        });
+                } else if fault == Fault::RepairMoved(publish) {
+                    if at_staged_name {
+                        std::fs::remove_file(&kept).unwrap();
+                        let staged = found.lock().unwrap().clone().unwrap();
+                        std::fs::write(staged, b"an intruder").unwrap();
+                    } else {
+                        substitute(&kept, b"an intruder");
+                    }
+                    panic!("stopped");
+                }
+            })));
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.run_repair_job(&approved)
+        }));
+        env.store.hook_faults(None);
+        assert!(ran.is_err(), "{ran:?}");
+        env.store.recover_jobs(WORKERS).unwrap();
+
+        env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+        let done = env.store.repair_plan(plan.id).unwrap();
+        assert!(done.finished_at.is_some(), "{:#?}", done.outcomes);
+        let recorded = env.store.source_kept_files("Alpha").unwrap();
+        let intruder = recorded
+            .iter()
+            .find(|k| k.reason.contains("found in place of"))
+            .unwrap_or_else(|| panic!("at_staged_name {at_staged_name}: {recorded:#?}"));
+        assert_eq!(intruder.kept_name, "Pong (USA).zip.kept");
+        assert_eq!(std::fs::read(&kept_path).unwrap(), b"an intruder");
+        assert!(staged.lock().unwrap().as_ref().is_some_and(|p| !p.exists()));
+    }
 }
 
 #[test]

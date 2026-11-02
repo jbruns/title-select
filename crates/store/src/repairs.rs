@@ -2257,6 +2257,72 @@ impl Store {
         Ok(Ok(kept))
     }
 
+    /// Settles a step whose staged file, to be kept aside as `kept`, is neither there nor at `staged_name`: another
+    /// file found in either place is recorded as a kept file found in its place, moved into the kept files first by
+    /// one rename that never replaces anything if it is still at `staged_name`, before the step ends.
+    fn keep_found_instead(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        staged_name: &str,
+        generation: &FolderDir,
+        kept: &str,
+        why: &str,
+    ) -> Ran {
+        let settle = |st: &rustix::fs::Stat| -> Ran {
+            match self.keep_substitute(
+                r,
+                step,
+                staged_name,
+                (&r.dir, staged_name),
+                generation,
+                kept,
+                st,
+            )? {
+                Ok(_) => Ok(Ok(())),
+                Err(left) => Ok(Err(left)),
+            }
+        };
+        if let Some(st) = generation.stat(kept).map_err(io_err)? {
+            return settle(&st);
+        }
+        match r.dir.stat(staged_name).map_err(io_err)? {
+            Some(st) if FolderDir::kind(&st) == FileType::RegularFile => {
+                let _pin = r.dir.pin(staged_name, Identity::of(&st));
+                if let Err(e) = r.dir.rename_new(staged_name, generation, kept) {
+                    return self.step_failed(
+                        step,
+                        "failed",
+                        format!(
+                            "{why}; another file was found at {staged_name}, which could not be kept aside ({e}) \
+                             and was left there"
+                        ),
+                    );
+                }
+                r.dir.sync().map_err(io_err)?;
+                generation.sync().map_err(io_err)?;
+                match generation.stat(kept).map_err(io_err)? {
+                    Some(st) => settle(&st),
+                    None => Ok(Err(format!(
+                        "{kept} was moved from the kept files as it was kept aside"
+                    ))),
+                }
+            }
+            Some(_) => self.step_failed(
+                step,
+                "failed",
+                format!(
+                    "{why}; something other than a file was found at {staged_name} and left there"
+                ),
+            ),
+            None => self.step_failed(
+                step,
+                "failed",
+                format!("{why}; it is neither at {staged_name} nor kept as {kept}"),
+            ),
+        }
+    }
+
     /// Keeps the staged file `staged_name`, `staged`, that could not be published aside as `kept`, its intent
     /// recorded, and fails the step with `why`; from wherever a stop left it.
     fn keep_unpublished(
@@ -2300,11 +2366,7 @@ impl Store {
                 }))
         };
         let Some(seen) = found(&r.dir, staged_name)?.or(found(&generation, kept)?) else {
-            return self.step_failed(
-                step,
-                "failed",
-                format!("{why}; it is neither at {staged_name} nor kept as {kept}"),
-            );
+            return self.keep_found_instead(r, step, staged_name, &generation, kept, &why);
         };
         let keeping = StepRow {
             state: "moving".into(),

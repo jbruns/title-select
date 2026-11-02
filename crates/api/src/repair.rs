@@ -284,11 +284,24 @@ pub struct SourceKeptFile {
     pub kept_at: String,
 }
 
-/// What deleting kept files of a Source Set covers: each file as the store recorded it.
+/// What deleting kept files of a Source Set covers: each file as the store recorded it, and as it was read when
+/// the deletion was planned.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceKeptDeletionContent {
     pub source_set: i64,
     pub files: Vec<SourceKeptFile>,
+    #[serde(default)]
+    pub reviewed: Vec<KeptFileReviewed>,
+}
+
+/// A kept file as it was read, through a descriptor held open, when its deletion was planned. It is deleted only
+/// while it still reads the same.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptFileReviewed {
+    pub id: i64,
+    /// Nanoseconds since the Unix epoch.
+    pub ctime_ns: i128,
+    pub sha256: String,
 }
 
 /// A plan to delete kept files of a Source Set, carried out once you approve it with its digest.

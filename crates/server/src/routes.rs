@@ -863,8 +863,9 @@ async fn plan_source_kept_deletion(
 ) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
     let Path(name) = name?;
     let Json(request) = body?;
+    let config = state.config.clone();
     let plan = blocking(&state, move |store| {
-        store.plan_source_kept_deletion(&name, &request)
+        store.plan_source_kept_deletion(&config, &name, &request)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(plan)))
