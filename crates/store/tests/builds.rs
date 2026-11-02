@@ -219,6 +219,20 @@ impl Env {
 
     /// Restarts with `stop` hooked to the faults recovery passes; `None` for the blocked folders when it stopped.
     fn restart_until(self, stop: Option<Fault>) -> (Env, Option<Vec<(i64, String)>>) {
+        self.restart_hooked(stop.map(|stop| {
+            std::sync::Arc::new(move |fault| {
+                if fault == stop {
+                    panic!("killed at {fault:?}");
+                }
+            }) as title_select_store::FaultHook
+        }))
+    }
+
+    /// Restarts with `hook` run at the faults recovery passes; `None` for the blocked folders when it panicked.
+    fn restart_hooked(
+        self,
+        hook: Option<title_select_store::FaultHook>,
+    ) -> (Env, Option<Vec<(i64, String)>>) {
         let Env {
             tmp,
             store,
@@ -228,12 +242,8 @@ impl Env {
         let path = store.dir().to_path_buf();
         drop(store);
         let store = Store::open(&path).unwrap();
-        if let Some(stop) = stop {
-            store.hook_faults(Some(std::sync::Arc::new(move |fault| {
-                if fault == stop {
-                    panic!("killed at {fault:?}");
-                }
-            })));
+        if hook.is_some() {
+            store.hook_faults(hook);
         }
         let blocked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             store.recover_jobs(WORKERS).unwrap();
@@ -1530,6 +1540,128 @@ fn a_stopped_deletion_resumes_only_by_the_ctime_held_across_the_rename_and_the_r
 }
 
 #[test]
+fn recovery_deletes_only_what_it_verified_never_what_merely_looks_unchanged() {
+    for at in ["before the ctime is recorded", "after the move"] {
+        let env = Env::new();
+        let (folder, plan) = built_then_deselected(&env);
+        let dir = env.play().join("atari2600");
+        assert_eq!(env.build(&plan).state, JobState::Succeeded);
+        let kept = env.store.kept_files(folder.id).unwrap();
+        let first = kept[0].clone();
+        let path = dir.join(RETAINED).join("2").join(&first.kept_name);
+        let slot = dir
+            .join(RETAINED)
+            .join(".deleting")
+            .join(first.id.to_string());
+        let bytes = std::fs::read(&path).unwrap();
+        let deletion = env
+            .store
+            .plan_kept_deletion(
+                &env.config,
+                folder.id,
+                &PlanKeptDeletion {
+                    ids: vec![first.id],
+                    all: false,
+                },
+            )
+            .unwrap();
+        let fault = match at {
+            "before the ctime is recorded" => Fault::DeleteMoveUnrecorded(first.id),
+            _ => Fault::AfterDeleteMove(first.id),
+        };
+        crash_deletion(&env, &deletion, fault);
+
+        // While recovery looks, a writer briefly changes its length, then restores its length and mtime.
+        let (at_slot, id) = (slot.clone(), first.id);
+        let mtime = std::fs::metadata(&slot).unwrap().modified().unwrap();
+        let restore = bytes.clone();
+        let (env, _) = env.restart_hooked(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::KeptDeletionSynced(id) {
+                let file = std::fs::File::options().write(true).open(&at_slot).unwrap();
+                file.set_len(restore.len() as u64 + 1).unwrap();
+            } else if fault == Fault::DeletingFound(id) {
+                use std::io::Write;
+                let mut file = std::fs::File::options().write(true).open(&at_slot).unwrap();
+                file.set_len(restore.len() as u64).unwrap();
+                file.write_all(&restore).unwrap();
+                file.set_modified(mtime).unwrap();
+            }
+        })));
+        let done = env.store.kept_deletion(deletion.id).unwrap();
+        assert!(
+            done.finished_at.is_some() && done.recovery_error.is_none(),
+            "{at}: {done:?}"
+        );
+        let detail = done.outcomes[0].detail.as_deref().unwrap();
+        assert!(!done.outcomes[0].deleted, "{at}: {detail}");
+        assert!(detail.contains("moved back"), "{at}: {detail}");
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "{at}");
+        assert_eq!(env.store.kept_files(folder.id).unwrap(), kept, "{at}");
+    }
+}
+
+#[test]
+fn what_is_swapped_into_deleting_after_it_is_recorded_held_aside_is_moved_back_and_recovery_finishes()
+ {
+    let env = Env::new();
+    let (folder, plan) = built_then_deselected(&env);
+    let dir = env.play().join("atari2600");
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let kept = env.store.kept_files(folder.id).unwrap();
+    let first = kept[0].clone();
+    let path = dir.join(RETAINED).join("2").join(&first.kept_name);
+    let slot = dir
+        .join(RETAINED)
+        .join(".deleting")
+        .join(first.id.to_string());
+    let deletion = env
+        .store
+        .plan_kept_deletion(
+            &env.config,
+            folder.id,
+            &PlanKeptDeletion {
+                ids: vec![first.id],
+                all: false,
+            },
+        )
+        .unwrap();
+    // Another file takes the kept file's place just before it is moved; the service stops once what was moved aside
+    // is recorded held aside, and then that is swapped for yet another.
+    let (at, away) = (path.clone(), env.tmp.path().join("original"));
+    let id = first.id;
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::BeforeDeleteMove(id) {
+                std::fs::rename(&at, &away).unwrap();
+                std::fs::write(&at, b"someone else's").unwrap();
+            } else if fault == Fault::Quarantined(id) {
+                panic!("killed");
+            }
+        })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store
+            .approve_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err());
+    std::fs::remove_file(&slot).unwrap();
+    std::fs::write(&slot, b"a swap").unwrap();
+
+    let (env, _) = env.restart();
+    let done = env.store.kept_deletion(deletion.id).unwrap();
+    assert!(
+        done.finished_at.is_some() && done.recovery_error.is_none(),
+        "{done:?}"
+    );
+    let detail = done.outcomes[0].detail.as_deref().unwrap();
+    assert!(!done.outcomes[0].deleted, "{detail}");
+    assert!(detail.contains("moved back"), "{detail}");
+    assert!(!slot.exists());
+    assert_eq!(std::fs::read(&path).unwrap(), b"a swap");
+    assert_eq!(env.store.kept_files(folder.id).unwrap(), kept);
+}
+
+#[test]
 fn deletion_recovery_waits_until_the_folder_is_shown_to_be_the_stores() {
     let env = Env::new();
     let (folder, plan) = built_then_deselected(&env);
@@ -1833,20 +1965,10 @@ fn a_move_back_is_recorded_only_once_it_is_found_back_and_made_durable() {
     );
     held(&env);
 
-    // Something else at its name, or nothing at either place, keeps it recorded as held aside.
+    // Once both folders are synced, nothing held aside, and something else at its name, it settles: the file is
+    // recorded kept, and nothing is deleted.
     std::fs::rename(&path, &aside).unwrap();
-    let (env, _) = env.restart();
-    let error = held(&env);
-    assert!(error.contains("nor at"), "{error}");
     std::fs::write(&path, b"a third").unwrap();
-    let (env, _) = env.restart();
-    let error = held(&env);
-    assert!(error.contains("holds something else"), "{error}");
-    std::fs::remove_file(&path).unwrap();
-    assert!(env.store.kept_files(folder.id).unwrap().len() < kept.len());
-
-    // Back under its name, synced, it is recorded kept again and the deletion finishes.
-    std::fs::rename(&aside, &path).unwrap();
     let (env, _) = env.restart();
     let done = env.store.kept_deletion(deletion.id).unwrap();
     assert!(
@@ -1854,7 +1976,10 @@ fn a_move_back_is_recorded_only_once_it_is_found_back_and_made_durable() {
         "{done:?}"
     );
     assert!(!done.outcomes[0].deleted);
-    assert_eq!(std::fs::read(&path).unwrap(), b"someone else's");
+    let detail = done.outcomes[0].detail.as_deref().unwrap();
+    assert!(detail.contains("holds something else"), "{detail}");
+    assert_eq!(std::fs::read(&path).unwrap(), b"a third");
+    assert_eq!(std::fs::read(&aside).unwrap(), b"someone else's");
     assert_eq!(env.store.kept_files(folder.id).unwrap(), kept);
 }
 

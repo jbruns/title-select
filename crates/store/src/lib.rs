@@ -156,6 +156,8 @@ pub enum Fault {
     DeleteMoveUnrecorded(i64),
     /// After the kept file with this id is moved into the private folder it is deleted from, before it is checked.
     AfterDeleteMove(i64),
+    /// When recovery finds something where the kept file with this id was moved to be deleted, before it checks it.
+    DeletingFound(i64),
     /// After what was moved aside to delete the kept file with this id, not being that file, is recorded, before it is
     /// moved back.
     Quarantined(i64),

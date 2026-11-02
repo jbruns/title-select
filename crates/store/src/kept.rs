@@ -617,6 +617,53 @@ pub(super) fn reads_as_reviewed(
         == Some(reviewed.sha256.as_str()))
 }
 
+/// What [`unlink_verified`] did with a kept file moved aside to be deleted.
+enum Unlinked {
+    Deleted,
+    /// The descriptor or the entry is no longer the kept file.
+    NotTheFile,
+    /// It no longer reads as you reviewed it, or nothing trusted shows that it does.
+    Changed,
+    Failed(String),
+}
+
+/// The one way a kept file moved aside to `slot` in `deleting` is deleted: only once it is verified through `held`,
+/// a descriptor on it, still to be the regular file `identity` with `file`'s size and mtime that hashes as
+/// `reviewed` while its ctime, size and mtime hold still at `ctime`, the ctime read through the descriptor held
+/// across its rename there; and only while `held` and the entry are still that file just before it is unlinked.
+fn unlink_verified(
+    deleting: &FolderDir,
+    slot: &str,
+    held: &std::fs::File,
+    identity: Identity,
+    file: &FileStat,
+    reviewed: Option<&KeptFileReviewed>,
+    ctime: Option<i128>,
+) -> Result<Unlinked> {
+    let io = |e: io::Error| Error::Io(e.to_string());
+    let is_entry = || matches!(deleting.stat(slot), Ok(Some(st)) if Identity::of(&st) == identity);
+    if !is_entry() {
+        return Ok(Unlinked::NotTheFile);
+    }
+    if !reads_as_reviewed(held, identity, file, reviewed, ctime)? {
+        return Ok(Unlinked::Changed);
+    }
+    let now = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
+    if Identity::of(&now) != identity || !is_entry() {
+        return Ok(Unlinked::NotTheFile);
+    }
+    if file_stat(&now) != *file
+        || Some(ctime_ns(&now)) != ctime
+        || !is_kept_file(deleting, slot, identity, Some(file))
+    {
+        return Ok(Unlinked::Changed);
+    }
+    Ok(match deleting.unlink(slot) {
+        Ok(()) => Unlinked::Deleted,
+        Err(e) => Unlinked::Failed(e.to_string()),
+    })
+}
+
 /// Reads kept file `id`, at `kept` in its generation's folder `generation` and recorded as the regular file
 /// `identity` with `file`'s size and mtime, through a descriptor, for you to review its deletion: its ctime and the
 /// SHA-256 it hashes as while its ctime, size and mtime hold still. `Err` says why it cannot be: it is no longer the
@@ -1531,17 +1578,17 @@ impl Store {
         })?;
         gen_dir.sync().and_then(|()| deleting.sync()).map_err(io)?;
         self.fault_point(Fault::AfterDeleteMove(file.id));
-        if !is_kept_file(&deleting, &slot, id, Some(&file.file)) {
+        let why = match unlink_verified(
+            &deleting, &slot, &held, id, &file.file, reviewed, slot_ctime,
+        )? {
+            Unlinked::Deleted => None,
+            Unlinked::NotTheFile => Some(MOVED_NOT_THE_FILE.to_owned()),
+            Unlinked::Changed => Some(changed.to_owned()),
+            Unlinked::Failed(e) => Some(format!("it could not be deleted ({e})")),
+        };
+        if let Some(why) = why {
             let note = self.quarantine(Some(gen_dir), &deleting, file)?;
-            return Ok(left(file, format!("{MOVED_NOT_THE_FILE}; {note}")));
-        }
-        if !reads_as(&held, slot_ctime)? || !is_kept_file(&deleting, &slot, id, Some(&file.file)) {
-            let note = self.quarantine(Some(gen_dir), &deleting, file)?;
-            return Ok(left(file, format!("{changed}; {note}")));
-        }
-        if let Err(e) = deleting.unlink(&slot) {
-            let note = self.quarantine(Some(gen_dir), &deleting, file)?;
-            return Ok(left(file, format!("it could not be deleted ({e}); {note}")));
+            return Ok(left(file, format!("{why}; {note}")));
         }
         deleting.sync().map_err(io)?;
         self.fault_point(Fault::AfterUnlink(file.id));
@@ -1580,8 +1627,11 @@ impl Store {
         self.put_back(generation, deleting, file, moved)
     }
 
-    /// Moves what is recorded at `.deleting/<id>` for kept file `file`, as `moved`, back to the file's kept entry in
-    /// `generation`, without replacing anything, and records the file kept once that is durable. Returns where it is.
+    /// Moves what is at `.deleting/<id>` for kept file `file`, recorded as `moved`, back to the file's kept entry in
+    /// `generation`, without replacing anything, and records the file kept once that is durable. Something else found
+    /// there instead is recorded in its place, and moved back the same way; it is never deleted. Once both folders
+    /// are synced and nothing is held aside there, the file is recorded kept, wherever what was moved aside went.
+    /// It stays recorded as held aside only while it cannot be moved back. Returns where it is.
     fn put_back(
         &self,
         generation: Option<&FolderDir>,
@@ -1593,54 +1643,53 @@ impl Store {
         let kept = file.kept_name.as_str();
         let at = format!("{RETENTION}/{DELETING}/{slot}");
         let back = format!("{RETENTION}/{}/{kept}", file.generation);
+        // A move back the service stopped during may not yet be durable: nothing is decided until both folders are.
+        let synced = generation
+            .map_or(Ok(()), FolderDir::sync)
+            .and_then(|()| deleting.sync());
+        if let Err(e) = synced {
+            return Ok(format!(
+                "it is at {at} or {back}, and that could not be made durable ({e}); the service tries again when it \
+                 next starts"
+            ));
+        }
         let found = match deleting.stat(&slot) {
             Ok(found) => found,
             Err(e) => return Ok(format!("it is at {at} ({e})")),
         };
         let Some(st) = found else {
-            // Moved back before the service stopped, perhaps not yet durably: cleared only once it is found back
-            // under its name and both folders are synced, so a power loss cannot undo a move-back already recorded.
-            let Some(generation) = generation else {
-                return Ok(format!(
-                    "it is no longer at {at}, and {back} is gone; it stays recorded as held aside"
-                ));
-            };
-            let found = match generation.stat(kept) {
-                Ok(found) => found,
-                Err(e) => {
+            let note = match generation.map(|g| g.stat(kept)) {
+                None => format!("it is no longer at {at}, and {back} is gone"),
+                Some(Err(e)) => {
                     return Ok(format!(
                         "it is no longer at {at}, and {back} could not be checked ({e}); it stays recorded as held \
                          aside"
                     ));
                 }
+                Some(Ok(Some(st))) if Identity::of(&st) == moved => {
+                    self.fault_point(Fault::MoveBackSynced(file.id));
+                    format!("it was moved back to {back}")
+                }
+                Some(Ok(Some(_))) => {
+                    format!("it is no longer at {at}, and {back} holds something else")
+                }
+                Some(Ok(None)) => format!("it is no longer at {at} nor at {back}"),
             };
-            match found {
-                Some(st) if Identity::of(&st) == moved => {}
-                Some(_) => {
-                    return Ok(format!(
-                        "it is no longer at {at}, and {back} holds something else; it stays recorded as held aside"
-                    ));
-                }
-                None => {
-                    return Ok(format!(
-                        "it is no longer at {at} nor at {back}; it stays recorded as held aside"
-                    ));
-                }
-            }
-            if let Err(e) = generation.sync().and_then(|()| deleting.sync()) {
-                return Ok(format!(
-                    "it was moved back to {back}, but that could not be made durable ({e}); the service tries again \
-                     when it next starts"
-                ));
-            }
-            self.fault_point(Fault::MoveBackSynced(file.id));
             self.write(|tx| still_kept(tx, file.id))?;
-            return Ok(format!("it was moved back to {back}"));
+            return Ok(note);
         };
-        if Identity::of(&st) != moved {
-            return Ok(format!(
-                "{at} now holds something else again; it is left there until it can be moved back to {back}"
-            ));
+        let now = Identity::of(&st);
+        if now != moved {
+            // Swapped again since it was recorded: what is there now is what is to be moved back.
+            let (dev, ino) = now.to_sql();
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE kept_files SET quarantine_dev = ?2, quarantine_ino = ?3
+                     WHERE id = ?1 AND state = 'quarantined'",
+                    params![file.id, dev, ino],
+                )?;
+                Ok(())
+            })?;
         }
         let Some(generation) = generation else {
             return Ok(format!(
@@ -1839,10 +1888,10 @@ impl Store {
         let area = match own_dir(self, folder, dir, RETENTION, RETENTION, false)? {
             Ok(Some(area)) => area,
             Ok(None) if quarantined.is_some() => {
-                return Ok(Err(format!(
-                    "{RETENTION} is gone, and with it what was moved aside while deleting {}",
-                    file.kept_name
-                )));
+                self.write(|tx| still_kept(tx, file.id))?;
+                return Ok(Ok(Some(format!(
+                    "{MOVED_NOT_THE_FILE}; {RETENTION} is gone, and with it what was moved aside"
+                ))));
             }
             Ok(None) => {
                 self.write(|tx| deleted(tx, file.id))?;
@@ -1855,13 +1904,17 @@ impl Store {
             Err(reason) => return Ok(Err(reason)),
         };
         let name = file.generation.to_string();
+        // Whatever is held aside may need to be moved back, so its generation's folder is made again if it is gone.
+        let held_aside = deleting
+            .as_ref()
+            .is_some_and(|d| !matches!(d.stat(&slot), Ok(None)));
         let generation = match own_dir(
             self,
             folder,
             &area,
             &name,
             &generation_dir(file.generation),
-            false,
+            held_aside,
         )? {
             Ok(generation) => generation,
             Err(reason) => return Ok(Err(reason)),
@@ -1905,40 +1958,45 @@ impl Store {
         } else {
             CHANGED
         };
-        if let Some(deleting) = &deleting
-            && is_kept_file(deleting, &slot, id, Some(&file.file))
-        {
-            let ctime = slot_ctime.and_then(|c| c.parse::<i128>().ok());
-            let trusted = match (reviewed, ctime) {
-                (Some(_), Some(_)) => match deleting.open_file(&slot) {
-                    Ok(held) => reads_as_reviewed(&held, id, &file.file, reviewed, ctime)?,
-                    Err(_) => false,
-                },
-                _ => false,
-            };
-            if !trusted || !is_kept_file(deleting, &slot, id, Some(&file.file)) {
-                let note = self.quarantine(generation.as_ref(), deleting, file)?;
-                return Ok(Ok(Some(format!("{changed}; {note}"))));
-            }
-        }
         if let Some(deleting) = &deleting {
             match deleting.stat(&slot) {
                 Err(e) => return Ok(Err(e.to_string())),
-                Ok(Some(_)) if is_kept_file(deleting, &slot, id, Some(&file.file)) => {
-                    if let Err(e) = deleting.unlink(&slot).and_then(|()| deleting.sync()) {
+                Ok(None) => {}
+                Ok(Some(st)) => {
+                    self.fault_point(Fault::DeletingFound(file.id));
+                    let ctime = slot_ctime.and_then(|c| c.parse::<i128>().ok());
+                    let why = if Identity::of(&st) != id {
+                        Some(MOVED_NOT_THE_FILE.to_owned())
+                    } else if reviewed.is_none() || ctime.is_none() {
+                        Some(changed.to_owned())
+                    } else {
+                        match deleting.open_file(&slot) {
+                            Err(_) => Some(changed.to_owned()),
+                            Ok(held) => match unlink_verified(
+                                deleting, &slot, &held, id, &file.file, reviewed, ctime,
+                            )? {
+                                Unlinked::Deleted => None,
+                                Unlinked::NotTheFile => Some(MOVED_NOT_THE_FILE.to_owned()),
+                                Unlinked::Changed => Some(changed.to_owned()),
+                                Unlinked::Failed(e) => {
+                                    Some(format!("it could not be deleted ({e})"))
+                                }
+                            },
+                        }
+                    };
+                    if let Some(why) = why {
+                        let note = self.quarantine(generation.as_ref(), deleting, file)?;
+                        return Ok(Ok(Some(format!("{why}; {note}"))));
+                    }
+                    if let Err(e) = deleting.sync() {
                         return Ok(Err(format!(
-                            "{}/{slot} could not be deleted ({e})",
+                            "{}/{slot} was deleted, but that could not be made durable ({e})",
                             deleting.path().display()
                         )));
                     }
                     self.write(|tx| deleted(tx, file.id))?;
                     return Ok(Ok(None));
                 }
-                Ok(Some(_)) => {
-                    let note = self.quarantine(generation.as_ref(), deleting, file)?;
-                    return Ok(Ok(Some(format!("{MOVED_NOT_THE_FILE}; {note}"))));
-                }
-                Ok(None) => {}
             }
         }
         let Some(generation) = generation else {
