@@ -628,7 +628,8 @@ A repair is proposed from the source set's latest audit and from items assessed 
 what the audit read from payloads, as a full audit, or an incremental audit reading a file, does; a file the audit
 judged by name and size alone, or that changed since that audit read it, is left as it is and listed with why,
 even when a later audit that didn't finish read it again. A rename checks again that the file holds exactly the
-game's ROMs before it renames it. Each item has a choice you can change before approving:
+game's ROMs before it renames it. Each item has a choice you can change, then plan again with it before approving;
+approving approves the plan as it was made, so it waits while you have changes you haven't planned with:
 
 - a game whose files are named otherwise than the DAT says is renamed, or written under its name: on by default;
 - a game not stored as the storage policy says, `<game>.zip` or its one ROM loose, is repacked or converted to it:

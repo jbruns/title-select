@@ -1,7 +1,10 @@
-//! The repair screen's pure logic: which repair to show when it opens, when to fetch a plan again, and what to say
-//! about one left unfinished.
+//! The repair screen's pure logic: which repair to show when it opens, when to fetch a plan again, what to say
+//! about one left unfinished, and what you changed since the plan shown was made.
 
-use title_select_api::repair::RepairPlan;
+use std::collections::BTreeMap;
+
+use title_select_api::additions::NewAddition;
+use title_select_api::repair::{RepairChoice, RepairPlan};
 
 /// The repair to show when the repair screen opens, from the source set's plans: the one `wanted` names, if any;
 /// otherwise the latest approved repair that hasn't finished, which is shown instead of proposing a new one.
@@ -34,6 +37,32 @@ pub fn unfinished_note(plan: &RepairPlan) -> Option<String> {
          starts, and until it finishes, the source set's audits and builds wait for it. Fix what's blocking it, \
          then restart the service."
     ))
+}
+
+/// The items you changed since `plan` was made, by key: a choice other than the ones it was planned with
+/// (`planned`), or an operator addition it adds, edited. Approving approves the plan as it was made, so it waits
+/// until you plan again with them.
+pub fn unplanned(
+    plan: &RepairPlan,
+    planned: &BTreeMap<String, RepairChoice>,
+    choices: &BTreeMap<String, RepairChoice>,
+    adding: &BTreeMap<String, NewAddition>,
+) -> Vec<String> {
+    let mut keys: Vec<String> = planned
+        .keys()
+        .chain(choices.keys())
+        .filter(|k| planned.get(*k) != choices.get(*k))
+        .cloned()
+        .collect();
+    keys.extend(plan.content.items.iter().filter_map(|item| {
+        let added = item.addition.as_ref()?;
+        (item.chosen == RepairChoice::AddAddition
+            && adding.get(&item.key).is_some_and(|a| a != added))
+        .then(|| item.key.clone())
+    }));
+    keys.sort();
+    keys.dedup();
+    keys
 }
 
 #[cfg(test)]
@@ -91,5 +120,57 @@ mod tests {
         assert!(note.contains("when the service"), "{note}");
         assert_eq!(unfinished_note(&plan(3, true, true, Some("x"))), None);
         assert_eq!(unfinished_note(&plan(3, false, false, None)), None);
+    }
+
+    #[test]
+    fn a_choice_changed_since_the_plan_was_made_holds_its_approval_until_it_is_planned_again() {
+        let p = plan(1, false, false, None);
+        let none = BTreeMap::new();
+        assert!(unplanned(&p, &none, &none, &BTreeMap::new()).is_empty());
+
+        let changed = BTreeMap::from([("entry:a.zip".to_string(), RepairChoice::Apply)]);
+        assert_eq!(
+            unplanned(&p, &none, &changed, &BTreeMap::new()),
+            ["entry:a.zip"],
+            "a choice made after the plan isn't in it"
+        );
+        assert!(
+            unplanned(&p, &changed, &changed, &BTreeMap::new()).is_empty(),
+            "planned again with it"
+        );
+        assert_eq!(
+            unplanned(&p, &changed, &none, &BTreeMap::new()),
+            ["entry:a.zip"],
+            "set back to its default after planning with it"
+        );
+    }
+
+    #[test]
+    fn an_addition_edited_since_the_plan_was_made_holds_its_approval() {
+        let added = NewAddition {
+            system: "Atari - 2600".into(),
+            name: "Hack".into(),
+            parent: None,
+        };
+        let mut p = plan(1, false, false, None);
+        p.content.items.push(
+            serde_json::from_value(serde_json::json!({
+                "key": "entry:h.zip", "kind": "keep_aside", "summary": "s",
+                "choices": ["leave", "add_addition"], "default": "leave", "chosen": "add_addition",
+                "addition": added,
+            }))
+            .unwrap(),
+        );
+        let choices = BTreeMap::from([("entry:h.zip".to_string(), RepairChoice::AddAddition)]);
+        let same = BTreeMap::from([("entry:h.zip".to_string(), added.clone())]);
+        assert!(unplanned(&p, &choices, &choices, &same).is_empty());
+        let renamed = BTreeMap::from([(
+            "entry:h.zip".to_string(),
+            NewAddition {
+                name: "Hack 2".into(),
+                ..added
+            },
+        )]);
+        assert_eq!(unplanned(&p, &choices, &choices, &renamed), ["entry:h.zip"]);
     }
 }

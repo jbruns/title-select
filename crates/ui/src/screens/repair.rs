@@ -15,7 +15,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
-use crate::repair_model::{fetch_after, repair_to_show, unfinished_note};
+use crate::repair_model::{fetch_after, repair_to_show, unfinished_note, unplanned};
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::{progress_view, state_view};
 
@@ -73,6 +73,8 @@ fn step_line(step: &RepairStep) -> (String, &'static str) {
 fn Repair(name: String) -> impl IntoView {
     let base = format!("/source-sets/{}", api::segment(&name));
     let choices = RwSignal::new(BTreeMap::<String, RepairChoice>::new());
+    // The choices the plan shown was made with; approving approves it as it was made.
+    let planned_with = RwSignal::new(BTreeMap::<String, RepairChoice>::new());
     let plan = RwSignal::new(None::<RepairPlan>);
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
@@ -134,7 +136,7 @@ fn Repair(name: String) -> impl IntoView {
                     .collect()
             });
             let body = PlanRepair {
-                choices: chosen,
+                choices: chosen.clone(),
                 additions,
             };
             let path = path.clone();
@@ -144,6 +146,7 @@ fn Repair(name: String) -> impl IntoView {
                 match planned {
                     Ok(p) => {
                         problem.set(None);
+                        planned_with.set(chosen);
                         plan.set(Some(p));
                     }
                     Err(message) => problem.set(Some(message)),
@@ -167,6 +170,7 @@ fn Repair(name: String) -> impl IntoView {
                 Ok(p) => {
                     problem.set(None);
                     choices.set(BTreeMap::new());
+                    planned_with.set(BTreeMap::new());
                     plan.set(Some(p));
                 }
                 Err(message) => problem.set(Some(message)),
@@ -292,6 +296,21 @@ fn Repair(name: String) -> impl IntoView {
                 .map(|n| view! { <li>{n.clone()}</li> })
                 .collect_view();
             let count = p.content.steps.len();
+            let changed = {
+                let p = p.clone();
+                move || {
+                    let adding = adding.with(|a| {
+                        a.iter()
+                            .map(|(k, v)| (k.clone(), v.get()))
+                            .collect::<BTreeMap<_, _>>()
+                    });
+                    planned_with.with(|planned| choices.with(|c| unplanned(&p, planned, c, &adding).len()))
+                }
+            };
+            let held = {
+                let changed = changed.clone();
+                move || working.get() || changed() != 0
+            };
             let audit_href = format!("/audits/{}", p.content.audit);
             view! {
                 <h3>{format!("Repair plan #{}", p.id)}</h3>
@@ -340,9 +359,28 @@ fn Repair(name: String) -> impl IntoView {
                 {p.audit_owed.then(|| view! {
                     <p class="note">"An incremental audit is queued once the job running for the source set ends."</p>
                 })}
+                {open.then(|| view! {
+                    {move || {
+                        let n = changed();
+                        (n > 0).then(|| view! {
+                            <p class="notice" role="status">
+                                {format!(
+                                    "You changed {n} {} since this plan was made. Plan again with your choices to \
+                                     review and approve them; approving now would approve the plan as shown.",
+                                    if n == 1 { "item" } else { "items" }
+                                )}
+                            </p>
+                        })
+                    }}
+                })}
                 {(open && count > 0).then(|| view! {
                     <div class="form">
-                        <button type="button" class="primary" disabled=move || working.get() on:click=approve>
+                        <button
+                            type="button"
+                            class="primary"
+                            disabled=held
+                            on:click=approve
+                        >
                             {format!("Approve and make {count} changes")}
                         </button>
                     </div>
