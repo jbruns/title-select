@@ -35,11 +35,13 @@ fn cited_by(kept: i64) -> String {
 }
 
 /// Whose bookkeeping a directory Title Select creates is recorded in: a Managed Folder's (`folder_dirs`,
-/// `folder_temps`, `folder_temp_names`) or an Ingest Folder's (`ingest_dirs`, `ingest_temps`, `ingest_temp_names`).
+/// `folder_temps`, `folder_temp_names`), an Ingest Folder's (`ingest_dirs`, `ingest_temps`, `ingest_temp_names`) or a
+/// Source Set's (`source_dirs`, `source_temps`, `source_temp_names`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Scope {
     Managed(i64),
     Ingest(i64),
+    Source(i64),
 }
 
 impl From<i64> for Scope {
@@ -51,7 +53,7 @@ impl From<i64> for Scope {
 impl Scope {
     pub fn id(self) -> i64 {
         match self {
-            Scope::Managed(id) | Scope::Ingest(id) => id,
+            Scope::Managed(id) | Scope::Ingest(id) | Scope::Source(id) => id,
         }
     }
 
@@ -60,6 +62,7 @@ impl Scope {
         let prefix = match self {
             Scope::Managed(_) => "folder_",
             Scope::Ingest(_) => "ingest_",
+            Scope::Source(_) => "source_",
         };
         sql.replace("{dirs}", &format!("{prefix}dirs"))
             .replace("{temps}", &format!("{prefix}temps"))
@@ -71,9 +74,9 @@ impl Scope {
 fn scoped_temps(c: &Connection, folder: Scope) -> Result<HashMap<String, Identity>> {
     match folder {
         Scope::Managed(id) => temps(c, id),
-        Scope::Ingest(id) => {
+        Scope::Ingest(id) | Scope::Source(id) => {
             let mut stmt =
-                c.prepare("SELECT name, dev, ino FROM ingest_temps WHERE folder_id = ?1")?;
+                c.prepare(&folder.sql("SELECT name, dev, ino FROM {temps} WHERE folder_id = ?1"))?;
             let rows = stmt.query_map([id], |r| {
                 Ok((r.get(0)?, Identity::from_sql(r.get(1)?, r.get(2)?)))
             })?;
@@ -1504,6 +1507,15 @@ impl Store {
             Ok(generation) => generation,
             Err(reason) => return Ok(Err(reason)),
         };
+        // A stop may have left a rename between the two unsynced: nothing is decided or recorded until both are.
+        let synced = generation
+            .as_ref()
+            .map_or(Ok(()), FolderDir::sync)
+            .and_then(|()| deleting.as_ref().map_or(Ok(()), FolderDir::sync));
+        if let Err(e) = synced {
+            return Ok(Err(e.to_string()));
+        }
+        self.fault_point(Fault::KeptDeletionSynced(file.id));
         if let Some(moved) = quarantined {
             let Some(deleting) = &deleting else {
                 self.write(|tx| still_kept(tx, file.id))?;

@@ -116,6 +116,20 @@ pub trait PayloadReads: Sync {
     /// Records a read this Audit made of every payload of the file at `path`. A file with any payload that could
     /// not be read is not recorded.
     fn record(&self, path: &str, read: &PayloadRead);
+    /// Records the stamp the file at `path` had when this Audit could not read one of its payloads, so that what is
+    /// done about it later can tell whether it changed since.
+    fn record_unreadable(&self, _path: &str, _stamp: &FileStamp) {}
+    /// Notes that this Audit reused the read `prior` returned for the file at `path`, whose stamp is still `stamp`.
+    fn reused(&self, _path: &str, _stamp: &FileStamp) {}
+}
+
+/// Whether `name`, an entry anywhere in a Source Set, is one Title Select keeps there for itself and an Audit passes
+/// over: its marker, its kept files and private `.deleting` folders, and a file it is writing under a temporary
+/// name.
+pub fn is_own_entry(name: &str) -> bool {
+    name.starts_with(".title-select")
+        || name == ".deleting"
+        || (name.starts_with('.') && name.contains(".title-select-new-"))
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {
@@ -183,6 +197,12 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
                 continue;
             }
         };
+        if item.depth() > 0 && is_own_entry(&item.file_name().to_string_lossy()) {
+            if item.file_type().is_dir() {
+                walk.skip_current_dir();
+            }
+            continue;
+        }
         let mut path = item.path().to_path_buf();
         if let Some(confine) = options.confine {
             let refusal = match item.path().canonicalize() {

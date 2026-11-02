@@ -22,6 +22,7 @@ use title_select_api::build::{
 use title_select_api::ingest::{
     IngestFolder, IngestItem, IngestKeptFile, IngestPlan, PlanIngest, RegisterIngestFolder,
 };
+use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
 use title_select_api::{
     AddSourceSet, Availability, CreateProfile, Dat, ErrorBody, Finding, GameStatus, Health,
@@ -141,12 +142,29 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/ingest-items/{id}/dismissal", post(dismiss_ingest_item))
         .route("/ingest-plans/{id}", get(ingest_plan))
         .route("/ingest-plans/{id}/approval", post(approve_ingest_plan))
+        .route(
+            "/source-sets/{name}/repairs",
+            get(repair_plans).post(plan_repair),
+        )
+        .route("/source-sets/{name}/kept-files", get(source_kept_files))
+        .route(
+            "/source-sets/{name}/kept-deletions",
+            post(plan_source_kept_deletion),
+        )
+        .route("/repairs/{id}", get(repair_plan))
+        .route("/repairs/{id}/approval", post(approve_repair))
+        .route("/source-kept-deletions/{id}", get(source_kept_deletion))
+        .route(
+            "/source-kept-deletions/{id}/approval",
+            post(approve_source_kept_deletion),
+        )
         .route("/plans/{id}", get(plan))
         .route("/plans/{id}/approval", post(approve_plan))
         .route("/builds/{id}", get(build))
         .route("/jobs", get(jobs))
         .route("/jobs/{id}", get(job))
         .route("/jobs/{id}/events", get(job_events))
+        .route("/jobs/{id}/cancellation", post(cancel_job))
         .route("/events", get(all_events))
         .layer(middleware::from_fn_with_state(auth, require_operator));
     let api = Router::new()
@@ -302,6 +320,7 @@ async fn roots(State(state): State<AppState>) -> Json<Vec<Root>> {
                 name: name.clone(),
                 path: root.path.display().to_string(),
                 writable: root.writable,
+                writable_paths: root.writable_paths.clone(),
                 ingest: root.is_ingest(),
             })
             .collect(),
@@ -766,6 +785,117 @@ async fn ingest_kept_files(
     let Path(root) = root?;
     Ok(Json(
         blocking(&state, move |store| store.ingest_kept_files(&root)).await?,
+    ))
+}
+
+async fn repair_plans(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<RepairPlan>>> {
+    let Path(name) = name?;
+    Ok(Json(
+        blocking(&state, move |store| store.repair_plans(&name)).await?,
+    ))
+}
+
+/// Proposes a repair of the Source Set from its latest Audit; nothing changes until the plan is approved.
+async fn plan_repair(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<PlanRepair>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<RepairPlan>)> {
+    let Path(name) = name?;
+    let Json(request) = body?;
+    let config = state.config.clone();
+    let plan = blocking(&state, move |store| {
+        store.plan_repair(&config, &name, &request)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+async fn repair_plan(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<RepairPlan>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.repair_plan(id)).await?,
+    ))
+}
+
+/// Approves a repair with the digest you reviewed, and queues the Repair Job that carries it out.
+async fn approve_repair(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<ApprovePlan>, JsonRejection>,
+) -> ApiResult<Json<RepairPlan>> {
+    let Path(id) = id?;
+    let Json(approve) = body?;
+    let (config, workers) = (state.config.clone(), state.workers);
+    let plan = blocking(&state, move |store| {
+        store.approve_repair(&config, id, &approve.digest, &actor, workers)
+    })
+    .await?;
+    if let Some(job) = plan.job {
+        let found = blocking(&state, move |store| store.job(job)).await?;
+        state.jobs.changed(found);
+    }
+    Ok(Json(plan))
+}
+
+async fn source_kept_files(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<SourceKeptFile>>> {
+    let Path(name) = name?;
+    Ok(Json(
+        blocking(&state, move |store| store.source_kept_files(&name)).await?,
+    ))
+}
+
+/// Plans deleting kept files of the Source Set; nothing is deleted until the plan is approved.
+async fn plan_source_kept_deletion(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<PlanKeptDeletion>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
+    let Path(name) = name?;
+    let Json(request) = body?;
+    let config = state.config.clone();
+    let plan = blocking(&state, move |store| {
+        store.plan_source_kept_deletion(&config, &name, &request)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+async fn source_kept_deletion(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<SourceKeptDeletion>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.source_kept_deletion(id)).await?,
+    ))
+}
+
+/// Approves deleting kept files of a Source Set with the digest you reviewed, and deletes them before it answers.
+async fn approve_source_kept_deletion(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<ApprovePlan>, JsonRejection>,
+) -> ApiResult<Json<SourceKeptDeletion>> {
+    let Path(id) = id?;
+    let Json(approve) = body?;
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.approve_source_kept_deletion(&config, id, &approve.digest, &actor)
+        })
+        .await?,
     ))
 }
 
@@ -1244,6 +1374,17 @@ async fn job(
 ) -> ApiResult<Json<title_select_api::Job>> {
     let Path(id) = id?;
     Ok(Json(blocking(&state, move |store| store.job(id)).await?))
+}
+
+/// Asks a Repair Job to stop at its next safe point.
+async fn cancel_job(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<title_select_api::Job>> {
+    let Path(id) = id?;
+    let job = blocking(&state, move |store| store.cancel_job(id)).await?;
+    state.jobs.changed(job.clone());
+    Ok(Json(job))
 }
 
 type EventStream = Sse<

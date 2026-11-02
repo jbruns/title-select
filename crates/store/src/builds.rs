@@ -86,6 +86,24 @@ pub(super) fn sha256_of(mut file: &File) -> io::Result<(String, u64)> {
     Ok((hex(&hasher.finalize()), size))
 }
 
+/// The SHA-256 of `file`, read through it only while its ctime is `ctime` and its ctime, size and mtime hold still
+/// across the read; `None` otherwise.
+pub(super) fn still_sha256(file: &File, ctime: i128) -> io::Result<Option<String>> {
+    let at = |st: &rustix::fs::Stat| {
+        (
+            crate::folder_dir::ctime_ns(st),
+            crate::folder_dir::file_stat(st),
+        )
+    };
+    let before = rustix::fs::fstat(file)?;
+    if at(&before).0 != ctime {
+        return Ok(None);
+    }
+    let (sha256, _) = sha256_of(file)?;
+    let after = rustix::fs::fstat(file)?;
+    Ok((at(&before) == at(&after)).then_some(sha256))
+}
+
 /// Writes `item` to `file`, new in the staging directory at `staged`, and verifies it.
 fn stage(
     item: &PlanItem,

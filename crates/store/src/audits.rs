@@ -54,6 +54,8 @@ pub(super) struct RunningAudit {
 struct StoredReads<'s> {
     store: &'s Store,
     set_id: i64,
+    /// The running Audit, whose own stamps are recorded with each read it makes or reuses.
+    audit: i64,
     /// The Job recording its reads, if any.
     job: Option<i64>,
     /// Which recorded reads may be reused: any, only those of one Job, or none.
@@ -73,10 +75,40 @@ impl<'s> StoredReads<'s> {
         StoredReads {
             store,
             set_id: running.set_id,
+            audit: running.id,
             job: running.job,
             reuse,
             error: Mutex::new(None),
         }
+    }
+
+    /// Records `stamp` as what this Audit read of `path`, in `tx`.
+    fn stamp(
+        &self,
+        tx: &Transaction,
+        path: &str,
+        unreadable: bool,
+        stamp: &FileStamp,
+    ) -> Result<()> {
+        tx.execute(
+            "DELETE FROM audit_stamps WHERE audit_id = ?1 AND path = ?2",
+            params![self.audit, path],
+        )?;
+        tx.execute(
+            "INSERT INTO audit_stamps (audit_id, path, unreadable, dev, ino, size, mtime_ns, ctime_ns)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                self.audit,
+                path,
+                unreadable,
+                stamp.dev as i64,
+                stamp.ino as i64,
+                stamp.size as i64,
+                stamp.mtime_ns as i64,
+                stamp.ctime_ns as i64,
+            ],
+        )?;
+        Ok(())
     }
 
     fn keep(&self, err: Error) {
@@ -150,10 +182,22 @@ impl PayloadReads for StoredReads<'_> {
                             members
                         ],
                     )?;
-                    Ok(())
+                    self.stamp(tx, path, false, &read.stamp)
                 })
             });
         if let Err(err) = recorded {
+            self.keep(err);
+        }
+    }
+
+    fn record_unreadable(&self, path: &str, stamp: &FileStamp) {
+        if let Err(err) = self.store.write(|tx| self.stamp(tx, path, true, stamp)) {
+            self.keep(err);
+        }
+    }
+
+    fn reused(&self, path: &str, stamp: &FileStamp) {
+        if let Err(err) = self.store.write(|tx| self.stamp(tx, path, false, stamp)) {
             self.keep(err);
         }
     }
@@ -594,6 +638,7 @@ impl Store {
         let resolved = resolve(config, &set.record.root, &set.record.path)?;
         let source_set_path = resolved.path.display().to_string();
         let (id, revision) = self.write(|tx| {
+            crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             let (revision_id, revision) = choose(tx, &set)?;
             check_blob_present(&revision)?;
             tx.execute(
@@ -863,6 +908,7 @@ impl Store {
             for id in &pruned {
                 tx.execute("DELETE FROM audit_entries WHERE audit_id = ?1", [id])?;
                 tx.execute("DELETE FROM audit_games WHERE audit_id = ?1", [id])?;
+                tx.execute("DELETE FROM audit_stamps WHERE audit_id = ?1", [id])?;
                 tx.execute(
                     "UPDATE audits SET pruned_at = ?1 WHERE id = ?2",
                     params![at, id],
@@ -988,5 +1034,32 @@ mod tests {
             "the other Audit finished later and pruned it"
         );
         assert!(matches!(store.report(first_id), Err(Error::Refused(_))));
+    }
+
+    #[test]
+    fn pruning_an_audit_deletes_the_stamps_it_read() {
+        let (tmp, store, config) = store_with_a_set();
+        std::fs::write(tmp.path().join("sets/Test/readme.txt"), b"hello").unwrap();
+        let first = store
+            .audit_source_set(&config, "Test", None, AuditEvidence::Full)
+            .unwrap();
+        let second = store
+            .audit_source_set(&config, "Test", None, AuditEvidence::Full)
+            .unwrap();
+
+        let stamps = |id: i64| -> i64 {
+            store
+                .read(|c| {
+                    Ok(c.query_row(
+                        "SELECT COUNT(*) FROM audit_stamps WHERE audit_id = ?1",
+                        [id],
+                        |r| r.get(0),
+                    )?)
+                })
+                .unwrap()
+        };
+        assert!(store.audit(first.id).unwrap().pruned);
+        assert_eq!(stamps(first.id), 0);
+        assert_eq!(stamps(second.id), 1);
     }
 }

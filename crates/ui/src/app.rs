@@ -8,8 +8,8 @@ use crate::events::{Stream, provide_live, use_live};
 use crate::screens::Bench;
 use crate::screens::{
     About, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen, IngestFolders, Jobs,
-    ManagedFolderScreen, ManagedFolders, NewProfile, ProfileScreen, Profiles, SelectionScreen,
-    SourceSet, SourceSets,
+    ManagedFolderScreen, ManagedFolders, NewProfile, ProfileScreen, Profiles, RepairScreen,
+    SelectionScreen, SourceSet, SourceSets,
 };
 
 /// Without the `bench` feature, `/bench` is not a screen.
@@ -43,6 +43,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/") view=|| view! { <Redirect path="/source-sets" /> } />
                     <Route path=path!("/source-sets") view=SourceSets />
                     <Route path=path!("/source-sets/:name") view=SourceSet />
+                    <Route path=path!("/source-sets/:name/repair") view=RepairScreen />
                     <Route path=path!("/dat-revisions") view=DatRevisions />
                     <Route path=path!("/audits/:id") view=AuditScreen />
                     <Route path=path!("/profiles") view=Profiles />

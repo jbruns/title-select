@@ -14,6 +14,7 @@ mod kept;
 mod migrations;
 mod plans;
 mod profiles;
+mod repairs;
 mod selections;
 mod sets;
 
@@ -171,6 +172,9 @@ pub enum Fault {
     IngestMoved,
     /// After the verified copy or repack of an entry of an Ingest Folder is written, before it is renamed into place.
     IngestStaged,
+    /// After the staged copy or repack of an entry of an Ingest Folder is renamed into place and its folder synced,
+    /// before the published file's identity is checked.
+    IngestRenamed,
     /// After the copy or repack of an entry of an Ingest Folder is renamed into place, before its original is
     /// disposed of.
     IngestPublished,
@@ -181,8 +185,45 @@ pub enum Fault {
     IngestRestored,
     /// After an entry is renamed aside into an Ingest Folder's kept files, before either folder is synced.
     IngestSetAside,
+    /// After a move records that what it set aside to delete is kept instead, before it is moved into the kept files.
+    IngestKeeping,
     /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
     IngestDatOwed,
+    /// After a repair's step with this sequence number writes and checks its staged file, before the store records it.
+    RepairStaged(u32),
+    /// After a repair's step with this sequence number moves its file, before either folder is synced.
+    RepairMoved(u32),
+    /// After a repair's step with this sequence number is done on disk and synced, before the store records it done.
+    RepairStepDone(u32),
+    /// After a repair's outcome, the Audit it owes and its Job's end are recorded, before that Audit is queued.
+    RepairFinished,
+    /// After a Source Set's first marker is written and synced under its recorded temporary name, before it is
+    /// renamed into place.
+    /// After a Source Set's first marker's temporary file is opened and checked, before it is written.
+    RepairMarkerChecked,
+    RepairMarkerWritten,
+    /// After a Source Set's first marker is renamed into place, before its folder is synced and the marker recorded.
+    RepairMarkerPublished,
+    /// After a repair's cancellation and every step it skips are recorded, before the files its skipped Builds
+    /// staged are deleted.
+    RepairCancelled,
+    /// After a file the repair step with this sequence number staged is moved into the private folder it is deleted
+    /// from, before either folder is synced.
+    RepairDiscarding(u32),
+    /// After a repair plan's approval is checked against the Source Set, before the transaction that reserves it.
+    RepairApproving,
+    /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
+    /// either folder is synced.
+    SourceKeptMoved(i64),
+    /// After both folders a deletion of the kept file of a Source Set with this id touches are synced, before it is
+    /// checked, deleted or recorded.
+    SourceKeptSynced(i64),
+    /// After both folders are synced when a stopped publish step with this sequence number, whose file was to be
+    /// kept aside, finds it in neither place, before anything found there is recorded or the step ends.
+    RepairFoundSynced(u32),
+    /// After recovery syncs both folders a stopped deletion of the kept file with this id touches, before it is
+    /// checked, deleted or recorded.
+    KeptDeletionSynced(i64),
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.

@@ -133,6 +133,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
         if let (Some(now), Some(prior)) = (now, reads.prior(&file.rel))
             && prior.stamp == now
         {
+            reads.reused(&file.rel, &now);
             return FileRead {
                 members: prior
                     .members
@@ -149,9 +150,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
     }
     let read_at = jiff::Timestamp::now();
     let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at);
-    if let (Some(reads), Some(stamp)) = (how.reads, stamp)
-        && read.error.is_none()
-    {
+    if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
         let members: Option<Vec<_>> = read
             .members
             .iter()
@@ -160,15 +159,16 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
                 _ => None,
             })
             .collect();
-        if let Some(members) = members {
-            reads.record(
+        match members {
+            Some(members) if read.error.is_none() => reads.record(
                 &file.rel,
                 &PayloadRead {
                     stamp,
                     read_at,
                     members,
                 },
-            );
+            ),
+            _ => reads.record_unreadable(&file.rel, &stamp),
         }
     }
     read

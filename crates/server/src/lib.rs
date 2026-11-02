@@ -123,6 +123,26 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             ),
         }
     }
+    for job in store.recover_repairs()? {
+        eprintln!(
+            "title-select: repair {} was not finished; job {} was queued to finish it",
+            job.repair.unwrap_or_default(),
+            job.id
+        );
+    }
+    for (deletion, reason) in store.recover_source_kept_deletions(&config)? {
+        eprintln!(
+            "title-select: deletion {deletion} of kept files of a source set stopped and was not finished: {reason}. \
+             It is finished when the service next starts"
+        );
+    }
+    // Audits owed when the service stopped: queued now, or once the Job they wait for ends.
+    for why in store.fulfil_repair_audits()?.failed {
+        eprintln!("title-select: cannot queue an owed audit: {why}");
+    }
+    for why in store.fulfil_ingest_reaudits()?.failed {
+        eprintln!("title-select: cannot queue an owed audit: {why}");
+    }
     let listener =
         std::net::TcpListener::bind(listen).map_err(|e| StartError::Listen(listen, e))?;
     listener

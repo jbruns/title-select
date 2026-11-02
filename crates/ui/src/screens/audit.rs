@@ -95,6 +95,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
     );
     let tab = RwSignal::new(Tab::Entries);
     let set_href = format!("/source-sets/{}", api::segment(&audit.source_set));
+    let repair_href = format!("{set_href}/repair");
     let findings = audit.findings.clone();
     let games = audit.games.clone();
     let needs_review = needs_review_from_counts(&findings);
@@ -132,6 +133,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                     }
                 })}
             {reaudit.button()}
+            <A href=repair_href attr:class="button">"Repair the source set"</A>
         </div>
         {reaudit.outcome()}
 

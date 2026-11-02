@@ -567,6 +567,10 @@ fn SourceSetView(set: SourceSetRecord) -> impl IntoView {
             </dd>
             <dt>"Registered"</dt>
             <dd>{when(&set.added_at)}</dd>
+            <dt>"Repair and kept files"</dt>
+            <dd>
+                <A href=format!("/source-sets/{}/repair", api::segment(&set.name))>"Repair this source set"</A>
+            </dd>
             <dt>"Latest audit"</dt>
             <dd>
                 {move || {

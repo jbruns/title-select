@@ -214,6 +214,21 @@ impl FolderDir {
         Ok(File::from(fd))
     }
 
+    /// Opens the regular file `name` for reading and writing, refusing a symlink or anything else.
+    pub fn open_write(&self, name: &str) -> io::Result<File> {
+        let name = component(name)?;
+        let flags = OFlags::RDWR | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        let fd = rustix::fs::openat(&self.fd, name, flags, Mode::empty())
+            .map_err(|e| self.error(name, e))?;
+        if FileType::from_raw_mode(rustix::fs::fstat(&fd)?.st_mode) != FileType::RegularFile {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{} is not a regular file", self.at(name).display()),
+            ));
+        }
+        Ok(File::from(fd))
+    }
+
     /// Opens the regular file `name` for reading, refusing a symlink or anything else.
     pub fn open_file(&self, name: &str) -> io::Result<File> {
         let name = component(name)?;
@@ -227,6 +242,13 @@ impl FolderDir {
             ));
         }
         Ok(File::from(fd))
+    }
+
+    /// Holds `name` open while it is the regular file `id`, so that while a rename moves it and the result is
+    /// checked, its inode number can't be freed and reused by a file put in its place; `None` when it isn't.
+    pub fn pin(&self, name: &str, id: Identity) -> Option<File> {
+        let file = self.open_file(name).ok()?;
+        (Identity::of_fd(&file).ok()? == id).then_some(file)
     }
 
     /// The `lstat` of `name`, or `None` if nothing is there.

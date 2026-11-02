@@ -1400,6 +1400,8 @@ impl Store {
                 return Err(Error::Conflict(busy));
             }
             let folder = folder_by_id(tx, content.folder)?;
+            let set = crate::sets::set_by_id(tx, folder.source_set_id)?;
+            crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             let revision_id: i64 = tx.query_row(
                 "SELECT dat_revision_id FROM selections WHERE id = ?1",
                 [content.selection],

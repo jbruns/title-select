@@ -5,7 +5,7 @@
 //! each item, where it goes and why; the plan binds the whole folder as it was seen, and every write first checks
 //! the folder's marker (ADR 0008).
 
-mod moves;
+pub(crate) mod moves;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
@@ -1919,6 +1919,56 @@ fn unmovable(row: &ItemRow, keep_aside: bool) -> Option<String> {
         ));
     }
     None
+}
+
+/// An item of an Ingest Folder, assessed as it is now, that holds a Game of a Source Set whole: what a repair may fill
+/// the Game from.
+pub(crate) struct FillCandidate {
+    pub root: String,
+    pub item: IngestItem,
+    pub seen: Seen,
+    pub matched: ItemMatch,
+}
+
+/// Every item that may fill a Game of Source Set `set` as DAT Revision `dat_revision` lists it, in the order the
+/// items were first seen.
+pub(crate) fn fill_candidates(
+    c: &Connection,
+    set: &str,
+    dat_revision: &str,
+) -> Result<Vec<FillCandidate>> {
+    let mut stmt = c.prepare(&format!(
+        "{ITEM_QUERY} WHERE folder_id = ?1 AND state = 'assessed' ORDER BY id"
+    ))?;
+    let mut found = Vec::new();
+    for folder in c
+        .prepare(FOLDER_QUERY)?
+        .query_map([], folder_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+    {
+        for row in stmt
+            .query_map([folder.id], item_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+        {
+            if unmovable(&row, false).is_some() {
+                continue;
+            }
+            for matched in &row.item.assessment.matches {
+                if matched.source_set == set
+                    && matched.dat_revision == dat_revision
+                    && matched.complete
+                {
+                    found.push(FillCandidate {
+                        root: folder.root.clone(),
+                        item: row.item.clone(),
+                        seen: row.seen.clone(),
+                        matched: matched.clone(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(found)
 }
 
 /// As [`unmovable`], for the item `id` as recorded now.

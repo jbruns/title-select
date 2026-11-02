@@ -95,7 +95,7 @@ pub async fn run(
             let ended = {
                 let (store, jobs) = (store.clone(), jobs.clone());
                 tokio::task::spawn_blocking(move || match kind {
-                    JobKind::Audit | JobKind::Build | JobKind::Check => {
+                    JobKind::Audit | JobKind::Build | JobKind::Check | JobKind::Repair => {
                         run_one(&store, &config, &jobs, kind, id, version)
                     }
                     JobKind::Selection => run_selection(&store, &config, engine.as_deref(), id),
@@ -133,13 +133,28 @@ pub async fn run(
                 Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
                 Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
             }
+            // An Audit a finished repair owes waits for the Job it met to end too.
+            let owed = {
+                let store = store.clone();
+                tokio::task::spawn_blocking(move || store.fulfil_repair_audits()).await
+            };
+            match owed {
+                Ok(Ok(owed)) => {
+                    for why in owed.failed {
+                        eprintln!("title-select: cannot queue an owed audit: {why}");
+                    }
+                    owed.queued.into_iter().for_each(|job| jobs.changed(job));
+                }
+                Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
+                Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
+            }
             drop(slot);
             jobs.wake.notify_one();
         });
     }
 }
 
-/// Runs one claimed Audit, Build or Check Job, publishing its progress, and returns the Job as it ended.
+/// Runs one claimed Audit, Build, Check or Repair Job, publishing its progress, and returns the Job as it ended.
 fn run_one(
     store: &Store,
     config: &Config,
@@ -165,6 +180,7 @@ fn run_one(
     let ran = match kind {
         JobKind::Build => store.run_build_job(config, id, Some(&progress)),
         JobKind::Check => store.run_check_job(config, id, Some(&progress)),
+        JobKind::Repair => store.run_repair_job(config, id, Some(&progress)),
         _ => store.run_audit_job(config, id, Some(&progress)),
     };
     match ran {

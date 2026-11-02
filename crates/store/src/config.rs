@@ -7,7 +7,7 @@ use ipnet::IpNet;
 use serde::Deserialize;
 use title_select_api::Workers;
 use title_select_api::paths::{
-    DEFAULT_MANAGED_FOLDER_TEMPLATE, DEFAULT_SOURCE_SET_TEMPLATE, PathTemplate,
+    DEFAULT_MANAGED_FOLDER_TEMPLATE, DEFAULT_SOURCE_SET_TEMPLATE, PathTemplate, relative_path,
 };
 
 /// How many full Audits a Source Set keeps when the configuration does not say.
@@ -37,10 +37,13 @@ pub struct Config {
 #[serde(deny_unknown_fields)]
 pub struct Root {
     pub path: PathBuf,
-    /// Whether Title Select may write to this Root. Only Managed Folders may live in a writable Root; Source Sets
-    /// stay in read-only ones.
+    /// Whether Title Select may write to this Root: Builds to its Managed Folders, and repairs to any Source Set
+    /// in it. A Source Set is registered only in a read-only Root.
     #[serde(default)]
     pub writable: bool,
+    /// For a read-only Root: the paths, relative to it, of the Source Sets in it that a repair may write to.
+    #[serde(default)]
+    pub writable_paths: Vec<String>,
     /// What the Root is for: `ingest` makes it an Ingest Folder, which must be writable and holds no Source Set or
     /// Managed Folder.
     #[serde(default)]
@@ -67,6 +70,17 @@ pub enum RootKind {
 impl Root {
     pub fn is_ingest(&self) -> bool {
         self.kind == RootKind::Ingest
+    }
+
+    /// Whether Title Select may write to the folder `rel` of this Root: the Root is writable, or lists `rel` among
+    /// its `writable_paths`.
+    pub fn may_write(&self, rel: &str) -> bool {
+        self.writable
+            || relative_path(rel).is_ok_and(|rel| {
+                self.writable_paths
+                    .iter()
+                    .any(|p| relative_path(p).is_ok_and(|p| p == rel))
+            })
     }
 
     /// For an Ingest Folder, the settle interval in seconds.
@@ -312,6 +326,18 @@ impl Config {
                     "roots.{name}: settle_secs and scan_every_minutes are only for a root with kind = \"ingest\""
                 )));
             }
+            if !root.writable_paths.is_empty() && (root.writable || root.is_ingest()) {
+                return Err(Error(format!(
+                    "roots.{name}.writable_paths is only for a read-only root; this one is writable already"
+                )));
+            }
+            for path in &root.writable_paths {
+                if let Err(e) = relative_path(path) {
+                    return Err(Error(format!(
+                        "roots.{name}.writable_paths: {path:?}: a source set's path {e}"
+                    )));
+                }
+            }
             if root.scan_every_minutes == Some(0) {
                 return Err(Error(format!(
                     "roots.{name}.scan_every_minutes must be at least 1; leave it out to scan only when you ask"
@@ -457,6 +483,29 @@ mod tests {
             "[roots.in]\npath = \"/in\"\nsettle_secs = 5",
             "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nscan_every_minutes = 0",
             "[roots.in]\npath = \"/in\"\nkind = \"other\"",
+        ] {
+            assert!(Config::parse(text).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn writable_paths_let_a_read_only_root_write_only_those_folders() {
+        let config = Config::parse(
+            "[roots.sets]\npath = \"/sets\"\nwritable_paths = [\"No-Intro/Atari 2600\", \"Other/\"]",
+        )
+        .unwrap();
+        let root = config.root("sets").unwrap();
+        assert!(!root.writable);
+        assert!(root.may_write("No-Intro/Atari 2600"));
+        assert!(root.may_write("Other"));
+        assert!(!root.may_write("No-Intro"));
+        assert!(!root.may_write("No-Intro/Atari 2600/sub"));
+
+        for text in [
+            "[roots.sets]\npath = \"/sets\"\nwritable = true\nwritable_paths = [\"a\"]",
+            "[roots.sets]\npath = \"/sets\"\nwritable_paths = [\"../a\"]",
+            "[roots.sets]\npath = \"/sets\"\nwritable_paths = [\"/a\"]",
+            "[roots.in]\npath = \"/in\"\nwritable = true\nkind = \"ingest\"\nwritable_paths = [\"a\"]",
         ] {
             assert!(Config::parse(text).is_err(), "{text}");
         }

@@ -4,6 +4,7 @@
 pub mod build;
 pub mod ingest;
 pub mod paths;
+pub mod repair;
 pub mod report;
 pub mod selection;
 
@@ -40,6 +41,9 @@ pub struct Root {
     pub name: String,
     pub path: String,
     pub writable: bool,
+    /// For a read-only Root: the paths of the Source Sets in it that a repair may write to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writable_paths: Vec<String>,
     /// Whether it is an Ingest Folder.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ingest: bool,
@@ -401,6 +405,8 @@ pub enum JobKind {
     Check,
     /// Scans an Ingest Folder and assesses what settled in it, read-only.
     IngestScan,
+    /// Carries out an approved repair of a Source Set.
+    Repair,
 }
 
 impl JobKind {
@@ -411,6 +417,7 @@ impl JobKind {
             JobKind::Build => "build",
             JobKind::Check => "check",
             JobKind::IngestScan => "ingest_scan",
+            JobKind::Repair => "repair",
         }
     }
 
@@ -421,6 +428,7 @@ impl JobKind {
             JobKind::Build,
             JobKind::Check,
             JobKind::IngestScan,
+            JobKind::Repair,
         ]
         .into_iter()
         .find(|k| k.as_str() == s)
@@ -470,6 +478,12 @@ pub struct Job {
     /// The Ingest Folder an Ingest Scan Job scans, by its Root's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ingest_folder: Option<String>,
+    /// The approved repair plan a Repair Job carries out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair: Option<i64>,
+    /// When you asked the Job to stop at its next safe point.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_requested_at: Option<String>,
     /// Why a Job Failed or was Interrupted.
     pub error: Option<String>,
     pub workers: Workers,
