@@ -15,7 +15,9 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
-use crate::repair_model::{chosen, fetch_after, repair_to_show, unfinished_note, unplanned};
+use crate::repair_model::{
+    chosen, fetch_after, repair_to_show, to_add, unfinished_note, unplanned,
+};
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::{progress_view, state_view};
 
@@ -122,22 +124,14 @@ fn Repair(name: String) -> impl IntoView {
             let chosen = choices.get_untracked();
             let shown = plan.get_untracked();
             let additions = adding.with_untracked(|adding| {
-                adding
+                let adding = adding
                     .iter()
-                    .filter(|(key, _)| {
-                        let choice = chosen.get(*key).copied().or_else(|| {
-                            shown.as_ref().and_then(|p| {
-                                p.content
-                                    .items
-                                    .iter()
-                                    .find(|i| &i.key == *key)
-                                    .map(|i| i.chosen)
-                            })
-                        });
-                        choice == Some(RepairChoice::AddAddition)
-                    })
-                    .map(|(key, a)| (key.clone(), a.get_untracked()))
-                    .collect()
+                    .map(|(k, v)| (k.clone(), v.get_untracked()))
+                    .collect();
+                shown
+                    .as_ref()
+                    .map(|p| to_add(p, &chosen, &adding))
+                    .unwrap_or_default()
             });
             let body = PlanRepair {
                 choices: chosen.clone(),
@@ -229,9 +223,8 @@ fn Repair(name: String) -> impl IntoView {
                     });
                     let shows = {
                         let key = key.clone();
-                        let planned = item.chosen;
                         move || {
-                            choices.with(|m| m.get(&key).copied().unwrap_or(planned))
+                            choices.with(|m| m.get(&key).copied().unwrap_or(default))
                                 == RepairChoice::AddAddition
                         }
                     };

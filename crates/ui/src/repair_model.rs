@@ -50,6 +50,23 @@ pub fn chosen(plan: &RepairPlan) -> BTreeMap<String, RepairChoice> {
         .collect()
 }
 
+/// The operator additions to ask for when planning again from `plan`: the fields of each item you chose to add as
+/// one. An item without a choice of yours takes its default, as the plan made with `choices` does.
+pub fn to_add(
+    plan: &RepairPlan,
+    choices: &BTreeMap<String, RepairChoice>,
+    adding: &BTreeMap<String, NewAddition>,
+) -> BTreeMap<String, NewAddition> {
+    plan.content
+        .items
+        .iter()
+        .filter(|item| {
+            choices.get(&item.key).copied().unwrap_or(item.default) == RepairChoice::AddAddition
+        })
+        .filter_map(|item| Some((item.key.clone(), adding.get(&item.key)?.clone())))
+        .collect()
+}
+
 /// The items you changed since `plan` was made, by key: a choice other than the ones it was planned with
 /// (`planned`), or an operator addition it adds, edited. Approving approves the plan as it was made, so it waits
 /// until you plan again with them.
@@ -176,6 +193,28 @@ mod tests {
             unplanned(&p, &planned, &BTreeMap::new(), &BTreeMap::new()),
             ["entry:c.zip"]
         );
+    }
+
+    #[test]
+    fn an_addition_set_back_to_its_default_isnt_asked_for_when_planning_again() {
+        let added = NewAddition {
+            system: "Atari - 2600".into(),
+            name: "Hack".into(),
+            parent: None,
+        };
+        let mut p = plan(1, false, false, None);
+        p.content.items.push(
+            serde_json::from_value(serde_json::json!({
+                "key": "entry:h.zip", "kind": "keep_aside", "summary": "s",
+                "choices": ["keep_aside", "add_addition"], "default": "keep_aside", "chosen": "add_addition",
+                "addition": added,
+            }))
+            .unwrap(),
+        );
+        let adding = BTreeMap::from([("entry:h.zip".to_string(), added.clone())]);
+        let planned = chosen(&p);
+        assert_eq!(to_add(&p, &planned, &adding), adding);
+        assert!(to_add(&p, &BTreeMap::new(), &adding).is_empty());
     }
 
     #[test]
