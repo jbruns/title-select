@@ -55,7 +55,7 @@ Measured on version 0.4.0, with a 512M limit and one CPU. The Atari 2600 source 
 | Selection                           | 28–32 MiB  | 77.5 MiB         |
 | Selection profile preview           |            | 84.7 MiB         |
 | Folder check, then build            |            | under 77.5 MiB (85 s) |
-| Ingest scan, operator addition, check |          | under 64.7 MiB   |
+| Ingest scan, then operator addition |            | under 33.9 MiB   |
 
 The service idles at 16–19 MiB.
 
