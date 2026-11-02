@@ -10,6 +10,7 @@ mod profiles;
 mod repair;
 pub mod selection;
 mod source_sets;
+mod storage;
 
 pub use about::About;
 pub use audit::AuditScreen;
@@ -23,3 +24,4 @@ pub use profiles::{NewProfile, ProfileScreen, Profiles};
 pub use repair::RepairScreen;
 pub use selection::SelectionScreen;
 pub use source_sets::{SourceSet, SourceSets};
+pub use storage::StoragePolicyScreen;

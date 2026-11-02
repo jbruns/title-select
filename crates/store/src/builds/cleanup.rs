@@ -26,7 +26,7 @@ use title_select_api::build::{
     STAGING,
 };
 use title_select_engine::Progress;
-use title_select_engine::build::{Probe, holds, repack_from, verify};
+use title_select_engine::build::{Probe, holds_as, repack_from, verify};
 
 use super::{
     Publishing, cited_by, clear_staging, is_file, record_applied, record_temp, remove_staged,
@@ -102,6 +102,11 @@ fn steps(cleanup: &Cleanup) -> Vec<Step<'_>> {
         .collect()
 }
 
+/// Whether a cleanup stores `target` as a loose file: one recorded under its one ROM's name, rather than its game's.
+fn stored_loose(target: &str, game: &str, roms: &[title_select_api::build::ExpectedRom]) -> bool {
+    roms.len() == 1 && target != format!("{game}.zip")
+}
+
 /// The plan item a cleanup records a built file with.
 fn built_item(
     target: &str,
@@ -116,6 +121,7 @@ fn built_item(
         game: game.to_owned(),
         target: target.to_owned(),
         kind,
+        loose: stored_loose(target, game, roms),
         roms: roms.to_vec(),
         sources: sources.to_vec(),
         reason: None,
@@ -123,6 +129,7 @@ fn built_item(
         adoptable: false,
         keepable: false,
         keep: None,
+        converts: None,
     }
 }
 
@@ -265,6 +272,7 @@ impl Run<'_> {
             generation,
             keep: &keep,
             hashed: None,
+            original: None,
         };
         let area = self.retention.as_ref().expect("opened above");
         Ok(store.keep_aside(&self.dir, area, &k)?.map(|_| ()))
@@ -287,7 +295,11 @@ impl Run<'_> {
         if seen.identity != Identity::from(e.identity)
             || seen.file != e.file
             || e.sha256.as_ref() != Some(&probe.sha256)
-            || !holds(probe, &e.roms)
+            || !holds_as(
+                probe,
+                &e.roms,
+                stored_loose(target, e.game.as_deref().unwrap_or_default(), &e.roms),
+            )
         {
             return left("it changed since you approved the plan");
         }
@@ -596,6 +608,7 @@ impl Run<'_> {
             generation: self.generation,
             keep: &keep,
             hashed,
+            original: None,
         };
         let area = self.retention.as_ref().expect("opened above");
         if let Err(why) = self.store.keep_aside(&self.dir, area, &k)? {
@@ -867,7 +880,13 @@ impl Store {
                 files_total: total,
             });
         }
+        let mut cancelled = false;
         for (seq, step) in steps.iter().enumerate() {
+            // You can cancel a cleanup between two of its steps.
+            if self.cancel_requested(job)? {
+                cancelled = true;
+                break;
+            }
             let seq = seq as i64;
             check_marker(&run.dir, &expected).map_err(Error::Refused)?;
             let outcome = match *step {
@@ -898,6 +917,9 @@ impl Store {
             clear_staging(&run.dir, &staging, own, &run.staged).map_err(Error::Refused)?;
         }
         let Run { dir, .. } = run;
+        if cancelled {
+            return self.write(|tx| super::end_cancelled(tx, job, id, folder));
+        }
 
         // As a Build finishes: the store decides the next generation first, and the marker follows it.
         check_marker(&dir, &expected).map_err(Error::Refused)?;

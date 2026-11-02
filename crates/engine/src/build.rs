@@ -304,6 +304,92 @@ pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
     Ok(())
 }
 
+/// Writes the one ROM of `roms` into `dest`, a new, empty file the caller created, as a loose file: its payload,
+/// read from its source in `sources`, a member of a ZIP archive or a whole loose file. Returns the SHA-256 and size
+/// of each source, as [`repack_sources`] does. A payload of the wrong size is refused; checksums are checked by
+/// [`verify_loose`] afterwards.
+pub fn write_loose(
+    dest: &File,
+    roms: &[FromSource],
+    sources: &[&File],
+) -> Result<Vec<(String, u64)>, String> {
+    let [(rom, at, member)] = roms else {
+        return Err(format!(
+            "a loose file holds one ROM, not {}; a game with more stays a ZIP",
+            roms.len()
+        ));
+    };
+    let source = *sources
+        .get(*at)
+        .ok_or_else(|| format!("{}: no source {at}", rom.name))?;
+    let mut out = BufWriter::new(dest);
+    let copied = match member {
+        Some(member) => {
+            let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
+            let copied = {
+                let mut payload = archive
+                    .by_name(member)
+                    .map_err(|e| format!("{member}: {e}"))?;
+                io::copy(&mut (&mut payload).take(rom.size + 1), &mut out)
+                    .map_err(|e| format!("{}: {e}", rom.name))?
+            };
+            let read = archive
+                .into_inner()
+                .into_inner()
+                .finish()
+                .map_err(|e| e.to_string())?;
+            (copied, read)
+        }
+        None => {
+            let mut hashing = Hashing::new(source).map_err(|e| e.to_string())?;
+            let copied = io::copy(&mut (&mut hashing).take(rom.size + 1), &mut out)
+                .map_err(|e| format!("{}: {e}", rom.name))?;
+            (copied, hashing.finish().map_err(|e| e.to_string())?)
+        }
+    };
+    if copied.0 != rom.size {
+        return Err(format!(
+            "{}: its payload is {} bytes, not the DAT's {}",
+            rom.name, copied.0, rom.size
+        ));
+    }
+    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    let mut read: Vec<(String, u64)> = Vec::with_capacity(sources.len());
+    for (i, other) in sources.iter().enumerate() {
+        if i == *at {
+            read.push(copied.1.clone());
+        } else {
+            read.push(
+                Hashing::new(other)
+                    .and_then(Hashing::finish)
+                    .map_err(|e| e.to_string())?,
+            );
+        }
+    }
+    Ok(read)
+}
+
+/// Checks that `file`, read from its start, is exactly `rom` as a loose file: its size and every checksum the DAT
+/// lists.
+pub fn verify_loose(file: &File, rom: &ExpectedRom) -> Result<(), String> {
+    let mut reader = file;
+    reader.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let mut hasher = Hasher::new();
+    let mut buf = vec![0; CHUNK];
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    if !matches(&hasher.finish(), rom) {
+        return Err(format!("{}: it does not hash to the DAT's ROM", rom.name));
+    }
+    Ok(())
+}
+
 /// The name and payload checksums of the one member of `file`, read from its start, when it is valid TorrentZip,
 /// opened within the default bounds, holding exactly one member. The payload is decompressed and hashed again.
 pub fn sole_payload(file: &File) -> Result<(String, Checksums), String> {
@@ -666,6 +752,18 @@ pub fn holds(probe: &Probe, roms: &[ExpectedRom]) -> bool {
                 .find(|p| p.name.as_deref() == Some(rom.name.as_str()))
                 .is_some_and(|p| matches(&p.checksums(), rom))
         })
+}
+
+/// Whether `probe` holds exactly `roms` as stored: a ZIP as [`holds`] says, or, when `loose`, a loose file of the
+/// one ROM of `roms` with the payload the DAT expects.
+pub fn holds_as(probe: &Probe, roms: &[ExpectedRom], loose: bool) -> bool {
+    if !loose {
+        return holds(probe, roms);
+    }
+    let ([rom], [payload]) = (roms, probe.payloads.as_slice()) else {
+        return false;
+    };
+    !probe.zip && probe.error.is_none() && matches(&payload.checksums(), rom)
 }
 
 /// The Games of `dat` whose ROMs are exactly the payloads `probe` holds, whatever they are named.

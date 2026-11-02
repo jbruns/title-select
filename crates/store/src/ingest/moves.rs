@@ -27,7 +27,9 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
 use title_select_api::build::{ExpectedRom, FileStat, kept_name};
 use title_select_api::ingest::IngestMarker;
-use title_select_engine::build::{FromSource, repack_sources, sole_payload, verify};
+use title_select_engine::build::{
+    FromSource, repack_sources, sole_payload, verify, verify_loose, write_loose,
+};
 use title_select_engine::payload::{Checksums, Hasher};
 
 use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
@@ -74,6 +76,8 @@ pub(crate) struct Move<'a> {
     pub repack: Option<Vec<(ExpectedRom, Option<String>)>>,
     /// The ROM a copy must read as, exactly, for its original to be deleted.
     pub exact: Option<ExpectedRom>,
+    /// Whether the one ROM of `repack` is written as a loose file, extracted from its ZIP, rather than a TorrentZip.
+    pub loose: bool,
 }
 
 /// How a move ended.
@@ -118,6 +122,7 @@ struct MoveRow {
     dest: Destination,
     roms: Option<Vec<(ExpectedRom, Option<String>)>>,
     exact: Option<ExpectedRom>,
+    loose: bool,
     staged_name: Option<String>,
     staged: Option<Identity>,
     /// The staged copy's size and modification time once written and checked, read through the descriptor held.
@@ -134,7 +139,7 @@ struct MoveRow {
 
 const MOVE_QUERY: &str = "SELECT id, folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns, \
      sha256, dest_kind, dest_root, dest_rel, generation, dest_name, reason, roms, staged_name, staged_dev, \
-     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, staged_size, staged_mtime_ns, isolated_ctime_ns FROM ingest_moves";
+     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, staged_size, staged_mtime_ns, isolated_ctime_ns, loose FROM ingest_moves";
 
 fn parse_ns(r: &Row, at: usize) -> rusqlite::Result<i128> {
     r.get::<_, String>(at)?.parse().map_err(|e| {
@@ -199,6 +204,7 @@ fn move_from_row(r: &Row) -> rusqlite::Result<MoveRow> {
             Some(_) => Some(json(r, 28)?),
             None => None,
         },
+        loose: r.get(33)?,
         staged_name: r.get(19)?,
         staged: identity_at(r, 20)?,
         published_ctime: match r.get::<_, Option<String>>(29)? {
@@ -450,9 +456,9 @@ impl Store {
             tx.execute(
                 "INSERT INTO ingest_moves (folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns,
                                            ctime_ns, sha256, dest_kind, dest_root, dest_rel, generation, dest_name,
-                                           reason, roms, exact_rom, created_at)
+                                           reason, roms, exact_rom, created_at, loose)
                  VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                         ?19, ?20)",
+                         ?19, ?20, ?21)",
                 params![
                     mv.folder,
                     mv.plan,
@@ -473,7 +479,8 @@ impl Store {
                     reason,
                     mv.repack.as_ref().map(to_json),
                     mv.exact.as_ref().map(to_json),
-                    now()
+                    now(),
+                    mv.loose && mv.repack.is_some()
                 ],
             )?;
             let id = tx.last_insert_rowid();
@@ -1122,7 +1129,11 @@ impl Store {
                     .iter()
                     .map(|(rom, member)| (rom, 0, member.as_deref()))
                     .collect();
-                repack_sources(&file, &named, &[&source]).map(|mut read| read.remove(0).0)
+                match m.loose {
+                    true => write_loose(&file, &named, &[&source]),
+                    false => repack_sources(&file, &named, &[&source]),
+                }
+                .map(|mut read| read.remove(0).0)
             }
             None => copy_hashing(&source, &file).map_err(|e| e.to_string()),
         };
@@ -1623,7 +1634,12 @@ fn check_written(
     match &m.roms {
         Some(roms) => {
             let roms: Vec<ExpectedRom> = roms.iter().map(|(rom, _)| rom.clone()).collect();
-            verify(file, &roms).map_err(|why| {
+            match (m.loose, roms.as_slice()) {
+                (true, [rom]) => verify_loose(file, rom),
+                (true, _) => Err("a loose file is one ROM".into()),
+                (false, _) => verify(file, &roms),
+            }
+            .map_err(|why| {
                 format!(
                     "the repack of {} did not check: {why}; it was left as it is",
                     m.name
@@ -1731,6 +1747,7 @@ mod tests {
                 dest,
                 repack,
                 exact: None,
+                loose: false,
             }
         }
 

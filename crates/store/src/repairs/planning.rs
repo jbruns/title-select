@@ -7,6 +7,7 @@ use title_select_api::build::{ExpectedRom, invalid_name, kept_name};
 use title_select_api::repair::{
     PlannedStep, RepairChoice, RepairItem, RepairKind, RepairRom, RepairStep,
 };
+use title_select_api::storage::{MULTI_ROM_STAYS_ZIP, Storage, StorageFormat, target_of};
 use title_select_api::{Entry, EvidenceLevel, Finding, Report};
 use title_select_engine::FileStamp;
 use title_select_engine::dat::Dat;
@@ -28,6 +29,8 @@ pub(super) struct Inputs<'a> {
     pub torrentzip: &'a dyn Fn(&str) -> bool,
     pub candidates: &'a [FillCandidate],
     pub choices: &'a BTreeMap<String, RepairChoice>,
+    /// What the Storage Policy says for the Source Set's system.
+    pub storage: Storage,
 }
 
 pub(super) struct Planned {
@@ -36,10 +39,16 @@ pub(super) struct Planned {
     pub notes: Vec<String>,
 }
 
-/// The one place the format a repair stores a Game in is decided: TorrentZip, as `<game>.zip` in the Source Set's
-/// folder.
-pub(super) fn storage_name(game: &str) -> String {
-    format!("{game}.zip")
+/// The one place the name and format a repair stores a Game in is decided, from the Storage Policy: a loose file
+/// under its one ROM's name, or a TorrentZip as `<game>.zip`, in the Source Set's folder; and whether it is loose.
+/// The note says why a Game the policy would store loose stays TorrentZip.
+pub(super) fn storage_name(
+    storage: Storage,
+    game: &str,
+    roms: &[ExpectedRom],
+) -> (String, bool, Option<&'static str>) {
+    let names: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
+    target_of(storage, game, &names)
 }
 
 /// A ROM, by its Game and name.
@@ -90,6 +99,10 @@ struct Proposed {
     produces: Option<String>,
     /// Whether the files it displaces must leave a copy of each ROM they hold.
     checked: bool,
+    /// Where it writes its Game, and whether as a loose file.
+    target: Option<(String, bool)>,
+    /// The original a conversion reads, which it may delete once its converted file is verified.
+    converts: Option<String>,
 }
 
 fn entry_key(entry: &Entry) -> String {
@@ -125,12 +138,12 @@ fn roms_of(dat: &Dat, game: usize) -> Vec<ExpectedRom> {
         .collect()
 }
 
-fn game_item(game: &str, kind: RepairKind, summary: String) -> RepairItem {
+fn game_item(game: &str, target: &str, kind: RepairKind, summary: String) -> RepairItem {
     RepairItem {
         key: format!("game:{game}"),
         kind,
         game: Some(game.to_owned()),
-        path: Some(storage_name(game)),
+        path: Some(target.to_owned()),
         member: None,
         summary,
         choices: vec![RepairChoice::Apply, RepairChoice::Leave],
@@ -286,10 +299,13 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 },
                 produces: None,
                 checked: false,
+                target: None,
+                converts: None,
             });
         }
     }
 
+    let mut stays_zip = 0;
     let mut used_candidates: BTreeSet<i64> = BTreeSet::new();
     let mut good: BTreeSet<String> = BTreeSet::new();
     for (index, game) in i.dat.games.iter().enumerate() {
@@ -297,7 +313,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         if roms.is_empty() {
             continue;
         }
-        let target = storage_name(game);
+        let (target, loose, why_zip) = storage_name(i.storage, game, &roms);
+        match why_zip {
+            Some(MULTI_ROM_STAYS_ZIP) => stays_zip += 1,
+            Some(why) => notes.push(format!("{game}: {why}")),
+            None => {}
+        }
         if let Some(why) = invalid_name(&target) {
             notes.push(format!("{game} is left as it is: {why}"));
             continue;
@@ -349,9 +370,18 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         if sources.iter().all(Option::is_some) {
             let sources: Vec<(u8, &str, &Entry)> = sources.into_iter().flatten().collect();
             let names: BTreeSet<&str> = roms.iter().map(|r| r.name.as_str()).collect();
-            // A file holding exactly the Game's ROMs, each Matched under its name, stored as TorrentZip.
-            let exact = |path: &str| {
+            // A file holding exactly the Game's ROMs, each Matched under its name, stored as TorrentZip; or, `loose`,
+            // a loose file that is the Game's one ROM, Matched under its name.
+            let exact_as = |path: &str, loose: bool| {
                 usable.get(path).is_some_and(|file| {
+                    if loose {
+                        return matches!(
+                            (roms.as_slice(), file.entries.as_slice()),
+                            ([only], [e]) if e.member.is_none()
+                                && e.finding == Finding::Matched
+                                && e.roms.iter().any(|r| r.game == *game && r.name == only.name)
+                        );
+                    }
                     let members: BTreeSet<Option<&str>> =
                         file.entries.iter().map(|e| e.member.as_deref()).collect();
                     file.entries.len() == roms.len()
@@ -366,6 +396,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         && (i.torrentzip)(path)
                 })
             };
+            let exact = |path: &str| exact_as(path, loose);
             if exact(&target) {
                 good.insert(game.clone());
                 referenced.insert(usable.get_key_value(target.as_str()).expect("usable").0);
@@ -391,6 +422,11 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 referenced.insert(key);
             }
             let single = files.iter().next().filter(|_| files.len() == 1).copied();
+            let format = match loose {
+                true => StorageFormat::Loose,
+                false => StorageFormat::TorrentZip,
+            };
+            let mut converts = None;
             let (proposal, kind, summary, mut displaces) = match single {
                 Some(from) if from != target && exact(from) => (
                     Proposal::Rename {
@@ -401,6 +437,28 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     format!("rename {from} to {target}"),
                     Vec::new(),
                 ),
+                // Exactly the Game, but stored as the other format: rewritten in this one.
+                Some(from) if from != target && exact_as(from, !loose) => {
+                    converts = Some(from.to_owned());
+                    let roms = roms
+                        .iter()
+                        .zip(&sources)
+                        .map(|(rom, (_, path, entry))| RepairRom {
+                            rom: rom.clone(),
+                            from: path.to_string(),
+                            member: entry.member.clone(),
+                        })
+                        .collect();
+                    (
+                        Proposal::Build { roms },
+                        RepairKind::Convert,
+                        format!("convert {from} to {target}, stored {}", format.label()),
+                        vec![(
+                            from.to_owned(),
+                            format!("it was converted to {target}, stored {}", format.label()),
+                        )],
+                    )
+                }
                 _ => {
                     let from: Vec<&str> = files.iter().copied().collect();
                     let (kind, summary) = match sources.iter().any(|(rank, ..)| *rank >= 2) {
@@ -414,8 +472,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         false => (
                             RepairKind::Repack,
                             format!(
-                                "repack {} as {target}, stored as TorrentZip",
-                                from.join(", ")
+                                "repack {} as {target}, stored {}",
+                                from.join(", "),
+                                format.label()
                             ),
                         ),
                     };
@@ -449,11 +508,13 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 ));
             }
             proposed.push(Proposed {
-                item: game_item(game, kind, summary),
+                item: game_item(game, &target, kind, summary),
                 proposal: Some(proposal),
                 displaces,
                 produces: Some(game.clone()),
                 checked: true,
+                target: Some((target.clone(), loose)),
+                converts,
             });
             continue;
         }
@@ -528,7 +589,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             ),
         };
         proposed.push(Proposed {
-            item: game_item(game, kind, summary),
+            item: game_item(game, &target, kind, summary),
+            target: Some((target.clone(), loose)),
+            converts: None,
             proposal: Some(Proposal::Fill { candidate }),
             displaces: attributable
                 .iter()
@@ -650,6 +713,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             displaces: vec![(path.to_string(), summary)],
             produces: None,
             checked: false,
+            target: None,
+            converts: None,
         });
     }
     for key in i.choices.keys() {
@@ -700,6 +765,13 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         ));
     }
 
+    if stays_zip > 0 {
+        notes.push(format!(
+            "{stays_zip} game{} with more than one ROM stay{} TorrentZip: only a game with one ROM can be stored loose",
+            if stays_zip == 1 { "" } else { "s" },
+            if stays_zip == 1 { "s" } else { "" },
+        ));
+    }
     let steps = steps_of(i, &proposed);
     Ok(Planned {
         items: proposed.into_iter().map(|p| p.item).collect(),
@@ -709,80 +781,94 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 }
 
 /// The steps that carry out what each item chosen does: every Build first, then every Keep, every Rename, every
-/// Publish and every Fill.
+/// Publish and every Fill. A conversion that shares no file with another item then follows, each in turn: its Build,
+/// the Keep of what it displaces from its new file's name, its Publish, the Keep of its original and, when the Storage
+/// Policy deletes originals, the Delete of its original, so that a folder being converted holds at most one converted
+/// file more than it did at any time.
 fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
     let applied: Vec<&Proposed> = proposed
         .iter()
         .filter(|p| p.item.chosen != RepairChoice::Leave)
         .collect();
+    let touches = |p: &Proposed| -> BTreeSet<String> {
+        let mut paths: BTreeSet<String> =
+            p.displaces.iter().map(|(path, _)| path.clone()).collect();
+        match &p.proposal {
+            Some(Proposal::Build { roms }) => paths.extend(roms.iter().map(|r| r.from.clone())),
+            Some(Proposal::Rename { from, .. }) => {
+                paths.insert(from.clone());
+            }
+            _ => {}
+        }
+        if let Some((target, _)) = &p.target {
+            paths.insert(target.clone());
+        }
+        paths
+    };
+    let alone = |p: &Proposed| {
+        let mine = touches(p);
+        applied
+            .iter()
+            .filter(|o| o.item.key != p.item.key)
+            .all(|o| touches(o).is_disjoint(&mine))
+    };
+    let (turns, together): (Vec<&Proposed>, Vec<&Proposed>) = applied
+        .iter()
+        .partition(|p| p.converts.is_some() && alone(p));
     let mut steps = Vec::new();
-    let mut builds: Vec<(&str, u32, String)> = Vec::new();
-    for p in &applied {
-        if let Some(Proposal::Build { roms }) = &p.proposal {
-            let target = storage_name(p.item.game.as_deref().expect("a game"));
-            let sources = roms
-                .iter()
-                .map(|r| (r.from.clone(), seen_file(&i.files[&r.from])))
-                .collect();
-            builds.push((&p.item.key, steps.len() as u32, target.clone()));
-            steps.push(PlannedStep {
+    let mut names: BTreeSet<String> = BTreeSet::new();
+    let build_of = |p: &Proposed, roms: &[RepairRom]| {
+        let (target, loose) = p.target.clone().expect("a game's target");
+        let sources = roms
+            .iter()
+            .map(|r| (r.from.clone(), seen_file(&i.files[&r.from])))
+            .collect();
+        (
+            target.clone(),
+            PlannedStep {
                 item: p.item.key.clone(),
                 step: RepairStep::Build {
                     target,
-                    roms: roms.clone(),
+                    roms: roms.to_vec(),
                     sources,
+                    loose,
                 },
-            });
+            },
+        )
+    };
+    let mut builds: Vec<(&str, u32, String)> = Vec::new();
+    for p in &together {
+        if let Some(Proposal::Build { roms }) = &p.proposal {
+            let (target, step) = build_of(p, roms);
+            builds.push((&p.item.key, steps.len() as u32, target));
+            steps.push(step);
         }
     }
     let built_by =
         |key: &str| -> Vec<u32> { builds.iter().filter(|b| b.0 == key).map(|b| b.1).collect() };
-    let mut names: BTreeSet<String> = BTreeSet::new();
     let mut keeps: Vec<PlannedStep> = Vec::new();
-    for p in &applied {
-        for (path, reason) in &p.displaces {
-            if let Some(keep) = keeps
-                .iter_mut()
-                .find(|k| matches!(&k.step, RepairStep::Keep { path: at, .. } if at == path))
-            {
-                let RepairStep::Keep { needs, affects, .. } = &mut keep.step else {
-                    unreachable!("a keep step");
-                };
-                needs.extend(built_by(&p.item.key));
-                if keep.item != p.item.key && !affects.contains(&p.item.key) {
-                    affects.push(p.item.key.clone());
-                }
-                continue;
-            }
-            let base = base_name(path);
-            let name = (1..)
-                .map(|n| kept_name(base, n))
-                .find(|name| !names.contains(name))
-                .expect("a free name");
-            names.insert(name.clone());
-            keeps.push(PlannedStep {
-                item: p.item.key.clone(),
-                step: RepairStep::Keep {
-                    path: path.clone(),
-                    kept_name: name,
-                    reason: reason.clone(),
-                    seen: seen_file(&i.files[path]),
-                    needs: built_by(&p.item.key),
-                    affects: Vec::new(),
-                },
-            });
-        }
+    for p in &together {
+        keeps_of(
+            i,
+            p,
+            |_| true,
+            built_by(&p.item.key),
+            &mut names,
+            &mut keeps,
+        );
     }
     steps.extend(keeps);
-    for p in &applied {
+    for p in &together {
         if let Some(Proposal::Rename { from, roms }) = &p.proposal {
+            let (to, loose) = p.target.clone().expect("a game's target");
             steps.push(PlannedStep {
                 item: p.item.key.clone(),
                 step: RepairStep::Rename {
                     from: from.clone(),
-                    to: storage_name(p.item.game.as_deref().expect("a game")),
+                    to,
                     seen: seen_file(&i.files[from]),
                     roms: roms.clone(),
+                    loose,
                 },
             });
         }
@@ -796,48 +882,151 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
             },
         });
     }
-    for p in &applied {
+    for p in &together {
         if let Some(Proposal::Fill { candidate }) = &p.proposal {
-            let c = &i.candidates[*candidate];
-            let game = p.item.game.as_deref().expect("a game");
-            let index = i
-                .dat
-                .games
-                .iter()
-                .position(|g| g == game)
-                .expect("a game of the DAT");
-            let roms: Vec<RepairRom> = roms_of(i.dat, index)
-                .into_iter()
-                .map(|rom| RepairRom {
-                    member: c
-                        .matched
-                        .roms
-                        .iter()
-                        .find(|m| m.rom == rom.name)
-                        .and_then(|m| m.member.clone()),
-                    rom,
-                    from: c.item.name.clone(),
-                })
-                .collect();
-            // The original is deleted only once what was written reads as exactly this one ROM, from a loose file.
-            let exact = match roms.as_slice() {
-                [only] if !c.item.assessment.zip && only.member.is_none() => Some(only.rom.clone()),
-                _ => None,
-            };
+            steps.push(fill_of(i, p, &i.candidates[*candidate]));
+        }
+    }
+    for p in turns {
+        let (Some(Proposal::Build { roms }), Some(original)) = (&p.proposal, &p.converts) else {
+            unreachable!("a conversion builds");
+        };
+        // What you approved keeping aside from the new file's name goes first; the new file is in place before the
+        // original is moved, so a destination still taken leaves the original where it is.
+        let build = steps.len() as u32;
+        let (target, step) = build_of(p, roms);
+        steps.push(step);
+        let mut occupants = Vec::new();
+        keeps_of(
+            i,
+            p,
+            |path| path != original,
+            vec![build],
+            &mut names,
+            &mut occupants,
+        );
+        steps.extend(occupants);
+        let publish = steps.len() as u32;
+        steps.push(PlannedStep {
+            item: p.item.key.clone(),
+            step: RepairStep::Publish { build, target },
+        });
+        let keep = steps.len() as u32;
+        let mut keeps = Vec::new();
+        keeps_of(
+            i,
+            p,
+            |path| path == original,
+            vec![build, publish],
+            &mut names,
+            &mut keeps,
+        );
+        assert_eq!(keeps.len(), 1, "the original is kept");
+        steps.extend(keeps);
+        if i.storage.delete_originals {
             steps.push(PlannedStep {
                 item: p.item.key.clone(),
-                step: RepairStep::Fill {
-                    target: storage_name(game),
-                    ingest_root: c.root.clone(),
-                    item: c.item.id,
-                    name: c.item.name.clone(),
-                    seen: seen_file(&c.seen),
-                    sha256: c.item.assessment.sha256.clone(),
-                    roms,
-                    exact,
+                step: RepairStep::Delete {
+                    path: original.clone(),
+                    build,
+                    keep,
+                    publish,
                 },
             });
         }
     }
     steps
+}
+
+/// Appends to `keeps` a Keep step for each file `p` displaces whose path is `chosen`, needing the steps `needs`, under
+/// a kept name not yet in `names`; a file another item already keeps aside is kept once, for both.
+fn keeps_of(
+    i: &Inputs,
+    p: &Proposed,
+    chosen: impl Fn(&str) -> bool,
+    needs: Vec<u32>,
+    names: &mut BTreeSet<String>,
+    keeps: &mut Vec<PlannedStep>,
+) {
+    for (path, reason) in p.displaces.iter().filter(|(path, _)| chosen(path)) {
+        if let Some(keep) = keeps
+            .iter_mut()
+            .find(|k| matches!(&k.step, RepairStep::Keep { path: at, .. } if at == path))
+        {
+            let RepairStep::Keep {
+                needs: theirs,
+                affects,
+                ..
+            } = &mut keep.step
+            else {
+                unreachable!("a keep step");
+            };
+            theirs.extend(needs.iter().copied());
+            if keep.item != p.item.key && !affects.contains(&p.item.key) {
+                affects.push(p.item.key.clone());
+            }
+            continue;
+        }
+        let base = base_name(path);
+        let name = (1..)
+            .map(|n| kept_name(base, n))
+            .find(|name| !names.contains(name))
+            .expect("a free name");
+        names.insert(name.clone());
+        keeps.push(PlannedStep {
+            item: p.item.key.clone(),
+            step: RepairStep::Keep {
+                path: path.clone(),
+                kept_name: name,
+                reason: reason.clone(),
+                seen: seen_file(&i.files[path]),
+                needs: needs.clone(),
+                affects: Vec::new(),
+            },
+        });
+    }
+}
+
+/// The Fill step of `p`, from ingest candidate `c`.
+fn fill_of(i: &Inputs, p: &Proposed, c: &FillCandidate) -> PlannedStep {
+    let game = p.item.game.as_deref().expect("a game");
+    let (target, loose) = p.target.clone().expect("a game's target");
+    let index = i
+        .dat
+        .games
+        .iter()
+        .position(|g| g == game)
+        .expect("a game of the DAT");
+    let roms: Vec<RepairRom> = roms_of(i.dat, index)
+        .into_iter()
+        .map(|rom| RepairRom {
+            member: c
+                .matched
+                .roms
+                .iter()
+                .find(|m| m.rom == rom.name)
+                .and_then(|m| m.member.clone()),
+            rom,
+            from: c.item.name.clone(),
+        })
+        .collect();
+    // The original is deleted only once what was written reads as exactly this one ROM, from a loose file.
+    let exact = match roms.as_slice() {
+        [only] if !c.item.assessment.zip && only.member.is_none() => Some(only.rom.clone()),
+        _ => None,
+    };
+    PlannedStep {
+        item: p.item.key.clone(),
+        step: RepairStep::Fill {
+            target,
+            ingest_root: c.root.clone(),
+            item: c.item.id,
+            name: c.item.name.clone(),
+            seen: seen_file(&c.seen),
+            sha256: c.item.assessment.sha256.clone(),
+            roms,
+            exact,
+            loose,
+        },
+    }
 }

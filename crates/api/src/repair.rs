@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::build::{Approval, ExpectedRom, FileIdentity, FileStat, KeptDeletionOutcome};
 use crate::ingest::FolderEntry;
+use crate::storage::Storage;
 
 /// What a Source Set's marker says: that it is this store's Source Set `source_set`. Its fields differ from those of
 /// a Managed Folder's or an Ingest Folder's marker, so none is ever read as another.
@@ -32,6 +33,9 @@ pub enum RepairKind {
     Conflict,
     /// A file holding nothing a Game needs: Unmatched Entries or duplicates.
     KeepAside,
+    /// A Game's file, exactly its ROMs, stored in the format the Storage Policy no longer gives it: rewritten in the
+    /// one it does.
+    Convert,
 }
 
 impl RepairKind {
@@ -43,6 +47,7 @@ impl RepairKind {
             RepairKind::Replace => "replace from ingest",
             RepairKind::Conflict => "conflict",
             RepairKind::KeepAside => "keep aside",
+            RepairKind::Convert => "convert",
         }
     }
 }
@@ -122,6 +127,9 @@ pub enum RepairStep {
         target: String,
         roms: Vec<RepairRom>,
         sources: BTreeMap<String, SeenFile>,
+        /// Written as a loose file, its one ROM, rather than a TorrentZip.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        loose: bool,
     },
     /// Moves `path` into the kept files as `kept_name` in this repair's generation, without replacing anything; only
     /// once each Build step it `needs`, which reads it or replaces it, has staged its file. Besides the item it
@@ -143,6 +151,9 @@ pub enum RepairStep {
         to: String,
         seen: SeenFile,
         roms: Vec<ExpectedRom>,
+        /// `from` is a loose file, its one ROM, rather than a TorrentZip.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        loose: bool,
     },
     /// Publishes the staged file of the Build step `build` as its target, without replacing anything.
     Publish { build: u32, target: String },
@@ -159,6 +170,18 @@ pub enum RepairStep {
         roms: Vec<RepairRom>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exact: Option<ExpectedRom>,
+        /// Written as a loose file, its one ROM, rather than a TorrentZip.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        loose: bool,
+    },
+    /// Deletes `path`, the original a conversion read, kept aside by the Keep step `keep`, once the file the Build
+    /// step `build` wrote and the Publish step `publish` put in place is verified, and only while the original still
+    /// reads as the conversion read it. Otherwise it stays in the kept files.
+    Delete {
+        path: String,
+        build: u32,
+        keep: u32,
+        publish: u32,
     },
 }
 
@@ -182,6 +205,9 @@ impl RepairStep {
                 name,
                 ..
             } => format!("write {target} from {name} in ingest folder {ingest_root}"),
+            RepairStep::Delete { path, .. } => {
+                format!("delete the original {path} once its converted file is verified")
+            }
         }
     }
 }
@@ -216,6 +242,10 @@ pub struct RepairPlanContent {
     /// What the plan leaves as it is, and why.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// The Storage Policy the plan follows for the Source Set's system; it must still be the policy when you
+    /// approve.
+    #[serde(default, skip_serializing_if = "crate::storage::is_default")]
+    pub storage: Storage,
 }
 
 /// What a repair of one item did.

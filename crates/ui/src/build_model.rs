@@ -315,6 +315,8 @@ mod tests {
             keepable: false,
             keep: None,
             adoptable: false,
+            loose: false,
+            converts: None,
         }
     }
 

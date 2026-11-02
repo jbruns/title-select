@@ -748,6 +748,22 @@ impl Store {
         })
     }
 
+    /// A Source Set's folder, opened through its Root without following a symlink below it; or why it cannot be.
+    pub(super) fn set_folder_dir(
+        &self,
+        config: &Config,
+        set_id: i64,
+    ) -> Result<std::result::Result<FolderDir, String>> {
+        let set = self.read(|c| set_by_id(c, set_id))?;
+        let Some(root) = config.root(&set.record.root) else {
+            return Ok(Err(format!(
+                "there is no root {} in the configuration",
+                set.record.root
+            )));
+        };
+        Ok(FolderDir::open(&root.path, &set.record.path).map_err(|e| e.to_string()))
+    }
+
     /// The configured path of a Source Set's folder.
     pub(super) fn set_folder(&self, config: &Config, set_id: i64) -> Result<(PathBuf, PathBuf)> {
         let set = self.read(|c| set_by_id(c, set_id))?;

@@ -17,6 +17,7 @@ use title_select_api::selection::{
     Alternative, CoverageDrift, Exclusion, Rule, Selection, SelectionGroup, SelectionPins,
     SelectionProfile, SelectionSummary, Winner,
 };
+use title_select_api::storage::{MULTI_ROM_STAYS_ZIP, StorageFormat, SystemStorage};
 use title_select_api::{JobKind, JobState};
 use title_select_engine::build::verify;
 use title_select_engine::torrentzip::{self, Writer};
@@ -4539,4 +4540,897 @@ fn a_build_reading_a_source_set_and_a_repair_of_it_never_overlap() {
         ),
         "{refused:?}"
     );
+}
+
+const SYSTEM: &str = "No-Intro/Test - System";
+
+/// Sets the play libraries' storage policy: its default, and, when `own` is given, this system's own format.
+fn set_play_policy(env: &Env, default: StorageFormat, own: Option<StorageFormat>, delete: bool) {
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.play_libraries.format = default;
+    policy.play_libraries.delete_originals = delete;
+    policy.play_libraries.systems.clear();
+    if let Some(format) = own {
+        policy.play_libraries.systems.insert(
+            SYSTEM.into(),
+            SystemStorage {
+                format: Some(format),
+                delete_originals: None,
+            },
+        );
+    }
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+}
+
+/// Builds Pong, Combat and Breakout into a new folder as TorrentZips. Returns the folder and the selection.
+fn built_as_zips(env: &Env) -> (ManagedFolder, i64) {
+    env.audit();
+    let id = titles(env, &["Pong (USA)", "Combat (USA)", "Breakout (USA)"]);
+    let folder = env.folder("atari2600");
+    assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+    (folder, id)
+}
+
+fn item<'a>(plan: &'a Plan, game: &str) -> &'a title_select_api::build::PlanItem {
+    plan.content
+        .items
+        .iter()
+        .find(|i| i.game == game)
+        .unwrap_or_else(|| panic!("no {game} in {:#?}", plan.content.items))
+}
+
+/// Approves `plan` and runs its Build Job with `hook` called at each fault it passes.
+fn build_hooked(
+    env: &Env,
+    plan: &Plan,
+    hook: impl Fn(Fault) + Send + Sync + 'static,
+) -> title_select_api::Job {
+    env.store.hook_faults(Some(std::sync::Arc::new(hook)));
+    let job = env.build(plan);
+    env.store.hook_faults(None);
+    job
+}
+
+#[test]
+fn a_loose_file_is_adopted_where_the_storage_policy_stores_its_game_loose() {
+    let env = Env::new();
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    env.audit();
+    let id = titles(&env, &["Pong (USA)"]);
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    write_file(&dir.join("Pong (USA).a26"), b"pong");
+    let plan = plan_with(
+        &env,
+        &folder,
+        id,
+        PlanChoices {
+            resolved_only: false,
+            adopt: vec!["Pong (USA).a26".into()],
+            keep_aside: vec![],
+        },
+    );
+    assert_eq!(kinds(&plan)["Pong (USA)"], ItemKind::Adopt);
+
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    let built = env.store.built_files(folder.id).unwrap();
+    assert_eq!(
+        (built[0].target.as_str(), built[0].kind),
+        ("Pong (USA).a26", ItemKind::Adopt),
+        "{built:?}"
+    );
+    assert_eq!(std::fs::read(dir.join("Pong (USA).a26")).unwrap(), b"pong");
+}
+
+#[test]
+fn a_cleanup_adopts_a_loose_file_where_the_storage_policy_stores_its_game_loose() {
+    let (env, folder, dir) = cleaned();
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    write_file(&dir.join("missing copy.a26"), b"missing");
+
+    let plan = cleanup(
+        &env,
+        &folder,
+        choose(&[("missing copy.a26", CleanupAction::Adopt)]),
+    );
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    let entry = plan.content.cleanup.as_ref().unwrap().entries.iter();
+    let entry = entry
+        .clone()
+        .find(|e| e.name == "missing copy.a26")
+        .unwrap();
+    assert_eq!(entry.target.as_deref(), Some("Missing (USA).a26"));
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    assert_eq!(
+        std::fs::read(dir.join("Missing (USA).a26")).unwrap(),
+        b"missing"
+    );
+    let built = env.store.built_files(folder.id).unwrap();
+    let missing = built.iter().find(|f| f.game == "Missing (USA)").unwrap();
+    assert_eq!(
+        (missing.target.as_str(), missing.kind),
+        ("Missing (USA).a26", ItemKind::Adopt)
+    );
+}
+
+#[test]
+fn a_loose_file_is_written_only_from_the_source_file_the_plan_found() {
+    for swap in ["symlink", "other file"] {
+        let env = Env::new();
+        set_play_policy(&env, StorageFormat::Loose, None, false);
+        env.audit();
+        let id = titles(&env, &["Combat (USA)"]);
+        let folder = env.folder("atari2600");
+        let plan = env.plan(&folder, id);
+        let combat = item(&plan, "Combat (USA)");
+        assert_eq!((combat.kind, combat.loose), (ItemKind::Repack, true));
+        let source = env.set_dir().join(&combat.sources[0].path);
+        let job = env
+            .store
+            .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        let meta = std::fs::metadata(&source).unwrap();
+        let elsewhere = env.set_dir().join("elsewhere.zip");
+        std::fs::copy(&source, &elsewhere).unwrap();
+        std::fs::remove_file(&source).unwrap();
+        if swap == "symlink" {
+            std::os::unix::fs::symlink(&elsewhere, &source).unwrap();
+        } else {
+            std::fs::copy(&elsewhere, &source).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&source)
+                .unwrap()
+                .set_modified(meta.modified().unwrap())
+                .unwrap();
+        }
+
+        env.store.claim_job().unwrap().unwrap();
+        env.store.run_build_job(&env.config, job.id, None).unwrap();
+
+        let dir = env.play().join("atari2600");
+        assert!(!dir.join("Combat (USA).a26").exists(), "{swap}");
+        assert!(
+            env.store.built_files(folder.id).unwrap().is_empty(),
+            "{swap}"
+        );
+    }
+}
+
+#[test]
+fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
+    let env = Env::new();
+    let (folder, id) = built_as_zips(&env);
+    let dir = env.play().join("atari2600");
+    let zipped = std::fs::read(dir.join("Pong (USA).zip")).unwrap();
+
+    // The default stays TorrentZip; this system's own format says loose.
+    set_play_policy(
+        &env,
+        StorageFormat::TorrentZip,
+        Some(StorageFormat::Loose),
+        false,
+    );
+    let plan = env.plan(&folder, id);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    let pong = item(&plan, "Pong (USA)");
+    assert_eq!(
+        (pong.target.as_str(), pong.loose, pong.kind),
+        ("Pong (USA).a26", true, ItemKind::Repack)
+    );
+    let converts = pong.converts.as_ref().unwrap();
+    assert_eq!(
+        (converts.reason, converts.name.as_str()),
+        (KeepReason::Replacement, "Pong (USA).zip")
+    );
+    // A game with more than one ROM stays TorrentZip, and the plan says why.
+    let breakout = item(&plan, "Breakout (USA)");
+    assert_eq!(
+        (breakout.target.as_str(), breakout.loose, breakout.kind),
+        ("Breakout (USA).zip", false, ItemKind::Unchanged)
+    );
+    assert_eq!(
+        plan.content.notes,
+        [format!("1 game is not stored loose: {MULTI_ROM_STAYS_ZIP}")]
+    );
+    assert!(
+        plan.content.removals.is_empty(),
+        "{:?}",
+        plan.content.removals
+    );
+
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(
+        names(&dir),
+        BTreeSet::from(
+            [
+                ".title-select",
+                RETAINED,
+                "Breakout (USA).zip",
+                "Combat (USA).a26",
+                "Pong (USA).a26"
+            ]
+            .map(String::from)
+        )
+    );
+    assert_eq!(std::fs::read(dir.join("Pong (USA).a26")).unwrap(), b"pong");
+    assert_eq!(
+        std::fs::read(dir.join(RETAINED).join("2").join("Pong (USA).zip.kept")).unwrap(),
+        zipped
+    );
+    let kept = env.store.kept_files(folder.id).unwrap();
+    let kept: BTreeSet<(KeepReason, &str)> =
+        kept.iter().map(|k| (k.reason, k.name.as_str())).collect();
+    assert_eq!(
+        kept,
+        BTreeSet::from([
+            (KeepReason::Replacement, "Combat (USA).zip"),
+            (KeepReason::Replacement, "Pong (USA).zip")
+        ])
+    );
+    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    assert_eq!(folder.incomplete, None);
+
+    // A check finds the loose files as they were built, and planning again changes nothing.
+    let checked = check(&env, &folder);
+    assert!(checked.drift.is_empty(), "{:?}", checked.drift);
+    assert!(
+        checked
+            .files
+            .iter()
+            .all(|f| f.outcome == FileOutcome::Unchanged && f.torrentzip && f.selected),
+        "{:?}",
+        checked.files
+    );
+    let again = env.plan(&folder, id);
+    assert!(
+        again
+            .content
+            .items
+            .iter()
+            .all(|i| i.kind == ItemKind::Unchanged),
+        "{:?}",
+        again.content.items
+    );
+    assert!(again.content.removals.is_empty());
+
+    // Back to TorrentZip: the loose files are converted again, and kept in their turn.
+    set_play_policy(&env, StorageFormat::TorrentZip, None, false);
+    let plan = env.plan(&folder, id);
+    assert!(plan.content.notes.is_empty());
+    assert_eq!(
+        item(&plan, "Pong (USA)").converts.as_ref().unwrap().name,
+        "Pong (USA).a26"
+    );
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert!(
+        verify(
+            &std::fs::File::open(dir.join("Pong (USA).zip")).unwrap(),
+            &item(&plan, "Pong (USA)").roms
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        std::fs::read(dir.join(RETAINED).join("3").join("Pong (USA).a26.kept")).unwrap(),
+        b"pong"
+    );
+    assert!(!dir.join("Pong (USA).a26").exists());
+}
+
+#[test]
+fn a_loose_file_renamed_in_a_play_library_is_found_as_drift() {
+    let env = Env::new();
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    env.audit();
+    let id = titles(&env, &["Pong (USA)"]);
+    let folder = env.folder("atari2600");
+    let plan = env.plan(&folder, id);
+    assert_eq!(item(&plan, "Pong (USA)").target, "Pong (USA).a26");
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let dir = env.play().join("atari2600");
+    std::fs::rename(dir.join("Pong (USA).a26"), dir.join("pong.bin")).unwrap();
+
+    let checked = check(&env, &folder);
+    assert_eq!(checked.files[0].outcome, FileOutcome::Missing);
+    assert_eq!(
+        checked
+            .drift
+            .iter()
+            .map(|d| (d.name.as_str(), d.kind, d.game.as_deref()))
+            .collect::<Vec<_>>(),
+        [("pong.bin", DriftKind::Renamed, Some("Pong (USA)"))]
+    );
+}
+
+#[test]
+fn a_systems_own_play_library_format_beats_the_default() {
+    let env = Env::new();
+    set_play_policy(
+        &env,
+        StorageFormat::Loose,
+        Some(StorageFormat::TorrentZip),
+        false,
+    );
+    env.audit();
+    let id = titles(&env, &["Pong (USA)", "Combat (USA)"]);
+    let folder = env.folder("atari2600");
+    let plan = env.plan(&folder, id);
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| !i.loose && i.target.ends_with(".zip")),
+        "{:?}",
+        plan.content.items
+    );
+    assert!(plan.content.notes.is_empty());
+    assert_eq!(plan.content.storage.format, StorageFormat::TorrentZip);
+}
+
+#[test]
+fn a_plan_made_before_the_play_library_policy_changed_is_refused() {
+    let env = Env::new();
+    let (folder, id) = built_as_zips(&env);
+    let plan = env.plan(&folder, id);
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    let refused = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    assert!(matches!(refused, Err(Error::Conflict(_))), "{refused:?}");
+
+    // Approved first, then changed before its build runs: the build writes nothing.
+    set_play_policy(&env, StorageFormat::TorrentZip, None, false);
+    let plan = env.plan(&folder, id);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    env.store.claim_job().unwrap().unwrap();
+    let done = env.store.run_build_job(&env.config, job.id, None).unwrap();
+    assert_eq!(done.state, JobState::Failed);
+    assert!(done.error.unwrap().contains("the plan changed"));
+    assert!(env.play().join("atari2600/Pong (USA).zip").exists());
+}
+
+#[test]
+fn with_delete_originals_on_a_converted_original_is_deleted_once_its_new_file_verifies() {
+    let env = Env::new();
+    let (folder, id) = built_as_zips(&env);
+    let dir = env.play().join("atari2600");
+    set_play_policy(&env, StorageFormat::Loose, None, true);
+    let plan = env.plan(&folder, id);
+    assert!(plan.content.storage.delete_originals);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    assert!(env.store.kept_files(folder.id).unwrap().is_empty());
+    assert_eq!(
+        names(&dir.join(RETAINED).join("2")),
+        BTreeSet::new(),
+        "every original is deleted"
+    );
+    assert_eq!(std::fs::read(dir.join("Pong (USA).a26")).unwrap(), b"pong");
+    assert_eq!(
+        std::fs::read(dir.join("Combat (USA).a26")).unwrap(),
+        b"combat"
+    );
+}
+
+#[test]
+fn an_original_that_changed_once_it_was_kept_is_never_deleted() {
+    let env = Env::new();
+    let (folder, id) = built_as_zips(&env);
+    let dir = env.play().join("atari2600");
+    set_play_policy(&env, StorageFormat::Loose, None, true);
+    let plan = env.plan(&folder, id);
+    let kept = dir.join(RETAINED).join("2").join("Pong (USA).zip.kept");
+    let original = std::fs::read(dir.join("Pong (USA).zip")).unwrap();
+    // Rewritten with the same bytes and modification time: only its ctime shows it was written to.
+    let path = kept.clone();
+    let job = build_hooked(&env, &plan, move |fault| {
+        if matches!(fault, Fault::ConversionKept(_)) && path.exists() {
+            let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(mtime)
+                .unwrap();
+        }
+    });
+    assert_eq!(job.state, JobState::Succeeded);
+    assert_eq!(std::fs::read(&kept).unwrap(), original);
+    let kept = env.store.kept_files(folder.id).unwrap();
+    assert_eq!(
+        kept.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(),
+        ["Pong (USA).zip"]
+    );
+}
+
+#[test]
+fn an_original_whose_converted_file_does_not_verify_is_kept() {
+    let env = Env::new();
+    let (folder, id) = built_as_zips(&env);
+    let dir = env.play().join("atari2600");
+    set_play_policy(&env, StorageFormat::Loose, None, true);
+    let plan = env.plan(&folder, id);
+    let target = dir.join("Pong (USA).a26");
+    let job = build_hooked(&env, &plan, move |fault| {
+        if matches!(fault, Fault::ConversionKept(_)) && target.exists() {
+            std::fs::write(&target, b"pung").unwrap();
+        }
+    });
+    assert_eq!(job.state, JobState::Succeeded);
+    let kept = env.store.kept_files(folder.id).unwrap();
+    assert_eq!(
+        kept.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(),
+        ["Pong (USA).zip"]
+    );
+    assert!(
+        dir.join(RETAINED)
+            .join("2")
+            .join("Pong (USA).zip.kept")
+            .exists()
+    );
+}
+
+#[test]
+fn each_conversion_disposes_of_its_original_before_the_next_is_written() {
+    for delete in [false, true] {
+        let env = Env::new();
+        let (folder, id) = built_as_zips(&env);
+        let dir = env.play().join("atari2600");
+        set_play_policy(&env, StorageFormat::Loose, None, delete);
+        let plan = env.plan(&folder, id);
+        let converted = plan.content.items.iter().filter(|i| i.converts.is_some());
+        assert_eq!(converted.count(), 2);
+        // Never both of one game's files at once: the folder needs room for one more file, not a second library.
+        let both = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = both.clone();
+        let at = dir.clone();
+        let job = build_hooked(&env, &plan, move |fault| {
+            if let Fault::BeforePublish(seq) = fault {
+                for game in ["Pong (USA)", "Combat (USA)"] {
+                    let zip = at.join(format!("{game}.zip")).exists();
+                    let loose = at.join(format!("{game}.a26")).exists();
+                    if zip && loose {
+                        seen.lock().unwrap().push((seq, game));
+                    }
+                }
+            }
+        });
+        assert_eq!(job.state, JobState::Succeeded);
+        assert_eq!(*both.lock().unwrap(), [], "delete {delete}");
+        let kept = env.store.kept_files(folder.id).unwrap();
+        assert_eq!(kept.len(), if delete { 0 } else { 2 }, "{kept:?}");
+    }
+}
+
+#[test]
+fn an_original_left_by_a_conversion_the_service_stopped_after_publishing_is_disposed_of_by_the_next_build()
+ {
+    for delete in [false, true] {
+        let env = Env::new();
+        env.audit();
+        let id = titles(&env, &["Pong (USA)"]);
+        let folder = env.folder("atari2600");
+        assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+        set_play_policy(&env, StorageFormat::Loose, None, delete);
+        let plan = env.plan(&folder, id);
+        crash_at(&env, &plan, |f| matches!(f, Fault::AfterPublish(_)));
+        let (env, _) = env.restart();
+        let dir = env.play().join("atari2600");
+        assert!(dir.join("Pong (USA).zip").exists() && dir.join("Pong (USA).a26").exists());
+
+        let next = env.plan(&folder, id);
+        assert!(next.approvable(), "{:?}", next.content.blockers);
+        assert_eq!(kinds(&next)["Pong (USA)"], ItemKind::Unchanged);
+        let removal = &next.content.removals[0];
+        assert_eq!(
+            (
+                removal.target.as_str(),
+                removal.kind,
+                removal.converts_to.as_deref()
+            ),
+            ("Pong (USA).zip", RemovalKind::Keep, Some("Pong (USA).a26")),
+            "{removal:?}"
+        );
+        assert_eq!(env.build(&next).state, JobState::Succeeded);
+
+        assert!(!dir.join("Pong (USA).zip").exists(), "delete {delete}");
+        assert_eq!(std::fs::read(dir.join("Pong (USA).a26")).unwrap(), b"pong");
+        let kept = env.store.kept_files(folder.id).unwrap();
+        assert_eq!(kept.len(), if delete { 0 } else { 1 }, "{kept:?}");
+        let built = env.store.built_files(folder.id).unwrap();
+        assert_eq!(
+            built.iter().map(|f| f.target.as_str()).collect::<Vec<_>>(),
+            ["Pong (USA).a26"]
+        );
+    }
+}
+
+#[test]
+fn a_build_you_cancel_stops_between_two_files_and_a_new_plan_finishes_the_folder() {
+    // A conversion, and an ordinary build of new files.
+    for convert in [true, false] {
+        let env = Env::new();
+        let (folder, id) = if convert {
+            let built = built_as_zips(&env);
+            set_play_policy(&env, StorageFormat::Loose, None, false);
+            built
+        } else {
+            env.audit();
+            let id = titles(&env, &["Pong (USA)", "Combat (USA)", "Breakout (USA)"]);
+            (env.folder("atari2600"), id)
+        };
+        let dir = env.play().join("atari2600");
+        let plan = env.plan(&folder, id);
+        let writes = plan.content.items.iter().filter(|i| i.kind.writes());
+        assert!(writes.count() >= 2, "{convert}");
+        let job = env
+            .store
+            .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        env.store.claim_job().unwrap().unwrap();
+        // Cancelled, as you would from the workbench, once the first file is in place.
+        let (reached, wait) = std::sync::mpsc::channel();
+        let (resume, go) = std::sync::mpsc::channel::<()>();
+        let go = std::sync::Mutex::new(go);
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if fault == Fault::AfterPublish(0) {
+                    reached.send(()).unwrap();
+                    go.lock().unwrap().recv().unwrap();
+                }
+            })));
+        let ended = std::thread::scope(|scope| {
+            let running = scope.spawn(|| env.store.run_build_job(&env.config, job.id, None));
+            wait.recv().unwrap();
+            let cancelled = env.store.cancel_job(job.id);
+            resume.send(()).unwrap();
+            cancelled.unwrap();
+            running.join().unwrap().unwrap()
+        });
+        env.store.hook_faults(None);
+
+        assert_eq!(ended.state, JobState::Interrupted, "{convert}");
+        assert!(
+            ended.error.as_deref().unwrap().contains("you cancelled"),
+            "{ended:?}"
+        );
+        let first = &plan.content.items.iter().find(|i| i.kind.writes()).unwrap();
+        let built = env.store.built_files(folder.id).unwrap();
+        assert!(
+            built.iter().any(|f| f.target == first.target),
+            "{convert}: {built:?}"
+        );
+        assert!(dir.join(&first.target).exists(), "{convert}");
+        assert!(
+            !dir.join(title_select_api::build::STAGING).exists(),
+            "{convert}"
+        );
+        if convert {
+            // The first conversion finished: its original is kept aside, and the second's is in place.
+            let kept = env.store.kept_files(folder.id).unwrap();
+            assert_eq!(kept.len(), 1, "{kept:?}");
+        }
+        let after = env.store.managed_folder(&env.config, folder.id).unwrap();
+        assert_eq!(
+            after.generation,
+            folder.generation + u64::from(convert),
+            "{convert}"
+        );
+        let unfinished = after.unfinished.unwrap();
+        assert_eq!(unfinished.applied, 1 + u64::from(convert), "{convert}");
+        assert!(unfinished.not_written >= 1, "{convert}");
+        let detail = env.store.build(unfinished.build).unwrap();
+        assert!(
+            detail
+                .items
+                .iter()
+                .filter(|i| i.state == ItemState::Pending)
+                .all(|i| i
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("you cancelled"))),
+            "{detail:?}"
+        );
+
+        let next = env.plan(&folder, id);
+        assert!(next.approvable(), "{convert}: {:?}", next.content.blockers);
+        assert_eq!(env.build(&next).state, JobState::Succeeded, "{convert}");
+        assert!(
+            env.plan(&folder, id)
+                .content
+                .items
+                .iter()
+                .all(|i| i.kind == ItemKind::Unchanged)
+        );
+    }
+}
+
+/// Approves `plan` and runs its Build Job until the first fault `stop` picks stops it as a kill would.
+#[test]
+fn a_surviving_original_that_changed_since_its_conversion_read_it_is_kept_never_deleted() {
+    // Touched, so a check refreshes its record; rezipped from the same ROM, so a check records it repacked.
+    for change in ["touched", "repacked"] {
+        let env = Env::new();
+        env.audit();
+        let id = titles(&env, &["Pong (USA)"]);
+        let folder = env.folder("atari2600");
+        assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+        set_play_policy(&env, StorageFormat::Loose, None, true);
+        let plan = env.plan(&folder, id);
+        crash_at(&env, &plan, |f| matches!(f, Fault::AfterPublish(_)));
+        let (env, _) = env.restart();
+        let dir = env.play().join("atari2600");
+        let zip = dir.join("Pong (USA).zip");
+        if change == "touched" {
+            std::fs::File::options()
+                .write(true)
+                .open(&zip)
+                .unwrap()
+                .set_modified(SystemTime::now() - Duration::from_secs(3600))
+                .unwrap();
+        } else {
+            write_stored_zip(&zip, &[("Pong (USA).a26", b"pong")]);
+        }
+        let checked = check(&env, &folder);
+        let outcome = checked
+            .files
+            .iter()
+            .find(|f| f.target == "Pong (USA).zip")
+            .map(|f| f.outcome);
+        assert!(
+            matches!(
+                outcome,
+                Some(FileOutcome::Refreshed | FileOutcome::Repacked)
+            ),
+            "{change}: {outcome:?}"
+        );
+
+        let next = env.plan(&folder, id);
+        assert!(next.approvable(), "{:?}", next.content.blockers);
+        let removal = &next.content.removals[0];
+        assert_eq!(
+            (removal.target.as_str(), removal.kind),
+            ("Pong (USA).zip", RemovalKind::Keep),
+            "{change}"
+        );
+        assert_eq!(env.build(&next).state, JobState::Succeeded);
+
+        assert!(!zip.exists(), "{change}");
+        let kept = env.store.kept_files(folder.id).unwrap();
+        assert_eq!(
+            kept.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(),
+            ["Pong (USA).zip"],
+            "{change}: it changed since the conversion read it, so it is never deleted"
+        );
+    }
+}
+
+#[test]
+fn a_game_whose_roms_changed_is_replaced_not_converted_and_its_original_is_never_deleted() {
+    let env = Env::new();
+    env.audit();
+    let id = titles(&env, &["Pong (USA)", "Combat (USA)"]);
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+    let old = std::fs::read(dir.join("Pong (USA).zip")).unwrap();
+    set_play_policy(&env, StorageFormat::Loose, None, true);
+
+    // The newer revision lists another ROM for Pong, under the same name, which the source set now has.
+    let mut newer = games();
+    newer
+        .iter_mut()
+        .find(|(game, _)| *game == "Pong (USA)")
+        .unwrap()
+        .1 = vec![rom("Pong (USA).a26", b"pong, revised")];
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (2).dat",
+        "20260102-000000",
+        &newer,
+    );
+    let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
+    write_file(&env.set_dir().join("pong-revised.bin"), b"pong, revised");
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Incremental,
+        )
+        .unwrap();
+    let id = env.record(&selection(
+        &revision.sha256,
+        vec![group("Pong (USA)"), group("Combat (USA)")],
+    ));
+    let plan = env.plan(&folder, id);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    let pong = item(&plan, "Pong (USA)");
+    assert!(pong.kind.writes() && pong.loose, "{pong:?}");
+    assert_eq!(pong.converts, None, "another payload is no conversion");
+    let removal = plan
+        .content
+        .removals
+        .iter()
+        .find(|r| r.target == "Pong (USA).zip")
+        .unwrap();
+    assert_eq!(
+        (removal.kind, removal.converts_to.as_deref()),
+        (RemovalKind::Keep, None),
+        "{removal:?}"
+    );
+
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    assert_eq!(
+        std::fs::read(dir.join("Pong (USA).a26")).unwrap(),
+        b"pong, revised"
+    );
+    assert!(!dir.join("Pong (USA).zip").exists());
+    let kept = env.store.kept_files(folder.id).unwrap();
+    let pong = kept.iter().find(|k| k.name == "Pong (USA).zip");
+    assert_eq!(
+        pong.map(|k| k.reason),
+        Some(KeepReason::Replacement),
+        "{kept:?}"
+    );
+    let pong = pong.unwrap();
+    assert_eq!(
+        std::fs::read(
+            dir.join(RETAINED)
+                .join(pong.generation.to_string())
+                .join(&pong.kept_name)
+        )
+        .unwrap(),
+        old
+    );
+}
+
+#[test]
+fn surviving_originals_are_disposed_of_before_the_next_conversion_is_written() {
+    let env = Env::new();
+    let (folder, id) = built_as_zips(&env);
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    let plan = env.plan(&folder, id);
+    crash_at(&env, &plan, |f| matches!(f, Fault::AfterPublish(0)));
+    let (env, _) = env.restart();
+    let dir = env.play().join("atari2600");
+    let survivors: Vec<String> = ["Pong (USA)", "Combat (USA)", "Breakout (USA)"]
+        .into_iter()
+        .filter(|g| dir.join(format!("{g}.zip")).exists() && dir.join(format!("{g}.a26")).exists())
+        .map(|g| format!("{g}.zip"))
+        .collect();
+    assert_eq!(survivors.len(), 1, "{:?}", names(&dir));
+
+    let next = env.plan(&folder, id);
+    assert!(next.approvable(), "{:?}", next.content.blockers);
+    assert!(next.content.items.iter().any(|i| i.converts.is_some()));
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (at, survivor) = (seen.clone(), dir.join(&survivors[0]));
+    let job = build_hooked(&env, &next, move |fault| {
+        if matches!(fault, Fault::BeforePublish(_)) {
+            at.lock().unwrap().push(survivor.exists());
+        }
+    });
+
+    assert_eq!(job.state, JobState::Succeeded);
+    let seen = seen.lock().unwrap().clone();
+    assert!(!seen.is_empty());
+    assert!(
+        seen.iter().all(|there| !there),
+        "{} was still in place while a new conversion was written: {seen:?}",
+        survivors[0]
+    );
+    let kept = env.store.kept_files(folder.id).unwrap();
+    assert!(kept.iter().any(|k| k.name == survivors[0]), "{kept:?}");
+}
+
+fn crash_at(env: &Env, plan: &Plan, stop: impl Fn(Fault) -> bool + Send + Sync + 'static) {
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if stop(fault) {
+                panic!("killed at {fault:?}");
+            }
+        })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(&env.config, job.id, None)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+}
+
+#[test]
+fn a_conversion_the_service_stopped_in_ends_with_its_original_deleted_or_kept() {
+    // Where the stop came, and whether the original is deleted once recovery settles it.
+    type Stop = fn(Fault) -> bool;
+    let stops: [(Stop, bool); 4] = [
+        (|f| matches!(f, Fault::ConversionKept(_)), false),
+        (|f| matches!(f, Fault::BeforeDeleteMove(_)), false),
+        (|f| matches!(f, Fault::AfterDeleteMove(_)), true),
+        (|f| matches!(f, Fault::AfterUnlink(_)), true),
+    ];
+    for (n, (stop, deleted)) in stops.into_iter().enumerate() {
+        let env = Env::new();
+        env.audit();
+        let id = titles(&env, &["Pong (USA)"]);
+        let folder = env.folder("atari2600");
+        assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+        set_play_policy(&env, StorageFormat::Loose, None, true);
+        let plan = env.plan(&folder, id);
+        crash_at(&env, &plan, stop);
+        let (env, _) = env.restart();
+        let dir = env.play().join("atari2600");
+        assert_eq!(
+            std::fs::read(dir.join("Pong (USA).a26")).unwrap(),
+            b"pong",
+            "stop {n}"
+        );
+        let kept = env.store.kept_files(folder.id).unwrap();
+        let generation = dir.join(RETAINED).join("2");
+        if deleted {
+            assert!(kept.is_empty(), "stop {n}: {kept:?}");
+            assert!(names(&generation).is_empty(), "stop {n}");
+        } else {
+            assert_eq!(kept.len(), 1, "stop {n}");
+            assert!(generation.join("Pong (USA).zip.kept").exists(), "stop {n}");
+        }
+        assert!(
+            !dir.join(RETAINED).join(".deleting").exists()
+                || names(&dir.join(RETAINED).join(".deleting")).is_empty(),
+            "stop {n}"
+        );
+        // Nothing is left blocking the folder.
+        let again = env.plan(&folder, id);
+        assert!(again.approvable(), "stop {n}: {:?}", again.content.blockers);
+    }
+}
+
+#[test]
+fn an_original_changed_while_it_waited_to_be_deleted_is_moved_back_by_recovery() {
+    let env = Env::new();
+    env.audit();
+    let id = titles(&env, &["Pong (USA)"]);
+    let folder = env.folder("atari2600");
+    assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+    set_play_policy(&env, StorageFormat::Loose, None, true);
+    let plan = env.plan(&folder, id);
+    crash_at(&env, &plan, |f| matches!(f, Fault::AfterDeleteMove(_)));
+    let dir = env.play().join("atari2600");
+    let deleting = dir.join(RETAINED).join(".deleting");
+    let slot = names(&deleting).into_iter().next().unwrap();
+    // The same bytes written again: its ctime moves, so nothing shows it is still the original.
+    let bytes = std::fs::read(deleting.join(&slot)).unwrap();
+    let mtime = std::fs::metadata(deleting.join(&slot))
+        .unwrap()
+        .modified()
+        .unwrap();
+    std::fs::write(deleting.join(&slot), &bytes).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(deleting.join(&slot))
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+
+    let (env, _) = env.restart();
+    let kept = env.store.kept_files(folder.id).unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        std::fs::read(dir.join(RETAINED).join("2").join("Pong (USA).zip.kept")).unwrap(),
+        bytes
+    );
+    assert!(names(&deleting).is_empty());
 }

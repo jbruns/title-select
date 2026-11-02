@@ -334,6 +334,11 @@ pub struct PlanRemoval {
     /// The file kept aside, for a removal that keeps one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep: Option<KeepAside>,
+    /// For the original of a conversion that stopped before it was disposed of: its game's file, in place already
+    /// in the format the storage policy says. With delete originals after conversion on, the original is deleted
+    /// once that file verifies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub converts_to: Option<String>,
 }
 
 /// A file's size and modification time, as a plan saw it.
@@ -358,6 +363,13 @@ pub struct PlanSource {
     pub evidence: Option<EvidenceLevel>,
     /// The file at `path`.
     pub file: FileStat,
+    /// Which file the plan found at `path`: a loose file is written from it only while it is still that file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<FileIdentity>,
+    /// For a loose file's source, its status change time when the plan found it, in nanoseconds since the Unix epoch:
+    /// with `identity`, it tells the file apart from another that took its inode number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctime_ns: Option<i128>,
 }
 
 /// One selected release in a plan.
@@ -366,9 +378,12 @@ pub struct PlanItem {
     pub group: String,
     /// The DAT's Game name.
     pub game: String,
-    /// The file name in the Managed Folder: `<game>.zip`.
+    /// The file name in the Managed Folder: `<game>.zip`, or, stored loose, its one ROM's name.
     pub target: String,
     pub kind: ItemKind,
+    /// Whether it is written as a loose file, its one ROM, rather than a TorrentZip, as the storage policy says.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub loose: bool,
     pub roms: Vec<ExpectedRom>,
     /// One per ROM, in ROM order; empty unless the item is built or unchanged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -389,6 +404,10 @@ pub struct PlanItem {
     /// chose to keep aside.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep: Option<KeepAside>,
+    /// The game's file built in the other format, under its other name, that this one converts: kept aside once
+    /// this one is in place, and, when the storage policy says so, deleted once this one is verified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub converts: Option<KeepAside>,
 }
 
 /// Why a plan cannot be approved.
@@ -452,6 +471,12 @@ pub struct PlanContent {
     /// For a cleanup of the folder's drift, rather than a build: what it does. A cleanup has no items or removals.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cleanup: Option<Cleanup>,
+    /// What the storage policy says for the folder's system when the plan was made.
+    #[serde(default, skip_serializing_if = "crate::storage::is_default")]
+    pub storage: crate::storage::Storage,
+    /// What the plan does not do as the storage policy says, and why.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 impl PlanChoices {
@@ -879,7 +904,7 @@ pub struct CheckedFile {
     pub outcome: FileOutcome,
     /// Whether the check read the file. A file whose size and modification time are as recorded is never read.
     pub hashed: bool,
-    /// False when the file holds the right ROMs in a ZIP that is not TorrentZip.
+    /// False when the file holds the right ROMs in a ZIP that is not TorrentZip; true for a loose file.
     pub torrentzip: bool,
     /// Whether the selection the check was made against selects it.
     pub selected: bool,

@@ -28,3 +28,8 @@ lacks ZIP64 and sets no UTF-8 flag.
 - Builds from a Source Set that is not TorrentZipped repack every Game, so they get no block cloning until a repair
   TorrentZips the Source Set.
 - Extracted output, disc layouts and CHD or RVZ are separate decisions, left to a later spike.
+
+## Amendment (2026-11-02, #46)
+
+- The Storage Policy decides, per system, whether a Play Library stores each Game as TorrentZip or loose (ADR 0010).
+  Every ZIP a Build writes is still TorrentZip, and a loose file is its one ROM under the DAT's name.

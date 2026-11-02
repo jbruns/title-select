@@ -965,6 +965,92 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
     assert!(kept.iter().all(|k| k.id != notes.id));
 }
 
+#[test]
+fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says() {
+    use title_select_api::repair::{RepairKind, RepairPlan};
+    use title_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};
+    let env = Env::new();
+    let set = env.tmp.path().join("roots/sets").join(SET);
+    let service =
+        title_select_server::spawn(env.settings(&format!("writable_paths = [{SET:?}]\n"))).unwrap();
+    let client = Client::new(&service);
+    client.upload("Test - System (20260101).dat", &env.dat());
+    client.add_set();
+
+    let mut policy: StoragePolicy = client.json("/storage-policy");
+    assert_eq!(
+        policy,
+        StoragePolicy::default(),
+        "TorrentZip everywhere by default"
+    );
+    policy.source_sets.systems.insert(
+        "No-Intro/Test - System".into(),
+        SystemStorage {
+            format: Some(StorageFormat::Loose),
+            delete_originals: None,
+        },
+    );
+    let put = |body: serde_json::Value| {
+        let (name, value) = client.auth.clone().unwrap();
+        agent()
+            .put(format!("{}/storage-policy", client.base))
+            .header(name, value)
+            .send_json(body)
+    };
+    let mut response = put(serde_json::to_value(&policy).unwrap()).unwrap();
+    assert_eq!(response.status(), 200);
+    let saved: StoragePolicy = response.body_mut().read_json().unwrap();
+    assert_eq!(saved, policy);
+    assert_eq!(client.json::<StoragePolicy>("/storage-policy"), policy);
+    let refused =
+        put(serde_json::json!({"source_sets": {"systems": {"no system": {"format": "loose"}}}}));
+    assert_eq!(status_of(refused), 400);
+
+    let job: Job = client
+        .post("/audits")
+        .send_json(serde_json::json!({"source_set": SET, "evidence": "full"}))
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    let mut response = client
+        .post("/source-sets/Test%20-%20System/repairs")
+        .send_json(serde_json::json!({}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let plan: RepairPlan = response.body_mut().read_json().unwrap();
+    let combat = plan
+        .content
+        .items
+        .iter()
+        .find(|i| i.key == "game:Combat (USA)")
+        .expect("Combat is rewritten loose");
+    // The fixture's ZIP is not TorrentZip, so it is repacked rather than converted; either way it ends loose.
+    assert_eq!(combat.kind, RepairKind::Repack);
+    assert!(combat.summary.ends_with("stored loose"), "{combat:?}");
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.game.as_deref() != Some("Pong (USA)")),
+        "Pong is already loose"
+    );
+    let mut response = client
+        .post(&format!("/repairs/{}/approval", plan.id))
+        .send_json(serde_json::json!({"digest": plan.digest}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let approved: RepairPlan = response.body_mut().read_json().unwrap();
+    let (_, ended) = client.follow(approved.job.unwrap());
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    assert_eq!(
+        std::fs::read(set.join("Combat (USA).a26")).unwrap(),
+        b"combat"
+    );
+    assert!(!set.join("Combat (USA).zip").exists());
+}
+
 /// Selection Profiles and Selections, run by the pinned selection engine (`tools/retool/setup` builds it).
 mod selections {
     use super::*;

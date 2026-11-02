@@ -132,7 +132,8 @@ assessed in Ingest Folders: renaming Entries to the DAT's names, repacking Games
 Mismatched or Unreadable Entries, and setting aside what no Game needs. Each item has a default the Operator can change
 before approving. Approving queues it as a Job, which the Operator can cancel between its steps. While a Repair of a
 Source Set is queued, running or owes its follow-up Audit, no Audit or Build reads that Source Set, and the reverse. A
-Repair never deletes: what it replaces or sets aside becomes a Kept File.
+Repair deletes nothing but an original it converted, and only when Delete Originals After Conversion says so: what it
+replaces or sets aside becomes a Kept File.
 _Avoid_: Fix, rebuild, quarantine
 
 **Build**:
@@ -159,6 +160,25 @@ Any difference between a Managed Folder and its current Build: a built file chan
 Select did not build. Drift is reported, never silently corrected; only an approved Change Plan acts on it. An entry
 the Operator acknowledges is not reported again until it changes.
 _Avoid_: Corruption (when meaning any difference)
+
+**Storage Policy**:
+How each folder stores a Game: as TorrentZip, one `<game>.zip` per Game, or loose, as its one ROM under the DAT's
+name. It has two scopes, Source Sets and Play Libraries, each with a global default and per-system overrides, as a
+Selection Profile has. The default is TorrentZip everywhere. Only a Game with one ROM can be stored loose; a Game with
+more stays TorrentZip, and the plan says why. Every write of a Game into a folder, by a Repair, a Build or a fill,
+follows it.
+_Avoid_: Format setting, compression
+
+**Conversion**:
+Rewriting a Game stored in one format into the one the Storage Policy now gives its folder, with exactly the same
+ROMs, as an item of an approved Change Plan: a Repair of a Source Set, or a Build of a Play Library. The original becomes a Kept File, unless Delete
+Originals After Conversion is on.
+_Avoid_: Recompress, migration
+
+**Delete Originals After Conversion**:
+A Storage Policy setting, global with per-system overrides and off by default, under which a Conversion deletes each
+original once its converted file is verified and the original is proven unchanged since the Conversion read it. An
+original that can't be proven so stays a Kept File.
 
 **Kept File**:
 A file or folder removed from a Managed Folder by a Build or a cleanup, from a Source Set by a Repair, or from an
