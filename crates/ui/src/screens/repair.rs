@@ -15,7 +15,9 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
-use crate::repair_model::{fetch_after, repair_to_show, unfinished_note};
+use crate::repair_model::{
+    chosen, fetch_after, repair_to_show, requested, to_add, unfinished_note, unplanned,
+};
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::{progress_view, state_view};
 
@@ -72,7 +74,11 @@ fn step_line(step: &RepairStep) -> (String, &'static str) {
 #[component]
 fn Repair(name: String) -> impl IntoView {
     let base = format!("/source-sets/{}", api::segment(&name));
-    let choices = RwSignal::new(BTreeMap::<String, RepairChoice>::new());
+    // What you picked on the plan shown, by item; approving approves the plan as it was made, so a pick it doesn't
+    // hold waits until you plan again with it.
+    let picked = RwSignal::new(BTreeMap::<String, RepairChoice>::new());
+    // The choices the plan shown was asked for with.
+    let asked = RwSignal::new(BTreeMap::<String, RepairChoice>::new());
     let plan = RwSignal::new(None::<RepairPlan>);
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
@@ -81,6 +87,8 @@ fn Repair(name: String) -> impl IntoView {
     // What each item you choose to add as an operator addition is added as, by key; its system defaults to the
     // source set's DAT.
     let adding = RwSignal::new(BTreeMap::<String, RwSignal<NewAddition>>::new());
+    // The fields kept in `adding` outlive each showing of the plan, so they belong to the screen, not to the view.
+    let owner = Owner::current().expect("the repair screen has an owner");
     let system = RwSignal::new(None::<String>);
     {
         let path = base.clone();
@@ -102,6 +110,8 @@ fn Repair(name: String) -> impl IntoView {
             match api::get::<Vec<RepairPlan>>(&path).await {
                 Ok(plans) => {
                     if let Some(p) = repair_to_show(&plans, wanted) {
+                        picked.set(BTreeMap::new());
+                        asked.set(chosen(p));
                         plan.set(Some(p.clone()));
                     }
                 }
@@ -113,28 +123,23 @@ fn Repair(name: String) -> impl IntoView {
         let path = format!("{base}/repairs");
         move || {
             working.set(true);
-            let chosen = choices.get_untracked();
-            let shown = plan.get_untracked();
+            // Planning again from a plan still open carries its choices; a new proposal starts from the defaults.
+            let open = plan.get_untracked().filter(|p| p.approval.is_none());
+            let chosen = open
+                .as_ref()
+                .map(|p| requested(p, &asked.get_untracked(), &picked.get_untracked()))
+                .unwrap_or_default();
             let additions = adding.with_untracked(|adding| {
-                adding
+                let adding = adding
                     .iter()
-                    .filter(|(key, _)| {
-                        let choice = chosen.get(*key).copied().or_else(|| {
-                            shown.as_ref().and_then(|p| {
-                                p.content
-                                    .items
-                                    .iter()
-                                    .find(|i| &i.key == *key)
-                                    .map(|i| i.chosen)
-                            })
-                        });
-                        choice == Some(RepairChoice::AddAddition)
-                    })
-                    .map(|(key, a)| (key.clone(), a.get_untracked()))
-                    .collect()
+                    .map(|(k, v)| (k.clone(), v.get_untracked()))
+                    .collect();
+                open.as_ref()
+                    .map(|p| to_add(p, &chosen, &adding))
+                    .unwrap_or_default()
             });
             let body = PlanRepair {
-                choices: chosen,
+                choices: chosen.clone(),
                 additions,
             };
             let path = path.clone();
@@ -144,6 +149,8 @@ fn Repair(name: String) -> impl IntoView {
                 match planned {
                     Ok(p) => {
                         problem.set(None);
+                        picked.set(BTreeMap::new());
+                        asked.set(chosen);
                         plan.set(Some(p));
                     }
                     Err(message) => problem.set(Some(message)),
@@ -166,7 +173,8 @@ fn Repair(name: String) -> impl IntoView {
             match done {
                 Ok(p) => {
                     problem.set(None);
-                    choices.set(BTreeMap::new());
+                    picked.set(BTreeMap::new());
+                    asked.set(BTreeMap::new());
                     plan.set(Some(p));
                 }
                 Err(message) => problem.set(Some(message)),
@@ -208,9 +216,11 @@ fn Repair(name: String) -> impl IntoView {
                     let addable = item.choices.contains(&RepairChoice::AddAddition).then(|| {
                         adding.with_untracked(|a| a.get(&key).copied()).unwrap_or_else(|| {
                             let path = item.path.clone().unwrap_or_else(|| key.clone());
-                            let fields = RwSignal::new(item.addition.clone().unwrap_or_else(|| {
-                                new_addition(&path, system.get_untracked().as_deref())
-                            }));
+                            let fields = owner.with(|| {
+                                RwSignal::new(item.addition.clone().unwrap_or_else(|| {
+                                    new_addition(&path, system.get_untracked().as_deref())
+                                }))
+                            });
                             adding.update_untracked(|a| {
                                 a.insert(key.clone(), fields);
                             });
@@ -221,7 +231,7 @@ fn Repair(name: String) -> impl IntoView {
                         let key = key.clone();
                         let planned = item.chosen;
                         move || {
-                            choices.with(|m| m.get(&key).copied().unwrap_or(planned))
+                            picked.with(|m| m.get(&key).copied().unwrap_or(planned))
                                 == RepairChoice::AddAddition
                         }
                     };
@@ -239,12 +249,8 @@ fn Repair(name: String) -> impl IntoView {
                                         let value = event_target_value(&ev);
                                         if let Some(c) = offered.iter().find(|c| c.label() == value) {
                                             let c = *c;
-                                            choices.update(|m| {
-                                                if c == default {
-                                                    m.remove(&key);
-                                                } else {
-                                                    m.insert(key.clone(), c);
-                                                }
+                                            picked.update(|m| {
+                                                m.insert(key.clone(), c);
                                             });
                                         }
                                     }
@@ -292,6 +298,21 @@ fn Repair(name: String) -> impl IntoView {
                 .map(|n| view! { <li>{n.clone()}</li> })
                 .collect_view();
             let count = p.content.steps.len();
+            let changed = {
+                let p = p.clone();
+                move || {
+                    let adding = adding.with(|a| {
+                        a.iter()
+                            .map(|(k, v)| (k.clone(), v.get()))
+                            .collect::<BTreeMap<_, _>>()
+                    });
+                    picked.with(|c| unplanned(&p, c, &adding).len())
+                }
+            };
+            let held = {
+                let changed = changed.clone();
+                move || working.get() || changed() != 0
+            };
             let audit_href = format!("/audits/{}", p.content.audit);
             view! {
                 <h3>{format!("Repair plan #{}", p.id)}</h3>
@@ -340,9 +361,28 @@ fn Repair(name: String) -> impl IntoView {
                 {p.audit_owed.then(|| view! {
                     <p class="note">"An incremental audit is queued once the job running for the source set ends."</p>
                 })}
+                {open.then(|| view! {
+                    {move || {
+                        let n = changed();
+                        (n > 0).then(|| view! {
+                            <p class="notice" role="status">
+                                {format!(
+                                    "You changed {n} {} since this plan was made. Plan again with your choices to \
+                                     review and approve them; approving now would approve the plan as shown.",
+                                    if n == 1 { "item" } else { "items" }
+                                )}
+                            </p>
+                        })
+                    }}
+                })}
                 {(open && count > 0).then(|| view! {
                     <div class="form">
-                        <button type="button" class="primary" disabled=move || working.get() on:click=approve>
+                        <button
+                            type="button"
+                            class="primary"
+                            disabled=held
+                            on:click=approve
+                        >
                             {format!("Approve and make {count} changes")}
                         </button>
                     </div>

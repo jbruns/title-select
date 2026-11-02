@@ -1,7 +1,10 @@
-//! The repair screen's pure logic: which repair to show when it opens, when to fetch a plan again, and what to say
-//! about one left unfinished.
+//! The repair screen's pure logic: which repair to show when it opens, when to fetch a plan again, what to say
+//! about one left unfinished, and what you changed since the plan shown was made.
 
-use title_select_api::repair::RepairPlan;
+use std::collections::BTreeMap;
+
+use title_select_api::additions::NewAddition;
+use title_select_api::repair::{RepairChoice, RepairPlan};
 
 /// The repair to show when the repair screen opens, from the source set's plans: the one `wanted` names, if any;
 /// otherwise the latest approved repair that hasn't finished, which is shown instead of proposing a new one.
@@ -34,6 +37,78 @@ pub fn unfinished_note(plan: &RepairPlan) -> Option<String> {
          starts, and until it finishes, the source set's audits and builds wait for it. Fix what's blocking it, \
          then restart the service."
     ))
+}
+
+/// The choices `plan` was made with that differ from each item's default, by key: what the screen starts from when
+/// it shows a plan it didn't make, so that setting one back to its default is a change.
+pub fn chosen(plan: &RepairPlan) -> BTreeMap<String, RepairChoice> {
+    plan.content
+        .items
+        .iter()
+        .filter(|item| item.chosen != item.default)
+        .map(|item| (item.key.clone(), item.chosen))
+        .collect()
+}
+
+/// The choices to plan again with: those `plan` was asked for with (`asked`), with what you picked on it since. A
+/// pick of an item's default needs no asking, as an item without a choice takes its default.
+pub fn requested(
+    plan: &RepairPlan,
+    asked: &BTreeMap<String, RepairChoice>,
+    picked: &BTreeMap<String, RepairChoice>,
+) -> BTreeMap<String, RepairChoice> {
+    let mut choices = asked.clone();
+    for item in &plan.content.items {
+        match picked.get(&item.key) {
+            Some(c) if *c == item.default => {
+                choices.remove(&item.key);
+            }
+            Some(c) => {
+                choices.insert(item.key.clone(), *c);
+            }
+            None => {}
+        }
+    }
+    choices
+}
+
+/// The operator additions to ask for when planning again from `plan` with `choices`: the fields of each item chosen
+/// to be added as one. An item without a choice takes its default.
+pub fn to_add(
+    plan: &RepairPlan,
+    choices: &BTreeMap<String, RepairChoice>,
+    adding: &BTreeMap<String, NewAddition>,
+) -> BTreeMap<String, NewAddition> {
+    plan.content
+        .items
+        .iter()
+        .filter(|item| {
+            choices.get(&item.key).copied().unwrap_or(item.default) == RepairChoice::AddAddition
+        })
+        .filter_map(|item| Some((item.key.clone(), adding.get(&item.key)?.clone())))
+        .collect()
+}
+
+/// The items you changed since `plan` was shown, by key: one you picked otherwise than the plan does, or an operator
+/// addition it adds, edited. Approving approves the plan as it was made, so it waits until you plan again with them.
+pub fn unplanned(
+    plan: &RepairPlan,
+    picked: &BTreeMap<String, RepairChoice>,
+    adding: &BTreeMap<String, NewAddition>,
+) -> Vec<String> {
+    plan.content
+        .items
+        .iter()
+        .filter(|item| {
+            picked.get(&item.key).is_some_and(|c| *c != item.chosen)
+                || (item.chosen == RepairChoice::AddAddition
+                    && item
+                        .addition
+                        .as_ref()
+                        .is_some_and(|added| adding.get(&item.key).is_some_and(|a| a != added)))
+        })
+        .map(|item| item.key.clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -91,5 +166,129 @@ mod tests {
         assert!(note.contains("when the service"), "{note}");
         assert_eq!(unfinished_note(&plan(3, true, true, Some("x"))), None);
         assert_eq!(unfinished_note(&plan(3, false, false, None)), None);
+    }
+
+    fn item(
+        key: &str,
+        choices: &[&str],
+        default: &str,
+        chosen: &str,
+    ) -> title_select_api::repair::RepairItem {
+        serde_json::from_value(serde_json::json!({
+            "key": key, "kind": "conflict", "summary": "s",
+            "choices": choices, "default": default, "chosen": chosen,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_pick_other_than_the_plans_holds_its_approval_until_it_is_planned_again() {
+        let mut p = plan(1, false, false, None);
+        p.content.items.push(item(
+            "entry:a.zip",
+            &["apply", "leave", "keep_aside"],
+            "leave",
+            "leave",
+        ));
+        let none = BTreeMap::new();
+        assert!(unplanned(&p, &none, &BTreeMap::new()).is_empty());
+
+        let apply = BTreeMap::from([("entry:a.zip".to_string(), RepairChoice::Apply)]);
+        assert_eq!(unplanned(&p, &apply, &BTreeMap::new()), ["entry:a.zip"]);
+        assert_eq!(requested(&p, &none, &apply), apply, "planned again with it");
+        let back = BTreeMap::from([("entry:a.zip".to_string(), RepairChoice::Leave)]);
+        assert!(
+            unplanned(&p, &back, &BTreeMap::new()).is_empty(),
+            "picked back to what the plan does"
+        );
+    }
+
+    #[test]
+    fn a_shown_plans_own_choice_set_back_to_its_default_holds_its_approval() {
+        let mut p = plan(1, false, false, None);
+        p.content.items.push(item(
+            "entry:c.zip",
+            &["leave", "keep_aside"],
+            "leave",
+            "keep_aside",
+        ));
+        let asked = chosen(&p);
+        assert_eq!(
+            asked,
+            BTreeMap::from([("entry:c.zip".to_string(), RepairChoice::KeepAside)])
+        );
+        let leave = BTreeMap::from([("entry:c.zip".to_string(), RepairChoice::Leave)]);
+        assert_eq!(unplanned(&p, &leave, &BTreeMap::new()), ["entry:c.zip"]);
+        assert!(
+            requested(&p, &asked, &leave).is_empty(),
+            "its default needs no asking"
+        );
+    }
+
+    #[test]
+    fn picking_a_default_the_plan_overrode_holds_its_approval() {
+        // The plan left a game whose default is to apply, as applying it would keep aside a ROM's last copy.
+        let mut p = plan(1, false, false, None);
+        p.content
+            .items
+            .push(item("game:g", &["apply", "leave"], "apply", "leave"));
+        let apply = BTreeMap::from([("game:g".to_string(), RepairChoice::Apply)]);
+        assert_eq!(unplanned(&p, &apply, &BTreeMap::new()), ["game:g"]);
+        assert!(requested(&p, &BTreeMap::new(), &apply).is_empty());
+    }
+
+    #[test]
+    fn an_addition_set_back_to_its_default_isnt_asked_for_when_planning_again() {
+        let added = NewAddition {
+            system: "Atari - 2600".into(),
+            name: "Hack".into(),
+            parent: None,
+        };
+        let mut p = plan(1, false, false, None);
+        p.content.items.push(
+            serde_json::from_value(serde_json::json!({
+                "key": "entry:h.zip", "kind": "keep_aside", "summary": "s",
+                "choices": ["keep_aside", "add_addition"], "default": "keep_aside", "chosen": "add_addition",
+                "addition": added,
+            }))
+            .unwrap(),
+        );
+        let adding = BTreeMap::from([("entry:h.zip".to_string(), added.clone())]);
+        let asked = chosen(&p);
+        assert_eq!(
+            to_add(&p, &requested(&p, &asked, &BTreeMap::new()), &adding),
+            adding
+        );
+        let back = BTreeMap::from([("entry:h.zip".to_string(), RepairChoice::KeepAside)]);
+        assert!(to_add(&p, &requested(&p, &asked, &back), &adding).is_empty());
+    }
+
+    #[test]
+    fn an_addition_edited_since_the_plan_was_made_holds_its_approval() {
+        let added = NewAddition {
+            system: "Atari - 2600".into(),
+            name: "Hack".into(),
+            parent: None,
+        };
+        let mut p = plan(1, false, false, None);
+        p.content.items.push(
+            serde_json::from_value(serde_json::json!({
+                "key": "entry:h.zip", "kind": "keep_aside", "summary": "s",
+                "choices": ["leave", "add_addition"], "default": "leave", "chosen": "add_addition",
+                "addition": added,
+            }))
+            .unwrap(),
+        );
+        let choices = BTreeMap::from([("entry:h.zip".to_string(), RepairChoice::AddAddition)]);
+        let same = BTreeMap::from([("entry:h.zip".to_string(), added.clone())]);
+        assert!(unplanned(&p, &choices, &same).is_empty());
+        let renamed = BTreeMap::from([(
+            "entry:h.zip".to_string(),
+            NewAddition {
+                name: "Hack 2".into(),
+                ..added
+            },
+        )]);
+        assert_eq!(unplanned(&p, &choices, &renamed), ["entry:h.zip"]);
     }
 }
