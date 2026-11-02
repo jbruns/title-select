@@ -146,13 +146,21 @@ pub enum Fault {
     BeforePublishDir,
     /// As [`Fault::MadeDir`], for a Build's staging directory.
     MadeStaging,
+    /// After a folder Title Select is creating in a Managed Folder is renamed into place, before its parent is
+    /// synced and its identity recorded under its name.
+    PublishedDir,
     /// As [`Fault::BeforePublishDir`], for a Build's staging directory.
     BeforePublishStaging,
     /// After the intent to delete the kept file with this id is committed and it is found to be the kept file, before
     /// it is moved into the private folder it is deleted from.
     BeforeDeleteMove(i64),
+    /// After the kept file with this id is renamed into the private folder it is deleted from, before the ctime read
+    /// through the descriptor held across that rename is recorded.
+    DeleteMoveUnrecorded(i64),
     /// After the kept file with this id is moved into the private folder it is deleted from, before it is checked.
     AfterDeleteMove(i64),
+    /// When recovery finds something where the kept file with this id was moved to be deleted, before it checks it.
+    DeletingFound(i64),
     /// After what was moved aside to delete the kept file with this id, not being that file, is recorded, before it is
     /// moved back.
     Quarantined(i64),

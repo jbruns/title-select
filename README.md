@@ -492,9 +492,11 @@ it (the default), adopting it when it holds the ROMs the DAT expects, or keeping
 place. To change one, plan again with it. The removals are part of the digest too.
 
 Kept files stay until you delete them: list them (`GET /managed-folders/{id}/kept-files`), plan deleting some or all
-(`POST /managed-folders/{id}/kept-deletions`), review the plan's digest, and approve it. Each kept file is deleted
-only while it is still the file that was kept: it is moved, without replacing anything, into the private folder
-`.title-select-retained/.deleting`, and deleted there only once what was moved is found to be that file. Anything
+(`POST /managed-folders/{id}/kept-deletions`), review the plan's digest, and approve it. Planning reads each kept
+file and the digest binds what it read, its change time and SHA-256 included. Each kept file is deleted
+only while it is still the file that was kept and still reads as you reviewed it: it is moved, without replacing anything, into the private folder
+`.title-select-retained/.deleting`, and deleted there only once what was moved is found to be that file and is hashed again. A file that changed since
+you reviewed it is never deleted, and its outcome says so. Anything
 else, a symlink or a directory included, is left or moved back, and reported. Until it is moved back, it stays
 recorded where it is, and the deletion stays unfinished and blocks plans for the folder; when its name is taken, you
 move what is there out of the way, and the service moves it back when it next starts. A kept file found already gone, with the

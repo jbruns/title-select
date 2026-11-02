@@ -691,6 +691,7 @@ fn drift_in_a_managed_folder_is_kept_aside_by_a_cleanup_and_added_from_the_kept_
     assert!(
         env.store
             .plan_kept_deletion(
+                &env.config,
                 folder.id,
                 &PlanKeptDeletion {
                     ids: vec![extra],

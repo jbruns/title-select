@@ -14,10 +14,12 @@ use title_select_api::repair::{
 
 use super::{MarkerRule, open_repairable, repair_active};
 use crate::additions::{additions_kept_reserved, set_of_system, source_kept_reserved};
-use crate::builds::still_sha256;
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
-use crate::kept::{Scope, open_area_deleting, open_retention};
+use crate::kept::{
+    Scope, Unlinked, open_area_deleting, open_retention, reads_as_reviewed, review_kept,
+    unlink_verified,
+};
 use crate::plans::{json, to_json};
 use crate::sets::set_by_name;
 use crate::{Error, Result, Store, now};
@@ -204,23 +206,20 @@ fn is_kept(dir: &FolderDir, name: &str, file: &SourceKeptFile) -> Result<bool> {
 }
 
 /// Kept file `file` as read now through `held`, opened on it: whether it is still the file kept, has ctime `ctime`
-/// and, read while it holds still, hashes as it did when you reviewed its deletion. The ctime is the one you
-/// reviewed until it is renamed, which moves it, and the one read through `held` just after that rename once it is.
-fn reads_as_reviewed(
+/// and, read while it holds still, hashes as it did when you reviewed its deletion ([`reads_as_reviewed`]).
+fn reads_as(
     held: &std::fs::File,
     file: &SourceKeptFile,
     reviewed: Option<&KeptFileReviewed>,
     ctime: Option<i128>,
 ) -> Result<bool> {
-    let io = |e: std::io::Error| Error::Io(e.to_string());
-    let (Some(reviewed), Some(ctime)) = (reviewed, ctime) else {
-        return Ok(false);
-    };
-    let st = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
-    if Identity::of(&st) != Identity::from(file.identity) || file_stat(&st) != file.file {
-        return Ok(false);
-    }
-    Ok(still_sha256(held, ctime).map_err(io)?.as_deref() == Some(reviewed.sha256.as_str()))
+    reads_as_reviewed(
+        held,
+        Identity::from(file.identity),
+        &file.file,
+        reviewed,
+        ctime,
+    )
 }
 
 /// Reads kept file `file` of Source Set folder `dir` through a descriptor, for you to review its deletion. `Err`
@@ -253,25 +252,19 @@ fn review(
         }
         Err(why) => return Ok(Err(why)),
     };
-    let held = match generation.open_file(kept) {
-        Ok(held) => held,
-        Err(e) => return Ok(Err(format!("{kept} could not be read: {e}"))),
-    };
-    let st = rustix::fs::fstat(&held).map_err(|e| Error::Io(e.to_string()))?;
-    if Identity::of(&st) != Identity::from(file.identity) || file_stat(&st) != file.file {
-        return Ok(Err(format!("{kept} is no longer the file that was kept")));
-    }
-    let Some(sha256) = still_sha256(&held, ctime_ns(&st)).map_err(|e| Error::Io(e.to_string()))?
-    else {
-        return Ok(Err(format!("{kept} changed while it was read")));
-    };
-    if owner == Owner::Additions && file.sha256.as_deref() != Some(sha256.as_str()) {
-        return Ok(Err(format!("{kept} is no longer the file that was kept")));
-    }
-    Ok(Ok(KeptFileReviewed {
-        id: file.id,
-        ctime_ns: ctime_ns(&st),
-        sha256,
+    let read = review_kept(
+        &generation,
+        file.id,
+        kept,
+        Identity::from(file.identity),
+        &file.file,
+    )?;
+    Ok(read.and_then(|read| {
+        if owner == Owner::Additions && file.sha256.as_deref() != Some(read.sha256.as_str()) {
+            Err(format!("{kept} is no longer the file that was kept"))
+        } else {
+            Ok(read)
+        }
     }))
 }
 
@@ -731,11 +724,7 @@ impl Store {
             }
             // Read as reviewed before the rename, which moves its ctime, and held through it.
             let read = match generation.open_file(&file.kept_name) {
-                Ok(read)
-                    if reads_as_reviewed(&read, file, reviewed, reviewed.map(|r| r.ctime_ns))? =>
-                {
-                    read
-                }
+                Ok(read) if reads_as(&read, file, reviewed, reviewed.map(|r| r.ctime_ns))? => read,
                 _ => {
                     let why = format!("{CHANGED}, so it was left kept");
                     self.settle_source_kept(owner, file, "kept", Some(&why))?;
@@ -764,17 +753,30 @@ impl Store {
             None if kept => deleting.open_file(&slot).ok(),
             None => None,
         };
-        let unchanged = match &held {
-            Some(held) => {
-                kept && reads_as_reviewed(held, file, reviewed, self.slot_ctime(owner, file)?)?
-            }
-            None => false,
+        let unlinked = match &held {
+            Some(held) if kept => unlink_verified(
+                deleting,
+                &slot,
+                held,
+                Identity::from(file.identity),
+                &file.file,
+                reviewed,
+                self.slot_ctime(owner, file)?,
+            )?,
+            _ => Unlinked::NotTheFile,
         };
-        if unchanged && is_kept(deleting, &slot, file)? {
-            deleting.unlink(&slot).map_err(io)?;
-            deleting.sync().map_err(io)?;
-            self.settle_source_kept(owner, file, "deleted", None)?;
-            return Ok(outcome(file, true, None));
+        match unlinked {
+            Unlinked::Deleted => {
+                deleting.sync().map_err(io)?;
+                self.settle_source_kept(owner, file, "deleted", None)?;
+                return Ok(outcome(file, true, None));
+            }
+            Unlinked::Failed(e) => {
+                return Err(Error::Io(format!(
+                    ".title-select-retained/.deleting/{slot} could not be deleted ({e})"
+                )));
+            }
+            Unlinked::NotTheFile | Unlinked::Changed => {}
         }
         // Not the file that was kept, or changed since you reviewed it: put back, never deleted.
         let back = match &generation {
