@@ -543,10 +543,41 @@ fn removals(
                     item.target
                 ),
                 keep: None,
+                converts_to: None,
             };
+            let intact = folder.files.get(&target.to_lowercase()).filter(|f| {
+                f.regular
+                    && f.name == *target
+                    && matches!(
+                        outcome,
+                        Some(
+                            FileOutcome::Unchanged | FileOutcome::Refreshed | FileOutcome::Repacked
+                        )
+                    )
+            });
             if outcome == Some(FileOutcome::Missing) {
                 removal.kind = RemovalKind::Forget;
                 removal.reason = format!("{target} is gone already; its record is dropped");
+            } else if let Some(found) = intact.filter(|_| {
+                // A conversion put the game's file in place, then stopped before it disposed of the original.
+                item.kind == ItemKind::Unchanged && built.loose != item.loose
+            }) {
+                removal.kind = RemovalKind::Keep;
+                removal.reason = format!(
+                    "{target} was converted to {}, which is in place; it is kept aside{}",
+                    item.target,
+                    match inputs.storage.delete_originals {
+                        true => format!(", then deleted once {} is verified", item.target),
+                        false => String::new(),
+                    }
+                );
+                removal.keep = Some(keep_of(
+                    KeepReason::Replacement,
+                    found,
+                    Some(scan),
+                    built.sha256.as_ref(),
+                ));
+                removal.converts_to = Some(item.target.clone());
             }
             out.push(removal);
             continue;
@@ -560,6 +591,7 @@ fn removals(
             kind: RemovalKind::Leave,
             reason: String::new(),
             keep: None,
+            converts_to: None,
         };
         let outcome = checked.map(|c| c.outcome);
         if lowered.contains(&lower) {
@@ -611,6 +643,7 @@ struct Candidate<'a> {
     entry: &'a Entry,
     file: FileStat,
     identity: FileIdentity,
+    ctime_ns: i128,
     copyable: bool,
 }
 
@@ -623,7 +656,7 @@ struct Sources<'a> {
     /// The ROMs only Claim Evidence holds.
     claimed: HashSet<(String, String)>,
     by_path: HashMap<&'a str, Vec<&'a Entry>>,
-    stats: HashMap<&'a str, Option<(FileStat, FileIdentity)>>,
+    stats: HashMap<&'a str, Option<(FileStat, FileIdentity, i128)>>,
     copyable: HashMap<(&'a str, String), bool>,
 }
 
@@ -666,8 +699,8 @@ impl<'a> Sources<'a> {
         }
     }
 
-    /// The source file at `path`, confined to the Source Set's Root, and its identity.
-    fn file(&mut self, path: &'a str) -> Option<(FileStat, FileIdentity)> {
+    /// The source file at `path`, confined to the Source Set's Root, its identity and its status change time.
+    fn file(&mut self, path: &'a str) -> Option<(FileStat, FileIdentity, i128)> {
         let set_dir = &self.set_dir;
         self.stats
             .entry(path)
@@ -689,6 +722,7 @@ impl<'a> Sources<'a> {
                                 dev: m.dev(),
                                 ino: m.ino(),
                             },
+                            i128::from(m.ctime()) * 1_000_000_000 + i128::from(m.ctime_nsec()),
                         )
                     })
             })
@@ -746,12 +780,13 @@ impl<'a> Sources<'a> {
             let mut candidates: Vec<Candidate> = entries
                 .into_iter()
                 .filter_map(|entry| {
-                    let (file, identity) = self.file(&entry.path)?;
+                    let (file, identity, ctime_ns) = self.file(&entry.path)?;
                     let copyable = entry.member.is_some() && self.copyable(&entry.path, game, roms);
                     Some(Candidate {
                         entry,
                         file,
                         identity,
+                        ctime_ns,
                         copyable,
                     })
                 })
@@ -1185,6 +1220,8 @@ fn plan_items(
                         evidence: c.entry.evidence.as_ref().map(|e| e.level),
                         file: c.file.clone(),
                         identity: Some(c.identity),
+                        // Only a loose file is written from the source the plan found, by descriptor.
+                        ctime_ns: item.loose.then_some(c.ctime_ns),
                     })
                     .collect();
                 item.converts = converts(inputs, files, scan, &item);

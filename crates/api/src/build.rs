@@ -334,6 +334,11 @@ pub struct PlanRemoval {
     /// The file kept aside, for a removal that keeps one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep: Option<KeepAside>,
+    /// For the original of a conversion that stopped before it was disposed of: its game's file, in place already
+    /// in the format the storage policy says. With delete originals after conversion on, the original is deleted
+    /// once that file verifies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub converts_to: Option<String>,
 }
 
 /// A file's size and modification time, as a plan saw it.
@@ -361,6 +366,10 @@ pub struct PlanSource {
     /// Which file the plan found at `path`: a loose file is written from it only while it is still that file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<FileIdentity>,
+    /// For a loose file's source, its status change time when the plan found it, in nanoseconds since the Unix epoch:
+    /// with `identity`, it tells the file apart from another that took its inode number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctime_ns: Option<i128>,
 }
 
 /// One selected release in a plan.

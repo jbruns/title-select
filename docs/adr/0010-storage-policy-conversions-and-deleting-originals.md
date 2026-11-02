@@ -31,7 +31,13 @@ the one a Conversion read.
   Library. The plan binds the policy it follows, so a plan made under another policy is refused at approval. A
   Conversion runs as part of its Repair or Build Job, with its reservations, cancellation and recovery.
 - **Originals go to Kept Files.** The converted file is written, verified and published without replacing anything
-  before the original is kept aside.
+  before the original is kept aside. Each Conversion disposes of its original before the next is written, so a
+  Conversion never needs room for a second copy of the folder. If the converted file's name is taken, the original
+  stays in place.
+- **The built files are the durable intent.** Once a converted file is published, the store records it among the
+  built files beside the original's row, which holds the hashes the Conversion read. If the Service stops before the
+  original is disposed of, the next plan proposes keeping it aside, or deleting it under the rule below, from that
+  recorded stamp.
 - **Delete Originals After Conversion** is a setting with the same scopes and overrides, off by default. When on, an
   original is deleted only when:
   - its converted file verifies: a ZIP is canonical as `zipdir` opens it and its members' payloads match the ROMs'
@@ -47,6 +53,9 @@ the one a Conversion read.
 
 - With the default, nothing is ever deleted by a Conversion; the Operator deletes Kept Files by a separate approval.
 - A Conversion the Service stopped during is recovered, not resumed: its original ends deleted, when that was proven
-  before the stop, or kept.
+  before the stop, or kept. An original left in place after its converted file was published is disposed of by the
+  next plan.
+- A cancelled Build stops between files: published files stay, outstanding originals are disposed of by the next
+  plan, and the Build is recorded as interrupted.
 - Multi-ROM Games stay TorrentZip even in a loose folder, so a loose folder can hold both.
 - Audits already handle loose files and ZIPs in one folder, so a partly converted Source Set audits correctly.

@@ -4978,6 +4978,181 @@ fn an_original_whose_converted_file_does_not_verify_is_kept() {
     );
 }
 
+#[test]
+fn each_conversion_disposes_of_its_original_before_the_next_is_written() {
+    for delete in [false, true] {
+        let env = Env::new();
+        let (folder, id) = built_as_zips(&env);
+        let dir = env.play().join("atari2600");
+        set_play_policy(&env, StorageFormat::Loose, None, delete);
+        let plan = env.plan(&folder, id);
+        let converted = plan.content.items.iter().filter(|i| i.converts.is_some());
+        assert_eq!(converted.count(), 2);
+        // Never both of one game's files at once: the folder needs room for one more file, not a second library.
+        let both = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = both.clone();
+        let at = dir.clone();
+        let job = build_hooked(&env, &plan, move |fault| {
+            if let Fault::BeforePublish(seq) = fault {
+                for game in ["Pong (USA)", "Combat (USA)"] {
+                    let zip = at.join(format!("{game}.zip")).exists();
+                    let loose = at.join(format!("{game}.a26")).exists();
+                    if zip && loose {
+                        seen.lock().unwrap().push((seq, game));
+                    }
+                }
+            }
+        });
+        assert_eq!(job.state, JobState::Succeeded);
+        assert_eq!(*both.lock().unwrap(), [], "delete {delete}");
+        let kept = env.store.kept_files(folder.id).unwrap();
+        assert_eq!(kept.len(), if delete { 0 } else { 2 }, "{kept:?}");
+    }
+}
+
+#[test]
+fn an_original_left_by_a_conversion_the_service_stopped_after_publishing_is_disposed_of_by_the_next_build()
+ {
+    for delete in [false, true] {
+        let env = Env::new();
+        env.audit();
+        let id = titles(&env, &["Pong (USA)"]);
+        let folder = env.folder("atari2600");
+        assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+        set_play_policy(&env, StorageFormat::Loose, None, delete);
+        let plan = env.plan(&folder, id);
+        crash_at(&env, &plan, |f| matches!(f, Fault::AfterPublish(_)));
+        let (env, _) = env.restart();
+        let dir = env.play().join("atari2600");
+        assert!(dir.join("Pong (USA).zip").exists() && dir.join("Pong (USA).a26").exists());
+
+        let next = env.plan(&folder, id);
+        assert!(next.approvable(), "{:?}", next.content.blockers);
+        assert_eq!(kinds(&next)["Pong (USA)"], ItemKind::Unchanged);
+        let removal = &next.content.removals[0];
+        assert_eq!(
+            (
+                removal.target.as_str(),
+                removal.kind,
+                removal.converts_to.as_deref()
+            ),
+            ("Pong (USA).zip", RemovalKind::Keep, Some("Pong (USA).a26")),
+            "{removal:?}"
+        );
+        assert_eq!(env.build(&next).state, JobState::Succeeded);
+
+        assert!(!dir.join("Pong (USA).zip").exists(), "delete {delete}");
+        assert_eq!(std::fs::read(dir.join("Pong (USA).a26")).unwrap(), b"pong");
+        let kept = env.store.kept_files(folder.id).unwrap();
+        assert_eq!(kept.len(), if delete { 0 } else { 1 }, "{kept:?}");
+        let built = env.store.built_files(folder.id).unwrap();
+        assert_eq!(
+            built.iter().map(|f| f.target.as_str()).collect::<Vec<_>>(),
+            ["Pong (USA).a26"]
+        );
+    }
+}
+
+#[test]
+fn a_build_you_cancel_stops_between_two_files_and_a_new_plan_finishes_the_folder() {
+    // A conversion, and an ordinary build of new files.
+    for convert in [true, false] {
+        let env = Env::new();
+        let (folder, id) = if convert {
+            let built = built_as_zips(&env);
+            set_play_policy(&env, StorageFormat::Loose, None, false);
+            built
+        } else {
+            env.audit();
+            let id = titles(&env, &["Pong (USA)", "Combat (USA)", "Breakout (USA)"]);
+            (env.folder("atari2600"), id)
+        };
+        let dir = env.play().join("atari2600");
+        let plan = env.plan(&folder, id);
+        let writes = plan.content.items.iter().filter(|i| i.kind.writes());
+        assert!(writes.count() >= 2, "{convert}");
+        let job = env
+            .store
+            .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        env.store.claim_job().unwrap().unwrap();
+        // Cancelled, as you would from the workbench, once the first file is in place.
+        let (reached, wait) = std::sync::mpsc::channel();
+        let (resume, go) = std::sync::mpsc::channel::<()>();
+        let go = std::sync::Mutex::new(go);
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if fault == Fault::AfterPublish(0) {
+                    reached.send(()).unwrap();
+                    go.lock().unwrap().recv().unwrap();
+                }
+            })));
+        let ended = std::thread::scope(|scope| {
+            let running = scope.spawn(|| env.store.run_build_job(&env.config, job.id, None));
+            wait.recv().unwrap();
+            let cancelled = env.store.cancel_job(job.id);
+            resume.send(()).unwrap();
+            cancelled.unwrap();
+            running.join().unwrap().unwrap()
+        });
+        env.store.hook_faults(None);
+
+        assert_eq!(ended.state, JobState::Interrupted, "{convert}");
+        assert!(
+            ended.error.as_deref().unwrap().contains("you cancelled"),
+            "{ended:?}"
+        );
+        let first = &plan.content.items.iter().find(|i| i.kind.writes()).unwrap();
+        let built = env.store.built_files(folder.id).unwrap();
+        assert!(
+            built.iter().any(|f| f.target == first.target),
+            "{convert}: {built:?}"
+        );
+        assert!(dir.join(&first.target).exists(), "{convert}");
+        assert!(
+            !dir.join(title_select_api::build::STAGING).exists(),
+            "{convert}"
+        );
+        if convert {
+            // The first conversion finished: its original is kept aside, and the second's is in place.
+            let kept = env.store.kept_files(folder.id).unwrap();
+            assert_eq!(kept.len(), 1, "{kept:?}");
+        }
+        let after = env.store.managed_folder(&env.config, folder.id).unwrap();
+        assert_eq!(
+            after.generation,
+            folder.generation + u64::from(convert),
+            "{convert}"
+        );
+        let unfinished = after.unfinished.unwrap();
+        assert_eq!(unfinished.applied, 1 + u64::from(convert), "{convert}");
+        assert!(unfinished.not_written >= 1, "{convert}");
+        let detail = env.store.build(unfinished.build).unwrap();
+        assert!(
+            detail
+                .items
+                .iter()
+                .filter(|i| i.state == ItemState::Pending)
+                .all(|i| i
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("you cancelled"))),
+            "{detail:?}"
+        );
+
+        let next = env.plan(&folder, id);
+        assert!(next.approvable(), "{convert}: {:?}", next.content.blockers);
+        assert_eq!(env.build(&next).state, JobState::Succeeded, "{convert}");
+        assert!(
+            env.plan(&folder, id)
+                .content
+                .items
+                .iter()
+                .all(|i| i.kind == ItemKind::Unchanged)
+        );
+    }
+}
+
 /// Approves `plan` and runs its Build Job until the first fault `stop` picks stops it as a kill would.
 fn crash_at(env: &Env, plan: &Plan, stop: impl Fn(Fault) -> bool + Send + Sync + 'static) {
     let job = env

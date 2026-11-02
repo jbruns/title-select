@@ -826,14 +826,16 @@ impl Store {
         self.job(id)
     }
 
-    /// Asks the Queued or Running Repair Job `id` to stop at its next safe point: between two steps. Each step that
-    /// changed something, and every step of the same item, still ends as planned; every other is skipped.
+    /// Asks the Queued or Running Repair or Build Job `id` to stop at its next safe point. A repair stops between
+    /// two steps: each step that changed something, and every step of the same item, still ends as planned; every
+    /// other is skipped. A build stops between two files: each file it put in place stays, recorded as built, and
+    /// the original a conversion replaced is disposed of before it stops.
     pub fn cancel_job(&self, id: i64) -> Result<Job> {
         self.write(|tx| {
             let job = job_by_id(tx, id)?;
-            if job.kind != JobKind::Repair {
+            if !matches!(job.kind, JobKind::Repair | JobKind::Build) {
                 return Err(Error::Refused(format!(
-                    "job {id} is not a repair; only a repair job can be cancelled"
+                    "job {id} is not a repair or a build; only those can be cancelled"
                 )));
             }
             if job.state.is_final() {
@@ -1224,7 +1226,7 @@ impl Store {
         })
     }
 
-    fn cancel_requested(&self, job: i64) -> Result<bool> {
+    pub(super) fn cancel_requested(&self, job: i64) -> Result<bool> {
         self.read(|c| {
             Ok(c.query_row(
                 "SELECT cancel_requested_at IS NOT NULL FROM jobs WHERE id = ?1",

@@ -440,8 +440,11 @@ against the selection's DAT revision:
 - **copy** a source that is already the game's TorrentZip, holding exactly its ROMs, where the storage policy says
   TorrentZip;
 - **repack** the game's ROMs into a new TorrentZip, or, where the storage policy says loose, write its one ROM as a
-  loose file. A game built the other way is converted: the new file is written, then the old one kept aside, or
-  deleted once the new one verifies when delete originals after conversion is on;
+  loose file. A game built the other way is converted: the new file is written and put in place, then the old one
+  is kept aside, or deleted once the new one verifies when delete originals after conversion is on, before the next
+  game is written, so a conversion never needs room for a second copy of the folder. An old file left in place by a
+  stop is kept aside, or deleted under the same rule, by the next build: the plan lists it with the file that
+  replaced it;
 - **unchanged**: the folder already holds the file, as built;
 - **no source**: no audited file holds every ROM, by payload. Claims are never sources: a ROM only a quick
   inventory claimed has no source until you audit the source set incrementally or in full;
@@ -530,7 +533,9 @@ without replacing anything; a source that fails its re-hash fails only its own f
 permissions and the build's time as their modification time. The marker's generation goes up last, when the build
 succeeds. Every write goes through the managed folder as it was opened, never a symlink, and the build checks the
 marker again before each file and before the marker; if the marker changed, or the folder itself fails a write, the
-build fails and the marker stays where it was. Renaming without replacing needs a filesystem that supports it; when
+build fails and the marker stays where it was. You can cancel a build while it runs: the file it is writing, and
+the original it converts, finish; files already in place stay, the rest are left out, and the build shows as
+interrupted until a new plan finishes the folder. Renaming without replacing needs a filesystem that supports it; when
 yours does not, the build fails rather than risk overwriting a file. A ROM name with a path separator, a `..`
 part, a drive or a device name such as `CON` is a blocked item.
 
@@ -613,8 +618,9 @@ game's ROMs before it renames it. Each item has a choice you can change before a
 
 - a game whose files are named otherwise than the DAT says is renamed, or written under its name: on by default;
 - a game not stored as the storage policy says, `<game>.zip` or its one ROM loose, is repacked or converted to it:
-  always proposed for now. A conversion keeps the original, or deletes it once the converted file verifies when
-  delete originals after conversion is on;
+  always proposed for now. A conversion writes the converted file and puts it in place first, then keeps the
+  original, or deletes it once the converted file verifies when delete originals after conversion is on. If the
+  converted file's name is taken, the original stays where it is;
 - a missing game is filled from an ingest folder item whose payload matches it: on by default when there is one;
 - a game with a mismatched or unreadable entry is replaced from an ingest folder item that matches it, keeping the
   original: on by default when there is one;
@@ -732,7 +738,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/jobs`                                 | the latest 100 jobs, newest first                            |
 | `GET /api/v1/jobs/{id}`                            | one job                                                      |
 | `GET /api/v1/jobs/{id}/events`                     | server-sent events for one job, ending at its final state    |
-| `POST /api/v1/jobs/{id}/cancellation`              | cancel a repair job at the next step; `409` once it has ended |
+| `POST /api/v1/jobs/{id}/cancellation`              | cancel a repair job at the next step, or a build job at the next file; `409` once it has ended |
 | `GET /api/v1/events`                               | server-sent events for every job, opening with a `resync`    |
 
 A paged list is `{"items": [...], "next_cursor": "..."}`; pass `next_cursor` back as `?cursor=` for the next page, and
@@ -848,8 +854,8 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
 - **Managed folders** lists each managed folder with its current build and when it was last checked, marking a check
   made before the current build, and registers another in a writable root,
   with the path proposed from the source set's DAT as for a source set. Opening one plans a build of a selection,
-  shows the plan's files by what they do, what blocks it and what changed, approves it and follows the build live. It
-  rebinds the folder, and lists its builds and the files built into it. A plan with unresolved groups offers to build
+  shows the plan's files by what they do, what blocks it and what changed, approves it and follows the build live, with a way to cancel it.
+  It rebinds the folder, and lists its builds and the files built into it. A plan with unresolved groups offers to build
   resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict you can keep
   aside has a choice to keep it aside and rebuild. The plan lists the built files no longer selected and what
   happens to each. The folder lists its kept files by generation, where you pick some or all and approve deleting

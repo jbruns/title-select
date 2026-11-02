@@ -13,7 +13,7 @@ use title_select_api::build::{
     PlanItem, PlanKeptDeletion, PlanSummary, RETENTION,
 };
 use title_select_api::{
-    Dat, Job, PathTemplateDefaults, ProfileRecord, Root, SelectionRecord, SourceSetRecord,
+    Dat, Job, JobKind, PathTemplateDefaults, ProfileRecord, Root, SelectionRecord, SourceSetRecord,
 };
 
 use crate::api;
@@ -1024,10 +1024,25 @@ fn cleanup_view(cleanup: &Cleanup) -> AnyView {
     .into_any()
 }
 
-/// A job's progress on the folder, live.
+/// A job's progress on the folder, live, with a way to cancel a build while it runs.
 #[component]
 fn BuildProgress(job: i64) -> impl IntoView {
     let live = use_live();
+    let problem = RwSignal::new(None::<String>);
+    let cancelling = RwSignal::new(false);
+    let cancel = move |_| {
+        cancelling.set(true);
+        leptos::task::spawn_local(async move {
+            let done =
+                api::post::<_, Job>(&format!("/jobs/{job}/cancellation"), &serde_json::json!({}))
+                    .await;
+            cancelling.set(false);
+            match done {
+                Ok(_) => problem.set(None),
+                Err(message) => problem.set(Some(message)),
+            }
+        });
+    };
     view! {
         <p class="notice" role="status">
             {format!("Job #{job} ")}
@@ -1039,10 +1054,35 @@ fn BuildProgress(job: i64) -> impl IntoView {
                     };
                     view! { <span>{outcome}</span> }.into_any()
                 }
-                Some(l) => view! { <span>"is running. "</span> {progress_view(&l)} }.into_any(),
+                Some(l) => {
+                    let control = if l.job.kind != JobKind::Build {
+                        None
+                    } else if l.job.cancel_requested_at.is_some() {
+                        Some(
+                            view! {
+                                <span class="note">
+                                    " You cancelled it: the file it is writing finishes, files already in place stay, and the rest are left for a new plan."
+                                </span>
+                            }
+                            .into_any(),
+                        )
+                    } else {
+                        Some(
+                            view! {
+                                " "
+                                <button type="button" disabled=move || cancelling.get() on:click=cancel>
+                                    "Cancel the build"
+                                </button>
+                            }
+                            .into_any(),
+                        )
+                    };
+                    view! { <span>"is running. "</span> {progress_view(&l)} {control} }.into_any()
+                }
                 None => view! { <A href="/jobs">"Follow it on the Jobs screen"</A> }.into_any(),
             }}
         </p>
+        {move || problem.get().map(|message| view! { <Problem message /> })}
     }
 }
 

@@ -878,7 +878,13 @@ impl Store {
                 files_total: total,
             });
         }
+        let mut cancelled = false;
         for (seq, step) in steps.iter().enumerate() {
+            // You can cancel a cleanup between two of its steps.
+            if self.cancel_requested(job)? {
+                cancelled = true;
+                break;
+            }
             let seq = seq as i64;
             check_marker(&run.dir, &expected).map_err(Error::Refused)?;
             let outcome = match *step {
@@ -909,6 +915,9 @@ impl Store {
             clear_staging(&run.dir, &staging, own, &run.staged).map_err(Error::Refused)?;
         }
         let Run { dir, .. } = run;
+        if cancelled {
+            return self.write(|tx| super::end_cancelled(tx, job, id, folder));
+        }
 
         // As a Build finishes: the store decides the next generation first, and the marker follows it.
         check_marker(&dir, &expected).map_err(Error::Refused)?;

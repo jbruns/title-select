@@ -122,7 +122,10 @@ fn open_source(
     let file = held.as_ref().unwrap_or(set).open_file(name).map_err(at)?;
     let st = rustix::fs::fstat(&file).map_err(|e| at(e.into()))?;
     let identity = source.identity.map(Identity::from);
-    if identity != Some(Identity::of(&st)) || file_stat(&st) != source.file {
+    if identity != Some(Identity::of(&st))
+        || source.ctime_ns != Some(crate::folder_dir::ctime_ns(&st))
+        || file_stat(&st) != source.file
+    {
         return Err(format!(
             "{} is not the file the plan found there; plan again",
             source.path
@@ -428,6 +431,62 @@ fn build_items(c: &Connection, build: i64) -> Result<Vec<BuildItem>> {
 }
 
 /// Ends the Running Build `build` of Job `job` as Failed, and the Job as Failed with `error`.
+/// Why an item a cancelled Build never reached was not done.
+const CANCELLED_ITEM: &str = "you cancelled the build before it got to this";
+
+/// How a cancelled Build's Job ends.
+const CANCELLED_BUILD: &str = "you cancelled the build; each file it had put in place or kept aside stays so, and \
+                               a new plan finishes the folder";
+
+/// Ends Build `build` of `folder`, and its Job `job`, which you cancelled between two of its items: each item it did
+/// stays done, and each it never got to says so. The folder stays at its generation; nothing is left to recover.
+pub(super) fn end_cancelled(tx: &Transaction, job: i64, build: i64, folder: i64) -> Result<()> {
+    tx.execute(
+        "UPDATE build_items SET error = ?2 WHERE build_id = ?1 AND state = 'pending'",
+        params![build, CANCELLED_ITEM],
+    )?;
+    tx.execute(
+        "UPDATE builds SET state = 'interrupted', finished_at = ?2, cleaned_at = ?2 WHERE id = ?1",
+        params![build, now()],
+    )?;
+    tx.execute("DELETE FROM folder_temps WHERE folder_id = ?1", [folder])?;
+    finish_running(tx, job, JobState::Interrupted, Some(CANCELLED_BUILD))
+}
+
+/// The state of item `seq` of Build `build`.
+fn item_state(store: &Store, build: i64, seq: i64) -> Result<Option<String>> {
+    store.read(|c| {
+        Ok(c.query_row(
+            "SELECT state FROM build_items WHERE build_id = ?1 AND seq = ?2",
+            params![build, seq],
+            |r| r.get(0),
+        )
+        .optional()?)
+    })
+}
+
+/// Records on item `seq` of Build `build` what became of the original it disposed of, or why it was left in place.
+fn record_disposal(
+    store: &Store,
+    build: i64,
+    seq: i64,
+    outcome: std::result::Result<Option<String>, String>,
+) -> Result<()> {
+    store.write(|tx| {
+        match outcome {
+            Ok(None) => {}
+            Ok(Some(note)) => {
+                tx.execute(
+                    "UPDATE build_items SET error = ?3 WHERE build_id = ?1 AND seq = ?2",
+                    params![build, seq, note],
+                )?;
+            }
+            Err(error) => set_item(tx, build, seq, ItemState::Failed, &error)?,
+        }
+        Ok(())
+    })
+}
+
 fn end_failed(tx: &Transaction, job: i64, build: Option<i64>, error: &str) -> Result<()> {
     if let Some(build) = build {
         tx.execute(
@@ -593,6 +652,17 @@ impl Store {
             return Err(Error::Refused(format!("job {id} is {state}, not running")));
         }
         let plan_id = plan_id.ok_or_else(|| Error::Io(format!("build job {id} has no plan")))?;
+        if self.cancel_requested(id)? {
+            self.write(|tx| {
+                finish_running(
+                    tx,
+                    id,
+                    JobState::Interrupted,
+                    Some("you cancelled the build before it started; nothing was changed"),
+                )
+            })?;
+            return self.job(id);
+        }
         let mut build = None;
         let outcome = self.carry_out(config, id, plan_id, &mut build, progress);
         if let Err(err) = &outcome {
@@ -696,6 +766,7 @@ impl Store {
             .map(|(i, (w, k))| ((all.len() + removals.len() + i) as i64, w, k))
             .collect();
         let generation = content.generation + 1;
+        let delete = content.storage.delete_originals;
         let id = self.write(|tx| {
             let revision: i64 = tx.query_row(
                 "SELECT dat_revision_id FROM selections WHERE id = ?1",
@@ -768,7 +839,24 @@ impl Store {
                 files_total: total,
             });
         }
-        for (done, w) in work.iter().enumerate() {
+        let mut done = 0;
+        let tick = |done: &mut usize| {
+            *done += 1;
+            if let Some(progress) = progress {
+                progress(Progress {
+                    files_done: *done,
+                    files_total: total,
+                });
+            }
+        };
+        // Each item is done before the next starts: its file written, put in place and recorded, and the original it
+        // converts kept aside, or deleted. A cancelled Build stops between two items.
+        let mut cancelled = false;
+        for w in work {
+            if self.cancel_requested(job)? {
+                cancelled = true;
+                break;
+            }
             let name = format!("{}.zip", w.seq);
             let target = &w.item.target;
             let fail = |state: ItemState, error: &str| {
@@ -892,16 +980,38 @@ impl Store {
                     drop(file);
                 }
             }
-            if let Some(progress) = progress {
-                progress(Progress {
-                    files_done: done + 1,
-                    files_total: total,
-                });
+            tick(&mut done);
+            if let Some((seq, _, keep)) = conversions.iter().find(|(_, c, _)| c.seq == w.seq) {
+                check_marker(&dir, &expected).map_err(Error::Refused)?;
+                let outcome = if item_state(self, id, w.seq)?.as_deref() != Some("applied") {
+                    Err(format!(
+                        "{} was not written, so {} stays as it is",
+                        w.item.target, keep.name
+                    ))
+                } else {
+                    open_area(&mut retention)?;
+                    let k = Keep {
+                        folder,
+                        build: id,
+                        seq: *seq,
+                        generation,
+                        keep,
+                        hashed: None,
+                    };
+                    let area = retention.as_ref().expect("opened above");
+                    self.dispose_original(&dir, area, &k, w.item, delete, &approved.actor)?
+                };
+                record_disposal(self, id, *seq, outcome)?;
+                tick(&mut done);
             }
         }
         clear_staging(&dir, &staging, staging_id, &staged_ids).map_err(Error::Refused)?;
         drop(staging);
-        for (done, w) in adopts.iter().enumerate() {
+        for w in adopts {
+            if cancelled || self.cancel_requested(job)? {
+                cancelled = true;
+                break;
+            }
             check_marker(&dir, &expected).map_err(Error::Refused)?;
             match adopt(&dir, w.item) {
                 Ok((sha256, st, torrentzip)) => {
@@ -919,17 +1029,44 @@ impl Store {
                     self.write(|tx| set_item(tx, id, w.seq, ItemState::Failed, &error))?
                 }
             }
-            if let Some(progress) = progress {
-                progress(Progress {
-                    files_done: work.len() + done + 1,
-                    files_total: total,
-                });
-            }
+            tick(&mut done);
         }
-        for (done, (seq, removal)) in removals.iter().enumerate() {
+        for (seq, removal) in &removals {
+            if cancelled || self.cancel_requested(job)? {
+                cancelled = true;
+                break;
+            }
             check_marker(&dir, &expected).map_err(Error::Refused)?;
             let seq = *seq;
+            // An original whose game's file is already in place in the format the storage policy says, left by a
+            // conversion that stopped before it was disposed of.
+            let converted = removal.converts_to.as_ref().and_then(|target| {
+                content
+                    .items
+                    .iter()
+                    .find(|i| i.target == *target && i.kind == ItemKind::Unchanged)
+            });
             let outcome = match (&removal.kind, &removal.keep) {
+                (RemovalKind::Keep, Some(keep)) if converted.is_some() => {
+                    open_area(&mut retention)?;
+                    let k = Keep {
+                        folder,
+                        build: id,
+                        seq,
+                        generation,
+                        keep,
+                        hashed: None,
+                    };
+                    let area = retention.as_ref().expect("opened above");
+                    let item = converted.expect("matched above");
+                    record_disposal(
+                        self,
+                        id,
+                        seq,
+                        self.dispose_original(&dir, area, &k, item, delete, &approved.actor)?,
+                    )?;
+                    Ok(())
+                }
                 (RemovalKind::Keep, Some(keep)) => {
                     open_area(&mut retention)?;
                     let k = Keep {
@@ -965,86 +1102,14 @@ impl Store {
             if let Err(error) = outcome {
                 self.write(|tx| set_item(tx, id, seq, ItemState::Failed, &error))?;
             }
-            if let Some(progress) = progress {
-                progress(Progress {
-                    files_done: all.len() + done + 1,
-                    files_total: total,
-                });
-            }
-        }
-        for (done, (seq, w, keep)) in conversions.iter().enumerate() {
-            check_marker(&dir, &expected).map_err(Error::Refused)?;
-            let seq = *seq;
-            let written: Option<String> = self.read(|c| {
-                Ok(c.query_row(
-                    "SELECT state FROM build_items WHERE build_id = ?1 AND seq = ?2",
-                    params![id, w.seq],
-                    |r| r.get(0),
-                )
-                .optional()?)
-            })?;
-            let outcome = if written.as_deref() != Some("applied") {
-                Err(format!(
-                    "{} was not written, so {} stays as it is",
-                    w.item.target, keep.name
-                ))
-            } else {
-                open_area(&mut retention)?;
-                let k = Keep {
-                    folder,
-                    build: id,
-                    seq,
-                    generation,
-                    keep,
-                    hashed: None,
-                };
-                let area = retention.as_ref().expect("opened above");
-                match self.keep_aside(&dir, area, &k)? {
-                    Err(why) => Err(why),
-                    Ok(kept) => {
-                        self.fault_point(Fault::ConversionKept(seq));
-                        if content.storage.delete_originals {
-                            let note = match converted_verified(&dir, w.item)? {
-                                Err(why) => format!("{} stays in the kept files: {why}", keep.name),
-                                Ok(()) => {
-                                    let outcome =
-                                        self.delete_converted_kept(&dir, kept, &approved.actor)?;
-                                    match (outcome.deleted, outcome.detail) {
-                                        (true, _) => format!(
-                                            "{} was deleted once {} was verified",
-                                            keep.name, w.item.target
-                                        ),
-                                        (false, why) => format!(
-                                            "{} stays in the kept files: {}",
-                                            keep.name,
-                                            why.unwrap_or_default()
-                                        ),
-                                    }
-                                }
-                            };
-                            self.write(|tx| {
-                                tx.execute(
-                                    "UPDATE build_items SET error = ?3 WHERE build_id = ?1 AND seq = ?2",
-                                    params![id, seq, note],
-                                )?;
-                                Ok(())
-                            })?;
-                        }
-                        Ok(())
-                    }
-                }
-            };
-            if let Err(error) = outcome {
-                self.write(|tx| set_item(tx, id, seq, ItemState::Failed, &error))?;
-            }
-            if let Some(progress) = progress {
-                progress(Progress {
-                    files_done: all.len() + removals.len() + done + 1,
-                    files_total: total,
-                });
-            }
+            tick(&mut done);
         }
         drop(retention);
+        if cancelled {
+            // What is in place stays, recorded as built; the folder stays at its generation, and a new plan
+            // finishes it.
+            return self.write(|tx| end_cancelled(tx, job, id, folder));
+        }
 
         // The store decides the next generation first, and the marker follows it; recovery moves a marker that did
         // not follow forward, and never back.
@@ -1099,6 +1164,43 @@ impl Store {
             tx.execute("DELETE FROM folder_temps WHERE folder_id = ?1", [folder])?;
             finish_running(tx, job, JobState::Succeeded, None)
         })
+    }
+
+    /// Keeps aside, as item `k.seq` of its Build, the original a conversion replaced with `item`'s file, now in place.
+    /// With `delete`, it is then deleted from the kept files, but only once `item`'s file verifies, and only while
+    /// the original, read back, is still what the store recorded of it. Returns what became of it, or why it was
+    /// left where it is.
+    fn dispose_original(
+        &self,
+        dir: &FolderDir,
+        area: &Retention,
+        k: &Keep,
+        item: &PlanItem,
+        delete: bool,
+        actor: &str,
+    ) -> Result<std::result::Result<Option<String>, String>> {
+        let kept = match self.keep_aside(dir, area, k)? {
+            Ok(kept) => kept,
+            Err(why) => return Ok(Err(why)),
+        };
+        self.fault_point(Fault::ConversionKept(k.seq));
+        if !delete {
+            return Ok(Ok(None));
+        }
+        let name = &k.keep.name;
+        let note = match converted_verified(dir, item)? {
+            Err(why) => format!("{name} stays in the kept files: {why}"),
+            Ok(()) => match self.delete_converted_kept(dir, kept, actor)? {
+                outcome if outcome.deleted => {
+                    format!("{name} was deleted once {} was verified", item.target)
+                }
+                outcome => format!(
+                    "{name} stays in the kept files: {}",
+                    outcome.detail.unwrap_or_default()
+                ),
+            },
+        };
+        Ok(Ok(Some(note)))
     }
 
     /// Cleans up the folder of the unfinished Build `build`: settles each item it was renaming into place, removes
