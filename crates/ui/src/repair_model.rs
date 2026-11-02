@@ -39,6 +39,17 @@ pub fn unfinished_note(plan: &RepairPlan) -> Option<String> {
     ))
 }
 
+/// The choices `plan` was made with that differ from each item's default, by key: what the screen starts from when
+/// it shows a plan it didn't make, so that setting one back to its default is a change.
+pub fn chosen(plan: &RepairPlan) -> BTreeMap<String, RepairChoice> {
+    plan.content
+        .items
+        .iter()
+        .filter(|item| item.chosen != item.default)
+        .map(|item| (item.key.clone(), item.chosen))
+        .collect()
+}
+
 /// The items you changed since `plan` was made, by key: a choice other than the ones it was planned with
 /// (`planned`), or an operator addition it adds, edited. Approving approves the plan as it was made, so it waits
 /// until you plan again with them.
@@ -142,6 +153,28 @@ mod tests {
             unplanned(&p, &changed, &none, &BTreeMap::new()),
             ["entry:a.zip"],
             "set back to its default after planning with it"
+        );
+    }
+
+    #[test]
+    fn a_shown_plans_own_choice_set_back_to_its_default_holds_its_approval() {
+        let mut p = plan(1, false, false, None);
+        p.content.items.push(
+            serde_json::from_value(serde_json::json!({
+                "key": "entry:c.zip", "kind": "conflict", "summary": "s",
+                "choices": ["leave", "keep_aside"], "default": "leave", "chosen": "keep_aside",
+            }))
+            .unwrap(),
+        );
+        let planned = chosen(&p);
+        assert_eq!(
+            planned,
+            BTreeMap::from([("entry:c.zip".to_string(), RepairChoice::KeepAside)])
+        );
+        assert!(unplanned(&p, &planned, &planned, &BTreeMap::new()).is_empty());
+        assert_eq!(
+            unplanned(&p, &planned, &BTreeMap::new(), &BTreeMap::new()),
+            ["entry:c.zip"]
         );
     }
 

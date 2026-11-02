@@ -15,7 +15,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
-use crate::repair_model::{fetch_after, repair_to_show, unfinished_note, unplanned};
+use crate::repair_model::{chosen, fetch_after, repair_to_show, unfinished_note, unplanned};
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::{progress_view, state_view};
 
@@ -83,6 +83,8 @@ fn Repair(name: String) -> impl IntoView {
     // What each item you choose to add as an operator addition is added as, by key; its system defaults to the
     // source set's DAT.
     let adding = RwSignal::new(BTreeMap::<String, RwSignal<NewAddition>>::new());
+    // The fields kept in `adding` outlive each showing of the plan, so they belong to the screen, not to the view.
+    let owner = Owner::current().expect("the repair screen has an owner");
     let system = RwSignal::new(None::<String>);
     {
         let path = base.clone();
@@ -104,6 +106,8 @@ fn Repair(name: String) -> impl IntoView {
             match api::get::<Vec<RepairPlan>>(&path).await {
                 Ok(plans) => {
                     if let Some(p) = repair_to_show(&plans, wanted) {
+                        choices.set(chosen(p));
+                        planned_with.set(chosen(p));
                         plan.set(Some(p.clone()));
                     }
                 }
@@ -212,9 +216,11 @@ fn Repair(name: String) -> impl IntoView {
                     let addable = item.choices.contains(&RepairChoice::AddAddition).then(|| {
                         adding.with_untracked(|a| a.get(&key).copied()).unwrap_or_else(|| {
                             let path = item.path.clone().unwrap_or_else(|| key.clone());
-                            let fields = RwSignal::new(item.addition.clone().unwrap_or_else(|| {
-                                new_addition(&path, system.get_untracked().as_deref())
-                            }));
+                            let fields = owner.with(|| {
+                                RwSignal::new(item.addition.clone().unwrap_or_else(|| {
+                                    new_addition(&path, system.get_untracked().as_deref())
+                                }))
+                            });
                             adding.update_untracked(|a| {
                                 a.insert(key.clone(), fields);
                             });
