@@ -4893,7 +4893,8 @@ fn crash_at(env: &Env, plan: &Plan, stop: impl Fn(Fault) -> bool + Send + Sync +
 #[test]
 fn a_conversion_the_service_stopped_in_ends_with_its_original_deleted_or_kept() {
     // Where the stop came, and whether the original is deleted once recovery settles it.
-    let stops: [(fn(Fault) -> bool, bool); 4] = [
+    type Stop = fn(Fault) -> bool;
+    let stops: [(Stop, bool); 4] = [
         (|f| matches!(f, Fault::ConversionKept(_)), false),
         (|f| matches!(f, Fault::BeforeDeleteMove(_)), false),
         (|f| matches!(f, Fault::AfterDeleteMove(_)), true),
