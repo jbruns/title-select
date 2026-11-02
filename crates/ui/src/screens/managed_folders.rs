@@ -1195,7 +1195,13 @@ fn item_detail(item: &PlanItem) -> String {
             keep_reason_label(k.reason)
         )
     });
-    let kept = kept.unwrap_or_default();
+    let mut kept = kept.unwrap_or_default();
+    if let Some(c) = &item.converts {
+        kept.push_str(&format!(
+            "converted from {}, stored the other way, which is set aside once this is written; ",
+            c.name
+        ));
+    }
     if let Some(reason) = &item.reason {
         return format!("{kept}{reason}");
     }
@@ -1506,6 +1512,8 @@ fn PlanView(plan: Plan, refresh: RwSignal<u64>) -> impl IntoView {
                 <dd>
                     <code class="hash">{short_sha(&plan.content.dat_revision).to_string()}</code>
                 </dd>
+                <dt>"Storage"</dt>
+                <dd>{crate::screens::repair::storage_line(&plan.content.storage)}</dd>
                 <dt>"Planned"</dt>
                 <dd>{when(&plan.created_at)}</dd>
                 <dt>"Digest"</dt>
@@ -1522,6 +1530,15 @@ fn PlanView(plan: Plan, refresh: RwSignal<u64>) -> impl IntoView {
                 </dd>
             </dl>
             {summary_view(&plan.summary)}
+            {(!plan.content.notes.is_empty())
+                .then(|| {
+                    view! {
+                        <h3>"Stored differently from the storage policy"</h3>
+                        <ul class="plain">
+                            {plan.content.notes.iter().map(|n| view! { <li>{n.clone()}</li> }).collect_view()}
+                        </ul>
+                    }
+                })}
             {(!plan.content.blockers.is_empty())
                 .then(|| {
                     view! {

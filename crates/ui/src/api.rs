@@ -82,6 +82,18 @@ pub async fn patch<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> R
         .map_err(|e| e.to_string())
 }
 
+pub async fn put<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Result<T, String> {
+    let request = Request::put(&url(path))
+        .json(body)
+        .map_err(|e| e.to_string())?;
+    let response = request.send().await.map_err(failed)?;
+    checked(response)
+        .await?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 pub async fn post_form<T: DeserializeOwned>(
     path: &str,
     form: web_sys::FormData,

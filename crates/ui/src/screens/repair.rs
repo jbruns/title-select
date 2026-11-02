@@ -8,6 +8,7 @@ use title_select_api::build::{ApprovePlan, PlanKeptDeletion, RETENTION};
 use title_select_api::repair::{
     PlanRepair, RepairChoice, RepairPlan, RepairStep, SourceKeptDeletion, SourceKeptFile,
 };
+use title_select_api::storage::{Storage, StorageFormat};
 
 use crate::api;
 use crate::app::{Loading, Problem};
@@ -42,9 +43,25 @@ pub fn RepairScreen() -> impl IntoView {
     }
 }
 
+/// What the storage policy says for the plan's system, as the plan follows it.
+pub fn storage_line(storage: &Storage) -> String {
+    format!(
+        "The storage policy says this system stores games {}{}, and it must still say so when you approve.",
+        match storage.format {
+            StorageFormat::TorrentZip => "as TorrentZip",
+            StorageFormat::Loose => "loose where a game has one ROM",
+        },
+        if storage.delete_originals {
+            "; delete originals after conversion is on, so each original is deleted once its converted file is verified"
+        } else {
+            "; each original a conversion replaces goes to kept files"
+        }
+    )
+}
+
 fn step_line(step: &RepairStep) -> (String, &'static str) {
     let class = match step {
-        RepairStep::Keep { .. } => "removal",
+        RepairStep::Keep { .. } | RepairStep::Delete { .. } => "removal",
         _ => "",
     };
     (step.describe(), class)
@@ -222,6 +239,7 @@ fn Repair(name: String) -> impl IntoView {
                         ". It is this source set's first repair, so it writes the source set's .title-select marker",
                     )}
                 </p>
+                <p class="note">{storage_line(&p.content.storage)}</p>
                 {if p.content.items.is_empty() {
                     view! { <p class="note">"Nothing to repair."</p> }.into_any()
                 } else {

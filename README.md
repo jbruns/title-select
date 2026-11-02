@@ -4,7 +4,8 @@ Audits ROM collections against DAT files, and records exactly what was verified 
 
 Status: early pilot. You get a headless audit command; a store of DAT revisions, source sets and audits; the Service,
 a JSON API that runs audits, selections and builds as durable jobs; and a headless selection command. A build writes a
-selection into a managed folder for your front end, as TorrentZips, once you approve its change plan. Removing and
+selection into a managed folder for your front end, as TorrentZips or loose as your storage policy says, once you
+approve its change plan. Removing and
 replacing built files follow.
 The words used here are defined in [GLOSSARY.md](GLOSSARY.md).
 
@@ -398,6 +399,30 @@ A version is stored as canonical JSON with its SHA-256, so saving a profile with
 A save names the version it started from, and is refused with `409` if a newer version was saved since. A save may
 queue a selection for one or more source sets with the new version.
 
+### Storage policy
+
+The storage policy says how each folder stores a game: as one TorrentZip per game, `<game>.zip`, or loose, as its
+ROM itself under the name the DAT gives it. It has two scopes, source sets and play libraries (managed folders), each
+with a global setting and settings for each system, a DAT as `<provider>/<name>`, as a selection profile has. The
+default is TorrentZip everywhere. Only a game with one ROM can be stored loose: a game with more stays TorrentZip, and
+so does a game whose ROM's name isn't a plain file name; a plan says which games and why.
+
+Every write of a game into a folder follows it: a build writes each system's play library in that system's format,
+and a repair, including a fill from an ingest folder, writes a source set in its system's format. Saving the policy
+(`PUT /api/v1/storage-policy`) changes no file. The next plan for a folder whose format changed proposes converting
+each game stored the other way, and a plan made under the old policy is refused at approval. A conversion is a
+repair of a source set, or part of a build of a play library: it writes the game in the new format, from what an
+audit verified, and moves the original into the folder's kept files.
+
+"Delete originals after conversion", set globally and for each system in each scope, is off by default. When it's on,
+a conversion deletes each original only once its converted file is verified: a TorrentZip is opened as canonical and
+its members' hashes and sizes match the ROMs exactly; a loose file's hashes match its ROM exactly. The original is
+kept aside first, then moved into `.title-select-retained/.deleting` and read back through the same open file, and
+deleted only when it still matches what the conversion read: its hashes, size, modification time and change time.
+An original that changed, or whose converted file doesn't verify, stays in the kept files, and the plan's outcome
+says why. A conversion the service stopped during ends, when it next starts, with the original either deleted, when
+that was proven before the stop, or kept; a file found by its path alone is never deleted.
+
 ### Managed folders and builds
 
 A managed folder is a folder in a writable root that Title Select builds selections into, for your front end to play
@@ -412,8 +437,11 @@ the wrong share.
 A plan lists, for each selected release, what a build would do, from the selection and the source set's latest audit
 against the selection's DAT revision:
 
-- **copy** a source that is already the game's TorrentZip, holding exactly its ROMs;
-- **repack** the game's ROMs into a new TorrentZip;
+- **copy** a source that is already the game's TorrentZip, holding exactly its ROMs, where the storage policy says
+  TorrentZip;
+- **repack** the game's ROMs into a new TorrentZip, or, where the storage policy says loose, write its one ROM as a
+  loose file. A game built the other way is converted: the new file is written, then the old one kept aside, or
+  deleted once the new one verifies when delete originals after conversion is on;
 - **unchanged**: the folder already holds the file, as built;
 - **no source**: no audited file holds every ROM, by payload. Claims are never sources: a ROM only a quick
   inventory claimed has no source until you audit the source set incrementally or in full;
@@ -584,7 +612,9 @@ even when a later audit that didn't finish read it again. A rename checks again 
 game's ROMs before it renames it. Each item has a choice you can change before approving:
 
 - a game whose files are named otherwise than the DAT says is renamed, or written under its name: on by default;
-- a game not stored as TorrentZip, `<game>.zip`, is repacked as one: always proposed for now;
+- a game not stored as the storage policy says, `<game>.zip` or its one ROM loose, is repacked or converted to it:
+  always proposed for now. A conversion keeps the original, or deletes it once the converted file verifies when
+  delete originals after conversion is on;
 - a missing game is filled from an ingest folder item whose payload matches it: on by default when there is one;
 - a game with a mismatched or unreadable entry is replaced from an ingest folder item that matches it, keeping the
   original: on by default when there is one;
@@ -651,6 +681,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/profiles/{name}/versions`             | its versions, newest first                                   |
 | `POST /api/v1/profiles/{name}/versions`            | save: `{"profile", "base_version"?, "queue"?}`; creates it   |
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
+| `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "systems"}`, `format` being `torrent_zip` or `loose`, and `systems` each system's own `{"format"?, "delete_originals"?}` |
+| `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
 | `POST /api/v1/preview`                             | the selection a profile would make: `{"source_set", "profile", "revision"?}`, with the changes from the latest saved selection |
 | `GET /api/v1/selections?source_set=`               | a source set's selections, newest first                      |
 | `POST /api/v1/selections`                          | queue a selection job: `{"source_set", "profile", "version"?, "revision"?}`; `202` |
@@ -809,6 +841,10 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
   until you save them as the next version of the profile, which makes a new selection. "Plan a build" plans building
   it into a managed folder bound to its source set and selection profile.
+- **Storage policy** sets how source sets and play libraries store games, TorrentZip or loose, and whether a
+  conversion deletes each original once its converted file verifies, with a global settings tab and a tab per
+  system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
+  conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
 - **Managed folders** lists each managed folder with its current build and when it was last checked, marking a check
   made before the current build, and registers another in a writable root,
   with the path proposed from the source set's DAT as for a source set. Opening one plans a build of a selection,
