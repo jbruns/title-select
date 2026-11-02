@@ -116,6 +116,8 @@ fn built_item(
         game: game.to_owned(),
         target: target.to_owned(),
         kind,
+        // A file a cleanup records under its one ROM's name, rather than its game's, is a loose file.
+        loose: roms.len() == 1 && target != format!("{game}.zip"),
         roms: roms.to_vec(),
         sources: sources.to_vec(),
         reason: None,
@@ -123,6 +125,7 @@ fn built_item(
         adoptable: false,
         keepable: false,
         keep: None,
+        converts: None,
     }
 }
 

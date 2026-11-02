@@ -13,14 +13,14 @@ use title_select_api::build::{
     DriftKind, ExpectedRom, FileOutcome, FolderCheck, KeptFile, Plan, PlanChoices, PlanCleanup,
     PlanContent, PlanSource, RETENTION, RestoreKind, invalid_name,
 };
-use title_select_engine::build::{GameIndex, Probe, holds};
+use title_select_engine::build::{GameIndex, Probe, holds_as};
 use title_select_engine::dat::Dat;
 
 use super::{
     Blocker, Folder, Found, Inputs, Planned, blocker, check_folder, insert_plan, load, short,
     to_json,
 };
-use crate::checks::{Seen, reuse, store_check};
+use crate::checks::{Seen, loose_names, reuse, storage_targets, store_check};
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, file_stat};
 use crate::folders::{folder_by_id, is_own, open_folder};
@@ -53,27 +53,37 @@ fn refuse(target: &str, message: String) -> Blocker {
     }
 }
 
-/// The selected game whose ROMs `probe` holds exactly, under their names: its name, its ROMs and its file name.
+/// The selected game whose ROMs `probe` holds exactly, stored as the storage policy says: its name, its ROMs and its
+/// file name. `selected` is keyed by the names the policy gives, and `loose` holds the games it stores loose.
 fn selected_game(
     probe: &Probe,
     index: &GameIndex,
     dat: &Dat,
     selected: &HashMap<String, String>,
+    loose: &HashMap<String, String>,
 ) -> std::result::Result<(String, Vec<ExpectedRom>, String), String> {
     let Some(game) = index.game_of(probe) else {
         return Err("it holds no game the DAT revision lists".into());
     };
-    let target = format!("{game}.zip");
+    let stored_loose = loose.get(game);
+    let target = stored_loose
+        .cloned()
+        .unwrap_or_else(|| format!("{game}.zip"));
     if selected.get(&target.to_lowercase()).map(String::as_str) != Some(game) {
         return Err(format!(
             "it holds {game}, which the selection does not select"
         ));
     }
     let roms = roms_of(dat, game);
-    if !holds(probe, &roms) {
-        return Err(format!(
-            "it holds {game}'s ROMs, but not exactly, under the names the DAT gives them"
-        ));
+    if !holds_as(probe, &roms, stored_loose.is_some()) {
+        return Err(match stored_loose {
+            Some(_) => format!(
+                "it holds {game}'s ROM, but not as the loose file the storage policy says to store it as"
+            ),
+            None => format!(
+                "it holds {game}'s ROMs, but not exactly, under the names the DAT gives them"
+            ),
+        });
     }
     if let Some(why) = invalid_name(&target) {
         return Err(why);
@@ -268,6 +278,8 @@ impl Store {
             ));
         }
         let index = dat.as_ref().map(GameIndex::new);
+        let loose = loose_names(inputs.storage, dat.as_ref());
+        let selected = storage_targets(&inputs.selected, &loose);
 
         let mut entries = Vec::new();
         let mut restores = Vec::new();
@@ -349,7 +361,7 @@ impl Store {
                                 (false, ..) => Err("only a file can be adopted".to_owned()),
                                 (true, None, ..) => Err("the check could not read it".to_owned()),
                                 (true, Some(p), Some(index), Some(dat)) => {
-                                    selected_game(p, index, dat, &inputs.selected)
+                                    selected_game(p, index, dat, &selected, &loose)
                                 }
                                 (true, Some(_), ..) => {
                                     Err("the DAT revision is no longer kept".to_owned())
@@ -394,7 +406,7 @@ impl Store {
                         kept,
                         cached.as_ref(),
                         dat.as_ref().zip(index.as_ref()),
-                        &inputs.selected,
+                        (&selected, &loose),
                         &mut names,
                     )?;
                     match planned {
@@ -423,6 +435,9 @@ impl Store {
                     });
                     let repack = match (built, checked, f) {
                         (None, ..) => Err(format!("{target} is not a file Title Select built")),
+                        (Some(built), ..) if built.loose => Err(format!(
+                            "{target} is stored loose, as the storage policy says, so it is not repacked"
+                        )),
                         (_, Some(c), _) if c.torrentzip => {
                             Err(format!("{target} is TorrentZip already"))
                         }
@@ -556,6 +571,8 @@ impl Store {
                     repacks,
                     fingerprint,
                 }),
+                storage: inputs.storage,
+                notes: Vec::new(),
             },
             previous: None,
             changes: Vec::new(),
@@ -574,7 +591,7 @@ impl Store {
         kept: &KeptFile,
         cached: Option<&(i64, Probe)>,
         dat: Option<(&Dat, &GameIndex)>,
-        selected: &HashMap<String, String>,
+        (selected, loose): (&HashMap<String, String>, &HashMap<String, String>),
         names: &mut Names,
     ) -> Result<std::result::Result<Restore, String>> {
         let name = &kept.name;
@@ -652,7 +669,7 @@ impl Store {
         let fresh = hashed.then(|| (Seen::of(&st), probe.clone()));
         let game = match dat {
             None => Err("the DAT revision is no longer kept".to_owned()),
-            Some((dat, index)) => selected_game(&probe, index, dat, selected),
+            Some((dat, index)) => selected_game(&probe, index, dat, selected, loose),
         };
         let restore = match game {
             Ok((game, roms, target)) => names

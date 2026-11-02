@@ -25,7 +25,7 @@ use title_select_api::build::{
 };
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
-use title_select_engine::build::{Source, copy, repack, verify};
+use title_select_engine::build::{Source, copy, repack, verify, verify_loose, write_loose};
 
 use super::folder_dir::{FolderDir, Identity, file_stat};
 use super::folders::{
@@ -130,6 +130,17 @@ fn stage(
         .collect::<std::result::Result<_, String>>()
         .map_err(Failure::Item)?;
     match item.kind {
+        ItemKind::Repack if item.loose => {
+            let ([rom], [source]) = (item.roms.as_slice(), item.sources.as_slice()) else {
+                return Err(Failure::Item(
+                    "a loose file is written from one source for its one ROM".into(),
+                ));
+            };
+            let opened = File::open(&sources[0])
+                .map_err(|e| Failure::Item(format!("{}: {e}", sources[0].display())))?;
+            write_loose(file, &[(rom, 0, source.member.as_deref())], &[&opened])
+                .map_err(Failure::Item)?;
+        }
         ItemKind::Copy => {
             copy(&sources[0], file)
                 .map_err(|e| Failure::Item(format!("{}: {e}", sources[0].display())))?;
@@ -157,13 +168,51 @@ fn stage(
         }
         _ => unreachable!("only copies and repacks are written"),
     }
-    verify(file, &item.roms).map_err(Failure::Item)?;
+    match (item.loose, item.roms.as_slice()) {
+        (true, [rom]) => verify_loose(file, rom),
+        (true, _) => Err("a loose file holds one ROM".into()),
+        (false, _) => verify(file, &item.roms),
+    }
+    .map_err(Failure::Item)?;
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
         .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
     let (sha256, size) =
         sha256_of(file).map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
     Ok(Staged { sha256, size })
+}
+
+/// Whether the file a conversion wrote for `item` is in place as it was recorded built, and, read through one
+/// descriptor while it holds still, holds exactly the game's ROMs as the item stores them. `Err` says why not; an
+/// error stops the Build.
+fn converted_verified(
+    dir: &FolderDir,
+    item: &PlanItem,
+) -> std::result::Result<std::result::Result<(), String>, Error> {
+    let io = |e: io::Error| Error::Io(e.to_string());
+    let target = &item.target;
+    let file = match dir.open_file(target) {
+        Ok(file) => file,
+        Err(e) => return Ok(Err(format!("{target} could not be read: {e}"))),
+    };
+    let before = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
+    let recorded = match dir.stat(target).map_err(io)? {
+        Some(st) => Identity::of(&st) == Identity::of(&before) && file_stat(&st) == file_stat(&before),
+        None => false,
+    };
+    if !recorded {
+        return Ok(Err(format!("{target} changed once it was written")));
+    }
+    let verified = match (item.loose, item.roms.as_slice()) {
+        (true, [rom]) => verify_loose(&file, rom),
+        (true, _) => Err("a loose file holds one ROM".into()),
+        (false, _) => verify(&file, &item.roms),
+    };
+    let after = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
+    if crate::checks::Seen::of(&before) != crate::checks::Seen::of(&after) {
+        return Ok(Err(format!("{target} changed while it was verified")));
+    }
+    Ok(verified.map_err(|why| format!("{target} does not verify: {why}")))
 }
 
 /// Whether `name` in `dir` is, without following a symlink, the regular file `id`.
@@ -289,15 +338,16 @@ fn record_applied(
     )?;
     tx.execute(
         "INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id, dat_revision_id,
-                                  roms, sources, size, mtime_ns, sha256, torrentzip)
-         SELECT ?1, ?2, ?3, ?4, b.id, b.selection_id, b.audit_id, b.dat_revision_id, ?5, ?6, ?7, ?8, i.sha256, ?11
+                                  roms, sources, size, mtime_ns, sha256, torrentzip, loose)
+         SELECT ?1, ?2, ?3, ?4, b.id, b.selection_id, b.audit_id, b.dat_revision_id, ?5, ?6, ?7, ?8, i.sha256, ?11,
+                ?12
          FROM builds b JOIN build_items i ON i.build_id = b.id AND i.seq = ?10 WHERE b.id = ?9
          ON CONFLICT (folder_id, target) DO UPDATE SET
              game = excluded.game, kind = excluded.kind, build_id = excluded.build_id,
              selection_id = excluded.selection_id, audit_id = excluded.audit_id,
              dat_revision_id = excluded.dat_revision_id, roms = excluded.roms, sources = excluded.sources,
              size = excluded.size, mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,
-             torrentzip = excluded.torrentzip",
+             torrentzip = excluded.torrentzip, loose = excluded.loose",
         params![
             folder,
             item.target,
@@ -309,7 +359,8 @@ fn record_applied(
             file.mtime_ns as i64,
             build,
             seq,
-            torrentzip
+            torrentzip && !item.loose,
+            item.loose
         ],
     )?;
     // A file kept aside to be repacked is no longer missing once a file is built at its name.
@@ -607,6 +658,14 @@ impl Store {
             .enumerate()
             .map(|(i, r)| ((all.len() + i) as i64, r))
             .collect();
+        // Then the originals of the conversions: each the file built for a game in the other format, kept aside once
+        // its game's new file is in place.
+        let conversions: Vec<(i64, &Work, &title_select_api::build::KeepAside)> = work
+            .iter()
+            .filter_map(|w| w.item.converts.as_ref().map(|k| (w, k)))
+            .enumerate()
+            .map(|(i, (w, k))| ((all.len() + removals.len() + i) as i64, w, k))
+            .collect();
         let generation = content.generation + 1;
         let id = self.write(|tx| {
             let revision: i64 = tx.query_row(
@@ -644,6 +703,13 @@ impl Store {
                     params![id, seq, r.target, r.game],
                 )?;
             }
+            for (seq, w, k) in &conversions {
+                tx.execute(
+                    "INSERT INTO build_items (build_id, seq, target, game, kind, state)
+                     VALUES (?1, ?2, ?3, ?4, 'remove', 'pending')",
+                    params![id, seq, k.name, w.item.game],
+                )?;
+            }
             Ok(id)
         })?;
         *build_id = Some(id);
@@ -654,7 +720,7 @@ impl Store {
         let staging_id = staging.identity().map_err(folder_io)?;
         let mut staged_ids = HashMap::new();
         let built_at = SystemTime::now();
-        let total = all.len() + removals.len();
+        let total = all.len() + removals.len() + conversions.len();
         // The retention area is created the first time a file is kept aside.
         let mut retention: Option<Retention> = None;
         let open_area = |retention: &mut Option<Retention>| -> Result<()> {
@@ -874,6 +940,81 @@ impl Store {
             if let Some(progress) = progress {
                 progress(Progress {
                     files_done: all.len() + done + 1,
+                    files_total: total,
+                });
+            }
+        }
+        for (done, (seq, w, keep)) in conversions.iter().enumerate() {
+            check_marker(&dir, &expected).map_err(Error::Refused)?;
+            let seq = *seq;
+            let written: Option<String> = self.read(|c| {
+                Ok(c.query_row(
+                    "SELECT state FROM build_items WHERE build_id = ?1 AND seq = ?2",
+                    params![id, w.seq],
+                    |r| r.get(0),
+                )
+                .optional()?)
+            })?;
+            let outcome = if written.as_deref() != Some("applied") {
+                Err(format!(
+                    "{} was not written, so {} stays as it is",
+                    w.item.target, keep.name
+                ))
+            } else {
+                open_area(&mut retention)?;
+                let k = Keep {
+                    folder,
+                    build: id,
+                    seq,
+                    generation,
+                    keep,
+                    hashed: None,
+                };
+                let area = retention.as_ref().expect("opened above");
+                match self.keep_aside(&dir, area, &k)? {
+                    Err(why) => Err(why),
+                    Ok(kept) => {
+                        self.fault_point(Fault::ConversionKept(seq));
+                        if content.storage.delete_originals {
+                            let note = match converted_verified(&dir, w.item)? {
+                                Err(why) => format!(
+                                    "{} stays in the kept files: {why}",
+                                    keep.name
+                                ),
+                                Ok(()) => {
+                                    let outcome =
+                                        self.delete_converted_kept(&dir, kept, &approved.actor)?;
+                                    match (outcome.deleted, outcome.detail) {
+                                        (true, _) => format!(
+                                            "{} was deleted once {} was verified",
+                                            keep.name, w.item.target
+                                        ),
+                                        (false, why) => format!(
+                                            "{} stays in the kept files: {}",
+                                            keep.name,
+                                            why.unwrap_or_default()
+                                        ),
+                                    }
+                                }
+                            };
+                            self.write(|tx| {
+                                tx.execute(
+                                    "UPDATE build_items SET error = ?3 WHERE build_id = ?1 AND seq = ?2",
+                                    params![id, seq, note],
+                                )?;
+                                Ok(())
+                            })?;
+                        }
+                        Ok(())
+                    }
+                }
+            };
+            if let Err(error) = outcome {
+                self.write(|tx| set_item(tx, id, seq, ItemState::Failed, &error))?;
+            }
+            if let Some(progress) = progress {
+                progress(Progress {
+                    files_done: all.len() + removals.len() + done + 1,
                     files_total: total,
                 });
             }

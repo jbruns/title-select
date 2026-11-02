@@ -22,7 +22,7 @@ use title_select_api::build::{
 
 use super::builds::{sha256_of, temps};
 use super::checks::Seen;
-use super::folder_dir::{FolderDir, Identity, file_stat};
+use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use super::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use super::plans::{json, to_json};
 use super::{Error, Fault, Result, Store, now};
@@ -691,6 +691,9 @@ impl Store {
             .hashed
             .as_ref()
             .filter(|(was, _)| !directory && seen(dir).as_ref() == Some(was));
+        // The file this step read, held open across the rename that keeps it, when it held still while it was read:
+        // its ctime just after that rename is then a stamp a conversion may delete it by.
+        let mut held: Option<std::fs::File> = None;
         // A directory is moved whole, by identity, and never read.
         let sha256 = if directory {
             None
@@ -711,15 +714,22 @@ impl Store {
                 Ok(st) if same(&st) => {}
                 _ => return left("it changed while it was read"),
             }
+            let before = match rustix::fs::fstat(&file) {
+                Ok(st) => Seen::of(&st),
+                Err(e) => return left(&e.to_string()),
+            };
             let (sha256, _) = match sha256_of(&file) {
                 Ok(read) => read,
                 Err(e) => return left(&e.to_string()),
             };
             match rustix::fs::fstat(&file) {
-                Ok(st) if same(&st) && is_kept_file(dir, name, id, Some(&k.keep.file)) => {}
+                Ok(st) if same(&st) && is_kept_file(dir, name, id, Some(&k.keep.file)) => {
+                    if Seen::of(&st) == before {
+                        held = Some(file);
+                    }
+                }
                 _ => return left("it changed while it was read"),
             }
-            drop(file);
             if k.keep.sha256.as_ref().is_some_and(|s| *s != sha256) {
                 return left("it is not the file the plan was made with");
             }
@@ -839,8 +849,215 @@ impl Store {
             })?;
             return Err(Error::Refused(error));
         }
-        self.write(|tx| settle_kept(tx, row))?;
+        let kept_ctime = held.as_ref().and_then(|held| match rustix::fs::fstat(held) {
+            Ok(st) if Identity::of(&st) == id && file_stat(&st) == k.keep.file => {
+                Some(ctime_ns(&st))
+            }
+            _ => None,
+        });
+        self.write(|tx| {
+            settle_kept(tx, row)?;
+            tx.execute(
+                "UPDATE kept_files SET kept_ctime_ns = ?2 WHERE id = ?1",
+                params![row, kept_ctime.map(|c| c.to_string())],
+            )?;
+            Ok(())
+        })?;
         Ok(Ok(row))
+    }
+
+    /// Deletes kept file `kept`, the original a Play Library conversion kept aside once its converted file was
+    /// verified, as a deletion `actor` approved with the plan: only while it still reads as the conversion read it,
+    /// with the SHA-256 it was kept with and the ctime read through the descriptor held across the rename that kept
+    /// it. Anything else, or a file kept without that stamp, stays kept. Returns what the deletion did.
+    pub(super) fn delete_converted_kept(
+        &self,
+        dir: &FolderDir,
+        kept: i64,
+        actor: &str,
+    ) -> Result<KeptDeletionOutcome> {
+        let (file, stamp) = self.read(|c| {
+            let file = kept_where(c, "k.id = ?1 AND k.state = 'kept'", [kept])?
+                .into_iter()
+                .next();
+            let stamp: Option<(Option<String>, Option<String>)> = c
+                .query_row(
+                    "SELECT sha256, kept_ctime_ns FROM kept_files WHERE id = ?1",
+                    [kept],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            Ok((file, stamp))
+        })?;
+        let Some(file) = file else {
+            return Err(Error::Io(format!("kept file {kept} is not kept")));
+        };
+        let trusted = match stamp {
+            Some((Some(sha256), Some(ctime))) => ctime.parse::<i128>().ok().map(|c| (sha256, c)),
+            _ => None,
+        };
+        let Some(trusted) = trusted.filter(|_| !file.directory) else {
+            return Ok(left(
+                &file,
+                "it was not read as it was kept aside, so nothing shows it is the original; it stays kept".into(),
+            ));
+        };
+        let content = KeptDeletionContent {
+            folder: file.folder,
+            files: vec![file.clone()],
+        };
+        let deletion = self.write(|tx| {
+            if let Some(busy) = deletion_active(tx, file.folder)? {
+                return Err(Error::Conflict(busy));
+            }
+            let digest = digest(&content);
+            tx.execute(
+                "INSERT INTO kept_deletions (folder_id, content, digest, created_at, approval_digest, actor,
+                                             approved_at, converted)
+                 VALUES (?1, ?2, ?3, ?4, ?3, ?5, ?4, 1)",
+                params![file.folder, to_json(&content), digest, now(), actor],
+            )?;
+            Ok(tx.last_insert_rowid())
+        })?;
+        let outcome = match open_retention(self, file.folder, dir, file.generation, false)? {
+            Ok(Some(retention)) => {
+                self.delete_one_trusted(dir, &retention, &file, deletion, &trusted)
+            }
+            Ok(None) => Ok(left(&file, "its kept files folder is gone".into())),
+            Err(reason) => Ok(left(&file, reason)),
+        };
+        let outcomes = match outcome {
+            Ok(outcome) => vec![outcome],
+            Err(err) => {
+                self.write(|tx| {
+                    tx.execute(
+                        "UPDATE kept_deletions SET recovery_error = ?2 WHERE id = ?1",
+                        params![deletion, err.to_string()],
+                    )?;
+                    Ok(())
+                })?;
+                return Err(err);
+            }
+        };
+        let pending = self.read(|c| unresolved(c, deletion, &outcomes))?;
+        self.write(|tx| {
+            match &pending {
+                None => tx.execute(
+                    "UPDATE kept_deletions SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
+                    params![deletion, now(), to_json(&outcomes)],
+                )?,
+                Some(reason) => tx.execute(
+                    "UPDATE kept_deletions SET outcomes = ?2, recovery_error = ?3 WHERE id = ?1",
+                    params![deletion, to_json(&outcomes), reason],
+                )?,
+            };
+            Ok(())
+        })?;
+        Ok(outcomes.into_iter().next().expect("one outcome"))
+    }
+
+    /// [`Store::delete_one`] for a conversion's original, `trusted` being the SHA-256 and ctime it was kept with: read
+    /// through a descriptor before the rename into `.deleting` and held across it, and deleted only when it still
+    /// reads as `trusted`, by the ctime read through that descriptor just after the rename, which is recorded first.
+    fn delete_one_trusted(
+        &self,
+        dir: &FolderDir,
+        retention: &Retention,
+        file: &KeptFile,
+        deletion: i64,
+        (sha256, kept_ctime): &(String, i128),
+    ) -> Result<KeptDeletionOutcome> {
+        let io = |e: io::Error| Error::Io(e.to_string());
+        let id = Identity::from(file.identity);
+        let (gen_dir, kept) = (&retention.generation, file.kept_name.as_str());
+        let reads_as = |held: &std::fs::File, ctime: i128| -> Result<bool> {
+            let st = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
+            if Identity::of(&st) != id || file_stat(&st) != file.file {
+                return Ok(false);
+            }
+            Ok(super::builds::still_sha256(held, ctime)
+                .map_err(io)?
+                .as_deref()
+                == Some(sha256.as_str()))
+        };
+        match gen_dir.stat(kept) {
+            Err(e) => return Ok(left(file, e.to_string())),
+            Ok(None) => return self.gone(dir, file, deletion),
+            Ok(Some(_)) if !is_kept_file(gen_dir, kept, id, Some(&file.file)) => {
+                return Ok(left(file, NOT_THE_FILE.into()));
+            }
+            Ok(Some(_)) => {}
+        }
+        let deleting = match open_deleting(self, file.folder, &retention.area, true)? {
+            Ok(Some(deleting)) => deleting,
+            Ok(None) => return Ok(left(file, "it could not be moved to be deleted".into())),
+            Err(reason) => return Ok(left(file, reason)),
+        };
+        let slot = file.id.to_string();
+        match deleting.stat(&slot) {
+            Ok(None) => {}
+            Ok(Some(_)) => return Ok(left(file, slot_taken(&slot))),
+            Err(e) => return Ok(left(file, e.to_string())),
+        }
+        let keep = |why: String| -> Result<KeptDeletionOutcome> {
+            self.write(|tx| still_kept(tx, file.id))?;
+            Ok(left(file, why))
+        };
+        // Read as the conversion kept it before the rename, which moves its ctime, and held through it.
+        let held = match gen_dir.open_file(kept) {
+            Ok(held) => held,
+            Err(e) => return Ok(left(file, e.to_string())),
+        };
+        if !reads_as(&held, *kept_ctime)? {
+            return Ok(left(file, CONVERTED_CHANGED.into()));
+        }
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE kept_files SET state = 'deleting', deletion_id = ?2, slot_ctime_ns = NULL
+                 WHERE id = ?1 AND state = 'kept'",
+                params![file.id, deletion],
+            )?;
+            Ok(())
+        })?;
+        if !is_kept_file(gen_dir, kept, id, Some(&file.file)) {
+            return keep("it changed while it was deleted, so it is never deleted".into());
+        }
+        self.fault_point(Fault::BeforeDeleteMove(file.id));
+        if let Err(e) = gen_dir.rename_new(kept, &deleting, &slot) {
+            return keep(format!(
+                "it could not be moved to be deleted ({e}), so it is never deleted"
+            ));
+        }
+        let moved = rustix::fs::fstat(&held).map_err(|e| io(e.into()))?;
+        let slot_ctime = (Identity::of(&moved) == id).then(|| ctime_ns(&moved));
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE kept_files SET slot_ctime_ns = ?2 WHERE id = ?1",
+                params![file.id, slot_ctime.map(|c| c.to_string())],
+            )?;
+            Ok(())
+        })?;
+        gen_dir
+            .sync()
+            .and_then(|()| deleting.sync())
+            .map_err(io)?;
+        self.fault_point(Fault::AfterDeleteMove(file.id));
+        let unchanged = match slot_ctime {
+            Some(ctime) => is_kept_file(&deleting, &slot, id, Some(&file.file)) && reads_as(&held, ctime)?,
+            None => false,
+        };
+        if !unchanged || !is_kept_file(&deleting, &slot, id, Some(&file.file)) {
+            let note = self.quarantine(Some(gen_dir), &deleting, file)?;
+            return Ok(left(file, format!("{CONVERTED_CHANGED}; {note}")));
+        }
+        if let Err(e) = deleting.unlink(&slot) {
+            let note = self.quarantine(Some(gen_dir), &deleting, file)?;
+            return Ok(left(file, format!("it could not be deleted ({e}); {note}")));
+        }
+        deleting.sync().map_err(io)?;
+        self.fault_point(Fault::AfterUnlink(file.id));
+        self.write(|tx| deleted(tx, file.id))?;
+        Ok(deleted_outcome(file))
     }
 
     /// Settles each kept file Build `build` was keeping aside when it stopped, from what is in its folder, opened as
@@ -1530,6 +1747,40 @@ impl Store {
             self.write(|tx| still_kept(tx, file.id))?;
             Ok(Ok(Some(note.to_owned())))
         };
+        // A conversion's original is deleted only by the stamp read through the descriptor held across its rename
+        // into `.deleting`: without one, or when it no longer reads as it, it is moved back and stays kept.
+        let converted: Option<(Option<String>, Option<String>)> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT k.sha256, k.slot_ctime_ns FROM kept_files k JOIN kept_deletions d ON d.id = k.deletion_id
+                 WHERE k.id = ?1 AND d.converted = 1",
+                [file.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+        })?;
+        if let (Some((sha256, ctime)), Some(deleting)) = (&converted, &deleting)
+            && matches!(deleting.stat(&slot), Ok(Some(_)))
+        {
+            let ctime = ctime.as_deref().and_then(|c| c.parse::<i128>().ok());
+            let trusted = match (sha256, ctime) {
+                (Some(sha256), Some(ctime)) if is_kept_file(deleting, &slot, id, Some(&file.file)) => {
+                    deleting.open_file(&slot).ok().is_some_and(|held| {
+                        rustix::fs::fstat(&held).is_ok_and(|st| {
+                            Identity::of(&st) == id && file_stat(&st) == file.file
+                        }) && super::builds::still_sha256(&held, ctime)
+                            .ok()
+                            .flatten()
+                            .as_deref()
+                            == Some(sha256.as_str())
+                    })
+                }
+                _ => false,
+            };
+            if !trusted || !is_kept_file(deleting, &slot, id, Some(&file.file)) {
+                let note = self.quarantine(generation.as_ref(), deleting, file)?;
+                return Ok(Ok(Some(format!("{CONVERTED_CHANGED}; {note}"))));
+            }
+        }
         if let Some(deleting) = &deleting {
             match deleting.stat(&slot) {
                 Err(e) => return Ok(Err(e.to_string())),
@@ -1568,6 +1819,8 @@ impl Store {
     }
 }
 
+const CONVERTED_CHANGED: &str = "it no longer reads as it did when its conversion kept it aside, or nothing shows \
+     that it does, so it is never deleted";
 const NOT_THE_FILE: &str =
     "what is there now is not the file that was kept, so it is never deleted";
 const MOVED_NOT_THE_FILE: &str =

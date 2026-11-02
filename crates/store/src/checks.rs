@@ -13,7 +13,8 @@ use title_select_api::build::{
 };
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
-use title_select_engine::build::{GameIndex, Probe, holds, probe};
+use title_select_api::storage::{Storage, StorageFormat, target_of};
+use title_select_engine::build::{GameIndex, Probe, holds_as, probe};
 use title_select_engine::dat::Dat;
 
 use super::audits::choose_revision;
@@ -100,6 +101,8 @@ pub(super) struct ScanInput<'a> {
     /// The selected Games, by their target's lowercased name.
     pub selected: &'a HashMap<String, String>,
     pub dat: Option<&'a Dat>,
+    /// What the storage policy says for the folder's system.
+    pub storage: Storage,
     /// What earlier checks read, by name.
     pub cached: &'a HashMap<String, (Seen, Probe)>,
     /// The entries you acknowledged, by name.
@@ -167,12 +170,48 @@ pub(super) fn reuse(
 }
 
 /// Checks the folder `dir`, whose entries are `entries`, against `input`. Nothing in it is changed.
+/// The names the storage policy stores games of `dat` loose under, by game: none unless it says loose.
+pub(crate) fn loose_names(storage: Storage, dat: Option<&Dat>) -> HashMap<String, String> {
+    let Some(dat) = dat.filter(|_| storage.format == StorageFormat::Loose) else {
+        return HashMap::new();
+    };
+    let mut names: Vec<Vec<&str>> = vec![Vec::new(); dat.games.len()];
+    for rom in &dat.roms {
+        names[rom.game].push(&rom.name);
+    }
+    dat.games
+        .iter()
+        .zip(names)
+        .filter_map(|(game, roms)| match target_of(storage, game, &roms) {
+            (target, true, _) => Some((game.clone(), target)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The selected games of `selected`, keyed by `<game>.zip` lowercased, by the lowercased name the storage policy
+/// stores each under, given the games it stores loose.
+pub(crate) fn storage_targets(
+    selected: &HashMap<String, String>,
+    loose: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    selected
+        .iter()
+        .map(|(key, game)| match loose.get(game) {
+            Some(target) => (target.to_lowercase(), game.clone()),
+            None => (key.clone(), game.clone()),
+        })
+        .collect()
+}
+
 pub(super) fn scan(
     dir: &FolderDir,
     entries: &[String],
     input: &ScanInput,
     progress: Option<&(dyn Fn(Progress) + Sync)>,
 ) -> Scan {
+    let loose = loose_names(input.storage, input.dat);
+    let selected = &storage_targets(input.selected, &loose);
     let mut out = Scan {
         files: Vec::new(),
         drift: Vec::new(),
@@ -213,8 +252,8 @@ pub(super) fn scan(
             game: built.game.clone(),
             outcome: FileOutcome::Unchanged,
             hashed: false,
-            torrentzip: built.torrentzip,
-            selected: input.selected.contains_key(&target.to_lowercase()),
+            torrentzip: built.torrentzip || built.loose,
+            selected: selected.contains_key(&target.to_lowercase()),
             detail: None,
         };
         let found = by_lower.get(&target.to_lowercase()).copied();
@@ -265,10 +304,10 @@ pub(super) fn scan(
                             torrentzip: built.torrentzip,
                         });
                     }
-                    Ok(p) if holds(&p, &built.roms) => {
+                    Ok(p) if holds_as(&p, &built.roms, built.loose) => {
                         file.outcome = FileOutcome::Repacked;
-                        file.torrentzip = p.torrentzip;
-                        if !p.torrentzip {
+                        file.torrentzip = p.torrentzip || built.loose;
+                        if !file.torrentzip {
                             file.detail = Some("not TorrentZip".into());
                         }
                         out.updates.push(Update {
@@ -305,7 +344,7 @@ pub(super) fn scan(
             name: name.clone(),
             kind: DriftKind::Unknown,
             game: None,
-            conflict: input.selected.contains_key(&lower),
+            conflict: selected.contains_key(&lower),
             hashed: false,
             detail: None,
         };
@@ -345,9 +384,13 @@ pub(super) fn scan(
                             Some(index) => {
                                 if let Some(game) = index.game_of(&p) {
                                     entry.game = Some(game.to_owned());
-                                    entry.kind = if *name != format!("{game}.zip") {
+                                    let named = loose
+                                        .get(game)
+                                        .cloned()
+                                        .unwrap_or_else(|| format!("{game}.zip"));
+                                    entry.kind = if *name != named {
                                         DriftKind::Renamed
-                                    } else if input.selected.contains_key(&lower) {
+                                    } else if selected.contains_key(&lower) {
                                         DriftKind::Selected
                                     } else {
                                         DriftKind::Unselected
@@ -542,6 +585,7 @@ struct CheckInputs {
     built: BTreeMap<String, Built>,
     selection: Option<i64>,
     selected: HashMap<String, String>,
+    storage: Storage,
     revision: (String, bool),
     cached: HashMap<String, (Seen, Probe)>,
     acks: HashMap<String, Ack>,
@@ -640,7 +684,13 @@ impl Store {
             )?;
             let (_, record) = revision_by_id(&tx, revision_id)?;
             let revision = (record.sha256, record.blob_present);
+            let storage = crate::storage::policy(
+                &tx,
+                title_select_api::storage::StorageScope::PlayLibraries,
+                &folder.system,
+            )?;
             Ok(CheckInputs {
+                storage,
                 store: store_id(&tx)?,
                 built: read_built(&tx, folder.id)?,
                 cached: read_probes(&tx, folder.id)?,
@@ -688,6 +738,7 @@ impl Store {
                         built: &inputs.built,
                         selected: &inputs.selected,
                         dat: dat.as_ref(),
+                        storage: inputs.storage,
                         cached: &inputs.cached,
                         acks: &inputs.acks,
                     },

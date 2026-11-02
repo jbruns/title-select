@@ -25,3 +25,12 @@ ALTER TABLE kept_files ADD COLUMN kept_ctime_ns TEXT;
 ALTER TABLE repair_steps ADD COLUMN source_sha256 TEXT;
 -- A move that writes one ROM as a loose file, extracted from its ZIP, rather than a TorrentZip.
 ALTER TABLE ingest_moves ADD COLUMN loose INTEGER NOT NULL DEFAULT 0;
+
+-- A file built loose, its one ROM under its DAT name, rather than as a TorrentZip.
+ALTER TABLE built_files ADD COLUMN loose INTEGER NOT NULL DEFAULT 0;
+-- The ctime of a kept file, read through the descriptor held across its rename into the private folder it is
+-- deleted from, as a conversion deletes it: what it must still have there to be deleted.
+ALTER TABLE kept_files ADD COLUMN slot_ctime_ns TEXT;
+-- A deletion of a conversion's original, approved with the plan that converted it: its file is deleted only by its
+-- trusted stamp, in recovery too.
+ALTER TABLE kept_deletions ADD COLUMN converted INTEGER NOT NULL DEFAULT 0;
