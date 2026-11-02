@@ -120,12 +120,18 @@ CREATE TABLE repair_steps (
     -- recorded before it is moved.
     aside_name TEXT,
     aside_why TEXT,
+    -- The staged file's size, modification time and SHA-256, read through the descriptor that wrote or checked it
+    -- once it was written: only a file that still matches them is ever deleted, since a file put in its place may
+    -- reuse its inode number.
+    staged_size INTEGER,
+    staged_mtime_ns TEXT,
+    staged_sha256 TEXT,
     -- The slot in the private .deleting folder a staged file recorded in staged_* that won't be published is moved
-    -- to, recorded before it is moved, with the file's size and modification time then, since a file put in its
-    -- place may reuse its inode number; cleared once the file is in neither place.
+    -- to, recorded before it is moved; cleared once the file is in neither place.
     discard_slot TEXT,
-    discard_size INTEGER,
-    discard_mtime_ns TEXT,
+    -- The kept name a file found in that slot that can't be told to be the staged file is moved to, recorded before
+    -- it is moved; it is kept, never deleted.
+    discard_kept TEXT,
     UNIQUE (plan_id, seq)
 );
 CREATE INDEX repair_steps_unfinished ON repair_steps (plan_id) WHERE state NOT IN ('done', 'failed', 'skipped');
@@ -203,6 +209,10 @@ BEGIN
     SELECT RAISE(ABORT, 'a selection job runs a profile version, a build job an approved plan, a check job a managed folder, an audit job none');
 END;
 
--- The change time of an ingest move's published copy, recorded as it is published, so that recovery tells it from a
--- file put in its place that reused its inode number.
+-- An ingest move's staged copy as it was once written and checked, read through the descriptor that wrote or checked
+-- it, and the change time of its published copy, read through that descriptor, held across the rename, once
+-- published: only a copy that still matches both, with its inode number, may authorize deleting its original, since
+-- a file put in its place may reuse the number. A move without them keeps its original.
+ALTER TABLE ingest_moves ADD COLUMN staged_size INTEGER;
+ALTER TABLE ingest_moves ADD COLUMN staged_mtime_ns TEXT;
 ALTER TABLE ingest_moves ADD COLUMN published_ctime_ns TEXT;

@@ -214,10 +214,10 @@ impl FolderDir {
         Ok(File::from(fd))
     }
 
-    /// Opens the regular file `name` for writing, refusing a symlink or anything else.
+    /// Opens the regular file `name` for reading and writing, refusing a symlink or anything else.
     pub fn open_write(&self, name: &str) -> io::Result<File> {
         let name = component(name)?;
-        let flags = OFlags::WRONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        let flags = OFlags::RDWR | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
         let fd = rustix::fs::openat(&self.fd, name, flags, Mode::empty())
             .map_err(|e| self.error(name, e))?;
         if FileType::from_raw_mode(rustix::fs::fstat(&fd)?.st_mode) != FileType::RegularFile {

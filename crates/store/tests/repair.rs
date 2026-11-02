@@ -1085,6 +1085,48 @@ fn swapped_in_for_a_staged_file_being_deleted(reusing_its_inode: bool) {
 }
 
 #[test]
+fn a_staged_file_changed_since_it_was_written_is_kept_and_never_deleted() {
+    let env = Env::new();
+    let plan = cancelled_after_a_build_staged(&env);
+    let staged = std::fs::read_dir(env.set())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.to_string_lossy().contains("title-select-new"))
+        .unwrap();
+    // Written over in place, as a file put there looks when it reuses the freed inode number, as on Linux.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&staged)
+        .unwrap();
+    std::io::Write::write_all(&mut &file, b"someone else's").unwrap();
+    drop(file);
+
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(done.finished_at.is_some(), "{done:#?}");
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(
+        std::fs::read(
+            env.set()
+                .join(".title-select-retained/1")
+                .join(&kept[0].kept_name)
+        )
+        .unwrap(),
+        b"someone else's"
+    );
+    assert!(
+        std::fs::read_dir(env.set().join(".title-select-retained/.deleting"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
 fn a_cancelled_repair_whose_staged_file_could_not_be_deleted_stays_unfinished_until_it_is() {
     let env = Env::new();
     let plan = cancelled_after_a_build_staged(&env);
@@ -1114,6 +1156,53 @@ fn a_cancelled_repair_whose_staged_file_could_not_be_deleted_stays_unfinished_un
     assert_eq!(requeued.len(), 1, "{requeued:?}");
     env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
     assert_nothing_done(&env, &plan);
+}
+
+#[test]
+fn a_new_file_kept_aside_is_recorded_as_title_selects_only_while_it_matches_what_was_written() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let publish = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| matches!(s.step, RepairStep::Publish { .. }))
+        .unwrap() as u32;
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let target = env.set().join("Pong (USA).zip");
+    let kept = env
+        .set()
+        .join(".title-select-retained/1/Pong (USA).zip.kept");
+    // Once moved aside, the file under that inode is rewritten before the service, stopping, records it kept.
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairStaged(0) {
+                std::fs::write(&target, b"someone else's").unwrap();
+            } else if fault == Fault::RepairMoved(publish) {
+                std::fs::write(&kept, b"not what was written").unwrap();
+                panic!("stopped");
+            }
+        })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert!(
+        kept.iter()
+            .all(|k| !k.reason.contains("could not be put in place")),
+        "{kept:#?}"
+    );
 }
 
 #[test]
@@ -1303,6 +1392,53 @@ fn a_file_put_in_place_of_a_first_marker_a_stop_left_is_never_written_over() {
     assert_eq!(std::fs::read(&temp).unwrap(), b"someone else's");
     assert!(!env.set().join(".title-select").exists());
     assert!(env.set().join("readme.txt").exists());
+}
+
+#[test]
+fn a_file_put_in_place_of_the_first_marker_once_it_is_checked_is_never_written_over() {
+    // Fresh, and left by a stop before it was written.
+    for after_a_stop in [false, true] {
+        let env = Env::new();
+        env.put("readme.txt", b"hello");
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan();
+        let mut approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        if after_a_stop {
+            env.store.inject_fault(Some(Fault::RepairMarkerChecked));
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                env.run_repair_job(&approved)
+            }));
+            assert!(ran.is_err(), "{ran:?}");
+            env.store.inject_fault(None);
+            env.store.recover_jobs(WORKERS).unwrap();
+            approved = env.store.repair_plan(plan.id).unwrap();
+        }
+        let temp = env.set().join(".title-select.new");
+        let swapped = temp.clone();
+        // A file put in its place, which on Linux may get the inode number just freed.
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if fault == Fault::RepairMarkerChecked {
+                    std::fs::remove_file(&swapped).unwrap();
+                    std::fs::write(&swapped, b"someone else's").unwrap();
+                }
+            })));
+
+        let ended = env.run_repair_job(&approved);
+
+        env.store.hook_faults(None);
+        assert_eq!(ended.state, JobState::Failed, "{after_a_stop}: {ended:?}");
+        assert_eq!(
+            std::fs::read(&temp).unwrap(),
+            b"someone else's",
+            "{after_a_stop}"
+        );
+        assert!(!env.set().join(".title-select").exists(), "{after_a_stop}");
+        assert!(env.set().join("readme.txt").exists(), "{after_a_stop}");
+    }
 }
 
 #[test]

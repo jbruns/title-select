@@ -1053,33 +1053,50 @@ impl Store {
                  folder? Nothing in it was changed"
             )));
         }
-        let left = stat(MARKER_NEW)?;
-        let id = match (left, recorded) {
-            // Only what this store wrote to it, at most the marker, since a file put in its place may reuse the
-            // inode number.
-            (Some(st), Some(id))
-                if is_file(&st, id)
-                    && json.starts_with(&dir.read(MARKER_NEW, MARKER_LIMIT).map_err(io_err)?) =>
-            {
-                id
+        let not_it = |store: &Store| -> Result<std::result::Result<(), String>> {
+            forget(store)?;
+            Ok(Err(format!(
+                "{path}: {MARKER_NEW} is not the file Title Select was writing its marker to; move it out of the \
+                 folder, then plan the repair again. Nothing in it was changed"
+            )))
+        };
+        // Opened once: checked, written and published through the one descriptor, held throughout, so nothing put in
+        // its place, even with the inode number it freed, is ever written to.
+        let mut file = match (stat(MARKER_NEW)?, recorded) {
+            (Some(_), Some(id)) => {
+                let Ok(mut file) = dir.open_write(MARKER_NEW) else {
+                    return not_it(self);
+                };
+                let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+                let mut held = Vec::new();
+                {
+                    use std::io::Read;
+                    (&mut file)
+                        .take(MARKER_LIMIT)
+                        .read_to_end(&mut held)
+                        .map_err(io_err)?;
+                }
+                // Only what this store wrote to it, at most the marker.
+                if !is_file(&st, id) || !json.starts_with(&held) {
+                    return not_it(self);
+                }
+                file
             }
-            (Some(st), None)
-                if pending
-                    && FolderDir::kind(&st) == FileType::RegularFile
-                    && st.st_size == 0
+            (Some(_), None) if pending => {
+                let Ok(file) = dir.open_write(MARKER_NEW) else {
+                    return not_it(self);
+                };
+                let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+                if !(st.st_size == 0
                     && st.st_nlink == 1
-                    && st.st_uid == rustix::process::geteuid().as_raw() =>
-            {
+                    && st.st_uid == rustix::process::geteuid().as_raw())
+                {
+                    return not_it(self);
+                }
                 self.record_marker_temp(set, Identity::of(&st))?;
-                Identity::of(&st)
+                file
             }
-            (Some(_), _) => {
-                forget(self)?;
-                return Ok(Err(format!(
-                    "{path}: {MARKER_NEW} is not the file Title Select was writing its marker to; move it out of the \
-                     folder, then plan the repair again. Nothing in it was changed"
-                )));
-            }
+            (Some(_), _) => return not_it(self),
             (None, _) => {
                 self.write(|tx| {
                     tx.execute(
@@ -1096,26 +1113,20 @@ impl Store {
                         return Ok(Err(format!("{path}: {e}; nothing in it was changed")));
                     }
                 };
-                let id = Identity::of_fd(&file).map_err(io_err)?;
-                self.record_marker_temp(set, id)?;
-                id
+                self.record_marker_temp(set, Identity::of_fd(&file).map_err(io_err)?)?;
+                file
             }
         };
-        let mut file = dir.open_write(MARKER_NEW).map_err(io_err)?;
-        if Identity::of_fd(&file).map_err(io_err)? != id {
-            forget(self)?;
-            return Ok(Err(format!(
-                "{path}: {MARKER_NEW} was replaced while the marker was written; nothing in it was changed"
-            )));
-        }
+        let id = Identity::of_fd(&file).map_err(io_err)?;
+        self.fault_point(Fault::RepairMarkerChecked);
         {
-            use std::io::Write;
+            use std::io::{Seek, Write};
             file.set_len(0)
+                .and_then(|()| file.rewind())
                 .and_then(|()| file.write_all(&json))
                 .and_then(|()| file.sync_all())
                 .map_err(io_err)?;
         }
-        drop(file);
         self.fault_point(Fault::RepairMarkerWritten);
         if !stat(MARKER_NEW)?.is_some_and(|st| is_file(&st, id)) {
             forget(self)?;
@@ -1123,7 +1134,6 @@ impl Store {
                 "{path}: {MARKER_NEW} was replaced while the marker was written; nothing in it was changed"
             )));
         }
-        let _pin = dir.pin(MARKER_NEW, id);
         if let Err(e) = dir.rename_new(MARKER_NEW, dir, MARKER) {
             return Ok(Err(match e.kind() {
                 io::ErrorKind::AlreadyExists => format!(
@@ -1479,7 +1489,8 @@ impl Store {
         let staged_name = format!(".{target}.title-select-new-{}", unique());
         self.write(|tx| {
             tx.execute(
-                "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL
+                "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL,
+                     staged_size = NULL, staged_mtime_ns = NULL, staged_sha256 = NULL
                  WHERE id = ?1",
                 params![step.id, staged_name],
             )?;
@@ -1538,7 +1549,7 @@ impl Store {
             Ok(())
         })();
         if let Err(why) = written {
-            drop(file);
+            self.stamp_staged(step, &file)?;
             // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
             if let Err(left) = self.discard_staged(r, step, &staged_name, id)? {
                 return Ok(Err(format!("{why}; {left}")));
@@ -1549,8 +1560,10 @@ impl Store {
         self.build_staged(step, &file)
     }
 
+    /// Records a Build step done, with the stamp of what it staged read through `file`, the descriptor that wrote or
+    /// checked it.
     fn build_staged(&self, step: &StepRow, file: &File) -> Ran {
-        let (sha, _) = sha256_of(file).map_err(io_err)?;
+        let sha = self.stamp_staged(step, file)?;
         self.write(|tx| {
             tx.execute(
                 "UPDATE repair_steps SET state = 'done', sha256 = ?2, finished_at = ?3 WHERE id = ?1",
@@ -1560,6 +1573,42 @@ impl Store {
         })?;
         self.fault_point(Fault::RepairStaged(step.seq));
         Ok(Ok(()))
+    }
+
+    /// Records the size, modification time and SHA-256 of the file a step staged, read through `file`, a descriptor
+    /// held since it was written or checked. Returns the SHA-256.
+    fn stamp_staged(&self, step: &StepRow, file: &File) -> Result<String> {
+        let st = rustix::fs::fstat(file).map_err(|e| io_err(e.into()))?;
+        let (sha, _) = sha256_of(file).map_err(io_err)?;
+        let stat = file_stat(&st);
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET staged_size = ?2, staged_mtime_ns = ?3, staged_sha256 = ?4 WHERE id = ?1",
+                params![step.id, stat.size as i64, stat.mtime_ns.to_string(), sha],
+            )?;
+            Ok(())
+        })?;
+        Ok(sha)
+    }
+
+    /// The stamp recorded through its descriptor when step `seq` wrote its staged file, if any.
+    fn staged_stamp(&self, plan: i64, seq: u32) -> Result<Option<FileStat>> {
+        self.read(|c| {
+            let row: Option<(Option<i64>, Option<String>)> = c
+                .query_row(
+                    "SELECT staged_size, staged_mtime_ns FROM repair_steps WHERE plan_id = ?1 AND seq = ?2",
+                    params![plan, seq as i64],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            Ok(match row {
+                Some((Some(size), Some(mtime))) => mtime.parse().ok().map(|mtime_ns| FileStat {
+                    size: size as u64,
+                    mtime_ns,
+                }),
+                _ => None,
+            })
+        })
     }
 
     /// Deletes a staged file Title Select wrote and will not publish: moved into the private `.deleting` folder
@@ -1576,21 +1625,30 @@ impl Store {
     ) -> Ran {
         let dir = &r.dir;
         let left = || Ok(Err(undeleted(dir, staged_name)));
-        let recorded: Option<(String, FileStat)> = self.read(|c| {
+        type Recorded = (Option<String>, Option<String>, Option<(FileStat, String)>);
+        let (recorded, kept, stamp): Recorded = self.read(|c| {
             Ok(c.query_row(
-                "SELECT discard_slot, discard_size, discard_mtime_ns FROM repair_steps WHERE id = ?1",
+                "SELECT discard_slot, discard_kept, staged_size, staged_mtime_ns, staged_sha256 FROM repair_steps
+                 WHERE id = ?1",
                 [step.id],
                 |r| {
-                    Ok(match (r.get::<_, Option<String>>(0)?, r.get::<_, Option<i64>>(1)?) {
-                        (Some(slot), Some(size)) => Some((
-                            slot,
-                            FileStat {
-                                size: size as u64,
-                                mtime_ns: r.get::<_, String>(2)?.parse().unwrap_or_default(),
-                            },
-                        )),
+                    let stamp = match (
+                        r.get::<_, Option<i64>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                    ) {
+                        (Some(size), Some(mtime), Some(sha)) => mtime.parse().ok().map(|mtime_ns| {
+                            (
+                                FileStat {
+                                    size: size as u64,
+                                    mtime_ns,
+                                },
+                                sha,
+                            )
+                        }),
                         _ => None,
-                    })
+                    };
+                    Ok((r.get(0)?, r.get(1)?, stamp))
                 },
             )?)
         })?;
@@ -1598,30 +1656,25 @@ impl Store {
         if recorded.is_none() && !here {
             return Ok(Ok(()));
         }
-        let (slot, file) = match recorded {
-            Some(found) => found,
+        let slot = match recorded {
+            Some(slot) => slot,
             None => {
-                let Some(st) = dir.stat(staged_name).map_err(io_err)? else {
-                    return left();
-                };
-                let file = file_stat(&st);
                 let slot = format!("repair-staged-{}", unique());
                 self.write(|tx| {
                     tx.execute(
-                        "UPDATE repair_steps SET discard_slot = ?2, discard_size = ?3, discard_mtime_ns = ?4
-                         WHERE id = ?1",
-                        params![step.id, slot, file.size as i64, file.mtime_ns.to_string()],
+                        "UPDATE repair_steps SET discard_slot = ?2 WHERE id = ?1",
+                        params![step.id, slot],
                     )?;
                     Ok(())
                 })?;
-                (slot, file)
+                slot
             }
         };
         let Ok(Some(deleting)) = open_area_deleting(self, r.scope(), dir, true)? else {
             return left();
         };
         let mut _pin = None;
-        if here {
+        if here && kept.is_none() {
             _pin = dir.pin(staged_name, id);
             if dir.rename_new(staged_name, &deleting, &slot).is_err() {
                 return left();
@@ -1631,13 +1684,28 @@ impl Store {
         // Whether this call or one before a stop moved it, both folders are synced before it is deleted.
         dir.sync().map_err(io_err)?;
         deleting.sync().map_err(io_err)?;
+        if let Some(kept) = kept {
+            return self.keep_discarded(r, step, &deleting, &slot, staged_name, id, &kept);
+        }
         match deleting.stat(&slot).map_err(io_err)? {
-            // The same inode, unchanged since: a file put in its place may reuse the number, never the times too.
             Some(st)
-                if FolderDir::kind(&st) == FileType::RegularFile
-                    && Identity::of(&st) == id
-                    && file_stat(&st) == file =>
+                if FolderDir::kind(&st) == FileType::RegularFile && Identity::of(&st) == id =>
             {
+                // Deleted only while it matches the stamp recorded as it was written, read through one descriptor;
+                // anything else, or a file with no stamp, is kept.
+                let file = deleting.open_file(&slot).map_err(io_err)?;
+                let held = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+                let matches = match &stamp {
+                    Some((stat, sha)) if Identity::of(&held) == id && file_stat(&held) == *stat => {
+                        sha256_of(&file).map_err(io_err)?.0 == *sha
+                    }
+                    _ => false,
+                };
+                if !matches {
+                    drop(file);
+                    let kept = self.record_discard_kept(r, step, staged_name)?;
+                    return self.keep_discarded(r, step, &deleting, &slot, staged_name, id, &kept);
+                }
                 deleting.unlink(&slot).map_err(io_err)?;
                 deleting.sync().map_err(io_err)?;
             }
@@ -1661,9 +1729,122 @@ impl Store {
         }
         self.write(|tx| {
             tx.execute(
-                "UPDATE repair_steps SET discard_slot = NULL, discard_size = NULL, discard_mtime_ns = NULL
-                 WHERE id = ?1",
+                "UPDATE repair_steps SET discard_slot = NULL WHERE id = ?1",
                 [step.id],
+            )?;
+            Ok(())
+        })?;
+        Ok(Ok(()))
+    }
+
+    /// Records the kept name, free in this repair's generation, a staged file that can't be told to be the one
+    /// written is moved to from its slot instead of being deleted.
+    fn record_discard_kept(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        staged_name: &str,
+    ) -> Result<String> {
+        let generation =
+            match open_retention(self, r.scope(), &r.dir, r.plan.content.generation, true)? {
+                Ok(Some(retention)) => retention.generation,
+                _ => return Err(Error::Io("the kept files folder is missing".into())),
+            };
+        let kept = (1..)
+            .map(|n| kept_name(staged_name, n))
+            .find(|name| matches!(generation.stat(name), Ok(None)))
+            .expect("a free name");
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE repair_steps SET discard_kept = ?2 WHERE id = ?1",
+                params![step.id, kept],
+            )?;
+            Ok(())
+        })?;
+        Ok(kept)
+    }
+
+    /// Moves what is in a staged file's slot, `id` but not the file written, into this repair's kept files as
+    /// `kept`, recorded before, without replacing anything, and records it kept, clearing the discard, in one
+    /// transaction; from wherever a stop left it. Never deletes it.
+    #[allow(clippy::too_many_arguments)]
+    fn keep_discarded(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        deleting: &FolderDir,
+        slot: &str,
+        staged_name: &str,
+        id: Identity,
+        kept: &str,
+    ) -> Ran {
+        let content = &r.plan.content;
+        let generation = match open_retention(self, r.scope(), &r.dir, content.generation, true)? {
+            Ok(Some(retention)) => retention.generation,
+            _ => return Ok(Err(undeleted(&r.dir, staged_name))),
+        };
+        let _pin = deleting.pin(slot, id);
+        if deleting.stat(slot).map_err(io_err)?.is_some()
+            && let Err(e) = deleting.rename_new(slot, &generation, kept)
+        {
+            return Ok(Err(format!(
+                "{}/{staged_name}, a file Title Select staged, changed since it was written, and could not be kept \
+                 aside ({e}); it was left at .title-select-retained/.deleting/{slot}",
+                r.dir.path().display()
+            )));
+        }
+        deleting.sync().map_err(io_err)?;
+        generation.sync().map_err(io_err)?;
+        let st = match generation.stat(kept).map_err(io_err)? {
+            Some(st) if FolderDir::kind(&st) == FileType::RegularFile => st,
+            _ => {
+                return Ok(Err(format!(
+                    "{}/{staged_name}, a file Title Select staged, changed since it was written, and is neither in \
+                     .title-select-retained/.deleting/{slot} nor kept as {kept}",
+                    r.dir.path().display()
+                )));
+            }
+        };
+        let found = Identity::of(&st);
+        let (dev, ino) = found.to_sql();
+        let file = file_stat(&st);
+        let note = format!(
+            "{staged_name}, a file this repair staged, changed since it was written, so it was kept as {kept} \
+             rather than deleted"
+        );
+        self.write(|tx| {
+            let recorded: Option<(i64, i64)> = tx
+                .query_row(
+                    "SELECT dev, ino FROM source_kept
+                     WHERE source_set_id = ?1 AND generation = ?2 AND kept_name = ?3",
+                    params![content.set_id, content.generation as i64, kept],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            if recorded.is_none() {
+                tx.execute(
+                    "INSERT INTO source_kept (source_set_id, plan_id, generation, name, kept_name, reason, size,
+                                              mtime_ns, dev, ino, kept_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![
+                        content.set_id,
+                        r.plan.id,
+                        content.generation as i64,
+                        staged_name,
+                        kept,
+                        "a file a repair staged, changed since it was written",
+                        file.size as i64,
+                        file.mtime_ns.to_string(),
+                        dev,
+                        ino,
+                        now()
+                    ],
+                )?;
+            }
+            tx.execute(
+                "UPDATE repair_steps SET discard_slot = NULL, discard_kept = NULL,
+                     note = COALESCE(note || '; ', '') || ?2 WHERE id = ?1",
+                params![step.id, note],
             )?;
             Ok(())
         })?;
@@ -1754,9 +1935,11 @@ impl Store {
         parent.sync().map_err(io_err)?;
         generation.sync().map_err(io_err)?;
         let st = match generation.stat(kept).map_err(io_err)? {
+            // The stamp recorded is the one `seen` was trusted with, never one taken from the kept name now.
             Some(st)
                 if FolderDir::kind(&st) == FileType::RegularFile
-                    && Identity::of(&st) == seen.identity =>
+                    && Identity::of(&st) == seen.identity
+                    && file_stat(&st) == seen.file =>
             {
                 st
             }
@@ -2096,11 +2279,25 @@ impl Store {
                     );
                 }
             };
+        let RepairStep::Publish { build, .. } = &step.step else {
+            unreachable!("a publish step");
+        };
+        let Some(stamp) = self.staged_stamp(r.plan.id, *build)? else {
+            return self.step_failed(
+                step,
+                "failed",
+                format!("{why}; it was left at {staged_name}, with no record of what was written"),
+            );
+        };
+        // Only the stamp recorded through the descriptor it was written with says it is still the file written.
         let found = |d: &FolderDir, name: &str| -> Result<Option<Seen>> {
             Ok(d.stat(name)
                 .map_err(io_err)?
                 .filter(|st| Identity::of(st) == staged)
-                .map(|st| Seen::of(&st)))
+                .map(|st| Seen {
+                    file: stamp.clone(),
+                    ..Seen::of(&st)
+                }))
         };
         let Some(seen) = found(&r.dir, staged_name)?.or(found(&generation, kept)?) else {
             return self.step_failed(

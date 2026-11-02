@@ -199,6 +199,8 @@ pub enum Fault {
     RepairFinished,
     /// After a Source Set's first marker is written and synced under its recorded temporary name, before it is
     /// renamed into place.
+    /// After a Source Set's first marker's temporary file is opened and checked, before it is written.
+    RepairMarkerChecked,
     RepairMarkerWritten,
     /// After a Source Set's first marker is renamed into place, before its folder is synced and the marker recorded.
     RepairMarkerPublished,

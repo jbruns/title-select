@@ -120,7 +120,9 @@ struct MoveRow {
     exact: Option<ExpectedRom>,
     staged_name: Option<String>,
     staged: Option<Identity>,
-    /// The published copy's change time, recorded once it was published.
+    /// The staged copy's size and modification time once written and checked, read through the descriptor held.
+    staged_stamp: Option<FileStat>,
+    /// The published copy's change time, read through the descriptor held across its rename.
     published_ctime: Option<i128>,
     dest_sha256: Option<String>,
     found: Option<Identity>,
@@ -130,7 +132,7 @@ struct MoveRow {
 
 const MOVE_QUERY: &str = "SELECT id, folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns, \
      sha256, dest_kind, dest_root, dest_rel, generation, dest_name, reason, roms, staged_name, staged_dev, \
-     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns FROM ingest_moves";
+     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, staged_size, staged_mtime_ns FROM ingest_moves";
 
 fn parse_ns(r: &Row, at: usize) -> rusqlite::Result<i128> {
     r.get::<_, String>(at)?.parse().map_err(|e| {
@@ -200,6 +202,16 @@ fn move_from_row(r: &Row) -> rusqlite::Result<MoveRow> {
         published_ctime: match r.get::<_, Option<String>>(29)? {
             Some(_) => Some(parse_ns(r, 29)?),
             None => None,
+        },
+        staged_stamp: match (
+            r.get::<_, Option<i64>>(30)?,
+            r.get::<_, Option<String>>(31)?,
+        ) {
+            (Some(size), Some(_)) => Some(FileStat {
+                size: size as u64,
+                mtime_ns: parse_ns(r, 31)?,
+            }),
+            _ => None,
         },
         dest_sha256: r.get(22)?,
         found: identity_at(r, 24)?,
@@ -930,9 +942,13 @@ impl Store {
             _ if preserving || resumed => (m.staged, None),
             _ => return replaced(),
         };
-        // The published copy, while it is still the file published: the same inode, never changed since.
+        // The published copy, while it is still the file published: the same inode, as it was written and published.
         let still = |st: &rustix::fs::Stat, staged: Identity| {
-            Identity::of(st) == staged && m.published_ctime.is_none_or(|at| ctime_ns(st) == at)
+            Identity::of(st) == staged
+                && m.staged_stamp
+                    .as_ref()
+                    .is_none_or(|at| file_stat(st) == *at)
+                && m.published_ctime.is_none_or(|at| ctime_ns(st) == at)
         };
         let published = match (staged, dest.stat(&dest_name).map_err(io)?) {
             (Some(staged), Some(st)) if still(&st, staged) => Some((staged, file_stat(&st))),
@@ -940,8 +956,10 @@ impl Store {
             _ => return replaced(),
         };
         // A deletion a stop interrupted is authorized again only by the same checks of the published copy.
+        // Only stamps read through the descriptor that wrote the copy and published it authorize a deletion.
+        let stamped = m.staged_stamp.is_some() && m.published_ctime.is_some();
         let delete = match (&published, &m.exact) {
-            _ if preserving => false,
+            _ if preserving || !stamped => false,
             (Some((staged, _)), Some(rom)) => {
                 let file = dest.open_file(&dest_name).map_err(io)?;
                 if !still(
@@ -1001,18 +1019,38 @@ impl Store {
         dest_name: &str,
     ) -> Result<std::result::Result<String, String>> {
         if let Some(staged) = m.staged {
-            if is_file(dest, dest_name, staged, None).map_err(io)? {
+            // Renamed into place before a stop: published as the copy written only while it still matches the
+            // stamp recorded through the descriptor that wrote it. No change time is recorded, since none read
+            // now is trusted, so its original is kept.
+            if let Some(stamp) = &m.staged_stamp
+                && is_file(dest, dest_name, staged, Some(stamp)).map_err(io)?
+            {
                 dest.sync().map_err(io)?;
                 let file = dest.open_file(dest_name).map_err(io)?;
-                let (sha, _) = sha256_of(&file).map_err(io)?;
-                if self.published(m.id, staged, &file, &sha)? {
+                let st = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
+                if Identity::of(&st) == staged && file_stat(&st) == *stamp {
+                    let (sha, _) = sha256_of(&file).map_err(io)?;
+                    self.published(m.id, &sha, None)?;
                     return Ok(Ok(sha));
                 }
             }
             let staged_name = m.staged_name.clone().unwrap_or_default();
             if is_file(dest, &staged_name, staged, None).map_err(io)? {
                 return match self.check_staged(m, src, dest, &staged_name)? {
-                    Ok(sha) => self.publish(m, staged, dest, &staged_name, dest_name, sha),
+                    Ok((file, sha)) if Identity::of_fd(&file).map_err(io)? == staged => {
+                        self.publish(m, &file, dest, &staged_name, dest_name, sha)
+                    }
+                    Ok(_) => self
+                        .fail_move(
+                            m.id,
+                            format!(
+                                "{}/{staged_name} is not the copy Title Select was writing; it and {} were left as \
+                                 they are",
+                                dest.path().display(),
+                                m.name
+                            ),
+                        )
+                        .map(|r| r.map(|_| String::new())),
                     Err(why) => self.fail_move(m.id, why).map(|r| r.map(|_| String::new())),
                 };
             }
@@ -1038,7 +1076,8 @@ impl Store {
         let staged_name = format!(".{dest_name}.title-select-new-{}", unique());
         self.write(|tx| {
             tx.execute(
-                "UPDATE ingest_moves SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL
+                "UPDATE ingest_moves SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL,
+                     staged_size = NULL, staged_mtime_ns = NULL, published_ctime_ns = NULL
                  WHERE id = ?1",
                 params![m.id, staged_name],
             )?;
@@ -1093,7 +1132,6 @@ impl Store {
             Ok(sha) => sha,
             Err(why) => return fail(why),
         };
-        drop(file);
         if !is_seen(src, &m.name, &m.seen).map_err(io)? {
             return fail(format!(
                 "{} changed while it was copied; it was left as it is",
@@ -1101,17 +1139,17 @@ impl Store {
             ));
         }
         self.fault_point(Fault::IngestStaged);
-        self.publish(m, staged, dest, &staged_name, dest_name, sha)
+        self.publish(m, &file, dest, &staged_name, dest_name, sha)
     }
 
-    /// Checks a staged file a stop left, reading the source again.
+    /// Checks a staged file a stop left, reading the source again. Returns it, opened, with its SHA-256.
     fn check_staged(
         &self,
         m: &MoveRow,
         src: &FolderDir,
         dest: &FolderDir,
         staged_name: &str,
-    ) -> Result<std::result::Result<String, String>> {
+    ) -> Result<std::result::Result<(std::fs::File, String), String>> {
         let source = match open_source(src, m) {
             Ok(source) => source,
             Err(why) => return Ok(Err(why)),
@@ -1127,22 +1165,34 @@ impl Store {
             )));
         }
         let file = dest.open_file(staged_name).map_err(io)?;
-        Ok(check_written(m, &file, &source_sha))
+        Ok(check_written(m, &file, &source_sha).map(|sha| (file, sha)))
     }
 
-    /// Renames the staged file, whose identity is `staged`, to `dest_name` without replacing anything, and records it
-    /// published only if `dest_name` is then that file. Otherwise the move ends failed, leaving what is at
+    /// Renames the staged file `file`, written or checked through that descriptor, held throughout, to `dest_name`
+    /// without replacing anything, and records it published only if `dest_name` is then that file. Its size and
+    /// modification time are recorded first, and its change time once published, all read through `file`, the only
+    /// stamps that may later authorize deleting its original. Otherwise the move ends failed, leaving what is at
     /// `dest_name` and the original as they are.
     fn publish(
         &self,
         m: &MoveRow,
-        staged: Identity,
+        file: &std::fs::File,
         dest: &FolderDir,
         staged_name: &str,
         dest_name: &str,
         sha: String,
     ) -> Result<std::result::Result<String, String>> {
-        let _pin = dest.pin(staged_name, staged);
+        let held = |file: &std::fs::File| rustix::fs::fstat(file).map_err(|e| io(e.into()));
+        let st = held(file)?;
+        let staged = Identity::of(&st);
+        let stamp = file_stat(&st);
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE ingest_moves SET staged_size = ?2, staged_mtime_ns = ?3 WHERE id = ?1",
+                params![m.id, stamp.size as i64, stamp.mtime_ns.to_string()],
+            )?;
+            Ok(())
+        })?;
         if let Err(e) = dest.rename_new(staged_name, dest, dest_name) {
             let why = format!(
                 "{e}; the copy was left at {staged_name} and {} as it is",
@@ -1152,14 +1202,12 @@ impl Store {
         }
         dest.sync().map_err(io)?;
         self.fault_point(Fault::IngestRenamed);
-        let file = match is_file(dest, dest_name, staged, None).map_err(io)? {
-            true => Some(dest.open_file(dest_name).map_err(io)?),
-            false => None,
-        };
-        if let Some(file) = file
-            && self.published(m.id, staged, &file, &sha)?
-        {
-            return Ok(Ok(sha));
+        if is_file(dest, dest_name, staged, Some(&stamp)).map_err(io)? {
+            let st = held(file)?;
+            if file_stat(&st) == stamp {
+                self.published(m.id, &sha, Some(ctime_ns(&st)))?;
+                return Ok(Ok(sha));
+            }
         }
         let why = format!(
             "{}/{dest_name} is not the copy Title Select wrote, so it and {} were left as they are",
@@ -1169,28 +1217,18 @@ impl Store {
         self.fail_move(m.id, why).map(|r| r.map(|_| String::new()))
     }
 
-    /// Records move `id` published as `file`, opened at its destination, when it is the file `staged`, with its
-    /// change time: a file put in its place later may reuse its inode number, but never has the same change time.
-    fn published(
-        &self,
-        id: i64,
-        staged: Identity,
-        file: &std::fs::File,
-        sha: &str,
-    ) -> Result<bool> {
-        let st = rustix::fs::fstat(file).map_err(|e| io(e.into()))?;
-        if FolderDir::kind(&st) != FileType::RegularFile || Identity::of(&st) != staged {
-            return Ok(false);
-        }
+    /// Records move `id` published, with its copy's change time when it was read through the descriptor held across
+    /// the rename.
+    fn published(&self, id: i64, sha: &str, ctime: Option<i128>) -> Result<()> {
         self.write(|tx| {
             tx.execute(
                 "UPDATE ingest_moves SET state = 'published', dest_sha256 = ?2, published_ctime_ns = ?3
                  WHERE id = ?1",
-                params![id, sha, ctime_ns(&st).to_string()],
-            )?;
-            Ok(())
-        })?;
-        Ok(true)
+                params![id, sha, ctime.map(|at| at.to_string())],
+            )
+            .map(|_| ())
+            .map_err(Into::into)
+        })
     }
 
     /// Opens the folder `rel` of the Root `root`, a move's destination: a Source Set there only when a repair may write
@@ -1983,6 +2021,61 @@ mod tests {
                 note.as_deref()
                     .is_some_and(|n| n.contains("kept as pong.a26.kept instead of deleted")),
                 "{dest}: {note:?}"
+            );
+        }
+        FORCE_COPY.with(|f| f.set(false));
+    }
+
+    #[test]
+    fn an_original_is_kept_when_its_copy_has_no_publication_stamp_recorded_through_its_descriptor()
+    {
+        enum Stop {
+            // Renamed into place, but stopped before it was recorded published.
+            Renamed,
+            // Recorded published without a stamp, as a move from before stamps were recorded is.
+            PublishedWithoutAStamp,
+        }
+        for stop in [Stop::Renamed, Stop::PublishedWithoutAStamp] {
+            FORCE_COPY.with(|f| f.set(true));
+            let env = env();
+            env.put("pong.a26", b"pong");
+            let rom = rom_of("Pong (USA).a26", b"pong");
+            let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+            mv.exact = Some(rom);
+            env.store.inject_fault(Some(match stop {
+                Stop::Renamed => Fault::IngestRenamed,
+                Stop::PublishedWithoutAStamp => Fault::IngestPublished,
+            }));
+            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+            assert!(ran.is_err());
+            env.store.inject_fault(None);
+            let published = env.tmp.path().join("lib/Atari/Pong (USA).a26");
+            match stop {
+                // Written over in place with the same bytes, as a file put there looks when it reuses the freed
+                // inode number, as on Linux.
+                Stop::Renamed => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    rewrite_in_place(&published, b"pong");
+                }
+                Stop::PublishedWithoutAStamp => {
+                    env.store
+                        .write(|tx| {
+                            tx.execute("UPDATE ingest_moves SET published_ctime_ns = NULL", [])?;
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+            }
+
+            let left = env.store.recover_ingest_moves(&env.config).unwrap();
+
+            assert!(left.is_empty(), "{left:?}");
+            assert_eq!(
+                env.listing(),
+                [
+                    "in/.title-select-retained/1/pong.a26.kept".to_string(),
+                    "lib/Atari/Pong (USA).a26".to_string()
+                ]
             );
         }
         FORCE_COPY.with(|f| f.set(false));
