@@ -4592,6 +4592,70 @@ fn build_hooked(
 }
 
 #[test]
+fn a_loose_file_is_adopted_where_the_storage_policy_stores_its_game_loose() {
+    let env = Env::new();
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    env.audit();
+    let id = titles(&env, &["Pong (USA)"]);
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    write_file(&dir.join("Pong (USA).a26"), b"pong");
+    let plan = plan_with(
+        &env,
+        &folder,
+        id,
+        PlanChoices {
+            resolved_only: false,
+            adopt: vec!["Pong (USA).a26".into()],
+            keep_aside: vec![],
+        },
+    );
+    assert_eq!(kinds(&plan)["Pong (USA)"], ItemKind::Adopt);
+
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    let built = env.store.built_files(folder.id).unwrap();
+    assert_eq!(
+        (built[0].target.as_str(), built[0].kind),
+        ("Pong (USA).a26", ItemKind::Adopt),
+        "{built:?}"
+    );
+    assert_eq!(std::fs::read(dir.join("Pong (USA).a26")).unwrap(), b"pong");
+}
+
+#[test]
+fn a_cleanup_adopts_a_loose_file_where_the_storage_policy_stores_its_game_loose() {
+    let (env, folder, dir) = cleaned();
+    set_play_policy(&env, StorageFormat::Loose, None, false);
+    write_file(&dir.join("missing copy.a26"), b"missing");
+
+    let plan = cleanup(
+        &env,
+        &folder,
+        choose(&[("missing copy.a26", CleanupAction::Adopt)]),
+    );
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    let entry = plan.content.cleanup.as_ref().unwrap().entries.iter();
+    let entry = entry
+        .clone()
+        .find(|e| e.name == "missing copy.a26")
+        .unwrap();
+    assert_eq!(entry.target.as_deref(), Some("Missing (USA).a26"));
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    assert_eq!(
+        std::fs::read(dir.join("Missing (USA).a26")).unwrap(),
+        b"missing"
+    );
+    let built = env.store.built_files(folder.id).unwrap();
+    let missing = built.iter().find(|f| f.game == "Missing (USA)").unwrap();
+    assert_eq!(
+        (missing.target.as_str(), missing.kind),
+        ("Missing (USA).a26", ItemKind::Adopt)
+    );
+}
+
+#[test]
 fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
     let env = Env::new();
     let (folder, id) = built_as_zips(&env);

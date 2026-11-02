@@ -883,22 +883,24 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
         let (Some(Proposal::Build { roms }), Some(original)) = (&p.proposal, &p.converts) else {
             unreachable!("a conversion builds");
         };
+        // The new file is in place before the original is moved: a destination found taken leaves the original
+        // where it is.
         let build = steps.len() as u32;
         let (target, step) = build_of(p, roms);
         steps.push(step);
+        let publish = steps.len() as u32;
+        steps.push(PlannedStep {
+            item: p.item.key.clone(),
+            step: RepairStep::Publish { build, target },
+        });
         let mut keeps = Vec::new();
-        keeps_of(i, p, vec![build], &mut names, &mut keeps);
+        keeps_of(i, p, vec![build, publish], &mut names, &mut keeps);
         let keep = steps.len() as u32
             + keeps
                 .iter()
                 .position(|k| matches!(&k.step, RepairStep::Keep { path, .. } if path == original))
                 .expect("the original is kept") as u32;
         steps.extend(keeps);
-        let publish = steps.len() as u32;
-        steps.push(PlannedStep {
-            item: p.item.key.clone(),
-            step: RepairStep::Publish { build, target },
-        });
         if i.storage.delete_originals {
             steps.push(PlannedStep {
                 item: p.item.key.clone(),

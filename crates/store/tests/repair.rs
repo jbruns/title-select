@@ -2467,6 +2467,43 @@ fn a_conversion_the_service_stopped_in_ends_with_its_original_deleted_or_kept() 
 }
 
 #[test]
+fn a_conversion_whose_new_file_finds_its_name_taken_leaves_the_original_in_place() {
+    let env = Env::new();
+    env.put("Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let build = step_seq(&plan, |s| matches!(s, RepairStep::Build { .. }));
+    let publish = step_seq(&plan, |s| matches!(s, RepairStep::Publish { .. }));
+    let keep = step_seq(&plan, |s| matches!(s, RepairStep::Keep { .. }));
+    assert!(publish < keep, "the new file is put in place first");
+    let target = env.set().join("Pong (USA).zip");
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::RepairStaged(build) {
+            write_file(&target, b"someone else's");
+        }
+    })));
+
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.run_repair_job(&approved);
+
+    assert_eq!(
+        std::fs::read(env.set().join("Pong (USA).a26")).ok(),
+        Some(b"pong".to_vec()),
+        "the original stays where it was: {:?}",
+        env.listing()
+    );
+    assert_eq!(
+        std::fs::read(env.set().join("Pong (USA).zip")).unwrap(),
+        b"someone else's"
+    );
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert!(kept.iter().all(|k| k.name != "Pong (USA).a26"), "{kept:?}");
+}
+
+#[test]
 fn an_ingest_fill_into_a_loose_source_set_is_stored_loose() {
     let env = Env::new();
     set_source_policy(&env, StorageFormat::Loose, false);

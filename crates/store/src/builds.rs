@@ -440,7 +440,7 @@ fn adopt(dir: &FolderDir, item: &PlanItem) -> std::result::Result<(String, Stat,
         return Err(left("it changed while it was read"));
     }
     let probe = title_select_engine::build::probe(&file).map_err(|e| left(&e.to_string()))?;
-    if !title_select_engine::build::holds(&probe, &item.roms) {
+    if !title_select_engine::build::holds_as(&probe, &item.roms, item.loose) {
         return Err(left(
             "it does not hold exactly the ROMs the DAT expects there",
         ));
