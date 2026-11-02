@@ -288,6 +288,26 @@ fn item_from_row(r: &Row) -> rusqlite::Result<ItemRow> {
     })
 }
 
+/// Refuses, as stale, the approval of the addition plan `content` if any item it reviewed would now be published
+/// somewhere else than it said, such as after a change of the storage policy. An item that cannot be added at all is
+/// left to its own outcome.
+fn stale_targets(tx: &Transaction, content: &IngestPlanContent) -> Result<()> {
+    for item in &content.items {
+        let Some(new) = &item.addition else { continue };
+        let found = item_by_id(tx, item.item)?;
+        let [payload] = found.item.assessment.payloads.as_slice() else {
+            continue;
+        };
+        let rom = payload.member.as_deref().unwrap_or(&item.name);
+        match crate::additions::check_new(tx, new, rom) {
+            Ok(target) => target.check_reviewed(new, item.addition_target.as_ref())?,
+            Err(Error::Refused(_) | Error::Conflict(_)) => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
+
 /// Records, in `tx`, the intent to add the item `item` of plan `plan` as the Operator Addition it plans, with the one
 /// move out of the folder every ingest makes: its Additions Job then moves it into its Additions Set, repacked as
 /// TorrentZip, and the original is deleted only once the copy reads back as exactly the ROM the item was assessed to
@@ -320,6 +340,7 @@ fn add_from_ingest(
         sha256: Some(payload.sha256.clone()),
     };
     let target = crate::additions::check_new(tx, new, &rom.name)?;
+    target.check_reviewed(new, item.addition_target.as_ref())?;
     let set = crate::additions::ensure_set(tx, target.dat)?;
     let path: String = tx.query_row(
         "SELECT path FROM additions_sets WHERE id = ?1",
@@ -357,6 +378,7 @@ fn add_from_ingest(
         &item.name,
         crate::additions::Link::Ingest(mv),
         &rom,
+        item.addition_target.as_ref(),
         actor,
     )?;
     Ok(())
@@ -1428,6 +1450,7 @@ impl Store {
             }
             let kept = kept_name(&item.name, 1);
             let mut addition = None;
+            let mut addition_target = None;
             let mut destination = format!("{RETENTION}/{generation}/{kept}");
             let (reason, provider) = match request.action {
                 IngestAction::Discard => ("you discarded it".to_owned(), None),
@@ -1459,9 +1482,9 @@ impl Store {
                         .member
                         .clone()
                         .unwrap_or_else(|| item.name.clone());
-                    let file_name = self
-                        .read(|c| crate::additions::check_new(c, new, &rom))?
-                        .file_name;
+                    let target = self.read(|c| crate::additions::check_new(c, new, &rom))?;
+                    let file_name = target.file_name.clone();
+                    addition_target = Some(target.reviewed());
                     if additions
                         .insert((new.system.clone(), new.name.to_lowercase()), ())
                         .is_some()
@@ -1530,6 +1553,7 @@ impl Store {
                 reason,
                 provider,
                 addition,
+                addition_target,
             });
         }
         let content = IngestPlanContent {
@@ -1651,6 +1675,7 @@ impl Store {
             // them are recorded at once: a Job never sees part of an approval.
             return self.write(|tx| {
                 approve(tx)?;
+                stale_targets(tx, content)?;
                 let mut outcomes = Vec::new();
                 let mut adding = false;
                 for item in &content.items {

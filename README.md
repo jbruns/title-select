@@ -677,8 +677,10 @@ by its own hashes (CRC32, MD5, SHA-1, SHA-256 and size) and a name you give it, 
 name a parent game, which is shown and nothing more. Each system has an additions set: the folder named after its DAT
 in the root named `additions`, created by its first addition with a marker naming this store. Each addition is stored
 there in the format the storage policy says for its system's source sets when you approve it: as TorrentZip,
-`<name>.zip`, holding its one ROM, or loose, as the ROM itself named `<name>` with the ROM's extension. A build writes
-it in its play library's format, under its name. You choose an addition's system; the system the file's extension
+`<name>.zip`, holding its one ROM, or loose, as the ROM itself named `<name>` with the ROM's extension. The plan
+shows that file name, and you approve it with the plan: if the storage policy changes before you approve, the
+approval is refused and you plan again. A build writes it in its play library's format, under its name, and converts
+it between formats as it converts a game, deleting the original only when the policy says to. You choose an addition's system; the system the file's extension
 suggests is filled in when there is one.
 
 You add one from three places, each through a plan you approve:

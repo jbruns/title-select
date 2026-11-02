@@ -1315,6 +1315,8 @@ fn plan_items(
                 parent: a.addition.parent.clone(),
                 loose: a.addition.loose,
             });
+            // Converting it between formats keeps aside, and may delete, its old file as a game's conversion does.
+            item.converts = converts(inputs, files, scan, &item);
             items.push(item);
             continue;
         }
@@ -1755,6 +1757,7 @@ impl Store {
                         &entry.name,
                         crate::additions::Link::Drift(id),
                         rom,
+                        entry.addition_target.as_ref(),
                         actor,
                     )?;
                 }

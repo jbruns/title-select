@@ -356,6 +356,7 @@ impl Store {
                         group: String::new(),
                         torrentzip: probe.is_none_or(|p| p.torrentzip),
                         addition: None,
+                        addition_target: None,
                     };
                     let why = match entry.action {
                         None => None,
@@ -392,9 +393,10 @@ impl Store {
                                                 new.name, new.system
                                             ))
                                         }
-                                        Ok(_) => {
+                                        Ok(target) => {
                                             entry.roms = vec![rom];
                                             entry.addition = Some(new.clone());
+                                            entry.addition_target = Some(target.reviewed());
                                             Ok(())
                                         }
                                         Err(Error::Refused(why) | Error::Conflict(why)) => Err(why),

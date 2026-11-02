@@ -1799,3 +1799,279 @@ fn an_addition_is_stored_as_the_storage_policy_says_and_built_in_the_play_librar
     env.build(&plan);
     assert_eq!(std::fs::read(dir.join("My Hack.a26")).unwrap(), b"hack");
 }
+
+/// Sets the storage policy of source sets, and so of Additions Sets, for `system` to `format`.
+fn source_sets_store(env: &Env, system: &str, format: title_select_api::storage::StorageFormat) {
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.systems.insert(
+        system.into(),
+        title_select_api::storage::SystemStorage {
+            format: Some(format),
+            delete_originals: None,
+        },
+    );
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+}
+
+#[test]
+fn a_play_library_converts_its_additions_one_at_a_time_deleting_originals_only_when_asked() {
+    use title_select_api::storage::StorageFormat;
+    let env = Env::new();
+    env.audit();
+    for (file, name) in [("hack.a26", "My Hack"), ("demo.a26", "Demo")] {
+        env.ingest(file, |p| write_file(p, name.as_bytes()));
+        env.approve_ingest(&env.plan_ingest(file, new(name)));
+    }
+    env.opt_in(true);
+    let folder = env.folder();
+    let dir = env.play().join("atari");
+    let selection = env.record(&pong(&env.sha256));
+    env.build(
+        &env.store
+            .plan_build(&env.config, folder.id, selection)
+            .unwrap(),
+    );
+    assert!(dir.join("My Hack.zip").is_file() && dir.join("Demo.zip").is_file());
+
+    // Loose, with originals deleted: each converted file verifies before its original is deleted, and the next
+    // conversion keeps its original aside only once the one before is done.
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.play_libraries.format = StorageFormat::Loose;
+    policy.play_libraries.delete_originals = true;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    let plan = env
+        .store
+        .plan_build(&env.config, folder.id, selection)
+        .unwrap();
+    for (game, original) in [("My Hack", "My Hack.zip"), ("Demo", "Demo.zip")] {
+        let item = plan.content.items.iter().find(|i| i.game == game).unwrap();
+        assert_eq!(
+            item.converts.as_ref().map(|k| k.name.as_str()),
+            Some(original),
+            "{item:#?}"
+        );
+    }
+    assert!(
+        plan.content.removals.is_empty(),
+        "{:?}",
+        plan.content.removals
+    );
+    let retained = dir.join(".title-select-retained");
+    let held = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = held.clone();
+    let count = move |dir: &Path| -> usize {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|g| std::fs::read_dir(g.path()).map_or(0, |e| e.count()))
+            .sum()
+    };
+    let at = retained.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::ConversionKept(_)) {
+                seen.lock().unwrap().push(count(&at));
+            }
+        })));
+    env.build(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(
+        *held.lock().unwrap(),
+        [1, 1, 1],
+        "one original, of Pong and each addition, kept aside at a time"
+    );
+    assert_eq!(std::fs::read(dir.join("My Hack.a26")).unwrap(), b"My Hack");
+    assert_eq!(std::fs::read(dir.join("Demo.a26")).unwrap(), b"Demo");
+    assert!(!dir.join("My Hack.zip").exists() && !dir.join("Demo.zip").exists());
+    assert!(
+        env.store.kept_files(folder.id).unwrap().is_empty(),
+        "each original is deleted once its loose file verifies"
+    );
+
+    // Back to TorrentZip, with originals kept: each loose file is kept aside, not deleted.
+    policy.play_libraries.format = StorageFormat::TorrentZip;
+    policy.play_libraries.delete_originals = false;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    let plan = env
+        .store
+        .plan_build(&env.config, folder.id, selection)
+        .unwrap();
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .filter(|i| i.addition.is_some())
+            .all(|i| i.converts.is_some()),
+        "{:#?}",
+        plan.content.items
+    );
+    env.build(&plan);
+    assert!(dir.join("My Hack.zip").is_file() && dir.join("Demo.zip").is_file());
+    let kept: BTreeSet<String> = env
+        .store
+        .kept_files(folder.id)
+        .unwrap()
+        .into_iter()
+        .map(|k| k.name)
+        .collect();
+    assert_eq!(
+        kept,
+        BTreeSet::from(["My Hack.a26", "Demo.a26", "Pong (USA).a26"].map(String::from))
+    );
+}
+
+#[test]
+fn an_ingest_addition_is_published_only_where_its_plan_said() {
+    use title_select_api::storage::StorageFormat;
+    let env = Env::new();
+    env.ingest("hack.a26", |p| write_file(p, b"hack"));
+    let plan = env.plan_ingest("hack.a26", new("My Hack"));
+    let target = plan.content.items[0].addition_target.clone().unwrap();
+    assert_eq!(
+        (target.file_name.as_str(), target.loose),
+        ("My Hack.zip", false)
+    );
+
+    source_sets_store(&env, SYSTEM, StorageFormat::Loose);
+    let refused =
+        env.store
+            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    assert!(
+        matches!(&refused, Err(title_select_store::Error::Conflict(why)) if why.contains("storage policy changed")),
+        "{refused:?}"
+    );
+    assert!(env.settle().is_empty());
+    assert!(
+        env.store
+            .additions_sets()
+            .unwrap()
+            .iter()
+            .all(|s| s.additions.is_empty())
+    );
+    assert_eq!(
+        std::fs::read(env.ingest_dir().join("hack.a26")).unwrap(),
+        b"hack"
+    );
+
+    // Planned again, it is reviewed loose, and published so.
+    let plan = env.plan_ingest("hack.a26", new("My Hack"));
+    assert!(plan.content.items[0].destination.contains("My Hack.a26"));
+    env.approve_ingest(&plan);
+    assert_eq!(
+        std::fs::read(env.additions().join("My Hack.a26")).unwrap(),
+        b"hack"
+    );
+}
+
+#[test]
+fn a_repair_addition_of_another_system_is_published_only_where_its_plan_said() {
+    use title_select_api::storage::StorageFormat;
+    let env = Env::new();
+    let dat = write_dat_version(&env.tmp.path().join("dats"), "other.dat", "other", &games());
+    env.store.import_dat(&dat, "Other", None).unwrap();
+    const OTHER: &str = "Other/Test - System";
+    write_file(&env.set().join("Homebrew.a26"), b"homebrew");
+    env.audit();
+    let plan = env.plan_repair(
+        "file:Homebrew.a26",
+        Some(NewAddition {
+            system: OTHER.into(),
+            name: "Homebrew".into(),
+            parent: None,
+        }),
+    );
+    let item = plan
+        .content
+        .items
+        .iter()
+        .find(|i| i.addition.is_some())
+        .unwrap();
+    assert_eq!(
+        item.addition_target
+            .as_ref()
+            .map(|t| (t.file_name.as_str(), t.loose)),
+        Some(("Homebrew.zip", false))
+    );
+
+    // Only the other system's policy changes: the repaired source set's own is as the plan saw it.
+    source_sets_store(&env, OTHER, StorageFormat::Loose);
+    let refused = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    assert!(
+        matches!(&refused, Err(title_select_store::Error::Conflict(why)) if why.contains("storage policy changed")),
+        "{refused:?}"
+    );
+    assert!(env.store.claim_job().unwrap().is_none());
+    assert!(
+        env.store
+            .additions_sets()
+            .unwrap()
+            .iter()
+            .all(|s| s.additions.is_empty())
+    );
+    assert_eq!(
+        std::fs::read(env.set().join("Homebrew.a26")).unwrap(),
+        b"homebrew"
+    );
+}
+
+#[test]
+fn a_drift_addition_is_published_only_where_its_cleanup_plan_said() {
+    use title_select_api::storage::StorageFormat;
+    let env = Env::new();
+    env.audit();
+    let selection = env.record(&pong(&env.sha256));
+    let folder = env.folder();
+    env.build(
+        &env.store
+            .plan_build(&env.config, folder.id, selection)
+            .unwrap(),
+    );
+    let dir = env.play().join("atari");
+    write_file(&dir.join("Extra.a26"), b"extra");
+    let job = env.store.enqueue_check(folder.id, "Operator").unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    env.store.run_check_job(&env.config, job.id, None).unwrap();
+    let plan = env
+        .store
+        .plan_cleanup(
+            &env.config,
+            folder.id,
+            &PlanCleanup {
+                entries: BTreeMap::from([("Extra.a26".to_owned(), CleanupAction::AddAddition)]),
+                additions: BTreeMap::from([("Extra.a26".to_owned(), new("Extra"))]),
+                ..PlanCleanup::default()
+            },
+        )
+        .unwrap();
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    let entry = plan.content.cleanup.as_ref().unwrap().entries.iter();
+    let entry = entry.clone().find(|e| e.name == "Extra.a26").unwrap();
+    assert_eq!(
+        entry
+            .addition_target
+            .as_ref()
+            .map(|t| (t.file_name.as_str(), t.loose)),
+        Some(("Extra.zip", false))
+    );
+
+    source_sets_store(&env, SYSTEM, StorageFormat::Loose);
+    let refused = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    assert!(
+        matches!(&refused, Err(title_select_store::Error::Conflict(_))),
+        "{refused:?}"
+    );
+    assert!(env.store.claim_job().unwrap().is_none());
+    assert!(
+        env.store
+            .additions_sets()
+            .unwrap()
+            .iter()
+            .all(|s| s.additions.is_empty())
+    );
+    assert_eq!(std::fs::read(dir.join("Extra.a26")).unwrap(), b"extra");
+}

@@ -106,6 +106,9 @@ pub struct RepairItem {
     /// descriptor while the file held still when the plan was made. It is published only while it still holds it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition_rom: Option<crate::build::ExpectedRom>,
+    /// When it is added as an Operator Addition: where it is published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addition_target: Option<crate::additions::AdditionTarget>,
 }
 
 /// A file as the plan saw it, which a step changes only while it is still so.

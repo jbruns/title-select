@@ -326,6 +326,9 @@ pub struct IngestPlanItem {
     /// For an Operator Addition: its system, name and parent Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<NewAddition>,
+    /// For an Operator Addition: where it is published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addition_target: Option<crate::additions::AdditionTarget>,
 }
 
 /// What an approval binds: the items, where each goes, and the whole folder as it was seen.

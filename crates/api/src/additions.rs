@@ -171,6 +171,14 @@ pub struct NewAddition {
     pub parent: Option<String>,
 }
 
+/// Where a planned Operator Addition is published in its Additions Set, as the plan was reviewed: its file name, and
+/// whether it is stored loose. An approval refuses a plan whose addition would now be published otherwise.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdditionTarget {
+    pub file_name: String,
+    pub loose: bool,
+}
+
 /// A change to an Operator Addition's name or parent Game. The name is applied at the next build.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditAddition {

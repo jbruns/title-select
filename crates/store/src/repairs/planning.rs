@@ -155,6 +155,7 @@ fn game_item(game: &str, target: &str, kind: RepairKind, summary: String) -> Rep
         note: None,
         addition: None,
         addition_rom: None,
+        addition_target: None,
     }
 }
 
@@ -301,6 +302,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     note: None,
                     addition: None,
                     addition_rom: None,
+                    addition_target: None,
                 },
                 proposal: None,
                 displaces: match chosen {
@@ -747,6 +749,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 note: None,
                 addition,
                 addition_rom: None,
+                addition_target: None,
             },
             proposal: None,
             displaces: vec![(path.to_string(), summary)],

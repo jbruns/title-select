@@ -21,8 +21,8 @@ use std::io;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
 use title_select_api::additions::{
-    Addition, AdditionSource, AdditionState, AdditionsCheck, AdditionsEntry, AdditionsFinding,
-    AdditionsLeftover, AdditionsMarker, AdditionsSet, EditAddition, NewAddition,
+    Addition, AdditionSource, AdditionState, AdditionTarget, AdditionsCheck, AdditionsEntry,
+    AdditionsFinding, AdditionsLeftover, AdditionsMarker, AdditionsSet, EditAddition, NewAddition,
 };
 use title_select_api::build::{ExpectedRom, FileStat, MARKER, invalid_name};
 use title_select_api::storage::{Storage, StorageScope, target_of};
@@ -328,6 +328,42 @@ pub(crate) struct NewTarget {
     pub loose: bool,
 }
 
+impl NewTarget {
+    /// What a plan records of it, for its approval to check.
+    pub(crate) fn reviewed(&self) -> AdditionTarget {
+        AdditionTarget {
+            file_name: self.file_name.clone(),
+            loose: self.loose,
+        }
+    }
+
+    /// Refuses, as stale, a plan that reviewed `new` as published at `reviewed` when it would now be published here.
+    pub(crate) fn check_reviewed(
+        &self,
+        new: &NewAddition,
+        reviewed: Option<&AdditionTarget>,
+    ) -> Result<()> {
+        let now = self.reviewed();
+        match reviewed {
+            Some(reviewed) if *reviewed == now => Ok(()),
+            Some(reviewed) => Err(Error::Conflict(format!(
+                "{} of {} would now be published as {}{}, not as {}{} as the plan said, because the storage policy \
+                 changed; nothing was approved. Plan again and review the new plan",
+                new.name,
+                new.system,
+                now.file_name,
+                if now.loose { " (loose)" } else { "" },
+                reviewed.file_name,
+                if reviewed.loose { " (loose)" } else { "" },
+            ))),
+            None => Err(Error::Conflict(format!(
+                "the plan does not say where {} of {} is published; nothing was approved. Plan again",
+                new.name, new.system
+            ))),
+        }
+    }
+}
+
 /// Checks that `new`, whose one ROM is named `rom`, can be added: its system is a registered DAT, and its name a
 /// valid one no other addition of that system has. Returns where it is published, in the format the storage policy
 /// says for its system's source sets now.
@@ -418,20 +454,24 @@ pub(crate) fn ensure_set(tx: &Transaction, dat: i64) -> Result<i64> {
 
 /// Records the intent to add `new`, which came from `origin`, reached by `link`, as approved by `actor`, with `rom`,
 /// the one ROM its file was read to hold when the plan was made: it is published only while it still holds exactly
-/// that. Returns its id. Its Additions Job is queued by whatever approved it, once what adds it may be published.
+/// that, and only where the plan said, `reviewed`. Returns its id. Its Additions Job is queued by whatever approved it,
+/// once what adds it may be published.
 pub(crate) fn insert_addition(
     tx: &Transaction,
     new: &NewAddition,
     origin: &str,
     link: Link,
     rom: &ExpectedRom,
+    reviewed: Option<&AdditionTarget>,
     actor: &str,
 ) -> Result<i64> {
+    let target = check_new(tx, new, &rom.name)?;
+    target.check_reviewed(new, reviewed)?;
     let NewTarget {
         dat,
         file_name,
         loose,
-    } = check_new(tx, new, &rom.name)?;
+    } = target;
     let set = ensure_set(tx, dat)?;
     let (source, move_id, repair_plan, repair_item, cleanup_plan) = match link {
         Link::Ingest(id) => (AdditionSource::Ingest, Some(id), None, None, None),

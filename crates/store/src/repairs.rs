@@ -608,12 +608,12 @@ impl Store {
             }
         }
         let mut names = std::collections::HashSet::new();
-        for (new, rom) in planned
-            .items
-            .iter()
-            .filter_map(|i| i.addition.as_ref().zip(i.addition_rom.as_ref()))
-        {
-            self.read(|c| crate::additions::check_new(c, new, &rom.name).map(|_| ()))?;
+        for item in planned.items.iter_mut() {
+            let (Some(new), Some(rom)) = (&item.addition, &item.addition_rom) else {
+                continue;
+            };
+            let target = self.read(|c| crate::additions::check_new(c, new, &rom.name))?;
+            item.addition_target = Some(target.reviewed());
             if !names.insert((new.system.clone(), new.name.to_lowercase())) {
                 return Err(Error::Refused(format!(
                     "two files would be added as the operator addition {} of {}; choose another name for one",
@@ -818,6 +818,7 @@ impl Store {
                         path,
                         crate::additions::Link::Repair { plan: id, key: &item.key },
                         rom,
+                        item.addition_target.as_ref(),
                         actor,
                     )?;
                 }
