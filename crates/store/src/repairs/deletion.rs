@@ -16,7 +16,10 @@ use super::{MarkerRule, open_repairable, repair_active};
 use crate::additions::{additions_kept_reserved, set_of_system, source_kept_reserved};
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
-use crate::kept::{Scope, open_area_deleting, open_retention, reads_as_reviewed, review_kept};
+use crate::kept::{
+    Scope, Unlinked, open_area_deleting, open_retention, reads_as_reviewed, review_kept,
+    unlink_verified,
+};
 use crate::plans::{json, to_json};
 use crate::sets::set_by_name;
 use crate::{Error, Result, Store, now};
@@ -750,15 +753,30 @@ impl Store {
             None if kept => deleting.open_file(&slot).ok(),
             None => None,
         };
-        let unchanged = match &held {
-            Some(held) => kept && reads_as(held, file, reviewed, self.slot_ctime(owner, file)?)?,
-            None => false,
+        let unlinked = match &held {
+            Some(held) if kept => unlink_verified(
+                deleting,
+                &slot,
+                held,
+                Identity::from(file.identity),
+                &file.file,
+                reviewed,
+                self.slot_ctime(owner, file)?,
+            )?,
+            _ => Unlinked::NotTheFile,
         };
-        if unchanged && is_kept(deleting, &slot, file)? {
-            deleting.unlink(&slot).map_err(io)?;
-            deleting.sync().map_err(io)?;
-            self.settle_source_kept(owner, file, "deleted", None)?;
-            return Ok(outcome(file, true, None));
+        match unlinked {
+            Unlinked::Deleted => {
+                deleting.sync().map_err(io)?;
+                self.settle_source_kept(owner, file, "deleted", None)?;
+                return Ok(outcome(file, true, None));
+            }
+            Unlinked::Failed(e) => {
+                return Err(Error::Io(format!(
+                    ".title-select-retained/.deleting/{slot} could not be deleted ({e})"
+                )));
+            }
+            Unlinked::NotTheFile | Unlinked::Changed => {}
         }
         // Not the file that was kept, or changed since you reviewed it: put back, never deleted.
         let back = match &generation {

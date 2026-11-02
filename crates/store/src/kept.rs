@@ -624,7 +624,7 @@ pub(super) fn reads_as_reviewed(
 }
 
 /// What [`unlink_verified`] did with a kept file moved aside to be deleted.
-enum Unlinked {
+pub(super) enum Unlinked {
     Deleted,
     /// The descriptor or the entry is no longer the kept file.
     NotTheFile,
@@ -633,11 +633,12 @@ enum Unlinked {
     Failed(String),
 }
 
-/// The one way a kept file moved aside to `slot` in `deleting` is deleted: only once it is verified through `held`,
+/// The one way a kept file, of a Managed Folder, a Source Set or an Additions Set, moved aside to `slot` in `deleting`
+/// is deleted: only once it is verified through `held`,
 /// a descriptor on it, still to be the regular file `identity` with `file`'s size and mtime that hashes as
 /// `reviewed` while its ctime, size and mtime hold still at `ctime`, the ctime read through the descriptor held
 /// across its rename there; and only while `held` and the entry are still that file just before it is unlinked.
-fn unlink_verified(
+pub(super) fn unlink_verified(
     deleting: &FolderDir,
     slot: &str,
     held: &std::fs::File,
