@@ -9,9 +9,10 @@ use std::time::UNIX_EPOCH;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{
-    Approval, Blocker, BlockerKind, Cause, CheckSummary, ExpectedRom, FileOutcome, FileStat,
-    FolderCheck, ItemKind, KeepAside, KeepReason, Plan, PlanBuild, PlanChange, PlanChoices,
-    PlanContent, PlanItem, PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING, invalid_name,
+    Approval, Blocker, BlockerKind, Cause, CheckSummary, ExpectedRom, FileIdentity, FileOutcome,
+    FileStat, FolderCheck, ItemKind, KeepAside, KeepReason, Plan, PlanBuild, PlanChange,
+    PlanChoices, PlanContent, PlanItem, PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING,
+    invalid_name,
 };
 use title_select_api::report::{Entry, EvidenceLevel, Finding};
 use title_select_api::selection::{ReleaseRow, Role, Selection, diff_rows};
@@ -609,6 +610,7 @@ fn removals(
 struct Candidate<'a> {
     entry: &'a Entry,
     file: FileStat,
+    identity: FileIdentity,
     copyable: bool,
 }
 
@@ -621,7 +623,7 @@ struct Sources<'a> {
     /// The ROMs only Claim Evidence holds.
     claimed: HashSet<(String, String)>,
     by_path: HashMap<&'a str, Vec<&'a Entry>>,
-    stats: HashMap<&'a str, Option<FileStat>>,
+    stats: HashMap<&'a str, Option<(FileStat, FileIdentity)>>,
     copyable: HashMap<(&'a str, String), bool>,
 }
 
@@ -664,8 +666,8 @@ impl<'a> Sources<'a> {
         }
     }
 
-    /// The source file at `path`, confined to the Source Set's Root.
-    fn file(&mut self, path: &'a str) -> Option<FileStat> {
+    /// The source file at `path`, confined to the Source Set's Root, and its identity.
+    fn file(&mut self, path: &'a str) -> Option<(FileStat, FileIdentity)> {
         let set_dir = &self.set_dir;
         self.stats
             .entry(path)
@@ -679,7 +681,16 @@ impl<'a> Sources<'a> {
                 std::fs::metadata(&real)
                     .ok()
                     .filter(Metadata::is_file)
-                    .map(|m| stat(&m))
+                    .map(|m| {
+                        use std::os::unix::fs::MetadataExt;
+                        (
+                            stat(&m),
+                            FileIdentity {
+                                dev: m.dev(),
+                                ino: m.ino(),
+                            },
+                        )
+                    })
             })
             .clone()
     }
@@ -735,11 +746,12 @@ impl<'a> Sources<'a> {
             let mut candidates: Vec<Candidate> = entries
                 .into_iter()
                 .filter_map(|entry| {
-                    let file = self.file(&entry.path)?;
+                    let (file, identity) = self.file(&entry.path)?;
                     let copyable = entry.member.is_some() && self.copyable(&entry.path, game, roms);
                     Some(Candidate {
                         entry,
                         file,
+                        identity,
                         copyable,
                     })
                 })
@@ -1172,6 +1184,7 @@ fn plan_items(
                         finding: c.entry.finding,
                         evidence: c.entry.evidence.as_ref().map(|e| e.level),
                         file: c.file.clone(),
+                        identity: Some(c.identity),
                     })
                     .collect();
                 item.converts = converts(inputs, files, scan, &item);

@@ -21,7 +21,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{
     BuildDetail, BuildItem, BuildSummary, BuiltFile, ExpectedRom, FileStat, IncompleteReason,
-    ItemKind, ItemState, Marker, PlanItem, PlanRemoval, RemovalKind, STAGING,
+    ItemKind, ItemState, Marker, PlanItem, PlanRemoval, PlanSource, RemovalKind, STAGING,
 };
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
@@ -104,15 +104,42 @@ pub(super) fn still_sha256(file: &File, ctime: i128) -> io::Result<Option<String
     Ok((at(&before) == at(&after)).then_some(sha256))
 }
 
+/// Opens `source` in the Source Set's folder `set` for reading, through held directory handles that follow no
+/// symlink, while it is the regular file the plan found there.
+fn open_source(
+    set: &std::result::Result<FolderDir, String>,
+    source: &PlanSource,
+) -> std::result::Result<File, String> {
+    let set = set.as_ref().map_err(Clone::clone)?;
+    let at = |e: std::io::Error| format!("{}: {e}", source.path);
+    let mut parts: Vec<&str> = source.path.split('/').collect();
+    let name = parts.pop().unwrap_or_default();
+    let mut held: Option<FolderDir> = None;
+    for part in parts {
+        let sub = held.as_ref().unwrap_or(set).sub(part).map_err(at)?;
+        held = Some(sub);
+    }
+    let file = held.as_ref().unwrap_or(set).open_file(name).map_err(at)?;
+    let st = rustix::fs::fstat(&file).map_err(|e| at(e.into()))?;
+    let identity = source.identity.map(Identity::from);
+    if identity != Some(Identity::of(&st)) || file_stat(&st) != source.file {
+        return Err(format!(
+            "{} is not the file the plan found there; plan again",
+            source.path
+        ));
+    }
+    Ok(file)
+}
+
 /// Writes `item` to `file`, new in the staging directory at `staged`, and verifies it.
 fn stage(
     item: &PlanItem,
     file: &mut File,
     staged: &Path,
-    set_dir: &Path,
-    set_root: &Path,
+    set: (&Path, &Path, &std::result::Result<FolderDir, String>),
     built_at: SystemTime,
 ) -> std::result::Result<Staged, Failure> {
+    let (set_dir, set_root, set_fd) = set;
     let sources: Vec<PathBuf> = item
         .sources
         .iter()
@@ -136,8 +163,7 @@ fn stage(
                     "a loose file is written from one source for its one ROM".into(),
                 ));
             };
-            let opened = File::open(&sources[0])
-                .map_err(|e| Failure::Item(format!("{}: {e}", sources[0].display())))?;
+            let opened = open_source(set_fd, source).map_err(Failure::Item)?;
             write_loose(file, &[(rom, 0, source.member.as_deref())], &[&opened])
                 .map_err(Failure::Item)?;
         }
@@ -636,6 +662,7 @@ impl Store {
             }
         }
         let (set_dir, set_root) = self.set_folder(config, folder_row.source_set_id)?;
+        let set_fd = self.set_folder_dir(config, folder_row.source_set_id)?;
         // The files to write, then the files to adopt, which are only recorded.
         let (writes, adopts): (Vec<&PlanItem>, Vec<&PlanItem>) = content
             .items
@@ -765,8 +792,7 @@ impl Store {
                 w.item,
                 &mut file,
                 &staged_path,
-                &set_dir,
-                &set_root,
+                (&set_dir, &set_root, &set_fd),
                 built_at,
             ) {
                 Err(Failure::Item(error)) => {

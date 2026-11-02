@@ -358,6 +358,9 @@ pub struct PlanSource {
     pub evidence: Option<EvidenceLevel>,
     /// The file at `path`.
     pub file: FileStat,
+    /// Which file the plan found at `path`: a loose file is written from it only while it is still that file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<FileIdentity>,
 }
 
 /// One selected release in a plan.

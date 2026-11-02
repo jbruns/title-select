@@ -4656,6 +4656,50 @@ fn a_cleanup_adopts_a_loose_file_where_the_storage_policy_stores_its_game_loose(
 }
 
 #[test]
+fn a_loose_file_is_written_only_from_the_source_file_the_plan_found() {
+    for swap in ["symlink", "other file"] {
+        let env = Env::new();
+        set_play_policy(&env, StorageFormat::Loose, None, false);
+        env.audit();
+        let id = titles(&env, &["Combat (USA)"]);
+        let folder = env.folder("atari2600");
+        let plan = env.plan(&folder, id);
+        let combat = item(&plan, "Combat (USA)");
+        assert_eq!((combat.kind, combat.loose), (ItemKind::Repack, true));
+        let source = env.set_dir().join(&combat.sources[0].path);
+        let job = env
+            .store
+            .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        let meta = std::fs::metadata(&source).unwrap();
+        let elsewhere = env.set_dir().join("elsewhere.zip");
+        std::fs::copy(&source, &elsewhere).unwrap();
+        std::fs::remove_file(&source).unwrap();
+        if swap == "symlink" {
+            std::os::unix::fs::symlink(&elsewhere, &source).unwrap();
+        } else {
+            std::fs::copy(&elsewhere, &source).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&source)
+                .unwrap()
+                .set_modified(meta.modified().unwrap())
+                .unwrap();
+        }
+
+        env.store.claim_job().unwrap().unwrap();
+        env.store.run_build_job(&env.config, job.id, None).unwrap();
+
+        let dir = env.play().join("atari2600");
+        assert!(!dir.join("Combat (USA).a26").exists(), "{swap}");
+        assert!(
+            env.store.built_files(folder.id).unwrap().is_empty(),
+            "{swap}"
+        );
+    }
+}
+
+#[test]
 fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
     let env = Env::new();
     let (folder, id) = built_as_zips(&env);
