@@ -409,6 +409,30 @@ impl Store {
         Ok(Ok(()))
     }
 
+    /// Deletes the original a conversion kept aside as kept file `id`, recorded as being deleted, as an approved
+    /// deletion does: only while it still reads as `read`, the hash the conversion read it as and the ctime read
+    /// through the descriptor held across the rename that kept it. Otherwise it stays kept.
+    pub(super) fn delete_converted(
+        &self,
+        dir: &FolderDir,
+        id: i64,
+        read: &KeptFileReviewed,
+    ) -> Result<KeptDeletionOutcome> {
+        let file = self.read(|c| {
+            Ok(c.query_row(&format!("{KEPT_QUERY} WHERE id = ?1"), [id], kept_from_row)?)
+        })?;
+        let deleting = match open_area_deleting(self, Scope::Source(file.source_set), dir, true)? {
+            Ok(Some(deleting)) => deleting,
+            Ok(None) => {
+                return Err(Error::Io(
+                    "the folder kept files are deleted from is missing".into(),
+                ));
+            }
+            Err(why) => return Err(Error::Io(why)),
+        };
+        self.delete_source_kept(dir, &deleting, &file, Some(read))
+    }
+
     fn set_slot_ctime(&self, file: &SourceKeptFile, ctime: Option<i128>) -> Result<()> {
         self.write(|tx| {
             tx.execute(

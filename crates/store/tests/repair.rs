@@ -275,9 +275,13 @@ fn a_game_not_stored_as_torrentzip_is_repacked_and_its_original_kept() {
     env.audit(AuditEvidence::Full);
 
     let plan = env.plan();
-    for game in ["Combat (USA)", "Yars (USA)", "Adventure (USA)"] {
+    for (game, kind) in [
+        ("Combat (USA)", RepairKind::Repack),
+        ("Yars (USA)", RepairKind::Convert),
+        ("Adventure (USA)", RepairKind::Repack),
+    ] {
         let found = item(&plan, &format!("game:{game}"));
-        assert_eq!(found.kind, RepairKind::Repack, "{game}");
+        assert_eq!(found.kind, kind, "{game}");
         assert_eq!(found.default, RepairChoice::Apply, "{game}");
     }
     let done = env.approve(&plan);

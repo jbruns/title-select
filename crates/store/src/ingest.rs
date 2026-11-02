@@ -1543,6 +1543,7 @@ impl Store {
                     },
                     repack: None,
                     exact: None,
+                    loose: false,
                 },
             )?;
             outcomes.push(match moved {

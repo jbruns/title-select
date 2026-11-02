@@ -17,6 +17,7 @@ mod profiles;
 mod repairs;
 mod selections;
 mod sets;
+mod storage;
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
@@ -224,6 +225,12 @@ pub enum Fault {
     /// After recovery syncs both folders a stopped deletion of the kept file with this id touches, before it is
     /// checked, deleted or recorded.
     KeptDeletionSynced(i64),
+    /// After the converted file of a repair's Delete step with this sequence number is verified, before the deletion
+    /// of its original is recorded.
+    ConversionVerified(u32),
+    /// After a Build keeps aside the original of the conversion of the item with this sequence number, before it
+    /// verifies the converted file to delete the original.
+    ConversionKept(i64),
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.

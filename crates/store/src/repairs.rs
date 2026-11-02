@@ -22,11 +22,12 @@ use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, kept_name};
 use title_select_api::ingest::FolderEntry;
 use title_select_api::repair::{
-    PlanRepair, PlannedStep, RepairOutcome, RepairPlan, RepairPlanContent, RepairRom, RepairStep,
+    KeptFileReviewed, PlanRepair, PlannedStep, RepairOutcome, RepairPlan, RepairPlanContent, RepairRom, RepairStep,
     SeenFile, SourceSetMarker,
 };
+use title_select_api::storage::StorageScope;
 use title_select_api::{AuditEvidence, Job, JobKind, JobState, Workers};
-use title_select_engine::build::{FromSource, repack_sources, verify};
+use title_select_engine::build::{FromSource, repack_sources, verify, verify_loose, write_loose};
 use title_select_engine::dat::Dat;
 use title_select_engine::{FileStamp, Progress};
 
@@ -222,18 +223,28 @@ fn is_seen(dir: &FolderDir, name: &str, seen: &Seen) -> io::Result<bool> {
 }
 
 /// Whether `name` in `dir`, opened without following a symlink, is still the file `seen` and is valid TorrentZip
-/// holding exactly `roms`, each payload hashed again.
+/// holding exactly `roms`, each payload hashed again; or, `loose`, exactly the one ROM of `roms`.
 fn holds_exactly(
     dir: &FolderDir,
     name: &str,
     seen: &Seen,
     roms: &[ExpectedRom],
+    loose: bool,
 ) -> io::Result<std::result::Result<(), String>> {
     let file = dir.open_file(name)?;
     if Seen::of(&rustix::fs::fstat(&file)?) != *seen {
         return Ok(Err("it changed while it was opened".into()));
     }
-    Ok(verify(&file, roms))
+    Ok(checks_as(&file, roms, loose))
+}
+
+/// Whether `file` is exactly `roms` as stored: valid TorrentZip holding them, or, `loose`, the one ROM of them.
+fn checks_as(file: &File, roms: &[ExpectedRom], loose: bool) -> std::result::Result<(), String> {
+    match (loose, roms) {
+        (false, _) => verify(file, roms),
+        (true, [rom]) => verify_loose(file, rom),
+        (true, _) => Err("a loose file is one ROM".into()),
+    }
 }
 
 /// Whether `name` in `dir` is, without following a symlink, the regular file `id`.
@@ -543,6 +554,8 @@ impl Store {
                     title_select_engine::torrentzip::central(&mut io::BufReader::new(file)).is_ok()
                 })
         };
+        let storage =
+            self.read(|c| crate::storage::policy(c, StorageScope::SourceSets, &record.dat))?;
         let planned = planning::plan(&planning::Inputs {
             report: &report,
             dat: &dat,
@@ -552,6 +565,7 @@ impl Store {
             torrentzip: &torrentzip,
             candidates: &candidates,
             choices: &request.choices,
+            storage,
         })?;
         let (generation, marked) = self.read(|c| source_folder(c, set.id))?;
         let content = RepairPlanContent {
@@ -568,6 +582,7 @@ impl Store {
             steps: planned.steps,
             fingerprint,
             notes: planned.notes,
+            storage,
         };
         let digest = digest(&content);
         self.write(|tx| {
@@ -694,6 +709,12 @@ impl Store {
                 return Err(Error::Conflict(format!(
                     "source set {} was audited again since the plan was made; plan the repair again from the \
                      latest audit",
+                    content.source_set
+                )));
+            }
+            if crate::storage::policy(tx, StorageScope::SourceSets, &set.record.dat)? != content.storage {
+                return Err(Error::Conflict(format!(
+                    "the storage policy for source set {} changed since the plan was made; plan the repair again",
                     content.source_set
                 )));
             }
@@ -1405,7 +1426,8 @@ impl Store {
                 target,
                 roms,
                 sources,
-            } => self.run_build(r, step, target, roms, sources),
+                loose,
+            } => self.run_build(r, step, target, roms, sources, *loose),
             RepairStep::Keep {
                 path,
                 kept_name,
@@ -1434,9 +1456,16 @@ impl Store {
                 to,
                 seen,
                 roms,
-            } => self.run_rename(r, step, from, to, &seen_of(seen), roms),
+                loose,
+            } => self.run_rename(r, step, from, to, &seen_of(seen), roms, *loose),
             RepairStep::Publish { build, target } => self.run_publish(r, step, *build, target),
             RepairStep::Fill { .. } => self.run_fill(config, r, step),
+            RepairStep::Delete {
+                path,
+                build,
+                keep,
+                publish,
+            } => self.run_delete(r, step, path, *build, *keep, *publish),
         }
     }
 
@@ -1449,6 +1478,7 @@ impl Store {
         target: &str,
         roms: &[RepairRom],
         sources: &BTreeMap<String, SeenFile>,
+        loose: bool,
     ) -> Ran {
         let dir = &r.dir;
         // A staged file a stop left being deleted is deleted before anything is staged again.
@@ -1463,9 +1493,10 @@ impl Store {
                 Some(id) if is_file(dir, staged_name, id).map_err(io_err)? => {
                     let file = dir.open_file(staged_name).map_err(io_err)?;
                     let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
-                    if verify(&file, &expected).is_ok() && file.sync_all().is_ok() {
+                    if checks_as(&file, &expected, loose).is_ok() && file.sync_all().is_ok() {
                         dir.sync().map_err(io_err)?;
-                        return self.build_staged(step, &file);
+                        // Its source was not read now, so no hash of it is trusted, and a conversion keeps it.
+                        return self.build_staged(step, &file, None);
                     }
                     drop(file);
                     if let Err(why) = self.discard_staged(r, step, staged_name, id)? {
@@ -1509,7 +1540,7 @@ impl Store {
             )?;
             Ok(())
         })?;
-        let written = (|| -> std::result::Result<(), String> {
+        let written = (|| -> std::result::Result<Option<String>, String> {
             let mut opened: Vec<File> = Vec::new();
             let mut index: HashMap<&str, usize> = HashMap::new();
             for (path, seen) in sources {
@@ -1533,9 +1564,12 @@ impl Store {
                 .map(|rom| (&rom.rom, index[rom.from.as_str()], rom.member.as_deref()))
                 .collect();
             let refs: Vec<&File> = opened.iter().collect();
-            repack_sources(&file, &from, &refs)?;
+            let read = match loose {
+                true => write_loose(&file, &from, &refs)?,
+                false => repack_sources(&file, &from, &refs)?,
+            };
             let expected: Vec<_> = roms.iter().map(|r| r.rom.clone()).collect();
-            verify(&file, &expected)
+            checks_as(&file, &expected, loose)
                 .map_err(|why| format!("the new {target} did not check: {why}"))?;
             for ((path, seen), source) in sources.iter().zip(&opened) {
                 let st = rustix::fs::fstat(source).map_err(|e| e.to_string())?;
@@ -1546,28 +1580,41 @@ impl Store {
                 }
             }
             file.sync_all().map_err(|e| e.to_string())?;
-            Ok(())
+            // What the one file a conversion reads was, hashed as it was read while its stamp, ctime included,
+            // held still: the hash its original must still have to be deleted.
+            Ok(match read.as_slice() {
+                [(sha, size)] if sources.len() == 1 => sources
+                    .values()
+                    .next()
+                    .filter(|seen| seen.file.size == *size)
+                    .map(|_| sha.clone()),
+                _ => None,
+            })
         })();
-        if let Err(why) = written {
-            self.stamp_staged(step, &file)?;
-            // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
-            if let Err(left) = self.discard_staged(r, step, &staged_name, id)? {
-                return Ok(Err(format!("{why}; {left}")));
+        let source_sha = match written {
+            Ok(sha) => sha,
+            Err(why) => {
+                self.stamp_staged(step, &file)?;
+                // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
+                if let Err(left) = self.discard_staged(r, step, &staged_name, id)? {
+                    return Ok(Err(format!("{why}; {left}")));
+                }
+                return self.step_failed(step, "failed", why);
             }
-            return self.step_failed(step, "failed", why);
-        }
+        };
         dir.sync().map_err(io_err)?;
-        self.build_staged(step, &file)
+        self.build_staged(step, &file, source_sha)
     }
 
     /// Records a Build step done, with the stamp of what it staged read through `file`, the descriptor that wrote or
     /// checked it.
-    fn build_staged(&self, step: &StepRow, file: &File) -> Ran {
+    fn build_staged(&self, step: &StepRow, file: &File, source_sha: Option<String>) -> Ran {
         let sha = self.stamp_staged(step, file)?;
         self.write(|tx| {
             tx.execute(
-                "UPDATE repair_steps SET state = 'done', sha256 = ?2, finished_at = ?3 WHERE id = ?1",
-                params![step.id, sha, now()],
+                "UPDATE repair_steps SET state = 'done', sha256 = ?2, finished_at = ?3, source_sha256 = ?4
+                 WHERE id = ?1",
+                params![step.id, sha, now(), source_sha],
             )?;
             Ok(())
         })?;
@@ -1933,7 +1980,7 @@ impl Store {
         };
         let generation = &retention.generation;
         let in_place = is_seen(parent, name, seen).map_err(io_err)?;
-        let mut _pin = None;
+        let mut pin = None;
         if step.state == "pending" || (in_place && step.state == "moving") {
             if !in_place {
                 self.fail_step(
@@ -1944,7 +1991,7 @@ impl Store {
                 return Ok(Ok(None));
             }
             self.step_state(step, "moving")?;
-            _pin = parent.pin(name, seen.identity);
+            pin = parent.pin(name, seen.identity);
             if let Err(e) = parent.rename_new(name, generation, kept) {
                 self.fail_step(
                     step,
@@ -1980,6 +2027,12 @@ impl Store {
             }
         };
         let file = file_stat(&st);
+        // Its ctime once kept, read through the descriptor held across the rename: never one read from a name.
+        let kept_ctime = pin
+            .as_ref()
+            .and_then(|pin| rustix::fs::fstat(pin).ok())
+            .filter(|st| Identity::of(st) == seen.identity && file_stat(st) == seen.file)
+            .map(|st| ctime_ns(&st).to_string());
         let (dev, ino) = seen.identity.to_sql();
         let kept_id = self.write(|tx| {
             let recorded: Option<(i64, i64, i64, String)> = tx
@@ -2001,8 +2054,8 @@ impl Store {
             }
             tx.execute(
                 "INSERT INTO source_kept (source_set_id, plan_id, generation, name, kept_name, reason, size,
-                                          mtime_ns, dev, ino, kept_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                                          mtime_ns, dev, ino, kept_at, kept_ctime_ns)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     content.set_id,
                     r.plan.id,
@@ -2014,7 +2067,8 @@ impl Store {
                     file.mtime_ns.to_string(),
                     dev,
                     ino,
-                    now()
+                    now(),
+                    kept_ctime
                 ],
             )?;
             let id = tx.last_insert_rowid();
@@ -2114,6 +2168,7 @@ impl Store {
 
     /// Renames `from` to `to`, by one rename that never replaces anything, while `from` is the file `seen` and reads
     /// as exactly `roms`.
+    #[allow(clippy::too_many_arguments)]
     fn run_rename(
         &self,
         r: &Repairing,
@@ -2122,6 +2177,7 @@ impl Store {
         to: &str,
         seen: &Seen,
         roms: &[ExpectedRom],
+        loose: bool,
     ) -> Ran {
         let (parent, name) = match parent_of(&r.dir, from) {
             Ok(found) => found,
@@ -2140,7 +2196,7 @@ impl Store {
                     format!("{from} changed since the plan was made; it was left as it is"),
                 );
             }
-            if let Err(why) = holds_exactly(parent, name, seen, roms).map_err(io_err)? {
+            if let Err(why) = holds_exactly(parent, name, seen, roms, loose).map_err(io_err)? {
                 return self.step_failed(
                     step,
                     "failed",
@@ -2427,6 +2483,154 @@ impl Store {
 
     /// Fills a Game from an Ingest Folder item with the move out of an Ingest Folder, its intent recorded with the
     /// step. The item's original is deleted only when the move names the one ROM it is, exactly.
+    /// Deletes `path`, the original a conversion read and kept aside, once the converted file is verified: still the
+    /// file the Build step `build` wrote and stamped, as the Publish step `publish` put it in place, and exactly the
+    /// Game's ROMs as stored. The original is deleted only while it still reads as the Build read it, through the
+    /// stamp kept with it by the Keep step `keep`; without that stamp, or with anything else amiss, it stays kept.
+    fn run_delete(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        path: &str,
+        build: u32,
+        keep: u32,
+        publish: u32,
+    ) -> Ran {
+        let kept = |why: String| Some(format!("{path} stays in the kept files: {why}"));
+        let (keep_state, kept_id): (String, Option<i64>) = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT state, kept_id FROM repair_steps WHERE plan_id = ?1 AND seq = ?2",
+                params![r.plan.id, keep as i64],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?)
+        })?;
+        let Some(kept_id) = kept_id.filter(|_| keep_state == "done") else {
+            return self.step_failed(
+                step,
+                "skipped",
+                format!("{path} was not deleted, since it was not kept aside"),
+            );
+        };
+        let (state, kept_ctime, error): (String, Option<String>, Option<String>) = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT state, kept_ctime_ns, error FROM source_kept WHERE id = ?1",
+                [kept_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )?)
+        })?;
+        let (source_sha, staged_sha): (Option<String>, Option<String>) = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT source_sha256, staged_sha256 FROM repair_steps WHERE plan_id = ?1 AND seq = ?2",
+                params![r.plan.id, build as i64],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?)
+        })?;
+        match (state.as_str(), step.state.as_str()) {
+            ("deleted", _) => {
+                self.step_done(step, Some(format!("{path} was deleted once its converted file was verified")))?;
+                return Ok(Ok(()));
+            }
+            ("gone", _) => {
+                self.step_done(step, kept("it was gone when it was to be deleted".into()))?;
+                return Ok(Ok(()));
+            }
+            ("kept", "moving") => {
+                self.step_done(step, kept(error.unwrap_or_else(|| "it was not deleted".into())))?;
+                return Ok(Ok(()));
+            }
+            ("kept", _) => {}
+            ("deleting", _) => {}
+            (other, _) => {
+                self.step_done(step, kept(format!("it is {other}")))?;
+                return Ok(Ok(()));
+            }
+        }
+        let read = match (source_sha, kept_ctime.and_then(|at| at.parse::<i128>().ok())) {
+            (Some(sha256), Some(ctime_ns)) => KeptFileReviewed {
+                id: kept_id,
+                ctime_ns,
+                sha256,
+            },
+            _ => {
+                self.step_done(
+                    step,
+                    kept("no stamp read as it was converted and kept can show it is unchanged".into()),
+                )?;
+                return Ok(Ok(()));
+            }
+        };
+        if state == "kept" {
+            if let Err(why) = self.converted_verified(r, build, publish, staged_sha.as_deref())? {
+                self.step_done(step, kept(format!("its converted file did not verify: {why}")))?;
+                return Ok(Ok(()));
+            }
+            self.fault_point(Fault::ConversionVerified(step.seq));
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE source_kept SET state = 'deleting', error = NULL WHERE id = ?1 AND state = 'kept'",
+                    [kept_id],
+                )?;
+                tx.execute(
+                    "UPDATE repair_steps SET state = 'moving' WHERE id = ?1",
+                    [step.id],
+                )?;
+                Ok(())
+            })?;
+        }
+        let outcome = self.delete_converted(&r.dir, kept_id, &read)?;
+        let note = match outcome.deleted {
+            true => Some(format!("{path} was deleted once its converted file was verified")),
+            false => kept(outcome.detail.unwrap_or_else(|| "it was not deleted".into())),
+        };
+        self.step_done(step, note)?;
+        self.fault_point(Fault::RepairStepDone(step.seq));
+        Ok(Ok(()))
+    }
+
+    /// Whether the file Build step `build` wrote is in place as Publish step `publish` put it: the same file, with
+    /// the stamp and SHA-256 `staged_sha` read through the descriptor that wrote it, and, read again, exactly its
+    /// Game's ROMs as stored. `Err` says why not.
+    fn converted_verified(
+        &self,
+        r: &Repairing,
+        build: u32,
+        publish: u32,
+        staged_sha: Option<&str>,
+    ) -> Result<std::result::Result<(), String>> {
+        let built = self.other_step(r.plan.id, build)?;
+        let published = self.other_step(r.plan.id, publish)?;
+        let (RepairStep::Build {
+            target,
+            roms,
+            loose,
+            ..
+        }, "done", "done") = (&built.step, built.state.as_str(), published.state.as_str())
+        else {
+            return Ok(Err("it was not put in place".into()));
+        };
+        let (Some(id), Some(stamp), Some(staged_sha)) =
+            (built.staged, self.staged_stamp(r.plan.id, build)?, staged_sha)
+        else {
+            return Ok(Err("it has no stamp recorded as it was written".into()));
+        };
+        let file = match r.dir.open_file(target) {
+            Ok(file) => file,
+            Err(e) => return Ok(Err(format!("{target} could not be read: {e}"))),
+        };
+        let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
+        if Identity::of(&st) != id || file_stat(&st) != stamp {
+            return Ok(Err(format!("{target} is no longer the file written")));
+        }
+        let Some(sha) = still_sha256(&file, ctime_ns(&st)).map_err(io_err)? else {
+            return Ok(Err(format!("{target} changed while it was read")));
+        };
+        if sha != staged_sha {
+            return Ok(Err(format!("{target} no longer reads as it was written")));
+        }
+        let expected: Vec<ExpectedRom> = roms.iter().map(|r| r.rom.clone()).collect();
+        Ok(checks_as(&file, &expected, *loose))
+    }
+
     fn run_fill(&self, config: &Config, r: &Repairing, step: &StepRow) -> Ran {
         let RepairStep::Fill {
             target,
@@ -2437,6 +2641,7 @@ impl Store {
             sha256,
             roms,
             exact,
+            loose,
         } = &step.step
         else {
             unreachable!("a fill step");
@@ -2502,12 +2707,17 @@ impl Store {
                         name: target.clone(),
                         generation,
                     },
-                    repack: Some(
-                        roms.iter()
-                            .map(|rom| (rom.rom.clone(), rom.member.clone()))
-                            .collect(),
-                    ),
+                    // A loose file of the one ROM is moved as it is; anything else is written as the policy stores it.
+                    repack: match (loose, roms.as_slice()) {
+                        (true, [only]) if only.member.is_none() => None,
+                        _ => Some(
+                            roms.iter()
+                                .map(|rom| (rom.rom.clone(), rom.member.clone()))
+                                .collect(),
+                        ),
+                    },
                     exact: exact.clone(),
+                    loose: *loose,
                 };
                 let recorded = self.record_move(config, mv, &mut |tx, move_id| {
                     tx.execute(
