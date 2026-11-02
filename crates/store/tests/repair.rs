@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use common::*;
 use title_select_api::build::PlanKeptDeletion;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
+use title_select_api::storage::{StorageFormat, SystemStorage};
 use title_select_api::{AuditEvidence, Finding, GameStatus, JobKind, JobState};
 use title_select_engine::build::is_torrentzip;
 use title_select_store::config::Config;
@@ -2164,4 +2165,327 @@ fn a_published_fill_replaced_before_its_original_is_disposed_of_ends_the_fill_on
     );
     assert_eq!(std::fs::read(&published).unwrap(), b"intruder");
     assert_eq!(env.ingest_listing(), ["combat.zip"]);
+}
+
+fn set_source_policy(env: &Env, format: StorageFormat, delete_originals: bool) {
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.format = format;
+    policy.source_sets.delete_originals = delete_originals;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+}
+
+/// The sequence number of the first step of `plan` that `which` picks.
+fn step_seq(plan: &RepairPlan, which: impl Fn(&RepairStep) -> bool) -> u32 {
+    plan.content
+        .steps
+        .iter()
+        .position(|s| which(&s.step))
+        .unwrap_or_else(|| panic!("no such step in {:#?}", plan.content.steps)) as u32
+}
+
+#[test]
+fn a_source_set_is_converted_to_loose_and_back_with_each_original_kept() {
+    let env = Env::new();
+    env.put("Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let to_zip = env.plan();
+    assert_eq!(item(&to_zip, "game:Pong (USA)").kind, RepairKind::Convert);
+    let zipped = env.approve(&to_zip);
+    assert_eq!(
+        env.listing(),
+        [
+            ".title-select",
+            ".title-select-retained/1/Pong (USA).a26.kept",
+            "Pong (USA).zip"
+        ]
+    );
+    assert!(is_torrentzip(&env.set().join("Pong (USA).zip")));
+
+    env.run_queued_audit(&zipped);
+    set_source_policy(&env, StorageFormat::Loose, false);
+    let to_loose = env.plan();
+    let pong = item(&to_loose, "game:Pong (USA)");
+    assert_eq!(pong.kind, RepairKind::Convert);
+    assert!(pong.summary.contains("loose"), "{}", pong.summary);
+    let adventure_note = to_loose
+        .content
+        .notes
+        .iter()
+        .any(|n| n.contains("more than one ROM"));
+    assert!(adventure_note, "{:?}", to_loose.content.notes);
+    let done = env.approve(&to_loose);
+    let listing = env.listing();
+    assert!(listing.contains(&"Pong (USA).a26".to_string()), "{listing:?}");
+    assert!(!listing.contains(&"Pong (USA).zip".to_string()), "{listing:?}");
+    assert_eq!(
+        std::fs::read(env.set().join("Pong (USA).a26")).unwrap(),
+        b"pong"
+    );
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert_eq!(kept.len(), 2, "{kept:?}");
+    assert!(kept.iter().any(|k| k.name == "Pong (USA).zip"), "{kept:?}");
+
+    env.run_queued_audit(&done);
+    let report = env.latest_report();
+    let pong = report.games.iter().find(|g| g.name == "Pong (USA)");
+    assert_eq!(pong.unwrap().status, GameStatus::Complete);
+    assert!(
+        env.plan().content.items.is_empty(),
+        "nothing more to convert"
+    );
+}
+
+#[test]
+fn a_game_with_more_than_one_rom_is_never_stored_loose() {
+    let env = Env::new();
+    set_source_policy(&env, StorageFormat::Loose, false);
+    env.put("Adventure (USA).a26", b"adventure");
+    env.put("Adventure (USA).txt", b"manual");
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let adventure = item(&plan, "game:Adventure (USA)");
+    assert_ne!(adventure.kind, RepairKind::Convert);
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("more than one ROM") && n.contains("TorrentZip")),
+        "{:?}",
+        plan.content.notes
+    );
+    env.approve(&plan);
+    assert!(is_torrentzip(&env.set().join("Adventure (USA).zip")));
+}
+
+#[test]
+fn a_systems_own_format_beats_the_default() {
+    let env = Env::new();
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.format = StorageFormat::Loose;
+    policy.source_sets.systems.insert(
+        "Test/Test - System".into(),
+        SystemStorage {
+            format: Some(StorageFormat::TorrentZip),
+            delete_originals: None,
+        },
+    );
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    write_zip(
+        &env.set().join("Pong (USA).zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+    env.put("Yars (USA).a26", b"yars");
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Yars (USA)").kind, RepairKind::Convert);
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Repack);
+    env.approve(&plan);
+    assert!(is_torrentzip(&env.set().join("Yars (USA).zip")));
+    assert!(is_torrentzip(&env.set().join("Pong (USA).zip")));
+}
+
+#[test]
+fn a_plan_made_before_the_storage_policy_changed_is_refused() {
+    let env = Env::new();
+    env.put("Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    set_source_policy(&env, StorageFormat::Loose, false);
+
+    let refused = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+
+    assert!(
+        matches!(&refused, Err(Error::Conflict(why)) if why.contains("storage policy")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn with_delete_originals_on_an_original_is_deleted_once_its_converted_file_verifies() {
+    let env = Env::new();
+    set_source_policy(&env, StorageFormat::TorrentZip, true);
+    env.put("Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    assert!(
+        plan.content
+            .steps
+            .iter()
+            .any(|s| matches!(s.step, RepairStep::Delete { .. })),
+        "{:#?}",
+        plan.content.steps
+    );
+    let done = env.approve(&plan);
+
+    assert_eq!(env.listing(), [".title-select", "Pong (USA).zip"]);
+    assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
+    let pong = done
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Pong (USA)")
+        .unwrap();
+    assert!(
+        pong.detail.iter().any(|d| d.contains("was deleted")),
+        "{pong:?}"
+    );
+}
+
+#[test]
+fn an_original_that_changed_after_it_was_converted_is_kept() {
+    let env = Env::new();
+    set_source_policy(&env, StorageFormat::TorrentZip, true);
+    env.put("Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let delete = step_seq(&plan, |s| matches!(s, RepairStep::Delete { .. }));
+    let kept = env.set().join(".title-select-retained/1/Pong (USA).a26.kept");
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::ConversionVerified(delete) {
+            write_file(&kept, b"pong, changed");
+        }
+    })));
+
+    let done = env.approve(&plan);
+
+    let listing = env.listing();
+    assert!(
+        listing.contains(&".title-select-retained/1/Pong (USA).a26.kept".to_string()),
+        "{listing:?}"
+    );
+    assert_eq!(env.store.source_kept_files("Alpha").unwrap().len(), 1);
+    let pong = done
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Pong (USA)")
+        .unwrap();
+    assert!(
+        pong.detail.iter().any(|d| d.contains("stays in the kept files")),
+        "{pong:?}"
+    );
+}
+
+#[test]
+fn an_original_whose_converted_file_does_not_verify_is_kept() {
+    let env = Env::new();
+    set_source_policy(&env, StorageFormat::TorrentZip, true);
+    env.put("Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let delete = step_seq(&plan, |s| matches!(s, RepairStep::Delete { .. }));
+    let target = env.set().join("Pong (USA).zip");
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::RepairStepDone(delete - 1) {
+            write_file(&target, b"not a zip");
+        }
+    })));
+
+    let done = env.approve(&plan);
+
+    let listing = env.listing();
+    assert!(
+        listing.contains(&".title-select-retained/1/Pong (USA).a26.kept".to_string()),
+        "{listing:?}"
+    );
+    let pong = done
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Pong (USA)")
+        .unwrap();
+    assert!(
+        pong.detail.iter().any(|d| d.contains("did not verify")),
+        "{pong:?}"
+    );
+}
+
+#[test]
+fn a_conversion_the_service_stopped_in_ends_with_its_original_deleted_or_kept() {
+    let env = Env::new();
+    set_source_policy(&env, StorageFormat::TorrentZip, true);
+    env.put("Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let delete = step_seq(&plan, |s| matches!(s, RepairStep::Delete { .. }));
+    let stops = [
+        Fault::ConversionVerified(delete),
+        Fault::SourceKeptSynced(1),
+        Fault::SourceKeptMoved(1),
+        Fault::RepairStepDone(delete),
+    ];
+    drop(env);
+    for stop in stops {
+        let env = Env::new();
+        set_source_policy(&env, StorageFormat::TorrentZip, true);
+        env.put("Pong (USA).a26", b"pong");
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan();
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        env.store.inject_fault(Some(stop));
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.run_repair_job(&approved)
+        }));
+        assert!(ran.is_err(), "{stop:?}: {ran:?}");
+        env.store.inject_fault(None);
+
+        let recovered = env.store.recover_jobs(WORKERS).unwrap();
+        if let Some(requeued) = recovered.first().and_then(|r| r.requeued.clone()) {
+            assert_eq!(requeued.repair, Some(plan.id), "{stop:?}");
+            let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+            assert_eq!(ended.state, JobState::Succeeded, "{stop:?}: {ended:?}");
+        }
+        env.store.fulfil_repair_audits().unwrap();
+        let done = env.store.repair_plan(plan.id).unwrap();
+        assert!(done.finished_at.is_some(), "{stop:?}");
+        assert!(done.outcomes.iter().all(|o| o.done), "{stop:?}: {done:#?}");
+        assert_eq!(
+            env.listing(),
+            [".title-select", "Pong (USA).zip"],
+            "{stop:?}"
+        );
+        assert!(
+            env.store.source_kept_files("Alpha").unwrap().is_empty(),
+            "{stop:?}"
+        );
+    }
+}
+
+#[test]
+fn an_ingest_fill_into_a_loose_source_set_is_stored_loose() {
+    let env = Env::new();
+    set_source_policy(&env, StorageFormat::Loose, false);
+    env.audit(AuditEvidence::Full);
+    env.ingest("pong.a26", |p| write_file(p, b"pong"));
+    env.ingest("combat.zip", |p| {
+        write_zip(p, &[("Combat (USA).a26", b"combat")])
+    });
+
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Fill);
+    assert_eq!(item(&plan, "game:Combat (USA)").kind, RepairKind::Fill);
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        env.listing(),
+        [".title-select", "Combat (USA).a26", "Pong (USA).a26"]
+    );
+    assert_eq!(
+        std::fs::read(env.set().join("Combat (USA).a26")).unwrap(),
+        b"combat"
+    );
+    let kept = env.store.ingest_kept_files("in").unwrap();
+    assert_eq!(kept.len(), 1, "the zip is kept; the loose file was moved");
+    assert_eq!(kept[0].name, "combat.zip");
+    env.run_queued_audit(&done);
+    let report = env.latest_report();
+    for game in ["Pong (USA)", "Combat (USA)"] {
+        let found = report.games.iter().find(|g| g.name == game);
+        assert_eq!(found.unwrap().status, GameStatus::Complete, "{game}");
+    }
 }
