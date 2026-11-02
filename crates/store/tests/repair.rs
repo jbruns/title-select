@@ -2215,8 +2215,14 @@ fn a_source_set_is_converted_to_loose_and_back_with_each_original_kept() {
     assert!(adventure_note, "{:?}", to_loose.content.notes);
     let done = env.approve(&to_loose);
     let listing = env.listing();
-    assert!(listing.contains(&"Pong (USA).a26".to_string()), "{listing:?}");
-    assert!(!listing.contains(&"Pong (USA).zip".to_string()), "{listing:?}");
+    assert!(
+        listing.contains(&"Pong (USA).a26".to_string()),
+        "{listing:?}"
+    );
+    assert!(
+        !listing.contains(&"Pong (USA).zip".to_string()),
+        "{listing:?}"
+    );
     assert_eq!(
         std::fs::read(env.set().join("Pong (USA).a26")).unwrap(),
         b"pong"
@@ -2343,7 +2349,9 @@ fn an_original_that_changed_after_it_was_converted_is_kept() {
     env.audit(AuditEvidence::Full);
     let plan = env.plan();
     let delete = step_seq(&plan, |s| matches!(s, RepairStep::Delete { .. }));
-    let kept = env.set().join(".title-select-retained/1/Pong (USA).a26.kept");
+    let kept = env
+        .set()
+        .join(".title-select-retained/1/Pong (USA).a26.kept");
     env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
         if at == Fault::ConversionVerified(delete) {
             write_file(&kept, b"pong, changed");
@@ -2364,7 +2372,9 @@ fn an_original_that_changed_after_it_was_converted_is_kept() {
         .find(|o| o.item == "game:Pong (USA)")
         .unwrap();
     assert!(
-        pong.detail.iter().any(|d| d.contains("stays in the kept files")),
+        pong.detail
+            .iter()
+            .any(|d| d.contains("stays in the kept files")),
         "{pong:?}"
     );
 }

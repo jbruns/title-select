@@ -11,9 +11,9 @@ use rustix::fs::{FileType, Stat};
 use title_select_api::build::{
     CheckSummary, CheckedFile, DriftEntry, DriftKind, FileOutcome, FileStat, FolderCheck,
 };
+use title_select_api::storage::{Storage, StorageFormat, target_of};
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
-use title_select_api::storage::{Storage, StorageFormat, target_of};
 use title_select_engine::build::{GameIndex, Probe, holds_as, probe};
 use title_select_engine::dat::Dat;
 

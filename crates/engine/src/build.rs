@@ -374,9 +374,7 @@ pub fn write_loose(
 /// lists.
 pub fn verify_loose(file: &File, rom: &ExpectedRom) -> Result<(), String> {
     let mut reader = file;
-    reader
-        .seek(SeekFrom::Start(0))
-        .map_err(|e| e.to_string())?;
+    reader.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     let mut hasher = Hasher::new();
     let mut buf = vec![0; CHUNK];
     loop {
@@ -387,10 +385,7 @@ pub fn verify_loose(file: &File, rom: &ExpectedRom) -> Result<(), String> {
         hasher.update(&buf[..n]);
     }
     if !matches(&hasher.finish(), rom) {
-        return Err(format!(
-            "{}: it does not hash to the DAT's ROM",
-            rom.name
-        ));
+        return Err(format!("{}: it does not hash to the DAT's ROM", rom.name));
     }
     Ok(())
 }

@@ -22,8 +22,8 @@ use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, kept_name};
 use title_select_api::ingest::FolderEntry;
 use title_select_api::repair::{
-    KeptFileReviewed, PlanRepair, PlannedStep, RepairOutcome, RepairPlan, RepairPlanContent, RepairRom, RepairStep,
-    SeenFile, SourceSetMarker,
+    KeptFileReviewed, PlanRepair, PlannedStep, RepairOutcome, RepairPlan, RepairPlanContent,
+    RepairRom, RepairStep, SeenFile, SourceSetMarker,
 };
 use title_select_api::storage::StorageScope;
 use title_select_api::{AuditEvidence, Job, JobKind, JobState, Workers};
@@ -2511,13 +2511,14 @@ impl Store {
                 format!("{path} was not deleted, since it was not kept aside"),
             );
         };
-        let (state, kept_ctime, error): (String, Option<String>, Option<String>) = self.read(|c| {
-            Ok(c.query_row(
-                "SELECT state, kept_ctime_ns, error FROM source_kept WHERE id = ?1",
-                [kept_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )?)
-        })?;
+        let (state, kept_ctime, error): (String, Option<String>, Option<String>) =
+            self.read(|c| {
+                Ok(c.query_row(
+                    "SELECT state, kept_ctime_ns, error FROM source_kept WHERE id = ?1",
+                    [kept_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )?)
+            })?;
         let (source_sha, staged_sha): (Option<String>, Option<String>) = self.read(|c| {
             Ok(c.query_row(
                 "SELECT source_sha256, staged_sha256 FROM repair_steps WHERE plan_id = ?1 AND seq = ?2",
@@ -2527,7 +2528,12 @@ impl Store {
         })?;
         match (state.as_str(), step.state.as_str()) {
             ("deleted", _) => {
-                self.step_done(step, Some(format!("{path} was deleted once its converted file was verified")))?;
+                self.step_done(
+                    step,
+                    Some(format!(
+                        "{path} was deleted once its converted file was verified"
+                    )),
+                )?;
                 return Ok(Ok(()));
             }
             ("gone", _) => {
@@ -2535,7 +2541,10 @@ impl Store {
                 return Ok(Ok(()));
             }
             ("kept", "moving") => {
-                self.step_done(step, kept(error.unwrap_or_else(|| "it was not deleted".into())))?;
+                self.step_done(
+                    step,
+                    kept(error.unwrap_or_else(|| "it was not deleted".into())),
+                )?;
                 return Ok(Ok(()));
             }
             ("kept", _) => {}
@@ -2545,7 +2554,10 @@ impl Store {
                 return Ok(Ok(()));
             }
         }
-        let read = match (source_sha, kept_ctime.and_then(|at| at.parse::<i128>().ok())) {
+        let read = match (
+            source_sha,
+            kept_ctime.and_then(|at| at.parse::<i128>().ok()),
+        ) {
             (Some(sha256), Some(ctime_ns)) => KeptFileReviewed {
                 id: kept_id,
                 ctime_ns,
@@ -2554,14 +2566,20 @@ impl Store {
             _ => {
                 self.step_done(
                     step,
-                    kept("no stamp read as it was converted and kept can show it is unchanged".into()),
+                    kept(
+                        "no stamp read as it was converted and kept can show it is unchanged"
+                            .into(),
+                    ),
                 )?;
                 return Ok(Ok(()));
             }
         };
         if state == "kept" {
             if let Err(why) = self.converted_verified(r, build, publish, staged_sha.as_deref())? {
-                self.step_done(step, kept(format!("its converted file did not verify: {why}")))?;
+                self.step_done(
+                    step,
+                    kept(format!("its converted file did not verify: {why}")),
+                )?;
                 return Ok(Ok(()));
             }
             self.fault_point(Fault::ConversionVerified(step.seq));
@@ -2579,8 +2597,14 @@ impl Store {
         }
         let outcome = self.delete_converted(&r.dir, kept_id, &read)?;
         let note = match outcome.deleted {
-            true => Some(format!("{path} was deleted once its converted file was verified")),
-            false => kept(outcome.detail.unwrap_or_else(|| "it was not deleted".into())),
+            true => Some(format!(
+                "{path} was deleted once its converted file was verified"
+            )),
+            false => kept(
+                outcome
+                    .detail
+                    .unwrap_or_else(|| "it was not deleted".into()),
+            ),
         };
         self.step_done(step, note)?;
         self.fault_point(Fault::RepairStepDone(step.seq));
@@ -2599,18 +2623,24 @@ impl Store {
     ) -> Result<std::result::Result<(), String>> {
         let built = self.other_step(r.plan.id, build)?;
         let published = self.other_step(r.plan.id, publish)?;
-        let (RepairStep::Build {
-            target,
-            roms,
-            loose,
-            ..
-        }, "done", "done") = (&built.step, built.state.as_str(), published.state.as_str())
+        let (
+            RepairStep::Build {
+                target,
+                roms,
+                loose,
+                ..
+            },
+            "done",
+            "done",
+        ) = (&built.step, built.state.as_str(), published.state.as_str())
         else {
             return Ok(Err("it was not put in place".into()));
         };
-        let (Some(id), Some(stamp), Some(staged_sha)) =
-            (built.staged, self.staged_stamp(r.plan.id, build)?, staged_sha)
-        else {
+        let (Some(id), Some(stamp), Some(staged_sha)) = (
+            built.staged,
+            self.staged_stamp(r.plan.id, build)?,
+            staged_sha,
+        ) else {
             return Ok(Err("it has no stamp recorded as it was written".into()));
         };
         let file = match r.dir.open_file(target) {

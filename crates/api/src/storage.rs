@@ -124,8 +124,7 @@ pub fn is_default(storage: &Storage) -> bool {
 }
 
 /// Why a Game is stored as TorrentZip where the policy says loose.
-pub const MULTI_ROM_STAYS_ZIP: &str =
-    "it has more than one ROM, and only a game with one ROM can be stored loose, so it stays TorrentZip";
+pub const MULTI_ROM_STAYS_ZIP: &str = "it has more than one ROM, and only a game with one ROM can be stored loose, so it stays TorrentZip";
 
 /// Why a single-ROM Game is stored as TorrentZip where the policy says loose.
 pub const NOT_A_FILE_NAME: &str =

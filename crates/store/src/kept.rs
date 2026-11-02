@@ -849,12 +849,14 @@ impl Store {
             })?;
             return Err(Error::Refused(error));
         }
-        let kept_ctime = held.as_ref().and_then(|held| match rustix::fs::fstat(held) {
-            Ok(st) if Identity::of(&st) == id && file_stat(&st) == k.keep.file => {
-                Some(ctime_ns(&st))
-            }
-            _ => None,
-        });
+        let kept_ctime = held
+            .as_ref()
+            .and_then(|held| match rustix::fs::fstat(held) {
+                Ok(st) if Identity::of(&st) == id && file_stat(&st) == k.keep.file => {
+                    Some(ctime_ns(&st))
+                }
+                _ => None,
+            });
         self.write(|tx| {
             settle_kept(tx, row)?;
             tx.execute(
@@ -1037,13 +1039,12 @@ impl Store {
             )?;
             Ok(())
         })?;
-        gen_dir
-            .sync()
-            .and_then(|()| deleting.sync())
-            .map_err(io)?;
+        gen_dir.sync().and_then(|()| deleting.sync()).map_err(io)?;
         self.fault_point(Fault::AfterDeleteMove(file.id));
         let unchanged = match slot_ctime {
-            Some(ctime) => is_kept_file(&deleting, &slot, id, Some(&file.file)) && reads_as(&held, ctime)?,
+            Some(ctime) => {
+                is_kept_file(&deleting, &slot, id, Some(&file.file)) && reads_as(&held, ctime)?
+            }
             None => false,
         };
         if !unchanged || !is_kept_file(&deleting, &slot, id, Some(&file.file)) {
@@ -1763,15 +1764,17 @@ impl Store {
         {
             let ctime = ctime.as_deref().and_then(|c| c.parse::<i128>().ok());
             let trusted = match (sha256, ctime) {
-                (Some(sha256), Some(ctime)) if is_kept_file(deleting, &slot, id, Some(&file.file)) => {
+                (Some(sha256), Some(ctime))
+                    if is_kept_file(deleting, &slot, id, Some(&file.file)) =>
+                {
                     deleting.open_file(&slot).ok().is_some_and(|held| {
-                        rustix::fs::fstat(&held).is_ok_and(|st| {
-                            Identity::of(&st) == id && file_stat(&st) == file.file
-                        }) && super::builds::still_sha256(&held, ctime)
-                            .ok()
-                            .flatten()
-                            .as_deref()
-                            == Some(sha256.as_str())
+                        rustix::fs::fstat(&held)
+                            .is_ok_and(|st| Identity::of(&st) == id && file_stat(&st) == file.file)
+                            && super::builds::still_sha256(&held, ctime)
+                                .ok()
+                                .flatten()
+                                .as_deref()
+                                == Some(sha256.as_str())
                     })
                 }
                 _ => false,

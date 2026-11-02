@@ -197,7 +197,9 @@ fn converted_verified(
     };
     let before = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
     let recorded = match dir.stat(target).map_err(io)? {
-        Some(st) => Identity::of(&st) == Identity::of(&before) && file_stat(&st) == file_stat(&before),
+        Some(st) => {
+            Identity::of(&st) == Identity::of(&before) && file_stat(&st) == file_stat(&before)
+        }
         None => false,
     };
     if !recorded {
@@ -977,10 +979,7 @@ impl Store {
                         self.fault_point(Fault::ConversionKept(seq));
                         if content.storage.delete_originals {
                             let note = match converted_verified(&dir, w.item)? {
-                                Err(why) => format!(
-                                    "{} stays in the kept files: {why}",
-                                    keep.name
-                                ),
+                                Err(why) => format!("{} stays in the kept files: {why}", keep.name),
                                 Ok(()) => {
                                     let outcome =
                                         self.delete_converted_kept(&dir, kept, &approved.actor)?;

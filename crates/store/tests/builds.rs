@@ -4580,7 +4580,11 @@ fn item<'a>(plan: &'a Plan, game: &str) -> &'a title_select_api::build::PlanItem
 }
 
 /// Approves `plan` and runs its Build Job with `hook` called at each fault it passes.
-fn build_hooked(env: &Env, plan: &Plan, hook: impl Fn(Fault) + Send + Sync + 'static) -> title_select_api::Job {
+fn build_hooked(
+    env: &Env,
+    plan: &Plan,
+    hook: impl Fn(Fault) + Send + Sync + 'static,
+) -> title_select_api::Job {
     env.store.hook_faults(Some(std::sync::Arc::new(hook)));
     let job = env.build(plan);
     env.store.hook_faults(None);
@@ -4595,7 +4599,12 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
     let zipped = std::fs::read(dir.join("Pong (USA).zip")).unwrap();
 
     // The default stays TorrentZip; this system's own format says loose.
-    set_play_policy(&env, StorageFormat::TorrentZip, Some(StorageFormat::Loose), false);
+    set_play_policy(
+        &env,
+        StorageFormat::TorrentZip,
+        Some(StorageFormat::Loose),
+        false,
+    );
     let plan = env.plan(&folder, id);
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     let pong = item(&plan, "Pong (USA)");
@@ -4618,7 +4627,11 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
         plan.content.notes,
         [format!("1 game is not stored loose: {MULTI_ROM_STAYS_ZIP}")]
     );
-    assert!(plan.content.removals.is_empty(), "{:?}", plan.content.removals);
+    assert!(
+        plan.content.removals.is_empty(),
+        "{:?}",
+        plan.content.removals
+    );
 
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     assert_eq!(
@@ -4665,7 +4678,11 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
     );
     let again = env.plan(&folder, id);
     assert!(
-        again.content.items.iter().all(|i| i.kind == ItemKind::Unchanged),
+        again
+            .content
+            .items
+            .iter()
+            .all(|i| i.kind == ItemKind::Unchanged),
         "{:?}",
         again.content.items
     );
@@ -4680,11 +4697,13 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
         "Pong (USA).a26"
     );
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
-    assert!(verify(
-        &std::fs::File::open(dir.join("Pong (USA).zip")).unwrap(),
-        &item(&plan, "Pong (USA)").roms
-    )
-    .is_ok());
+    assert!(
+        verify(
+            &std::fs::File::open(dir.join("Pong (USA).zip")).unwrap(),
+            &item(&plan, "Pong (USA)").roms
+        )
+        .is_ok()
+    );
     assert_eq!(
         std::fs::read(dir.join(RETAINED).join("3").join("Pong (USA).a26.kept")).unwrap(),
         b"pong"
@@ -4720,7 +4739,12 @@ fn a_loose_file_renamed_in_a_play_library_is_found_as_drift() {
 #[test]
 fn a_systems_own_play_library_format_beats_the_default() {
     let env = Env::new();
-    set_play_policy(&env, StorageFormat::Loose, Some(StorageFormat::TorrentZip), false);
+    set_play_policy(
+        &env,
+        StorageFormat::Loose,
+        Some(StorageFormat::TorrentZip),
+        false,
+    );
     env.audit();
     let id = titles(&env, &["Pong (USA)", "Combat (USA)"]);
     let folder = env.folder("atari2600");
@@ -4780,7 +4804,10 @@ fn with_delete_originals_on_a_converted_original_is_deleted_once_its_new_file_ve
         "every original is deleted"
     );
     assert_eq!(std::fs::read(dir.join("Pong (USA).a26")).unwrap(), b"pong");
-    assert_eq!(std::fs::read(dir.join("Combat (USA).a26")).unwrap(), b"combat");
+    assert_eq!(
+        std::fs::read(dir.join("Combat (USA).a26")).unwrap(),
+        b"combat"
+    );
 }
 
 #[test]
@@ -4835,7 +4862,12 @@ fn an_original_whose_converted_file_does_not_verify_is_kept() {
         kept.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(),
         ["Pong (USA).zip"]
     );
-    assert!(dir.join(RETAINED).join("2").join("Pong (USA).zip.kept").exists());
+    assert!(
+        dir.join(RETAINED)
+            .join("2")
+            .join("Pong (USA).zip.kept")
+            .exists()
+    );
 }
 
 /// Approves `plan` and runs its Build Job until the first fault `stop` picks stops it as a kill would.
@@ -4845,11 +4877,12 @@ fn crash_at(env: &Env, plan: &Plan, stop: impl Fn(Fault) -> bool + Send + Sync +
         .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
     env.store.claim_job().unwrap().unwrap();
-    env.store.hook_faults(Some(std::sync::Arc::new(move |fault| {
-        if stop(fault) {
-            panic!("killed at {fault:?}");
-        }
-    })));
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if stop(fault) {
+                panic!("killed at {fault:?}");
+            }
+        })));
     let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         env.store.run_build_job(&env.config, job.id, None)
     }));
@@ -4877,7 +4910,11 @@ fn a_conversion_the_service_stopped_in_ends_with_its_original_deleted_or_kept() 
         crash_at(&env, &plan, stop);
         let (env, _) = env.restart();
         let dir = env.play().join("atari2600");
-        assert_eq!(std::fs::read(dir.join("Pong (USA).a26")).unwrap(), b"pong", "stop {n}");
+        assert_eq!(
+            std::fs::read(dir.join("Pong (USA).a26")).unwrap(),
+            b"pong",
+            "stop {n}"
+        );
         let kept = env.store.kept_files(folder.id).unwrap();
         let generation = dir.join(RETAINED).join("2");
         if deleted {
@@ -4913,7 +4950,10 @@ fn an_original_changed_while_it_waited_to_be_deleted_is_moved_back_by_recovery()
     let slot = names(&deleting).into_iter().next().unwrap();
     // The same bytes written again: its ctime moves, so nothing shows it is still the original.
     let bytes = std::fs::read(deleting.join(&slot)).unwrap();
-    let mtime = std::fs::metadata(deleting.join(&slot)).unwrap().modified().unwrap();
+    let mtime = std::fs::metadata(deleting.join(&slot))
+        .unwrap()
+        .modified()
+        .unwrap();
     std::fs::write(deleting.join(&slot), &bytes).unwrap();
     std::fs::File::options()
         .write(true)

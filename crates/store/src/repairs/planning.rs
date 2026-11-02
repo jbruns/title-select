@@ -790,7 +790,8 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
         .filter(|p| p.item.chosen != RepairChoice::Leave)
         .collect();
     let touches = |p: &Proposed| -> BTreeSet<String> {
-        let mut paths: BTreeSet<String> = p.displaces.iter().map(|(path, _)| path.clone()).collect();
+        let mut paths: BTreeSet<String> =
+            p.displaces.iter().map(|(path, _)| path.clone()).collect();
         match &p.proposal {
             Some(Proposal::Build { roms }) => paths.extend(roms.iter().map(|r| r.from.clone())),
             Some(Proposal::Rename { from, .. }) => {

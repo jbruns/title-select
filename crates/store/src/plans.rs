@@ -15,8 +15,8 @@ use title_select_api::build::{
 };
 use title_select_api::report::{Entry, EvidenceLevel, Finding};
 use title_select_api::selection::{ReleaseRow, Role, Selection, diff_rows};
-use title_select_api::{DatRevisionRecord, Job, Workers};
 use title_select_api::storage::{Storage, StorageScope, target_of as storage_target};
+use title_select_api::{DatRevisionRecord, Job, Workers};
 use title_select_engine::build::{Probe, holds_as, is_torrentzip};
 use title_select_engine::dat::Dat;
 
@@ -528,7 +528,11 @@ fn removals(
             continue;
         }
         if let Some(item) = items.iter().find(|i| i.game == built.game) {
-            let outcome = scan.files.iter().find(|f| f.target == *target).map(|c| c.outcome);
+            let outcome = scan
+                .files
+                .iter()
+                .find(|f| f.target == *target)
+                .map(|c| c.outcome);
             let mut removal = PlanRemoval {
                 target: target.clone(),
                 game: built.game.clone(),

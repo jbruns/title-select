@@ -24,6 +24,7 @@ use title_select_api::ingest::{
 };
 use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
+use title_select_api::storage::StoragePolicy;
 use title_select_api::{
     AddSourceSet, Availability, CreateProfile, Dat, ErrorBody, Finding, GameStatus, Health,
     ImportedDatRevision, JobEvent, JobSnapshot, Page, PathTemplateDefaults, Preview,
@@ -98,6 +99,10 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         )
         .route("/profiles/{name}/versions/{version}", get(profile_version))
         .route("/preview", post(preview))
+        .route(
+            "/storage-policy",
+            get(storage_policy).put(set_storage_policy),
+        )
         .route("/selections", get(selections).post(start_selection))
         .route("/selections/{id}", get(selection_record))
         .route("/selections/{id}/selection", get(selection))
@@ -1107,6 +1112,25 @@ async fn check_profile(
 
 async fn profiles(State(state): State<AppState>) -> ApiResult<Json<Vec<ProfileRecord>>> {
     Ok(Json(blocking(&state, |store| store.profiles()).await?))
+}
+
+async fn storage_policy(State(state): State<AppState>) -> ApiResult<Json<StoragePolicy>> {
+    Ok(Json(blocking(&state, Store::storage_policy).await?))
+}
+
+/// Replaces the whole storage policy. Nothing in any folder changes until you approve a plan that converts it.
+async fn set_storage_policy(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    body: Result<Json<StoragePolicy>, JsonRejection>,
+) -> ApiResult<Json<StoragePolicy>> {
+    let Json(policy) = body?;
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.set_storage_policy(&policy, &actor)
+        })
+        .await?,
+    ))
 }
 
 async fn create_profile(
