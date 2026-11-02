@@ -782,8 +782,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
 /// The steps that carry out what each item chosen does: every Build first, then every Keep, every Rename, every
 /// Publish and every Fill. A conversion that shares no file with another item then follows, each in turn: its Build,
-/// Keep and Publish, and, when the Storage Policy deletes originals, the Delete of its original, so that a folder
-/// being converted holds at most one converted file more than it did at any time.
+/// the Keep of what it displaces from its new file's name, its Publish, the Keep of its original and, when the Storage
+/// Policy deletes originals, the Delete of its original, so that a folder being converted holds at most one converted
+/// file more than it did at any time.
 fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
     let applied: Vec<&Proposed> = proposed
         .iter()
@@ -847,7 +848,14 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
         |key: &str| -> Vec<u32> { builds.iter().filter(|b| b.0 == key).map(|b| b.1).collect() };
     let mut keeps: Vec<PlannedStep> = Vec::new();
     for p in &together {
-        keeps_of(i, p, built_by(&p.item.key), &mut names, &mut keeps);
+        keeps_of(
+            i,
+            p,
+            |_| true,
+            built_by(&p.item.key),
+            &mut names,
+            &mut keeps,
+        );
     }
     steps.extend(keeps);
     for p in &together {
@@ -883,23 +891,37 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
         let (Some(Proposal::Build { roms }), Some(original)) = (&p.proposal, &p.converts) else {
             unreachable!("a conversion builds");
         };
-        // The new file is in place before the original is moved: a destination found taken leaves the original
-        // where it is.
+        // What you approved keeping aside from the new file's name goes first; the new file is in place before the
+        // original is moved, so a destination still taken leaves the original where it is.
         let build = steps.len() as u32;
         let (target, step) = build_of(p, roms);
         steps.push(step);
+        let mut occupants = Vec::new();
+        keeps_of(
+            i,
+            p,
+            |path| path != original,
+            vec![build],
+            &mut names,
+            &mut occupants,
+        );
+        steps.extend(occupants);
         let publish = steps.len() as u32;
         steps.push(PlannedStep {
             item: p.item.key.clone(),
             step: RepairStep::Publish { build, target },
         });
+        let keep = steps.len() as u32;
         let mut keeps = Vec::new();
-        keeps_of(i, p, vec![build, publish], &mut names, &mut keeps);
-        let keep = steps.len() as u32
-            + keeps
-                .iter()
-                .position(|k| matches!(&k.step, RepairStep::Keep { path, .. } if path == original))
-                .expect("the original is kept") as u32;
+        keeps_of(
+            i,
+            p,
+            |path| path == original,
+            vec![build, publish],
+            &mut names,
+            &mut keeps,
+        );
+        assert_eq!(keeps.len(), 1, "the original is kept");
         steps.extend(keeps);
         if i.storage.delete_originals {
             steps.push(PlannedStep {
@@ -916,16 +938,17 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
     steps
 }
 
-/// Appends to `keeps` a Keep step for each file `p` displaces, needing the Build steps `needs`, under a kept name
-/// not yet in `names`; a file another item already keeps aside is kept once, for both.
+/// Appends to `keeps` a Keep step for each file `p` displaces whose path is `chosen`, needing the steps `needs`, under
+/// a kept name not yet in `names`; a file another item already keeps aside is kept once, for both.
 fn keeps_of(
     i: &Inputs,
     p: &Proposed,
+    chosen: impl Fn(&str) -> bool,
     needs: Vec<u32>,
     names: &mut BTreeSet<String>,
     keeps: &mut Vec<PlannedStep>,
 ) {
-    for (path, reason) in &p.displaces {
+    for (path, reason) in p.displaces.iter().filter(|(path, _)| chosen(path)) {
         if let Some(keep) = keeps
             .iter_mut()
             .find(|k| matches!(&k.step, RepairStep::Keep { path: at, .. } if at == path))

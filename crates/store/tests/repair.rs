@@ -2504,6 +2504,55 @@ fn a_conversion_whose_new_file_finds_its_name_taken_leaves_the_original_in_place
 }
 
 #[test]
+fn a_conversion_keeps_an_approved_occupant_of_its_new_name_aside_before_it_puts_the_new_file_in_place()
+ {
+    let env = Env::new();
+    env.put("Pong (USA).a26", b"pong");
+    write_zip(&env.set().join("Pong (USA).zip"), &[("notes.txt", b"mine")]);
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Convert);
+    let publish = step_seq(&plan, |s| matches!(s, RepairStep::Publish { .. }));
+    let occupant = step_seq(
+        &plan,
+        |s| matches!(s, RepairStep::Keep { path, .. } if path == "Pong (USA).zip"),
+    );
+    let original = step_seq(
+        &plan,
+        |s| matches!(s, RepairStep::Keep { path, .. } if path == "Pong (USA).a26"),
+    );
+    assert!(
+        occupant < publish && publish < original,
+        "{:#?}",
+        plan.content.steps
+    );
+
+    env.approve(&plan);
+
+    assert_eq!(
+        env.listing(),
+        [
+            ".title-select",
+            ".title-select-retained/1/Pong (USA).a26.kept",
+            ".title-select-retained/1/Pong (USA).zip.kept",
+            "Pong (USA).zip"
+        ]
+    );
+    assert!(is_torrentzip(&env.set().join("Pong (USA).zip")));
+    let kept: std::collections::BTreeSet<String> = env
+        .store
+        .source_kept_files("Alpha")
+        .unwrap()
+        .into_iter()
+        .map(|k| k.name)
+        .collect();
+    assert_eq!(
+        kept,
+        std::collections::BTreeSet::from(["Pong (USA).a26".into(), "Pong (USA).zip".into()])
+    );
+}
+
+#[test]
 fn an_ingest_fill_into_a_loose_source_set_is_stored_loose() {
     let env = Env::new();
     set_source_policy(&env, StorageFormat::Loose, false);
