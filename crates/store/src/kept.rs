@@ -19,6 +19,7 @@ use title_select_api::build::{
     Approval, FileStat, KeepAside, KeepReason, KeptDeletion, KeptDeletionContent,
     KeptDeletionOutcome, KeptFile, Marker, PlanKeptDeletion, RETENTION, STAGING, kept_name,
 };
+use title_select_api::repair::KeptFileReviewed;
 
 use super::builds::{sha256_of, temps};
 use super::checks::Seen;
@@ -588,6 +589,68 @@ pub(super) fn is_kept_entry(
     )
 }
 
+/// A kept file, recorded as the regular file `identity` with `file`'s size and mtime, as read now through `held`,
+/// opened on it: whether it is still that file, has ctime `ctime` and, read while it holds still, hashes as it did
+/// when you reviewed its deletion. The ctime is the one you reviewed until it is renamed, which moves it, and the one
+/// read through `held` just after that rename once it is. Without either, nothing shows it is unchanged.
+pub(super) fn reads_as_reviewed(
+    held: &std::fs::File,
+    identity: Identity,
+    file: &FileStat,
+    reviewed: Option<&KeptFileReviewed>,
+    ctime: Option<i128>,
+) -> Result<bool> {
+    let io = |e: io::Error| Error::Io(e.to_string());
+    let (Some(reviewed), Some(ctime)) = (reviewed, ctime) else {
+        return Ok(false);
+    };
+    let st = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
+    if FolderDir::kind(&st) != FileType::RegularFile
+        || Identity::of(&st) != identity
+        || file_stat(&st) != *file
+    {
+        return Ok(false);
+    }
+    Ok(super::builds::still_sha256(held, ctime)
+        .map_err(io)?
+        .as_deref()
+        == Some(reviewed.sha256.as_str()))
+}
+
+/// Reads kept file `id`, at `kept` in its generation's folder `generation` and recorded as the regular file
+/// `identity` with `file`'s size and mtime, through a descriptor, for you to review its deletion: its ctime and the
+/// SHA-256 it hashes as while its ctime, size and mtime hold still. `Err` says why it cannot be: it is no longer the
+/// file that was kept, or cannot be read.
+pub(super) fn review_kept(
+    generation: &FolderDir,
+    id: i64,
+    kept: &str,
+    identity: Identity,
+    file: &FileStat,
+) -> Result<std::result::Result<KeptFileReviewed, String>> {
+    let held = match generation.open_file(kept) {
+        Ok(held) => held,
+        Err(e) => return Ok(Err(format!("{kept} could not be read: {e}"))),
+    };
+    let st = rustix::fs::fstat(&held).map_err(|e| Error::Io(e.to_string()))?;
+    if FolderDir::kind(&st) != FileType::RegularFile
+        || Identity::of(&st) != identity
+        || file_stat(&st) != *file
+    {
+        return Ok(Err(format!("{kept} is no longer the file that was kept")));
+    }
+    let Some(sha256) =
+        super::builds::still_sha256(&held, ctime_ns(&st)).map_err(|e| Error::Io(e.to_string()))?
+    else {
+        return Ok(Err(format!("{kept} changed while it was read")));
+    };
+    Ok(Ok(KeptFileReviewed {
+        id,
+        ctime_ns: ctime_ns(&st),
+        sha256,
+    }))
+}
+
 /// One file to keep aside: the item `seq` of Build `build`, which keeps it in the folder of `generation`.
 pub(super) struct Keep<'a> {
     pub folder: i64,
@@ -927,9 +990,16 @@ impl Store {
                 "it was not read as it was kept aside, so nothing shows it is the original; it stays kept".into(),
             ));
         };
+        let (sha256, ctime_ns) = trusted;
+        let reviewed = KeptFileReviewed {
+            id: file.id,
+            ctime_ns,
+            sha256,
+        };
         let content = KeptDeletionContent {
             folder: file.folder,
             files: vec![file.clone()],
+            reviewed: vec![reviewed.clone()],
         };
         let deletion = self.write(|tx| {
             if let Some(busy) = deletion_active(tx, file.folder)? {
@@ -945,9 +1015,14 @@ impl Store {
             Ok(tx.last_insert_rowid())
         })?;
         let outcome = match open_retention(self, file.folder, dir, file.generation, false)? {
-            Ok(Some(retention)) => {
-                self.delete_one_trusted(dir, &retention, &file, deletion, &trusted)
-            }
+            Ok(Some(retention)) => self.delete_one(
+                dir,
+                &retention,
+                &file,
+                deletion,
+                Some(&reviewed),
+                CONVERTED_CHANGED,
+            ),
             Ok(None) => Ok(left(&file, "its kept files folder is gone".into())),
             Err(reason) => Ok(left(&file, reason)),
         };
@@ -979,109 +1054,6 @@ impl Store {
             Ok(())
         })?;
         Ok(outcomes.into_iter().next().expect("one outcome"))
-    }
-
-    /// [`Store::delete_one`] for a conversion's original, `trusted` being the SHA-256 and ctime it was kept with: read
-    /// through a descriptor before the rename into `.deleting` and held across it, and deleted only when it still
-    /// reads as `trusted`, by the ctime read through that descriptor just after the rename, which is recorded first.
-    fn delete_one_trusted(
-        &self,
-        dir: &FolderDir,
-        retention: &Retention,
-        file: &KeptFile,
-        deletion: i64,
-        (sha256, kept_ctime): &(String, i128),
-    ) -> Result<KeptDeletionOutcome> {
-        let io = |e: io::Error| Error::Io(e.to_string());
-        let id = Identity::from(file.identity);
-        let (gen_dir, kept) = (&retention.generation, file.kept_name.as_str());
-        let reads_as = |held: &std::fs::File, ctime: i128| -> Result<bool> {
-            let st = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
-            if Identity::of(&st) != id || file_stat(&st) != file.file {
-                return Ok(false);
-            }
-            Ok(super::builds::still_sha256(held, ctime)
-                .map_err(io)?
-                .as_deref()
-                == Some(sha256.as_str()))
-        };
-        match gen_dir.stat(kept) {
-            Err(e) => return Ok(left(file, e.to_string())),
-            Ok(None) => return self.gone(dir, file, deletion),
-            Ok(Some(_)) if !is_kept_file(gen_dir, kept, id, Some(&file.file)) => {
-                return Ok(left(file, NOT_THE_FILE.into()));
-            }
-            Ok(Some(_)) => {}
-        }
-        let deleting = match open_deleting(self, file.folder, &retention.area, true)? {
-            Ok(Some(deleting)) => deleting,
-            Ok(None) => return Ok(left(file, "it could not be moved to be deleted".into())),
-            Err(reason) => return Ok(left(file, reason)),
-        };
-        let slot = file.id.to_string();
-        match deleting.stat(&slot) {
-            Ok(None) => {}
-            Ok(Some(_)) => return Ok(left(file, slot_taken(&slot))),
-            Err(e) => return Ok(left(file, e.to_string())),
-        }
-        let keep = |why: String| -> Result<KeptDeletionOutcome> {
-            self.write(|tx| still_kept(tx, file.id))?;
-            Ok(left(file, why))
-        };
-        // Read as the conversion kept it before the rename, which moves its ctime, and held through it.
-        let held = match gen_dir.open_file(kept) {
-            Ok(held) => held,
-            Err(e) => return Ok(left(file, e.to_string())),
-        };
-        if !reads_as(&held, *kept_ctime)? {
-            return Ok(left(file, CONVERTED_CHANGED.into()));
-        }
-        self.write(|tx| {
-            tx.execute(
-                "UPDATE kept_files SET state = 'deleting', deletion_id = ?2, slot_ctime_ns = NULL
-                 WHERE id = ?1 AND state = 'kept'",
-                params![file.id, deletion],
-            )?;
-            Ok(())
-        })?;
-        if !is_kept_file(gen_dir, kept, id, Some(&file.file)) {
-            return keep("it changed while it was deleted, so it is never deleted".into());
-        }
-        self.fault_point(Fault::BeforeDeleteMove(file.id));
-        if let Err(e) = gen_dir.rename_new(kept, &deleting, &slot) {
-            return keep(format!(
-                "it could not be moved to be deleted ({e}), so it is never deleted"
-            ));
-        }
-        let moved = rustix::fs::fstat(&held).map_err(|e| io(e.into()))?;
-        let slot_ctime = (Identity::of(&moved) == id).then(|| ctime_ns(&moved));
-        self.write(|tx| {
-            tx.execute(
-                "UPDATE kept_files SET slot_ctime_ns = ?2 WHERE id = ?1",
-                params![file.id, slot_ctime.map(|c| c.to_string())],
-            )?;
-            Ok(())
-        })?;
-        gen_dir.sync().and_then(|()| deleting.sync()).map_err(io)?;
-        self.fault_point(Fault::AfterDeleteMove(file.id));
-        let unchanged = match slot_ctime {
-            Some(ctime) => {
-                is_kept_file(&deleting, &slot, id, Some(&file.file)) && reads_as(&held, ctime)?
-            }
-            None => false,
-        };
-        if !unchanged || !is_kept_file(&deleting, &slot, id, Some(&file.file)) {
-            let note = self.quarantine(Some(gen_dir), &deleting, file)?;
-            return Ok(left(file, format!("{CONVERTED_CHANGED}; {note}")));
-        }
-        if let Err(e) = deleting.unlink(&slot) {
-            let note = self.quarantine(Some(gen_dir), &deleting, file)?;
-            return Ok(left(file, format!("it could not be deleted ({e}); {note}")));
-        }
-        deleting.sync().map_err(io)?;
-        self.fault_point(Fault::AfterUnlink(file.id));
-        self.write(|tx| deleted(tx, file.id))?;
-        Ok(deleted_outcome(file))
     }
 
     /// Settles each kept file Build `build` was keeping aside when it stopped, from what is in its folder, opened as
@@ -1186,16 +1158,18 @@ impl Store {
         })
     }
 
-    /// Plans deleting the kept files of Managed Folder `folder` that `request` picks, and stores the plan for review.
-    /// Nothing is deleted until you approve it.
+    /// Plans deleting the kept files of Managed Folder `folder` that `request` picks, each read through a descriptor so
+    /// the plan binds its ctime and SHA-256, and stores the plan for review. Nothing is deleted until you approve it. A
+    /// kept file that is no longer the file kept is left out of "all", and refuses a plan that picks it.
     pub fn plan_kept_deletion(
         &self,
+        config: &Config,
         folder: i64,
         request: &PlanKeptDeletion,
     ) -> Result<KeptDeletion> {
-        self.write(|tx| {
-            folder_by_id(tx, folder)?;
-            let kept = kept_where(tx, "k.folder_id = ?1 AND k.state = 'kept'", [folder])?;
+        let (row, store, picked) = self.read(|c| {
+            let row = folder_by_id(c, folder)?;
+            let kept = kept_where(c, "k.folder_id = ?1 AND k.state = 'kept'", [folder])?;
             // A kept directory is never deleted: what is in it was never read, so nothing could show it is still
             // what was kept.
             let files: Vec<KeptFile> = if request.all {
@@ -1224,17 +1198,60 @@ impl Store {
             // A kept file an Operator Addition is still being added from is reserved until its Additions Job ends.
             let mut free = Vec::new();
             for file in files {
-                match crate::additions::managed_kept_reserved(tx, file.id)? {
+                match crate::additions::managed_kept_reserved(c, file.id)? {
                     None => free.push(file),
                     Some(_) if request.all => {}
                     Some(why) => return Err(Error::Conflict(why)),
                 }
             }
-            let files = free;
-            if files.is_empty() {
-                return Err(Error::Refused("pick at least one kept file to delete".into()));
+            Ok((row, store_id(c)?, free))
+        })?;
+        if picked.is_empty() {
+            return Err(Error::Refused(
+                "pick at least one kept file to delete".into(),
+            ));
+        }
+        let dir = open_writable_folder(config, &row.root, &row.path).map_err(Error::Refused)?;
+        let expected = Marker {
+            store,
+            folder,
+            generation: row.generation,
+        };
+        check_marker(&dir, &expected).map_err(Error::Refused)?;
+        let (mut files, mut reviewed) = (Vec::new(), Vec::new());
+        for file in picked {
+            match self.review_kept_file(&dir, &file)? {
+                Ok(read) => {
+                    files.push(file);
+                    reviewed.push(read);
+                }
+                Err(_) if request.all => {}
+                Err(why) => return Err(Error::Refused(why)),
             }
-            let content = KeptDeletionContent { folder, files };
+        }
+        if files.is_empty() {
+            return Err(Error::Refused(
+                "none of the kept files is still the file that was kept, so none can be deleted"
+                    .into(),
+            ));
+        }
+        self.write(|tx| {
+            let now_kept = kept_where(tx, "k.folder_id = ?1 AND k.state = 'kept'", [folder])?;
+            if files.iter().any(|f| !now_kept.contains(f)) {
+                return Err(Error::Conflict(
+                    "the kept files changed while the deletion was planned; plan it again".into(),
+                ));
+            }
+            for file in &files {
+                if let Some(why) = crate::additions::managed_kept_reserved(tx, file.id)? {
+                    return Err(Error::Conflict(why));
+                }
+            }
+            let content = KeptDeletionContent {
+                folder,
+                files,
+                reviewed,
+            };
             tx.execute(
                 "INSERT INTO kept_deletions (folder_id, content, digest, created_at) VALUES (?1, ?2, ?3, ?4)",
                 params![folder, to_json(&content), digest(&content), now()],
@@ -1243,12 +1260,48 @@ impl Store {
         })
     }
 
+    /// Reads kept file `file` of the Managed Folder opened as `dir` through a descriptor, for you to review its
+    /// deletion ([`review_kept`]); `Err` too when it no longer hashes as it was kept.
+    fn review_kept_file(
+        &self,
+        dir: &FolderDir,
+        file: &KeptFile,
+    ) -> Result<std::result::Result<KeptFileReviewed, String>> {
+        let kept = &file.kept_name;
+        let generation = match open_retention(self, file.folder, dir, file.generation, false)? {
+            Ok(Some(retention)) => retention.generation,
+            Ok(None) => {
+                return Ok(Err(format!(
+                    "the kept files folder holding {kept} is missing"
+                )));
+            }
+            Err(why) => return Ok(Err(why)),
+        };
+        let read = review_kept(
+            &generation,
+            file.id,
+            kept,
+            Identity::from(file.identity),
+            &file.file,
+        )?;
+        Ok(read.and_then(|read| {
+            if file.sha256.as_deref() == Some(read.sha256.as_str()) {
+                Ok(read)
+            } else {
+                Err(format!(
+                    "{kept} no longer holds what was kept aside, so it cannot be deleted"
+                ))
+            }
+        }))
+    }
+
     pub fn kept_deletion(&self, id: i64) -> Result<KeptDeletion> {
         self.read(|c| deletion_by_id(c, id))
     }
 
     /// Approves deleting kept files as reviewed with `digest`, and carries it out. Each file is deleted only while
-    /// its kept entry is the file that was kept; anything else there is left, and its outcome says why. Refused while
+    /// its kept entry is the file that was kept and still reads as you reviewed it, ctime and SHA-256; anything else
+    /// there is left, and its outcome says why. Refused while
     /// a Build of the folder is queued or running, and when the kept files changed since the plan.
     pub fn approve_kept_deletion(
         &self,
@@ -1299,6 +1352,16 @@ impl Store {
             if still.len() != ids.len() || still.iter().zip(&content.files).any(|(a, b)| *a != b) {
                 return Err(Error::Conflict(format!(
                     "the kept files changed since you reviewed deletion {id}; plan it again"
+                )));
+            }
+            // A plan made before deletions bound what each file was read as cannot show any is unchanged.
+            if content
+                .files
+                .iter()
+                .any(|f| !content.reviewed.iter().any(|r| r.id == f.id))
+            {
+                return Err(Error::Conflict(format!(
+                    "deletion {id} was planned without reading the kept files it deletes; plan it again"
                 )));
             }
             tx.execute(
@@ -1369,7 +1432,14 @@ impl Store {
             }
             outcomes.push(
                 match open_retention(self, folder, &dir, file.generation, false)? {
-                    Ok(Some(retention)) => self.delete_one(&dir, &retention, file, deletion)?,
+                    Ok(Some(retention)) => self.delete_one(
+                        &dir,
+                        &retention,
+                        file,
+                        deletion,
+                        content.reviewed.iter().find(|r| r.id == file.id),
+                        CHANGED,
+                    )?,
                     Ok(None) => self.gone(&dir, file, deletion)?,
                     Err(reason) => left(file, reason),
                 },
@@ -1379,18 +1449,26 @@ impl Store {
     }
 
     /// Deletes kept file `file` from `retention`, for deletion `deletion`: only while its kept entry is the file that
-    /// was kept. The intent is committed first; the file is then moved, by one rename that never replaces anything,
-    /// into the private folder kept files are deleted from, and deleted there only once what was moved is found to be
-    /// the file. Anything else moved is recorded where it is, then put back.
+    /// was kept, and still reads as `reviewed`, its ctime and SHA-256 when you reviewed the deletion. It is read
+    /// through a descriptor before the rename into `.deleting` and held across it; the intent is committed first,
+    /// and the ctime read through that descriptor just after the rename is recorded before anything else. It is
+    /// deleted only when it still reads, by that ctime, as `reviewed`. Anything else moved is recorded where it is,
+    /// then put back; a file that changed stays kept, and its outcome says `changed`.
     fn delete_one(
         &self,
         dir: &FolderDir,
         retention: &Retention,
         file: &KeptFile,
         deletion: i64,
+        reviewed: Option<&KeptFileReviewed>,
+        changed: &str,
     ) -> Result<KeptDeletionOutcome> {
+        let io = |e: io::Error| Error::Io(e.to_string());
         let id = Identity::from(file.identity);
         let (gen_dir, kept) = (&retention.generation, file.kept_name.as_str());
+        let reads_as = |held: &std::fs::File, ctime: Option<i128>| {
+            reads_as_reviewed(held, id, &file.file, reviewed, ctime)
+        };
         match gen_dir.stat(kept) {
             Err(e) => return Ok(left(file, e.to_string())),
             Ok(None) => return self.gone(dir, file, deletion),
@@ -1410,17 +1488,26 @@ impl Store {
             Ok(Some(_)) => return Ok(left(file, slot_taken(&slot))),
             Err(e) => return Ok(left(file, e.to_string())),
         }
-        self.write(|tx| {
-            tx.execute(
-                "UPDATE kept_files SET state = 'deleting', deletion_id = ?2 WHERE id = ?1 AND state = 'kept'",
-                params![file.id, deletion],
-            )?;
-            Ok(())
-        })?;
         let keep = |why: String| -> Result<KeptDeletionOutcome> {
             self.write(|tx| still_kept(tx, file.id))?;
             Ok(left(file, why))
         };
+        // Read as you reviewed it before the rename, which moves its ctime, and held through it.
+        let held = match gen_dir.open_file(kept) {
+            Ok(held) => held,
+            Err(e) => return Ok(left(file, e.to_string())),
+        };
+        if !reads_as(&held, reviewed.map(|r| r.ctime_ns))? {
+            return Ok(left(file, changed.into()));
+        }
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE kept_files SET state = 'deleting', deletion_id = ?2, slot_ctime_ns = NULL
+                 WHERE id = ?1 AND state = 'kept'",
+                params![file.id, deletion],
+            )?;
+            Ok(())
+        })?;
         if !is_kept_file(gen_dir, kept, id, Some(&file.file)) {
             return keep("it changed while it was deleted, so it is never deleted".into());
         }
@@ -1430,20 +1517,33 @@ impl Store {
                 "it could not be moved to be deleted ({e}), so it is never deleted"
             ));
         }
-        gen_dir
-            .sync()
-            .and_then(|()| deleting.sync())
-            .map_err(|e| Error::Io(e.to_string()))?;
+        self.fault_point(Fault::DeleteMoveUnrecorded(file.id));
+        // Trusted only while the descriptor held across the rename is on the file now in the slot.
+        let moved = rustix::fs::fstat(&held).map_err(|e| io(e.into()))?;
+        let in_slot = matches!(deleting.stat(&slot), Ok(Some(st)) if Identity::of(&st) == id);
+        let slot_ctime = (Identity::of(&moved) == id && in_slot).then(|| ctime_ns(&moved));
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE kept_files SET slot_ctime_ns = ?2 WHERE id = ?1",
+                params![file.id, slot_ctime.map(|c| c.to_string())],
+            )?;
+            Ok(())
+        })?;
+        gen_dir.sync().and_then(|()| deleting.sync()).map_err(io)?;
         self.fault_point(Fault::AfterDeleteMove(file.id));
         if !is_kept_file(&deleting, &slot, id, Some(&file.file)) {
             let note = self.quarantine(Some(gen_dir), &deleting, file)?;
             return Ok(left(file, format!("{MOVED_NOT_THE_FILE}; {note}")));
         }
+        if !reads_as(&held, slot_ctime)? || !is_kept_file(&deleting, &slot, id, Some(&file.file)) {
+            let note = self.quarantine(Some(gen_dir), &deleting, file)?;
+            return Ok(left(file, format!("{changed}; {note}")));
+        }
         if let Err(e) = deleting.unlink(&slot) {
             let note = self.quarantine(Some(gen_dir), &deleting, file)?;
             return Ok(left(file, format!("it could not be deleted ({e}); {note}")));
         }
-        deleting.sync().map_err(|e| Error::Io(e.to_string()))?;
+        deleting.sync().map_err(io)?;
         self.fault_point(Fault::AfterUnlink(file.id));
         self.write(|tx| deleted(tx, file.id))?;
         Ok(deleted_outcome(file))
@@ -1664,7 +1764,8 @@ impl Store {
             if let Err(reason) = check_marker(&dir, &expected) {
                 return Ok(Err(reason));
             }
-            match self.settle_deleting(&dir, &file)? {
+            let reviewed = plan.content.reviewed.iter().find(|r| r.id == file.id);
+            match self.settle_deleting(&dir, &file, reviewed)? {
                 Ok(Some(note)) => {
                     notes.insert(file.id, note);
                 }
@@ -1713,14 +1814,16 @@ impl Store {
     }
 
     /// Settles kept file `file`, which a deletion was deleting, or had moved something aside for, when the service
-    /// stopped, in its folder opened as `dir`: deleted once it is found in the private folder it is deleted from, or
-    /// gone from its kept entry; still kept when it is at its kept entry. Anything else moved aside is recorded where
-    /// it is and moved back; it is never deleted. Returns a note for its outcome, if it is not deleted, or why the
-    /// folder could not be read.
+    /// stopped, in its folder opened as `dir`: deleted once it is found in the private folder it is deleted from,
+    /// still reading as `reviewed` by the ctime read through the descriptor held across its rename there, or gone
+    /// from its kept entry; still kept when it is at its kept entry. Anything else moved aside, or the file changed
+    /// or without that ctime, is recorded where it is and moved back; it is never deleted. Returns a note for its
+    /// outcome, if it is not deleted, or why the folder could not be read.
     fn settle_deleting(
         &self,
         dir: &FolderDir,
         file: &KeptFile,
+        reviewed: Option<&KeptFileReviewed>,
     ) -> Result<std::result::Result<Option<String>, String>> {
         let folder = file.folder;
         let id = Identity::from(file.identity);
@@ -1786,40 +1889,36 @@ impl Store {
             self.write(|tx| still_kept(tx, file.id))?;
             Ok(Ok(Some(note.to_owned())))
         };
-        // A conversion's original is deleted only by the stamp read through the descriptor held across its rename
-        // into `.deleting`: without one, or when it no longer reads as it, it is moved back and stays kept.
-        let converted: Option<(Option<String>, Option<String>)> = self.read(|c| {
+        // Deleted only by the ctime read through the descriptor held across its rename into `.deleting`, and the
+        // SHA-256 you reviewed: without either, or when it no longer reads as them, it is moved back and stays kept.
+        // A ctime read now, by name, never stands in for it.
+        let (converted, slot_ctime): (bool, Option<String>) = self.read(|c| {
             Ok(c.query_row(
-                "SELECT k.sha256, k.slot_ctime_ns FROM kept_files k JOIN kept_deletions d ON d.id = k.deletion_id
-                 WHERE k.id = ?1 AND d.converted = 1",
+                "SELECT d.converted, k.slot_ctime_ns FROM kept_files k JOIN kept_deletions d ON d.id = k.deletion_id
+                 WHERE k.id = ?1",
                 [file.id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?)
+            )?)
         })?;
-        if let (Some((sha256, ctime)), Some(deleting)) = (&converted, &deleting)
-            && matches!(deleting.stat(&slot), Ok(Some(_)))
+        let changed = if converted {
+            CONVERTED_CHANGED
+        } else {
+            CHANGED
+        };
+        if let Some(deleting) = &deleting
+            && is_kept_file(deleting, &slot, id, Some(&file.file))
         {
-            let ctime = ctime.as_deref().and_then(|c| c.parse::<i128>().ok());
-            let trusted = match (sha256, ctime) {
-                (Some(sha256), Some(ctime))
-                    if is_kept_file(deleting, &slot, id, Some(&file.file)) =>
-                {
-                    deleting.open_file(&slot).ok().is_some_and(|held| {
-                        rustix::fs::fstat(&held)
-                            .is_ok_and(|st| Identity::of(&st) == id && file_stat(&st) == file.file)
-                            && super::builds::still_sha256(&held, ctime)
-                                .ok()
-                                .flatten()
-                                .as_deref()
-                                == Some(sha256.as_str())
-                    })
-                }
+            let ctime = slot_ctime.and_then(|c| c.parse::<i128>().ok());
+            let trusted = match (reviewed, ctime) {
+                (Some(_), Some(_)) => match deleting.open_file(&slot) {
+                    Ok(held) => reads_as_reviewed(&held, id, &file.file, reviewed, ctime)?,
+                    Err(_) => false,
+                },
                 _ => false,
             };
             if !trusted || !is_kept_file(deleting, &slot, id, Some(&file.file)) {
                 let note = self.quarantine(generation.as_ref(), deleting, file)?;
-                return Ok(Ok(Some(format!("{CONVERTED_CHANGED}; {note}"))));
+                return Ok(Ok(Some(format!("{changed}; {note}"))));
             }
         }
         if let Some(deleting) = &deleting {
@@ -1860,6 +1959,7 @@ impl Store {
     }
 }
 
+const CHANGED: &str = "it changed since you reviewed its deletion, so it is never deleted";
 const CONVERTED_CHANGED: &str = "it no longer reads as it did when its conversion kept it aside, or nothing shows \
      that it does, so it is never deleted";
 const NOT_THE_FILE: &str =
@@ -1908,7 +2008,8 @@ fn unresolved(
 /// Records kept file `id`, which was being deleted, still kept.
 fn still_kept(tx: &Transaction, id: i64) -> Result<()> {
     tx.execute(
-        "UPDATE kept_files SET state = 'kept', deletion_id = NULL, quarantine_dev = NULL, quarantine_ino = NULL
+        "UPDATE kept_files SET state = 'kept', deletion_id = NULL, quarantine_dev = NULL, quarantine_ino = NULL,
+                slot_ctime_ns = NULL
          WHERE id = ?1",
         [id],
     )?;

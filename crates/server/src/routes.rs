@@ -632,7 +632,11 @@ async fn plan_kept_deletion(
 ) -> ApiResult<(StatusCode, Json<KeptDeletion>)> {
     let Path(id) = id?;
     let Json(request) = body?;
-    let plan = blocking(&state, move |store| store.plan_kept_deletion(id, &request)).await?;
+    let config = state.config.clone();
+    let plan = blocking(&state, move |store| {
+        store.plan_kept_deletion(&config, id, &request)
+    })
+    .await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 

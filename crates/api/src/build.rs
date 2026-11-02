@@ -1242,11 +1242,14 @@ pub struct PlanKeptDeletion {
     pub all: bool,
 }
 
-/// What deleting kept files covers, in the order its digest is computed over: each file as the store recorded it.
+/// What deleting kept files covers, in the order its digest is computed over: each file as the store recorded it, and
+/// as it was read, ctime and SHA-256, when the deletion was planned.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeptDeletionContent {
     pub folder: i64,
     pub files: Vec<KeptFile>,
+    #[serde(default)]
+    pub reviewed: Vec<crate::repair::KeptFileReviewed>,
 }
 
 /// What deleting one kept file did.

@@ -151,6 +151,9 @@ pub enum Fault {
     /// After the intent to delete the kept file with this id is committed and it is found to be the kept file, before
     /// it is moved into the private folder it is deleted from.
     BeforeDeleteMove(i64),
+    /// After the kept file with this id is renamed into the private folder it is deleted from, before the ctime read
+    /// through the descriptor held across that rename is recorded.
+    DeleteMoveUnrecorded(i64),
     /// After the kept file with this id is moved into the private folder it is deleted from, before it is checked.
     AfterDeleteMove(i64),
     /// After what was moved aside to delete the kept file with this id, not being that file, is recorded, before it is

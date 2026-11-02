@@ -764,6 +764,7 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
     let one = env
         .store
         .plan_kept_deletion(
+            &env.config,
             folder.id,
             &PlanKeptDeletion {
                 ids: vec![kept[0].id],
@@ -795,6 +796,7 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
     let rest = env
         .store
         .plan_kept_deletion(
+            &env.config,
             folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
@@ -842,6 +844,7 @@ fn a_substituted_retention_entry_is_never_deleted() {
     let deletion = env
         .store
         .plan_kept_deletion(
+            &env.config,
             folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
@@ -897,6 +900,7 @@ fn a_substituted_retention_entry_is_never_deleted() {
     let deletion = env2
         .store
         .plan_kept_deletion(
+            &env2.config,
             folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
@@ -1170,6 +1174,7 @@ fn a_crash_mid_removal_leaves_the_file_in_place_or_kept_and_recovery_reports_it(
 fn plan_delete_all(env: &Env, folder: &ManagedFolder) -> title_select_api::build::KeptDeletion {
     env.store
         .plan_kept_deletion(
+            &env.config,
             folder.id,
             &PlanKeptDeletion {
                 ids: vec![],
@@ -1261,6 +1266,7 @@ fn recovery_syncs_both_folders_before_it_deletes_a_kept_file_a_crash_left_aside(
     let deletion = env
         .store
         .plan_kept_deletion(
+            &env.config,
             folder.id,
             &PlanKeptDeletion {
                 ids: vec![first.id],
@@ -1298,6 +1304,7 @@ fn a_crash_mid_deletion_never_loses_a_kept_file_and_recovery_settles_it() {
         let deletion = env
             .store
             .plan_kept_deletion(
+                &env.config,
                 folder.id,
                 &PlanKeptDeletion {
                     ids: vec![first.id],
@@ -1350,6 +1357,178 @@ fn a_crash_mid_deletion_never_loses_a_kept_file_and_recovery_settles_it() {
     }
 }
 
+/// Overwrites the file at `path` in place, through a descriptor, with as many other bytes, and puts its mtime back:
+/// its identity, size and mtime are as they were, and only its ctime and content show it changed.
+fn rewrite_keeping_stamp(path: &Path) -> Vec<u8> {
+    use std::io::Write;
+    let meta = std::fs::metadata(path).unwrap();
+    let mtime = meta.modified().unwrap();
+    let bytes: Vec<u8> = std::fs::read(path).unwrap().iter().map(|b| !b).collect();
+    let mut file = std::fs::File::options().write(true).open(path).unwrap();
+    file.write_all(&bytes).unwrap();
+    file.set_modified(mtime).unwrap();
+    file.sync_all().unwrap();
+    bytes
+}
+
+#[test]
+fn the_deletion_digest_binds_each_kept_files_ctime_and_sha256_read_when_it_was_planned() {
+    let env = Env::new();
+    let (folder, plan) = built_then_deselected(&env);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let deletion = plan_delete_all(&env, &folder);
+    let content = &deletion.content;
+    assert_eq!(content.reviewed.len(), content.files.len());
+    for (file, reviewed) in content.files.iter().zip(&content.reviewed) {
+        assert_eq!(reviewed.id, file.id);
+        assert_eq!(Some(&reviewed.sha256), file.sha256.as_ref());
+        assert!(reviewed.ctime_ns > 0);
+    }
+    let digest = |content: &title_select_api::build::KeptDeletionContent| -> String {
+        let bytes = serde_json::to_vec(content).unwrap();
+        <sha2::Sha256 as sha2::Digest>::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
+    assert_eq!(digest(content), deletion.digest);
+    let mut moved = content.clone();
+    moved.reviewed[0].ctime_ns += 1;
+    assert_ne!(digest(&moved), deletion.digest);
+    let mut rehashed = content.clone();
+    rehashed.reviewed[0].sha256 = "0".repeat(64);
+    assert_ne!(digest(&rehashed), deletion.digest);
+}
+
+#[test]
+fn a_kept_file_rewritten_after_you_review_its_deletion_is_never_deleted() {
+    let env = Env::new();
+    let (folder, plan) = built_then_deselected(&env);
+    let dir = env.play().join("atari2600");
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let kept = env.store.kept_files(folder.id).unwrap();
+    let path = dir.join(RETAINED).join("2").join(&kept[0].kept_name);
+    let deletion = plan_delete_all(&env, &folder);
+    // Rewritten through a descriptor already open, the same length, with its mtime put back.
+    let rewritten = rewrite_keeping_stamp(&path);
+
+    let done = env
+        .store
+        .approve_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .unwrap();
+
+    let detail = done.outcomes[0].detail.as_deref().unwrap();
+    assert!(!done.outcomes[0].deleted);
+    assert!(detail.contains("changed since you reviewed"), "{detail}");
+    assert!(
+        done.outcomes[1..].iter().all(|o| o.deleted),
+        "{:?}",
+        done.outcomes
+    );
+    assert!(done.finished_at.is_some());
+    assert_eq!(std::fs::read(&path).unwrap(), rewritten);
+    assert_eq!(env.store.kept_files(folder.id).unwrap(), kept[..1].to_vec());
+    assert!(names(&dir.join(RETAINED).join(".deleting")).is_empty());
+}
+
+#[test]
+fn a_kept_file_rewritten_inside_deleting_is_moved_back_and_never_deleted() {
+    let env = Env::new();
+    let (folder, plan) = built_then_deselected(&env);
+    let dir = env.play().join("atari2600");
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let kept = env.store.kept_files(folder.id).unwrap();
+    let path = dir.join(RETAINED).join("2").join(&kept[0].kept_name);
+    let slot = dir
+        .join(RETAINED)
+        .join(".deleting")
+        .join(kept[0].id.to_string());
+    let deletion = plan_delete_all(&env, &folder);
+    let target = kept[0].id;
+    let at = slot.clone();
+    let rewritten = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = rewritten.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::AfterDeleteMove(target) {
+                *seen.lock().unwrap() = rewrite_keeping_stamp(&at);
+            }
+        })));
+
+    let done = env
+        .store
+        .approve_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .unwrap();
+    env.store.hook_faults(None);
+
+    let detail = done.outcomes[0].detail.as_deref().unwrap();
+    assert!(!done.outcomes[0].deleted);
+    assert!(
+        detail.contains("changed since you reviewed") && detail.contains("moved back"),
+        "{detail}"
+    );
+    assert!(done.outcomes[1..].iter().all(|o| o.deleted));
+    assert_eq!(std::fs::read(&path).unwrap(), *rewritten.lock().unwrap());
+    assert!(!slot.exists());
+    assert_eq!(env.store.kept_files(folder.id).unwrap(), kept[..1].to_vec());
+}
+
+#[test]
+fn a_stopped_deletion_resumes_only_by_the_ctime_held_across_the_rename_and_the_reviewed_sha256() {
+    for at in ["before the ctime is recorded", "rewritten after the move"] {
+        let env = Env::new();
+        let (folder, plan) = built_then_deselected(&env);
+        let dir = env.play().join("atari2600");
+        assert_eq!(env.build(&plan).state, JobState::Succeeded);
+        let kept = env.store.kept_files(folder.id).unwrap();
+        let first = kept[0].clone();
+        let path = dir.join(RETAINED).join("2").join(&first.kept_name);
+        let slot = dir
+            .join(RETAINED)
+            .join(".deleting")
+            .join(first.id.to_string());
+        let bytes = std::fs::read(&path).unwrap();
+        let deletion = env
+            .store
+            .plan_kept_deletion(
+                &env.config,
+                folder.id,
+                &PlanKeptDeletion {
+                    ids: vec![first.id],
+                    all: false,
+                },
+            )
+            .unwrap();
+        let fault = match at {
+            "before the ctime is recorded" => Fault::DeleteMoveUnrecorded(first.id),
+            _ => Fault::AfterDeleteMove(first.id),
+        };
+        crash_deletion(&env, &deletion, fault);
+        assert!(slot.exists(), "{at}");
+        let expected = match at {
+            // Unchanged, but nothing read through a held descriptor shows it: a ctime read now by name never does.
+            "before the ctime is recorded" => bytes,
+            _ => rewrite_keeping_stamp(&slot),
+        };
+
+        let (env, _) = env.restart();
+        let done = env.store.kept_deletion(deletion.id).unwrap();
+        assert!(
+            done.finished_at.is_some() && done.recovery_error.is_none(),
+            "{at}: {done:?}"
+        );
+        let detail = done.outcomes[0].detail.as_deref().unwrap();
+        assert!(!done.outcomes[0].deleted, "{at}: {detail}");
+        assert!(
+            detail.contains("never deleted") && detail.contains("moved back"),
+            "{at}: {detail}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), expected, "{at}");
+        assert!(!slot.exists(), "{at}");
+        assert_eq!(env.store.kept_files(folder.id).unwrap(), kept, "{at}");
+    }
+}
+
 #[test]
 fn deletion_recovery_waits_until_the_folder_is_shown_to_be_the_stores() {
     let env = Env::new();
@@ -1358,6 +1537,7 @@ fn deletion_recovery_waits_until_the_folder_is_shown_to_be_the_stores() {
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     let kept = env.store.kept_files(folder.id).unwrap();
     let deletion = plan_delete_all(&env, &folder);
+    let deletion_again = plan_delete_all(&env, &folder);
     crash_deletion(&env, &deletion, Fault::BeforeDeleteMove(kept[0].id));
 
     // The library is unmounted: its mount point is there, empty.
@@ -1395,7 +1575,6 @@ fn deletion_recovery_waits_until_the_folder_is_shown_to_be_the_stores() {
             .contains("not writable"),
         "{pending:?}"
     );
-    let deletion_again = plan_delete_all(&env, &folder);
     let approve = env.store.approve_kept_deletion(
         &env.config,
         deletion_again.id,
@@ -1433,11 +1612,31 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
     let dir = env.play().join("atari2600");
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     let kept = env.store.kept_files(folder.id).unwrap();
+    let deletion = plan_delete_all(&env, &folder);
+    let later = env
+        .store
+        .plan_kept_deletion(
+            &env.config,
+            folder.id,
+            &PlanKeptDeletion {
+                ids: vec![kept[0].id],
+                all: false,
+            },
+        )
+        .unwrap();
     std::fs::remove_file(dir.join(RETAINED).join("2").join(&kept[0].kept_name)).unwrap();
 
-    // Without the folder's marker, nothing can be shown gone.
+    // Without the folder's marker, nothing can be shown gone, nor planned.
     std::fs::rename(dir.join(".title-select"), env.tmp.path().join("marker")).unwrap();
-    let deletion = plan_delete_all(&env, &folder);
+    let refused = env.store.plan_kept_deletion(
+        &env.config,
+        folder.id,
+        &PlanKeptDeletion {
+            ids: vec![],
+            all: true,
+        },
+    );
+    assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     let done = env
         .store
         .approve_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
@@ -1446,19 +1645,9 @@ fn a_kept_file_that_vanished_is_no_longer_listed_once_its_deletion_is_carried_ou
     assert_eq!(env.store.kept_files(folder.id).unwrap(), kept);
 
     std::fs::rename(env.tmp.path().join("marker"), dir.join(".title-select")).unwrap();
-    let deletion = env
-        .store
-        .plan_kept_deletion(
-            folder.id,
-            &PlanKeptDeletion {
-                ids: vec![kept[0].id],
-                all: false,
-            },
-        )
-        .unwrap();
     let done = env
         .store
-        .approve_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .approve_kept_deletion(&env.config, later.id, &later.digest, "Operator")
         .unwrap();
     assert!(!done.outcomes[0].deleted);
     assert!(
@@ -1594,6 +1783,7 @@ fn a_move_back_is_recorded_only_once_it_is_found_back_and_made_durable() {
     let deletion = env
         .store
         .plan_kept_deletion(
+            &env.config,
             folder.id,
             &PlanKeptDeletion {
                 ids: vec![first.id],
@@ -1686,6 +1876,7 @@ fn something_moved_aside_that_cannot_be_moved_back_stays_tracked_until_it_is() {
         let deletion = env
             .store
             .plan_kept_deletion(
+                &env.config,
                 folder.id,
                 &PlanKeptDeletion {
                     ids: vec![first.id],
@@ -1771,28 +1962,18 @@ fn something_moved_aside_that_cannot_be_moved_back_stays_tracked_until_it_is() {
         assert!(!slot.exists());
         assert_eq!(env.store.kept_files(folder.id).unwrap(), kept);
 
-        // It is still not the file that was kept: a later deletion never deletes it, nor records it gone.
-        let again = env
-            .store
-            .plan_kept_deletion(
-                folder.id,
-                &PlanKeptDeletion {
-                    ids: vec![first.id],
-                    all: false,
-                },
-            )
-            .unwrap();
-        let done = env
-            .store
-            .approve_kept_deletion(&env.config, again.id, &again.digest, "Operator")
-            .unwrap();
-        assert!(!done.outcomes[0].deleted);
+        // It is still not the file that was kept: a later deletion is refused when it is planned.
+        let again = env.store.plan_kept_deletion(
+            &env.config,
+            folder.id,
+            &PlanKeptDeletion {
+                ids: vec![first.id],
+                all: false,
+            },
+        );
         assert!(
-            done.outcomes[0]
-                .detail
-                .as_deref()
-                .unwrap()
-                .contains("never deleted")
+            matches!(&again, Err(Error::Refused(m)) if m.contains("no longer the file that was kept")),
+            "{again:?}"
         );
         assert_eq!(std::fs::read(&path).unwrap(), b"someone else's");
         assert_eq!(env.store.kept_files(folder.id).unwrap(), kept);
@@ -1845,8 +2026,8 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
     let dir = env.play().join("atari2600");
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     let area = dir.join(RETAINED);
-    std::fs::set_permissions(&area, std::fs::Permissions::from_mode(0o777)).unwrap();
     let deletion = plan_delete_all(&env, &folder);
+    std::fs::set_permissions(&area, std::fs::Permissions::from_mode(0o777)).unwrap();
     let done = env
         .store
         .approve_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
@@ -3566,6 +3747,7 @@ fn drift_is_kept_aside_whole_or_acknowledged_until_it_changes() {
 
     // A kept folder is not deleted in this way.
     let deletion = env.store.plan_kept_deletion(
+        &env.config,
         folder.id,
         &PlanKeptDeletion {
             ids: vec![disc.id],
@@ -4376,6 +4558,7 @@ fn a_cleanup_is_refused_at_approval_once_anything_in_the_folder_changed() {
                 let deletion = env
                     .store
                     .plan_kept_deletion(
+                        &env.config,
                         folder.id,
                         &PlanKeptDeletion {
                             ids: vec![kept_named(&env, &folder, "old.txt").id],

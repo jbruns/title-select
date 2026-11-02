@@ -2286,9 +2286,14 @@ fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
                                 (false, Some(d)) => format!(": {d}"),
                                 (false, None) => ": left as it is".to_string(),
                             });
+                            // Deleted only while it still reads as this; otherwise its outcome says it changed.
+                            let read = p.content.reviewed.iter().find(|r| r.id == f.id).map(|r| {
+                                view! { ", read as SHA-256 " <code class="hash">{r.sha256.clone()}</code> }
+                            });
                             view! {
                                 <li>
                                     <code>{format!("{RETENTION}/{}/{}", f.generation, f.kept_name)}</code>
+                                    {read}
                                     {outcome}
                                 </li>
                             }
