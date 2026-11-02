@@ -270,6 +270,9 @@ pub(super) fn create_dir(
             _ => e.to_string(),
         }));
     }
+    if key != STAGING {
+        store.fault_point(Fault::PublishedDir);
+    }
     parent.sync().map_err(|e| Error::Io(e.to_string()))?;
     let dir = match parent.sub(name) {
         Ok(dir) => dir,
@@ -309,13 +312,14 @@ fn record_made(tx: &Transaction, folder: impl Into<Scope>, key: &str, id: Identi
     Ok(())
 }
 
-/// Whether the directory `key` of Managed Folder `folder` is recorded as made, as [`record_made`] records it.
-fn is_made(c: &Connection, folder: impl Into<Scope>, key: &str) -> Result<bool> {
+/// The identity the directory `key` of Managed Folder `folder` is recorded as made with, as [`record_made`]
+/// records it: perhaps a directory it replaces, which was gone.
+fn made_as(c: &Connection, folder: impl Into<Scope>, key: &str) -> Result<Option<Identity>> {
     let folder: Scope = folder.into();
     Ok(if key == STAGING {
-        scoped_temps(c, folder)?.contains_key(key)
+        scoped_temps(c, folder)?.get(key).copied()
     } else {
-        folder_dirs(c, folder)?.contains_key(key)
+        folder_dirs(c, folder)?.get(key).copied()
     })
 }
 
@@ -525,12 +529,14 @@ pub(super) fn settle_dir_temps(
             }
             Ok(Some(_)) => {}
             Ok(None) => {
-                let recorded = store.read(|c| is_made(c, folder, &dest_key))?;
+                // Adopted only by the identity committed before it was made: a record of a directory it replaced,
+                // which was gone, never stands in for it, and anything else there is never adopted.
+                let recorded = store.read(|c| made_as(c, folder, &dest_key))?;
                 let made = matches!(
                     parent.stat(dest),
                     Ok(Some(st)) if is_dir(&st) && Identity::of(&st) == id
                 );
-                if made && !recorded {
+                if made && recorded != Some(id) {
                     parent.sync().map_err(|e| Error::Io(e.to_string()))?;
                     store.write(|tx| record_made(tx, folder, &dest_key, id))?;
                 }

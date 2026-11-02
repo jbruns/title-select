@@ -1849,6 +1849,123 @@ fn a_retention_area_swapped_while_it_is_created_is_never_used() {
 }
 
 #[test]
+fn a_folder_recreated_in_place_of_a_gone_one_is_adopted_by_recovery_when_it_stopped_once_published()
+{
+    for gone in ["generation", ".deleting"] {
+        let env = Env::new();
+        let (folder, plan) = built_then_deselected(&env);
+        let dir = env.play().join("atari2600");
+        assert_eq!(env.build(&plan).state, JobState::Succeeded);
+        let kept = env.store.kept_files(folder.id).unwrap();
+        assert!(kept.len() >= 2, "{kept:?}");
+        let generation = dir.join(RETAINED).join("2");
+        let deleting = dir.join(RETAINED).join(".deleting");
+        let plan_one = |env: &Env, id: i64| {
+            env.store
+                .plan_kept_deletion(
+                    &env.config,
+                    folder.id,
+                    &PlanKeptDeletion {
+                        ids: vec![id],
+                        all: false,
+                    },
+                )
+                .unwrap()
+        };
+        let (env, target) = if gone == "generation" {
+            // Something else takes the kept file's place just before it is moved, and the service stops once that
+            // is recorded held aside; then the generation's folder it is to be moved back to is gone. Recovery makes
+            // it again, and stops once it is renamed into place.
+            let first = kept[0].clone();
+            let deletion = plan_one(&env, first.id);
+            let (at, id) = (generation.join(&first.kept_name), first.id);
+            let away = env.tmp.path().join("original");
+            env.store
+                .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                    if fault == Fault::BeforeDeleteMove(id) {
+                        std::fs::rename(&at, &away).unwrap();
+                        std::fs::write(&at, b"someone else's").unwrap();
+                    } else if fault == Fault::Quarantined(id) {
+                        panic!("killed");
+                    }
+                })));
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                env.store.approve_kept_deletion(
+                    &env.config,
+                    deletion.id,
+                    &deletion.digest,
+                    "Operator",
+                )
+            }));
+            env.store.hook_faults(None);
+            assert!(ran.is_err());
+            std::fs::rename(&generation, env.tmp.path().join("generation")).unwrap();
+            let (env, stopped) = env.restart_until(Some(Fault::PublishedDir));
+            assert!(
+                stopped.is_none(),
+                "it stopped once the folder was published"
+            );
+            assert!(generation.is_dir());
+            (env, deletion.id)
+        } else {
+            // A deletion makes the private folder kept files are deleted from; it is then gone, and the next
+            // deletion makes it again and stops once it is renamed into place.
+            let first = plan_one(&env, kept[0].id);
+            let done = env
+                .store
+                .approve_kept_deletion(&env.config, first.id, &first.digest, "Operator")
+                .unwrap();
+            assert!(done.outcomes[0].deleted, "{done:?}");
+            std::fs::remove_dir(&deleting).unwrap();
+            let second = plan_one(&env, kept[1].id);
+            crash_deletion(&env, &second, Fault::PublishedDir);
+            assert!(deleting.is_dir());
+            (env, second.id)
+        };
+
+        let (env, blocked) = env.restart();
+        assert!(blocked.is_empty(), "{gone}: {blocked:?}");
+        let done = env.store.kept_deletion(target).unwrap();
+        assert!(
+            done.finished_at.is_some() && done.recovery_error.is_none(),
+            "{gone}: {done:?}"
+        );
+        assert!(!done.outcomes[0].deleted, "{gone}: {done:?}");
+        // The folder made again is the store's: what is kept in it can be deleted.
+        let remaining = env.store.kept_files(folder.id).unwrap();
+        let file = if gone == "generation" {
+            remaining
+                .iter()
+                .find(|k| k.id == kept[0].id)
+                .unwrap()
+                .clone()
+        } else {
+            kept[1].clone()
+        };
+        if gone == "generation" {
+            assert_eq!(
+                std::fs::read(generation.join(&file.kept_name)).unwrap(),
+                b"someone else's",
+                "what was held aside is moved back into the folder made again"
+            );
+        } else {
+            let again = plan_one(&env, file.id);
+            let done = env
+                .store
+                .approve_kept_deletion(&env.config, again.id, &again.digest, "Operator")
+                .unwrap();
+            assert!(done.outcomes[0].deleted, "{gone}: {done:?}");
+        }
+        let next = env.plan(&folder, plan.content.selection);
+        assert!(
+            !blockers(&next).contains(&BlockerKind::Recovery),
+            "{gone}: {:?}",
+            next.content.blockers
+        );
+    }
+}
+
+#[test]
 fn a_retention_area_left_mid_creation_is_recorded_or_adopted_by_recovery_and_an_unknown_one_blocks()
 {
     for adopt in [false, true] {

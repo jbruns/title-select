@@ -146,6 +146,9 @@ pub enum Fault {
     BeforePublishDir,
     /// As [`Fault::MadeDir`], for a Build's staging directory.
     MadeStaging,
+    /// After a folder Title Select is creating in a Managed Folder is renamed into place, before its parent is
+    /// synced and its identity recorded under its name.
+    PublishedDir,
     /// As [`Fault::BeforePublishDir`], for a Build's staging directory.
     BeforePublishStaging,
     /// After the intent to delete the kept file with this id is committed and it is found to be the kept file, before
