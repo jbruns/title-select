@@ -13,7 +13,7 @@ use title_select_api::repair::{
 };
 
 use super::{MarkerRule, open_repairable, repair_active};
-use crate::builds::sha256_of;
+use crate::builds::still_sha256;
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::kept::{Scope, open_area_deleting, open_retention};
@@ -118,26 +118,24 @@ fn is_kept(dir: &FolderDir, name: &str, file: &SourceKeptFile) -> Result<bool> {
     }))
 }
 
-/// Kept file `file` as read now through `held`, opened on it: whether it is still the file kept and reads as it did
-/// when you reviewed its deletion. `check_ctime` is false once it was renamed, which moves its ctime.
+/// Kept file `file` as read now through `held`, opened on it: whether it is still the file kept, has ctime `ctime`
+/// and, read while it holds still, hashes as it did when you reviewed its deletion. The ctime is the one you
+/// reviewed until it is renamed, which moves it, and the one read through `held` just after that rename once it is.
 fn reads_as_reviewed(
     held: &std::fs::File,
     file: &SourceKeptFile,
     reviewed: Option<&KeptFileReviewed>,
-    check_ctime: bool,
+    ctime: Option<i128>,
 ) -> Result<bool> {
     let io = |e: std::io::Error| Error::Io(e.to_string());
-    let Some(reviewed) = reviewed else {
+    let (Some(reviewed), Some(ctime)) = (reviewed, ctime) else {
         return Ok(false);
     };
     let st = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
-    if Identity::of(&st) != Identity::from(file.identity)
-        || file_stat(&st) != file.file
-        || (check_ctime && ctime_ns(&st) != reviewed.ctime_ns)
-    {
+    if Identity::of(&st) != Identity::from(file.identity) || file_stat(&st) != file.file {
         return Ok(false);
     }
-    Ok(sha256_of(held).map_err(io)?.0 == reviewed.sha256)
+    Ok(still_sha256(held, ctime).map_err(io)?.as_deref() == Some(reviewed.sha256.as_str()))
 }
 
 /// Reads kept file `file` of Source Set folder `dir` through a descriptor, for you to review its deletion. `Err`
@@ -171,7 +169,10 @@ fn review(
     if Identity::of(&st) != Identity::from(file.identity) || file_stat(&st) != file.file {
         return Ok(Err(format!("{kept} is no longer the file that was kept")));
     }
-    let (sha256, _) = sha256_of(&held).map_err(|e| Error::Io(e.to_string()))?;
+    let Some(sha256) = still_sha256(&held, ctime_ns(&st)).map_err(|e| Error::Io(e.to_string()))?
+    else {
+        return Ok(Err(format!("{kept} changed while it was read")));
+    };
     Ok(Ok(KeptFileReviewed {
         id: file.id,
         ctime_ns: ctime_ns(&st),
@@ -408,6 +409,27 @@ impl Store {
         Ok(Ok(()))
     }
 
+    fn set_slot_ctime(&self, file: &SourceKeptFile, ctime: Option<i128>) -> Result<()> {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE source_kept SET slot_ctime_ns = ?2 WHERE id = ?1",
+                params![file.id, ctime.map(|c| c.to_string())],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn slot_ctime(&self, file: &SourceKeptFile) -> Result<Option<i128>> {
+        self.read(|c| {
+            let at: Option<String> = c.query_row(
+                "SELECT slot_ctime_ns FROM source_kept WHERE id = ?1",
+                [file.id],
+                |r| r.get(0),
+            )?;
+            Ok(at.and_then(|at| at.parse().ok()))
+        })
+    }
+
     fn settle_source_kept(
         &self,
         file: &SourceKeptFile,
@@ -416,7 +438,7 @@ impl Store {
     ) -> Result<()> {
         self.write(|tx| {
             tx.execute(
-                "UPDATE source_kept SET state = ?2, error = ?3,
+                "UPDATE source_kept SET state = ?2, error = ?3, slot_ctime_ns = NULL,
                         deleted_at = CASE WHEN ?2 = 'kept' THEN NULL ELSE ?4 END,
                         deletion_id = CASE WHEN ?2 = 'kept' THEN NULL ELSE deletion_id END
                  WHERE id = ?1",
@@ -479,18 +501,27 @@ impl Store {
             }
             // Read as reviewed before the rename, which moves its ctime, and held through it.
             let read = match generation.open_file(&file.kept_name) {
-                Ok(read) if reads_as_reviewed(&read, file, reviewed, true)? => read,
+                Ok(read)
+                    if reads_as_reviewed(&read, file, reviewed, reviewed.map(|r| r.ctime_ns))? =>
+                {
+                    read
+                }
                 _ => {
                     let why = format!("{CHANGED}, so it was left kept");
                     self.settle_source_kept(file, "kept", Some(&why))?;
                     return Ok(outcome(file, false, Some(why)));
                 }
             };
+            self.set_slot_ctime(file, None)?;
             if let Err(e) = generation.rename_new(&file.kept_name, deleting, &slot) {
                 let why =
                     format!("it could not be moved to be deleted ({e}), so it is never deleted");
                 self.settle_source_kept(file, "kept", Some(&why))?;
                 return Ok(outcome(file, false, Some(why)));
+            }
+            let moved = rustix::fs::fstat(&read).map_err(|e| io(e.into()))?;
+            if Identity::of(&moved) == Identity::from(file.identity) {
+                self.set_slot_ctime(file, Some(ctime_ns(&moved)))?;
             }
             held = Some(read);
             self.fault_point(crate::Fault::SourceKeptMoved(file.id));
@@ -504,7 +535,7 @@ impl Store {
             None => None,
         };
         let unchanged = match &held {
-            Some(held) => kept && reads_as_reviewed(held, file, reviewed, false)?,
+            Some(held) => kept && reads_as_reviewed(held, file, reviewed, self.slot_ctime(file)?)?,
             None => false,
         };
         if unchanged && is_kept(deleting, &slot, file)? {

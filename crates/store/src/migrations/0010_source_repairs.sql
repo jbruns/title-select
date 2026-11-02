@@ -95,6 +95,9 @@ CREATE TABLE source_kept (
     kept_at TEXT NOT NULL,
     deleted_at TEXT,
     error TEXT,
+    -- Its ctime read, once it was moved into the private .deleting folder to be deleted, through the descriptor
+    -- held across that rename; it is deleted only while it still has it.
+    slot_ctime_ns TEXT,
     UNIQUE (source_set_id, generation, kept_name)
 );
 
@@ -132,6 +135,9 @@ CREATE TABLE repair_steps (
     -- The kept name a file found in that slot that can't be told to be the staged file is moved to, recorded before
     -- it is moved; it is kept, never deleted.
     discard_kept TEXT,
+    -- The ctime of the staged file read, once it was moved into that slot, through the descriptor held across the
+    -- rename; it is deleted only while it still has it.
+    discard_ctime_ns TEXT,
     UNIQUE (plan_id, seq)
 );
 CREATE INDEX repair_steps_unfinished ON repair_steps (plan_id) WHERE state NOT IN ('done', 'failed', 'skipped');
@@ -216,3 +222,6 @@ END;
 ALTER TABLE ingest_moves ADD COLUMN staged_size INTEGER;
 ALTER TABLE ingest_moves ADD COLUMN staged_mtime_ns TEXT;
 ALTER TABLE ingest_moves ADD COLUMN published_ctime_ns TEXT;
+-- The ctime of an original read, once it was set aside in the private .deleting folder, through the descriptor held
+-- across that rename; it is deleted only while it still has it.
+ALTER TABLE ingest_moves ADD COLUMN isolated_ctime_ns TEXT;

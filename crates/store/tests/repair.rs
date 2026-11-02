@@ -367,7 +367,8 @@ fn rewrite_unnoticed(path: &Path, bytes: &[u8]) {
 
 #[test]
 fn a_kept_file_rewritten_since_you_reviewed_its_deletion_is_never_deleted() {
-    for once_moved in [false, true] {
+    // The last only by its ctime: written once moved with the bytes it held.
+    for (once_moved, bytes) in [(false, b"jello"), (true, b"jello"), (true, b"hello")] {
         let env = Env::new();
         env.put("readme.txt", b"hello");
         env.audit(AuditEvidence::Full);
@@ -396,11 +397,12 @@ fn a_kept_file_rewritten_since_you_reviewed_its_deletion_is_never_deleted() {
                             .next()
                             .unwrap()
                             .unwrap();
-                        rewrite_unnoticed(&slot.path(), b"jello");
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        rewrite_unnoticed(&slot.path(), bytes);
                     }
                 })));
         } else {
-            rewrite_unnoticed(&kept, b"jello");
+            rewrite_unnoticed(&kept, bytes);
         }
 
         let done = env.store.approve_source_kept_deletion(
@@ -420,7 +422,7 @@ fn a_kept_file_rewritten_since_you_reviewed_its_deletion_is_never_deleted() {
             "once_moved {once_moved}: {:#?}",
             done.outcomes
         );
-        assert_eq!(std::fs::read(&kept).unwrap(), b"jello");
+        assert_eq!(std::fs::read(&kept).unwrap(), bytes);
         assert_eq!(env.store.source_kept_files("Alpha").unwrap().len(), 1);
     }
 }
@@ -1199,6 +1201,36 @@ fn a_staged_file_changed_since_it_was_written_is_kept_and_never_deleted() {
 }
 
 #[test]
+fn a_staged_file_written_to_once_moved_to_be_deleted_is_kept_even_with_the_same_bytes() {
+    let env = Env::new();
+    let plan = cancelled_after_a_build_staged(&env);
+    let deleting = env.set().join(".title-select-retained/.deleting");
+    // Only its ctime tells: written through a descriptor with what it held, its mtime set back.
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::RepairDiscarding(_)) {
+                let slot = std::fs::read_dir(&deleting)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .unwrap()
+                    .path();
+                let held = std::fs::read(&slot).unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                rewrite_unnoticed(&slot, &held);
+            }
+        })));
+
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    env.store.hook_faults(None);
+
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(done.finished_at.is_some(), "{done:#?}");
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+}
+
+#[test]
 fn a_cancelled_repair_whose_staged_file_could_not_be_deleted_stays_unfinished_until_it_is() {
     let env = Env::new();
     let plan = cancelled_after_a_build_staged(&env);
@@ -1344,6 +1376,70 @@ fn a_file_found_in_place_of_a_new_file_being_kept_aside_is_recorded_kept_after_a
         assert_eq!(std::fs::read(&kept_path).unwrap(), b"an intruder");
         assert!(staged.lock().unwrap().as_ref().is_some_and(|p| !p.exists()));
     }
+}
+
+#[test]
+fn a_file_found_in_place_of_a_new_file_being_kept_aside_is_recorded_only_once_both_folders_are_synced()
+ {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let publish = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| matches!(s.step, RepairStep::Publish { .. }))
+        .unwrap() as u32;
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let set = env.set();
+    let kept = set.join(".title-select-retained/1/Pong (USA).zip.kept");
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairStaged(0) {
+                std::fs::write(set.join("Pong (USA).zip"), b"someone else's").unwrap();
+            } else if fault == Fault::RepairMoved(publish) {
+                substitute(&kept, b"an intruder");
+                panic!("stopped");
+            }
+        })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    env.store
+        .inject_fault(Some(Fault::RepairFoundSynced(publish)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&env.store.repair_plan(plan.id).unwrap())
+    }));
+    env.store.inject_fault(None);
+
+    assert!(
+        ran.is_err(),
+        "recorded before both folders were synced: {ran:?}"
+    );
+    assert!(
+        env.store
+            .source_kept_files("Alpha")
+            .unwrap()
+            .iter()
+            .all(|k| !k.reason.contains("found in place of"))
+    );
+    env.store.recover_jobs(WORKERS).unwrap();
+    env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    assert!(
+        env.store
+            .source_kept_files("Alpha")
+            .unwrap()
+            .iter()
+            .any(|k| k.reason.contains("found in place of"))
+    );
 }
 
 #[test]

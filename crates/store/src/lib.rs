@@ -218,6 +218,9 @@ pub enum Fault {
     /// After both folders a deletion of the kept file of a Source Set with this id touches are synced, before it is
     /// checked, deleted or recorded.
     SourceKeptSynced(i64),
+    /// After both folders are synced when a stopped publish step with this sequence number, whose file was to be
+    /// kept aside, finds it in neither place, before anything found there is recorded or the step ends.
+    RepairFoundSynced(u32),
     /// After recovery syncs both folders a stopped deletion of the kept file with this id touches, before it is
     /// checked, deleted or recorded.
     KeptDeletionSynced(i64),

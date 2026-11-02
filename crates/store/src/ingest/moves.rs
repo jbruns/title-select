@@ -124,6 +124,8 @@ struct MoveRow {
     staged_stamp: Option<FileStat>,
     /// The published copy's change time, read through the descriptor held across its rename.
     published_ctime: Option<i128>,
+    /// The original's ctime read, once set aside to delete, through the descriptor held across that rename.
+    isolated_ctime: Option<i128>,
     dest_sha256: Option<String>,
     found: Option<Identity>,
     aside_name: Option<String>,
@@ -132,7 +134,7 @@ struct MoveRow {
 
 const MOVE_QUERY: &str = "SELECT id, folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns, \
      sha256, dest_kind, dest_root, dest_rel, generation, dest_name, reason, roms, staged_name, staged_dev, \
-     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, staged_size, staged_mtime_ns FROM ingest_moves";
+     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, staged_size, staged_mtime_ns, isolated_ctime_ns FROM ingest_moves";
 
 fn parse_ns(r: &Row, at: usize) -> rusqlite::Result<i128> {
     r.get::<_, String>(at)?.parse().map_err(|e| {
@@ -201,6 +203,10 @@ fn move_from_row(r: &Row) -> rusqlite::Result<MoveRow> {
         staged: identity_at(r, 20)?,
         published_ctime: match r.get::<_, Option<String>>(29)? {
             Some(_) => Some(parse_ns(r, 29)?),
+            None => None,
+        },
+        isolated_ctime: match r.get::<_, Option<String>>(32)? {
+            Some(_) => Some(parse_ns(r, 32)?),
             None => None,
         },
         staged_stamp: match (
@@ -284,7 +290,14 @@ enum Moving {
 /// file `seen` planned: the same regular file, size and modification time, with no other link, reading as `expect`
 /// when given, and unchanged while it was read. Its change time is not compared with the plan's, since a rename
 /// changes it on most filesystems; reading it whole, with its change time steady meanwhile, stands in.
-fn read_back(dir: &FolderDir, name: &str, seen: &Seen, expect: Option<&str>) -> io::Result<Moving> {
+/// `ctime`, when given, is the ctime it must still have, as read once it was moved there.
+fn read_back(
+    dir: &FolderDir,
+    name: &str,
+    seen: &Seen,
+    expect: Option<&str>,
+    ctime: Option<i128>,
+) -> io::Result<Moving> {
     let Some(st) = dir.stat(name)? else {
         return Ok(Moving::Other {
             identity: None,
@@ -306,6 +319,9 @@ fn read_back(dir: &FolderDir, name: &str, seen: &Seen, expect: Option<&str>) -> 
     }
     let file = dir.open_file(name)?;
     let before = rustix::fs::fstat(&file)?;
+    if ctime.is_some_and(|ctime| ctime_ns(&before) != ctime) {
+        return other("it was written to after it was set aside to delete");
+    }
     let (sha256, _) = sha256_of(&file)?;
     let after = rustix::fs::fstat(&file)?;
     if Identity::of(&before) != identity
@@ -676,7 +692,7 @@ impl Store {
         }
         dest.sync().map_err(io)?;
         src.sync().map_err(io)?;
-        match read_back(dest, dest_name, &m.seen, m.sha256.as_deref()).map_err(io)? {
+        match read_back(dest, dest_name, &m.seen, m.sha256.as_deref(), None).map_err(io)? {
             Moving::Planned { file, sha256 } => {
                 let kept = self.kept_entry(m, m.seen.identity, file, Some(sha256.clone()));
                 self.finish_move(m, kept, Some(sha256), None)
@@ -1314,6 +1330,20 @@ impl Store {
                         m.name
                     ))));
                 }
+                // Its ctime, which the rename moved, read through the descriptor held across it.
+                if let Some(held) = &_pin {
+                    let moved = rustix::fs::fstat(held).map_err(|e| io(e.into()))?;
+                    if Identity::of(&moved) == m.seen.identity {
+                        let ctime = ctime_ns(&moved).to_string();
+                        self.write(|tx| {
+                            tx.execute(
+                                "UPDATE ingest_moves SET isolated_ctime_ns = ?2 WHERE id = ?1",
+                                params![m.id, ctime],
+                            )?;
+                            Ok(())
+                        })?;
+                    }
+                }
                 self.fault_point(Fault::IngestIsolated);
             } else if m.state != "disposing" {
                 return Ok(Ok(Some(format!(
@@ -1324,9 +1354,17 @@ impl Store {
             // Whether this call or one before a stop set it aside, both folders are synced before it goes on.
             src.sync().map_err(io)?;
             deleting.sync().map_err(io)?;
+            let isolated = self.read(|c| move_by_id(c, m.id))?.isolated_ctime;
             let found = match copied {
                 Some(copied) => {
-                    match read_back(&deleting, &slot, &m.seen, Some(copied)).map_err(io)? {
+                    match read_back(&deleting, &slot, &m.seen, Some(copied), isolated)
+                        .map_err(io)?
+                    {
+                        Moving::Planned { .. } if isolated.is_none() => (
+                            m.seen.identity,
+                            "it could not be confirmed unchanged once it was set aside to delete"
+                                .to_owned(),
+                        ),
                         Moving::Planned { .. } if !self.unsettled(m)? => {
                             deleting.unlink(&slot).map_err(io)?;
                             deleting.sync().map_err(io)?;
@@ -1951,6 +1989,40 @@ mod tests {
         let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
         (&file).write_all(bytes).unwrap();
         file.set_modified(before.modified().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn an_original_written_to_once_set_aside_to_delete_is_kept_even_with_the_same_bytes() {
+        let env = env();
+        env.put("pong.a26", b"pong");
+        let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+        mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+        FORCE_COPY.with(|f| f.set(true));
+        let slot = env
+            .tmp
+            .path()
+            .join("in/.title-select-retained/.deleting/move-1");
+        // Only its ctime tells: written through a descriptor with what it held, its mtime set back.
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
+                if fault == Fault::IngestIsolated {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    rewrite_in_place(&slot, b"pong");
+                }
+            })));
+
+        let moved = env.store.move_out(&env.config, mv);
+        env.store.hook_faults(None);
+        FORCE_COPY.with(|f| f.set(false));
+
+        moved.unwrap().unwrap();
+        assert!(
+            env.listing()
+                .iter()
+                .any(|p| p == "in/.title-select-retained/1/pong.a26.kept"),
+            "{:?}",
+            env.listing()
+        );
     }
 
     #[test]

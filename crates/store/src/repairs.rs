@@ -30,10 +30,10 @@ use title_select_engine::build::{FromSource, repack_sources, verify};
 use title_select_engine::dat::Dat;
 use title_select_engine::{FileStamp, Progress};
 
-use crate::builds::sha256_of;
+use crate::builds::{sha256_of, still_sha256};
 use crate::checks::Seen;
 use crate::config::Config;
-use crate::folder_dir::{FolderDir, Identity, file_stat};
+use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use crate::folders::{MARKER_LIMIT, MARKER_NEW, store_id};
 use crate::ingest::OwedAudits;
 use crate::ingest::fill_candidates;
@@ -1662,7 +1662,7 @@ impl Store {
                 let slot = format!("repair-staged-{}", unique());
                 self.write(|tx| {
                     tx.execute(
-                        "UPDATE repair_steps SET discard_slot = ?2 WHERE id = ?1",
+                        "UPDATE repair_steps SET discard_slot = ?2, discard_ctime_ns = NULL WHERE id = ?1",
                         params![step.id, slot],
                     )?;
                     Ok(())
@@ -1679,6 +1679,20 @@ impl Store {
             if dir.rename_new(staged_name, &deleting, &slot).is_err() {
                 return left();
             }
+            // Its ctime, which the rename moved, read through the descriptor held across it.
+            if let Some(held) = &_pin {
+                let moved = rustix::fs::fstat(held).map_err(|e| io_err(e.into()))?;
+                if Identity::of(&moved) == id {
+                    let ctime = ctime_ns(&moved).to_string();
+                    self.write(|tx| {
+                        tx.execute(
+                            "UPDATE repair_steps SET discard_ctime_ns = ?2 WHERE id = ?1",
+                            params![step.id, ctime],
+                        )?;
+                        Ok(())
+                    })?;
+                }
+            }
             self.fault_point(Fault::RepairDiscarding(step.seq));
         }
         // Whether this call or one before a stop moved it, both folders are synced before it is deleted.
@@ -1693,11 +1707,21 @@ impl Store {
             {
                 // Deleted only while it matches the stamp recorded as it was written, read through one descriptor;
                 // anything else, or a file with no stamp, is kept.
+                let moved: Option<String> = self.read(|c| {
+                    Ok(c.query_row(
+                        "SELECT discard_ctime_ns FROM repair_steps WHERE id = ?1",
+                        [step.id],
+                        |r| r.get(0),
+                    )?)
+                })?;
+                let moved = moved.and_then(|at| at.parse::<i128>().ok());
                 let file = deleting.open_file(&slot).map_err(io_err)?;
                 let held = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
-                let matches = match &stamp {
-                    Some((stat, sha)) if Identity::of(&held) == id && file_stat(&held) == *stat => {
-                        sha256_of(&file).map_err(io_err)?.0 == *sha
+                let matches = match (&stamp, moved) {
+                    (Some((stat, sha)), Some(moved))
+                        if Identity::of(&held) == id && file_stat(&held) == *stat =>
+                    {
+                        still_sha256(&file, moved).map_err(io_err)?.as_ref() == Some(sha)
                     }
                     _ => false,
                 };
@@ -1729,7 +1753,7 @@ impl Store {
         }
         self.write(|tx| {
             tx.execute(
-                "UPDATE repair_steps SET discard_slot = NULL WHERE id = ?1",
+                "UPDATE repair_steps SET discard_slot = NULL, discard_ctime_ns = NULL WHERE id = ?1",
                 [step.id],
             )?;
             Ok(())
@@ -1842,7 +1866,7 @@ impl Store {
                 )?;
             }
             tx.execute(
-                "UPDATE repair_steps SET discard_slot = NULL, discard_kept = NULL,
+                "UPDATE repair_steps SET discard_slot = NULL, discard_kept = NULL, discard_ctime_ns = NULL,
                      note = COALESCE(note || '; ', '') || ?2 WHERE id = ?1",
                 params![step.id, note],
             )?;
@@ -2283,6 +2307,10 @@ impl Store {
                 Err(left) => Ok(Err(left)),
             }
         };
+        // A stop may have left a rename unsynced: nothing is recorded, nor the step ended, until both are synced.
+        r.dir.sync().map_err(io_err)?;
+        generation.sync().map_err(io_err)?;
+        self.fault_point(Fault::RepairFoundSynced(step.seq));
         if let Some(st) = generation.stat(kept).map_err(io_err)? {
             return settle(&st);
         }
