@@ -107,6 +107,9 @@ pub struct SystemSettings {
     pub overrides: Overrides,
     pub post_filters: Vec<String>,
     pub replace_post_filters: bool,
+    /// Whether builds of this system also read its Additions Set. Off unless you turn it on.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub additions: bool,
 }
 
 impl SystemSettings {

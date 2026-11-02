@@ -1,5 +1,6 @@
 //! The store (ADR 0003): one SQLite database in a store directory, with DAT blobs under `dats/<sha256>`.
 
+mod additions;
 mod audits;
 mod blobs;
 mod builds;
@@ -96,6 +97,10 @@ pub struct Store {
     /// Holds the exclusive lock on `lock` until the store is dropped.
     _lock: File,
     fault: Mutex<Option<FaultHook>>,
+    /// Held while Operator Additions are published, so that only one caller settles them at a time.
+    publishing: Mutex<()>,
+    /// Held while an Additions Set's folder is created.
+    set_dirs: Mutex<()>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -231,6 +236,26 @@ pub enum Fault {
     /// After a Build keeps aside the original of the conversion of the item with this sequence number, before it
     /// verifies the converted file to delete the original.
     ConversionKept(i64),
+    /// After an Additions Set's folder is made and recorded under its temporary name, before its marker is written.
+    AdditionSetMade,
+    /// After an Additions Set's folder is renamed into place, before the Root is synced and the folder recorded.
+    AdditionSetPublished,
+    /// After an Operator Addition's file is written and checked under its staged name, before it is renamed into place.
+    AdditionStaged,
+    /// After an Operator Addition's file is renamed into place, before its folder is synced and it is recorded active.
+    AdditionRenamed,
+    /// After a retiring Operator Addition's file is renamed into its Additions Set's kept files, before either folder
+    /// is synced or anything is recorded.
+    AdditionRetireMoved,
+    /// After a restoring Operator Addition's file is renamed back from its Additions Set's kept files, before either
+    /// folder is synced or anything is recorded.
+    AdditionRestoreMoved,
+    /// After approving an ingest plan records the intent to add one of its items as an Operator Addition, before the
+    /// rest of its items, what became of them and its Additions Job are recorded.
+    IngestAdditionRecorded,
+    /// After a restoring Operator Addition's file, found replaced once renamed back into its Additions Set, has what
+    /// replaced it renamed back into the kept files, before either folder is synced or anything is recorded.
+    AdditionRestoreReturned,
 }
 
 /// Takes the store directory's exclusive lock, failing at once if another process holds it.
@@ -286,6 +311,8 @@ impl Store {
             readers: Mutex::new(Vec::new()),
             _lock: lock,
             fault: Mutex::new(None),
+            publishing: Mutex::new(()),
+            set_dirs: Mutex::new(()),
         };
         // Retention is not run here: it runs after an import or an Audit, so a blob restored by one command is
         // still there for the Audit the next command runs.

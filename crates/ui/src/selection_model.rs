@@ -480,9 +480,20 @@ impl Setting {
     }
 }
 
-/// Drops every setting of a system, so the global settings apply to it. Its choices stay.
+/// Drops every setting of a system, so the global settings apply to it. Its choices stay, and so does whether its
+/// builds read its additions set.
 pub fn use_global_settings(profile: &mut SelectionProfile, system: &str) {
+    let additions = profile.systems.get(system).is_some_and(|s| s.additions);
     profile.systems.remove(system);
+    if additions {
+        profile.systems.insert(
+            system.to_owned(),
+            SystemSettings {
+                additions,
+                ..SystemSettings::default()
+            },
+        );
+    }
 }
 
 /// Resets the global settings to the defaults, keeping system settings and choices.
@@ -495,8 +506,9 @@ pub fn reset_global(profile: &mut SelectionProfile) {
 }
 
 /// Sets every setting of a system to the defaults, whatever the global settings say, keeping its choices. Global
-/// overrides still apply: a system's overrides only add to them.
+/// overrides still apply: a system's overrides only add to them. Whether its builds read its additions set stays.
 pub fn reset_system(profile: &mut SelectionProfile, system: &str) {
+    let additions = profile.systems.get(system).is_some_and(|s| s.additions);
     profile.systems.insert(
         system.to_owned(),
         SystemSettings {
@@ -507,6 +519,7 @@ pub fn reset_system(profile: &mut SelectionProfile, system: &str) {
             exclude: Some(BTreeSet::new()),
             options: Some(SelectionOptions::default()),
             replace_post_filters: true,
+            additions,
             ..SystemSettings::default()
         },
     );
@@ -770,6 +783,26 @@ mod tests {
         assert!(profile.systems.is_empty(), "nothing of its own is left");
 
         Setting::Exclude.set_for_system(&mut profile, "Atari");
+        use_global_settings(&mut profile, "Atari");
+        assert!(profile.systems.is_empty());
+    }
+
+    #[test]
+    fn dropping_or_resetting_a_systems_settings_keeps_its_additions_opt_in() {
+        let mut profile = SelectionProfile::default();
+        Setting::Exclude.set_for_system(&mut profile, "Atari");
+        profile.systems.get_mut("Atari").unwrap().additions = true;
+        use_global_settings(&mut profile, "Atari");
+        assert_eq!(
+            profile.systems["Atari"],
+            SystemSettings {
+                additions: true,
+                ..SystemSettings::default()
+            }
+        );
+        reset_system(&mut profile, "Atari");
+        assert!(profile.systems["Atari"].additions);
+        profile.systems.get_mut("Atari").unwrap().additions = false;
         use_global_settings(&mut profile, "Atari");
         assert!(profile.systems.is_empty());
     }

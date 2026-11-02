@@ -56,8 +56,18 @@ Failed or Interrupted, and it survives a browser disconnecting or the Service re
 _Avoid_: Task, run
 
 **Operator Addition**:
-An item the Operator approves for management in a Play Library independently of an official DAT, such as a ROM hack. Its
-recorded provenance and local integrity checks do not make it an official DAT match.
+An item the Operator approves for management in a Play Library independently of an official DAT, such as a ROM hack. It
+is identified by its own hashes (CRC32, MD5, SHA-1, SHA-256 and size) and a name the Operator can edit, and may name a
+parent Game as metadata only. It comes from an Ingest Folder item, Drift in a Managed Folder or a Source Set Entry
+that matched nothing. Its recorded provenance and local integrity checks do not make it an official DAT match.
+_Avoid_: Custom ROM, homebrew (as a kind)
+
+**Additions Set**:
+The folder holding the Operator Additions of one system, `<DAT name>` in the Root named `additions`, each stored under
+its name in the format the Storage Policy says for its system's Source Sets. A Build reads it alongside the Source Set
+only when its Selection Profile opts in for that system, and it is checked for Drift like a Managed Folder. An Additions
+Job publishes approved additions into it, and moves the file of one retired into its own Kept Files.
+_Avoid_: Extras folder, custom set
 
 ## Audit
 

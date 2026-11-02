@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 use title_select_api::Job;
+use title_select_api::additions::NewAddition;
 use title_select_api::build::{ApprovePlan, RETENTION};
 use title_select_api::ingest::{
     Assessment, IngestAction, IngestFolder, IngestItem, IngestKeptFile, IngestPlan, ItemState,
@@ -13,6 +16,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::{short_sha, when};
+use crate::screens::additions::{AdditionFields, new_addition};
 
 fn folder_href(root: &str) -> String {
     format!("/ingest-folders/{}", api::segment(root))
@@ -272,6 +276,8 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
     let provider = RwSignal::new(String::new());
+    // What each item that can be added as an operator addition would be added as, by id.
+    let adding = RwSignal::new(BTreeMap::<i64, RwSignal<NewAddition>>::new());
     let request = {
         let base = base.clone();
         move |action: IngestAction| {
@@ -282,6 +288,16 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                 items: picked.get_untracked(),
                 provider: (action == IngestAction::DatImport && !provider.is_empty())
                     .then_some(provider),
+                additions: match action {
+                    IngestAction::Addition => adding.with_untracked(|adding| {
+                        picked
+                            .get_untracked()
+                            .iter()
+                            .filter_map(|id| adding.get(id).map(|a| (*id, a.get_untracked())))
+                            .collect()
+                    }),
+                    _ => BTreeMap::new(),
+                },
             };
             let path = format!("{base}/plans");
             leptos::task::spawn_local(async move {
@@ -353,6 +369,19 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                         ItemState::Assessed | ItemState::AlreadyHeld | ItemState::Unreadable | ItemState::Unsupported
                     );
                     let state = item.state.label();
+                    // Only an item holding one ROM no DAT knows can be added as an operator addition.
+                    let addable = match &item.assessment.proposal {
+                        Some(Proposal::OperatorAddition { system }) if item.assessment.payloads.len() == 1 => {
+                            Some(adding.with_untracked(|a| a.get(&id).copied()).unwrap_or_else(|| {
+                                let fields = RwSignal::new(new_addition(&item.name, system.as_deref()));
+                                adding.update_untracked(|a| {
+                                    a.insert(id, fields);
+                                });
+                                fields
+                            }))
+                        }
+                        _ => None,
+                    };
                     view! {
                         <li>
                             <label>
@@ -379,6 +408,9 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                             {item.reason.clone().map(|r| format!(": {r}"))}
                             {proposal.map(|p| view! { <p>{p}</p> })}
                             {assessed.then(|| evidence(&item.assessment))}
+                            {addable.map(|value| view! {
+                                <p>"To add it as an operator addition: " <AdditionFields value /></p>
+                            })}
                             {dismissible.then(|| view! {
                                 <button type="button" on:click=move |_| dismiss(id)>"Dismiss until it changes"</button>
                             })}
@@ -390,12 +422,14 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
         }
     };
     let discard = request.clone();
+    let add = request.clone();
     let review = move || {
         plan.get().map(|p| {
             let open = p.approval.is_none();
             let action = match p.content.action {
                 IngestAction::Discard => "Discarding",
                 IngestAction::DatImport => "Importing DATs",
+                IngestAction::Addition => "Adding operator additions",
             };
             view! {
                 <h3>{format!("{action}, plan #{}", p.id)}</h3>
@@ -457,7 +491,9 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
             <h2 id="items-title">"Items"</h2>
             <p class="lede">
                 "Each item is assessed once its size and times stop changing. Pick items to plan a discard, which \
-                keeps them aside in the folder's kept files, or to import a DAT. Nothing moves until you approve."
+                keeps them aside in the folder's kept files, to import a DAT, or to add an item no DAT knows as an \
+                operator addition: repacked into its system's additions set, its original deleted only once the copy \
+                reads back exactly. Nothing moves until you approve."
             </p>
             <ul class="plain">{list}</ul>
             <div class="form">
@@ -482,6 +518,13 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                     on:click=move |_| request(IngestAction::DatImport)
                 >
                     "Plan importing the DATs you picked"
+                </button>
+                <button
+                    type="button"
+                    disabled=move || working.get() || picked.with(Vec::is_empty)
+                    on:click=move |_| add(IngestAction::Addition)
+                >
+                    "Plan adding the items you picked as operator additions"
                 </button>
             </div>
             {review}

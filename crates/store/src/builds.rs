@@ -25,7 +25,9 @@ use title_select_api::build::{
 };
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
-use title_select_engine::build::{Source, copy, repack, verify, verify_loose, write_loose};
+use title_select_engine::build::{
+    Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
+};
 
 use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat};
@@ -237,9 +239,72 @@ fn stage(
     file: &mut File,
     staged: &Path,
     set: (&Path, &Path, &std::result::Result<FolderDir, String>),
+    additions: Option<&FolderDir>,
     built_at: SystemTime,
 ) -> std::result::Result<Staged, Failure> {
     let (set_dir, set_root, set_fd) = set;
+    if let Some(addition) = &item.addition {
+        // An Operator Addition is read from its Additions Set, through a descriptor on the file published there, while
+        // it is still that file: copied whole when the play library stores it in the format its Additions Set does,
+        // else written from its one ROM in the play library's.
+        let source = &item.sources[0];
+        let dir = additions.ok_or_else(|| {
+            Failure::Item(format!(
+                "the additions set holding {} cannot be opened",
+                source.path
+            ))
+        })?;
+        let from = dir
+            .open_file(&source.path)
+            .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
+        let changed = || {
+            Failure::Item(format!(
+                "{} in the additions set is not the file published there; check the additions set",
+                source.path
+            ))
+        };
+        let st = rustix::fs::fstat(&from).map_err(|e| Failure::Item(e.to_string()))?;
+        if Identity::of(&st) != Identity::from(addition.identity) || file_stat(&st) != source.file {
+            return Err(changed());
+        }
+        let [rom] = item.roms.as_slice() else {
+            return Err(Failure::Item(
+                "an operator addition holds exactly one ROM".into(),
+            ));
+        };
+        let whole = addition.loose == item.loose;
+        if whole {
+            io::copy(&mut &from, file)
+                .map_err(|e| Failure::Item(format!("{}: {e}", source.path)))?;
+        } else {
+            let read = [(rom, 0, (!addition.loose).then_some(rom.name.as_str()))];
+            match item.loose {
+                true => write_loose(file, &read, &[&from]),
+                false => repack_sources(file, &read, &[&from]),
+            }
+            .map_err(Failure::Item)?;
+        }
+        file.sync_all()
+            .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+        let after = rustix::fs::fstat(&from).map_err(|e| Failure::Item(e.to_string()))?;
+        if Identity::of(&after) != Identity::of(&st) || file_stat(&after) != source.file {
+            return Err(changed());
+        }
+        match item.loose {
+            true => verify_loose(file, rom),
+            false => verify(file, &item.roms),
+        }
+        .map_err(Failure::Item)?;
+        file.set_modified(built_at)
+            .and_then(|()| file.sync_all())
+            .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+        let (sha256, size) =
+            sha256_of(file).map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+        if whole && sha256 != addition.sha256 {
+            return Err(changed());
+        }
+        return Ok(Staged { sha256, size });
+    }
     let sources: Vec<PathBuf> = item
         .sources
         .iter()
@@ -466,16 +531,16 @@ fn record_applied(
     )?;
     tx.execute(
         "INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id, dat_revision_id,
-                                  roms, sources, size, mtime_ns, sha256, torrentzip, loose)
+                                  roms, sources, size, mtime_ns, sha256, torrentzip, loose, addition_id)
          SELECT ?1, ?2, ?3, ?4, b.id, b.selection_id, b.audit_id, b.dat_revision_id, ?5, ?6, ?7, ?8, i.sha256, ?11,
-                ?12
+                ?12, ?13
          FROM builds b JOIN build_items i ON i.build_id = b.id AND i.seq = ?10 WHERE b.id = ?9
          ON CONFLICT (folder_id, target) DO UPDATE SET
              game = excluded.game, kind = excluded.kind, build_id = excluded.build_id,
              selection_id = excluded.selection_id, audit_id = excluded.audit_id,
              dat_revision_id = excluded.dat_revision_id, roms = excluded.roms, sources = excluded.sources,
              size = excluded.size, mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,
-             torrentzip = excluded.torrentzip, loose = excluded.loose",
+             torrentzip = excluded.torrentzip, loose = excluded.loose, addition_id = excluded.addition_id",
         params![
             folder,
             item.target,
@@ -488,7 +553,8 @@ fn record_applied(
             build,
             seq,
             torrentzip && !item.loose,
-            item.loose
+            item.loose,
+            item.addition.as_ref().map(|a| a.id)
         ],
     )?;
     // A file kept aside to be repacked is no longer missing once a file is built at its name.
@@ -769,6 +835,9 @@ impl Store {
                 self.recover_build(config, build)?;
             }
         }
+        // Operator Additions a cleanup kept aside drift entries for are published from their kept files by their
+        // Additions Jobs.
+        self.write(|tx| crate::additions::queue_additions_jobs(tx).map(drop))?;
         let job = self.job(id)?;
         if job.state == JobState::Succeeded {
             self.retain_blobs()?;
@@ -830,6 +899,14 @@ impl Store {
         }
         let (set_dir, set_root) = self.set_folder(config, folder_row.source_set_id)?;
         let set_fd = self.set_folder_dir(config, folder_row.source_set_id)?;
+        // The Additions Set the plan's Operator Additions are copied from: one, the folder's system's.
+        let additions = match content.items.iter().find_map(|i| i.addition.as_ref()) {
+            Some(a) => Some(
+                self.open_additions(config, a.additions_set)?
+                    .map_err(Error::Refused)?,
+            ),
+            None => None,
+        };
         // The files to write, then the files to adopt, which are only recorded.
         let (writes, adopts): (Vec<&PlanItem>, Vec<&PlanItem>) = content
             .items
@@ -1100,6 +1177,7 @@ impl Store {
                     &mut file,
                     &staged_path,
                     (&set_dir, &set_root, &set_fd),
+                    additions.as_ref(),
                     built_at,
                 ) {
                     Err(Failure::Item(error)) => {

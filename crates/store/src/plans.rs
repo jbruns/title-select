@@ -9,13 +9,13 @@ use std::time::UNIX_EPOCH;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{
-    Approval, Blocker, BlockerKind, Cause, CheckSummary, ExpectedRom, FileIdentity, FileOutcome,
-    FileStat, FolderCheck, ItemKind, KeepAside, KeepReason, Plan, PlanBuild, PlanChange,
-    PlanChoices, PlanContent, PlanItem, PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING,
-    invalid_name,
+    Approval, Blocker, BlockerKind, Cause, CheckSummary, CleanupAction, ExpectedRom, FileIdentity,
+    FileOutcome, FileStat, FolderCheck, ItemKind, KeepAside, KeepReason, Plan, PlanAddition,
+    PlanBuild, PlanChange, PlanChoices, PlanContent, PlanItem, PlanRemoval, PlanSource, RETENTION,
+    RemovalKind, STAGING, invalid_name,
 };
 use title_select_api::report::{Entry, EvidenceLevel, Finding};
-use title_select_api::selection::{ReleaseRow, Role, Selection, diff_rows};
+use title_select_api::selection::{ReleaseRow, Role, Selection, SelectionProfile, diff_rows};
 use title_select_api::storage::{Storage, StorageScope, target_of as storage_target};
 use title_select_api::{DatRevisionRecord, Job, Workers};
 use title_select_engine::build::{Probe, holds_as, is_torrentzip};
@@ -181,6 +181,8 @@ struct Inputs {
     /// The originals conversions recorded before they put their converted files in place: by name, the name each
     /// was converted to, and the original's identity.
     originals: HashSet<(String, String, Identity)>,
+    /// The active Operator Additions of the folder's system, when its Selection Profile opts in to them.
+    additions: Vec<crate::additions::AdditionRow>,
 }
 
 fn load(
@@ -277,8 +279,31 @@ fn load(
         }
     }
     let storage = crate::storage::policy(c, StorageScope::PlayLibraries, &folder.system)?;
+    let profile: String = c.query_row(
+        "SELECT json FROM profile_versions WHERE id = ?1",
+        [profile_version],
+        |r| r.get(0),
+    )?;
+    let opted = serde_json::from_str::<SelectionProfile>(&profile)
+        .ok()
+        .and_then(|p| p.systems.get(&selection.system).map(|s| s.additions))
+        .unwrap_or(false);
+    let additions = match opted {
+        true => crate::additions::active_additions(c, folder.dat_id)?,
+        false => Vec::new(),
+    };
+    for addition in &additions {
+        selected
+            .entry(
+                crate::additions::built_target(storage, &addition.addition)
+                    .0
+                    .to_lowercase(),
+            )
+            .or_insert_with(|| addition.addition.name.clone());
+    }
     Ok(Inputs {
         storage,
+        additions,
         unrecovered,
         choices: choices.clone(),
         selected,
@@ -1083,14 +1108,41 @@ fn plan_items(
             .entry(target_of(title).0.to_lowercase())
             .or_default() += 1;
     }
+    // An Operator Addition is built under its own name, after every selected Game: one whose file name a Game's
+    // differs from only in case is blocked, never the Game.
+    let mut added: HashMap<String, usize> = HashMap::new();
+    for a in &inputs.additions {
+        *added
+            .entry(
+                crate::additions::built_target(inputs.storage, &a.addition)
+                    .0
+                    .to_lowercase(),
+            )
+            .or_default() += 1;
+    }
+    let wanted = winners
+        .into_iter()
+        .map(|(group, game)| (group, game, None))
+        .chain(
+            inputs
+                .additions
+                .iter()
+                .map(|a| (a.addition.name.as_str(), a.addition.name.as_str(), Some(a))),
+        );
     let mut sources = Sources::new(config, inputs);
     let mut items = Vec::new();
-    for (group, game) in winners {
-        let (target, loose) = target_of(game);
-        let roms = games
-            .get(game)
-            .map(|&i| roms_of[i].clone())
-            .unwrap_or_default();
+    for (group, game, addition) in wanted {
+        let (target, loose) = match addition {
+            Some(a) => crate::additions::built_target(inputs.storage, &a.addition),
+            None => target_of(game),
+        };
+        let roms = match addition {
+            Some(a) => a.addition.rom.iter().cloned().collect(),
+            None => games
+                .get(game)
+                .map(|&i| roms_of[i].clone())
+                .unwrap_or_default(),
+        };
         let existing = files.and_then(|f| f.get(&target.to_lowercase()));
         let mut item = PlanItem {
             group: group.to_owned(),
@@ -1106,8 +1158,9 @@ fn plan_items(
             keepable: false,
             keep: None,
             converts: None,
+            addition: None,
         };
-        if unresolved.contains(group) {
+        if addition.is_none() && unresolved.contains(group) {
             item.kind = ItemKind::Unresolved;
             item.reason = Some(format!(
                 "the group {group} is unresolved, and you build the resolved groups only; whatever is at {target} \
@@ -1124,7 +1177,24 @@ fn plan_items(
                 .map(|r| r.name.clone())
         };
         let built = inputs.built.get(&target);
-        let blocked = if !games.contains_key(game) {
+        let blocked = if let Some(a) = addition {
+            let lower = target.to_lowercase();
+            if lowered.contains_key(&lower) {
+                Some(format!(
+                    "a selected game's file is {target}, or differs from it only in case; rename the operator \
+                     addition"
+                ))
+            } else if added[&lower] > 1 {
+                Some(format!(
+                    "another operator addition's file differs from {target} only in case, which Windows and SMB \
+                     cannot tell apart"
+                ))
+            } else if a.published().is_none() || item.roms.len() != 1 {
+                Some("the operator addition is not published".into())
+            } else {
+                invalid_name(&target)
+            }
+        } else if !games.contains_key(game) {
             Some(format!("the DAT revision lists no game named {game}"))
         } else if let Some(reason) = invalid_name(&target) {
             Some(reason)
@@ -1224,6 +1294,32 @@ fn plan_items(
                 continue;
             }
         }
+        if let Some(a) = addition {
+            let (identity, file, sha256) = a.published().expect("checked as published");
+            item.kind = ItemKind::Copy;
+            item.sources = vec![PlanSource {
+                rom: item.roms[0].name.clone(),
+                path: a.addition.file_name.clone(),
+                member: None,
+                finding: None,
+                evidence: None,
+                file,
+                identity: None,
+                ctime_ns: None,
+            }];
+            item.addition = Some(PlanAddition {
+                id: a.addition.id,
+                additions_set: a.set_id,
+                identity: identity.into(),
+                sha256: sha256.to_owned(),
+                parent: a.addition.parent.clone(),
+                loose: a.addition.loose,
+            });
+            // Converting it between formats keeps aside, and may delete, its old file as a game's conversion does.
+            item.converts = converts(inputs, files, scan, &item);
+            items.push(item);
+            continue;
+        }
         if item.roms.is_empty() {
             item.kind = ItemKind::NoSource;
             item.reason = Some("the DAT lists no ROMs for it".into());
@@ -1270,7 +1366,7 @@ fn plan_items(
                         rom: rom.name.clone(),
                         path: c.entry.path.clone(),
                         member: c.entry.member.clone(),
-                        finding: c.entry.finding,
+                        finding: Some(c.entry.finding),
                         evidence: c.entry.evidence.as_ref().map(|e| e.level),
                         file: c.file.clone(),
                         identity: Some(c.identity),
@@ -1615,6 +1711,12 @@ impl Store {
             if let Some(busy) = deletion_active(tx, content.folder)? {
                 return Err(Error::Conflict(busy));
             }
+            // A kept file an Operator Addition is still being added from is not put back until its Additions Job ends.
+            for restore in content.cleanup.iter().flat_map(|c| &c.restores) {
+                if let Some(why) = crate::additions::managed_kept_reserved(tx, restore.kept.id)? {
+                    return Err(Error::Conflict(why));
+                }
+            }
             let folder = folder_by_id(tx, content.folder)?;
             let set = crate::sets::set_by_id(tx, folder.source_set_id)?;
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
@@ -1643,6 +1745,23 @@ impl Store {
                 ],
             )?;
             let job = tx.last_insert_rowid();
+            // Each entry added as an Operator Addition is published from the kept file the cleanup makes of it.
+            for entry in content.cleanup.iter().flat_map(|c| &c.entries) {
+                if let (Some(CleanupAction::AddAddition), Some(new)) = (entry.action, &entry.addition) {
+                    let rom = entry.roms.first().ok_or_else(|| {
+                        Error::Refused(format!("{} records no ROM to add; plan it again", entry.name))
+                    })?;
+                    crate::additions::insert_addition(
+                        tx,
+                        new,
+                        &entry.name,
+                        crate::additions::Link::Drift(id),
+                        rom,
+                        entry.addition_target.as_ref(),
+                        actor,
+                    )?;
+                }
+            }
             // The Selection and Audit are held from pruning until the Job ends, in the transaction that queues it.
             let pruned: bool = tx.query_row(
                 "SELECT EXISTS (SELECT 1 FROM selections WHERE id = ?1 AND pruned_at IS NOT NULL)

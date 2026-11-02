@@ -184,6 +184,7 @@ impl Env {
                     action,
                     items: ids,
                     provider: None,
+                    additions: Default::default(),
                 },
             )
             .unwrap()
@@ -543,6 +544,7 @@ fn a_dat_import_of_a_file_that_is_not_a_dat_is_refused() {
             action: IngestAction::DatImport,
             items: vec![id],
             provider: None,
+            additions: Default::default(),
         },
     );
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
@@ -615,6 +617,7 @@ fn an_item_still_arriving_cannot_be_planned() {
             action: IngestAction::Discard,
             items: vec![item.id],
             provider: None,
+            additions: Default::default(),
         },
     );
 
@@ -632,6 +635,7 @@ fn an_item_moves_only_once_settled_and_read_whatever_state_it_is_shown_in() {
                 action,
                 items: vec![id],
                 provider: None,
+                additions: Default::default(),
             },
         )
     };
@@ -722,6 +726,7 @@ fn an_item_with_another_link_to_it_cannot_be_planned() {
             action: IngestAction::Discard,
             items: vec![id],
             provider: None,
+            additions: Default::default(),
         },
     );
 

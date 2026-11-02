@@ -358,7 +358,9 @@ pub struct PlanSource {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member: Option<String>,
-    pub finding: Finding,
+    /// What the Audit found the Entry to be; none for an Operator Addition, which is never a match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding: Option<Finding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<EvidenceLevel>,
     /// The file at `path`.
@@ -370,6 +372,21 @@ pub struct PlanSource {
     /// with `identity`, it tells the file apart from another that took its inode number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ctime_ns: Option<i128>,
+}
+
+/// The Operator Addition a plan item builds, from its system's Additions Set rather than the Source Set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanAddition {
+    pub id: i64,
+    pub additions_set: i64,
+    /// Its file in the Additions Set, by identity, as recorded when it was published.
+    pub identity: FileIdentity,
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Whether its file in the Additions Set is loose, its ROM itself, rather than a TorrentZip.
+    #[serde(default)]
+    pub loose: bool,
 }
 
 /// One selected release in a plan.
@@ -408,6 +425,9 @@ pub struct PlanItem {
     /// this one is in place, and, when the storage policy says so, deleted once this one is verified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub converts: Option<KeepAside>,
+    /// For an Operator Addition: which, read from its Additions Set. Its `game` is the addition's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addition: Option<PlanAddition>,
 }
 
 /// Why a plan cannot be approved.
@@ -599,7 +619,7 @@ impl PlanContent {
         if let Some(cleanup) = &self.cleanup {
             for entry in &cleanup.entries {
                 match entry.action {
-                    Some(CleanupAction::KeepAside) => s.keep += 1,
+                    Some(CleanupAction::KeepAside | CleanupAction::AddAddition) => s.keep += 1,
                     Some(CleanupAction::Adopt) => s.adopt += 1,
                     Some(CleanupAction::Acknowledge) => s.acknowledge += 1,
                     None => {}
@@ -1055,6 +1075,8 @@ pub enum CleanupAction {
     Adopt,
     /// Leave it, and stop reporting it as drift until it changes.
     Acknowledge,
+    /// Keep it aside, then add it as an Operator Addition from there: only a file that holds one ROM.
+    AddAddition,
 }
 
 impl CleanupAction {
@@ -1063,6 +1085,7 @@ impl CleanupAction {
             CleanupAction::KeepAside => "keep_aside",
             CleanupAction::Adopt => "adopt",
             CleanupAction::Acknowledge => "acknowledge",
+            CleanupAction::AddAddition => "add_addition",
         }
     }
 }
@@ -1080,6 +1103,9 @@ pub struct PlanCleanup {
     /// Built files that are not TorrentZip to repack, by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repack: Vec<String>,
+    /// For each entry added as an Operator Addition, by name: what to add it as.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub additions: BTreeMap<String, crate::additions::NewAddition>,
 }
 
 impl PlanCleanup {
@@ -1115,6 +1141,12 @@ pub struct CleanupEntry {
     /// Whether the check found it was not TorrentZip, for an adoption.
     #[serde(default = "yes")]
     pub torrentzip: bool,
+    /// For an Operator Addition: what it is added as. Its one ROM, as the check read it, is in `roms`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addition: Option<crate::additions::NewAddition>,
+    /// For an Operator Addition: where it is published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addition_target: Option<crate::additions::AdditionTarget>,
 }
 
 /// How a cleanup puts a kept file back.
@@ -1190,7 +1222,11 @@ impl Cleanup {
             || self.entries.iter().any(|e| {
                 matches!(
                     e.action,
-                    Some(CleanupAction::KeepAside | CleanupAction::Adopt)
+                    Some(
+                        CleanupAction::KeepAside
+                            | CleanupAction::Adopt
+                            | CleanupAction::AddAddition
+                    )
                 )
             })
     }

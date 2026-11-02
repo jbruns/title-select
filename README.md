@@ -229,6 +229,10 @@ kind = "ingest"
 settle_secs = 60            # unchanged this long before an item is assessed (the default)
 # scan_every_minutes = 15   # scan on a schedule; by default only when you ask
 
+[roots.additions]           # the additions sets, one folder per system; see "Operator additions"
+path = "/data/additions"
+writable = true             # required, with no kind and no writable_paths
+
 [audits]
 keep = 20                   # full audits kept per source set (the default)
 
@@ -399,6 +403,11 @@ A version is stored as canonical JSON with its SHA-256, so saving a profile with
 A save names the version it started from, and is refused with `409` if a newer version was saved since. A save may
 queue a selection for one or more source sets with the new version.
 
+Each system's settings in a profile can opt in to its additions set, which is off by default. When it is on, a build
+of that system reads the source set and the system's active operator additions, each built as a selected title under
+its own name. An addition whose file name is taken by a selected game or by another addition blocks only itself,
+saying why.
+
 ### Storage policy
 
 The storage policy says how each folder stores a game: as one TorrentZip per game, `<game>.zip`, or loose, as its
@@ -506,7 +515,8 @@ A cleanup acts on what a check found, only as you choose, entry by entry (`POST 
 keep an entry aside, a file or a whole folder, into the retention area as a kept file; adopt a file that holds exactly
 a selected game's ROMs under the current DAT revision, renamed to that game's file name when it is not already, and
 recorded as built; or acknowledge an entry, which writes nothing to the folder and stops reporting it until its
-identity, size or modification time changes. A cleanup also puts kept files back, under their own name when it is
+identity, size or modification time changes; or add a file that holds one ROM no DAT knows as an operator addition,
+which keeps it aside and copies it into its system's additions set. A cleanup also puts kept files back, under their own name when it is
 free and, for a file holding a selected game, that game's file name; a kept file holding a selected game under
 another name is adopted under that game's file name instead, and one whose name is taken is refused. It repacks a
 built file flagged not TorrentZip from its own contents, in one read, keeping the file as it was aside; if the
@@ -660,6 +670,53 @@ saying what was left where: for example, if a file it put in place was replaced 
 with, the fill fails and both are left as they are. Audits never read `.title-select` or
 `.title-select-retained`. You delete a source set's kept files by picking them and approving the deletion.
 
+### Operator additions
+
+An operator addition is a file no DAT knows that you chose to keep, such as a ROM hack or a translation. It is known
+by its own hashes (CRC32, MD5, SHA-1, SHA-256 and size) and a name you give it, never as a match of any DAT, and may
+name a parent game, which is shown and nothing more. Each system has an additions set: the folder named after its DAT
+in the root named `additions`, created by its first addition with a marker naming this store. Each addition is stored
+there in the format the storage policy says for its system's source sets when you approve it: as TorrentZip,
+`<name>.zip`, holding its one ROM, or loose, as the ROM itself named `<name>` with the ROM's extension. The plan
+shows that file name, and you approve it with the plan: if the storage policy changes before you approve, the
+approval is refused and you plan again. A build writes it in its play library's format, under its name, and converts
+it between formats as it converts a game, deleting the original only when the policy says to. You choose an addition's system; the system the file's extension
+suggests is filled in when there is one.
+
+You add one from three places, each through a plan you approve:
+
+- an ingest folder item that matched nothing and holds one ROM, by planning to add it as an operator addition. It is
+  moved as an approved ingest move is: written into the additions set, read back, and the original deleted only when
+  what was written is exactly the addition's ROM. A loose file is deleted then; a ZIP original is kept in the ingest
+  folder's kept files;
+- an entry of a source set that matched nothing and holds one ROM, by choosing "add as operator addition" for it in
+  a repair. The repair keeps it aside as it would otherwise, and the addition is copied from that kept file;
+- drift in a managed folder, by choosing "add as operator addition" for an entry not built there in a cleanup. The
+  cleanup keeps it aside, and the addition is copied from that kept file.
+
+The plan records each addition's hashes when it is made, read from the file through a descriptor it holds, and you
+approve those hashes with the plan. An additions job, one per additions set and subject to `jobs.concurrent` like any
+other job, then publishes what you approved: for an ingest item once you approve the plan, and for a repair or a
+cleanup once its job ends. You can follow and cancel it on the jobs screen, and a stop resumes it when the service
+next starts. Cancelling a job fails only the additions it was given to publish; one you approve afterwards goes to a
+new job. The file it reads must still hold exactly the hashes approved; otherwise the addition fails, saying
+why, and its original is left where it was.
+
+Nothing is ever deleted to publish an addition from a repair or a cleanup: the kept file stays among the kept files,
+for you to delete. Until the addition is published, its kept file can be neither deleted nor put back. Once it is,
+deleting the kept file leaves the addition as it is. An addition is written under a temporary name, read back,
+checked against its hashes and put in place by a rename that never replaces anything. It is pending until its file
+is in place, then active; one that fails says why. A temporary folder a stop left while an additions set was being
+created is left as it is and listed among the set's found entries, for you to remove.
+
+You can rename an addition, which changes only the name builds write, set or clear its parent, and retire it. The
+additions job moves a retired addition's file into the additions set's kept files, and builds no longer read it. You
+can restore a retired addition, which moves its file back, or delete its kept file through a plan you approve, as for
+a source set's kept files. A name stays taken by its addition, even once it is retired. A check of an additions set,
+like that of a managed folder, reads the folder and changes nothing: it reports each active addition as intact,
+missing or changed, and anything else as an unknown file. A file whose change time moved is re-hashed, and is
+intact only if it still holds what was published. It ignores `.title-select` entries and kept files.
+
 ### API
 
 Every body is JSON, and every error is `{"error": "...", "job": <id, when one is named>}`.
@@ -707,7 +764,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/managed-folders/{id}/builds`          | its builds, newest first                                     |
 | `GET /api/v1/managed-folders/{id}/files`           | the files built into it, with their provenance               |
 | `POST /api/v1/managed-folders/{id}/plans`          | plan building a selection into it: `{"selection", "resolved_only"?, "adopt"?: [target], "keep_aside"?: [target]}`; `201` |
-| `POST /api/v1/managed-folders/{id}/cleanups`       | plan a cleanup: `{"entries"?: {name: "keep_aside" \| "adopt" \| "acknowledge"}, "restore"?: [kept id], "repack"?: [target]}`; `201`, approved as a plan |
+| `POST /api/v1/managed-folders/{id}/cleanups`       | plan a cleanup: `{"entries"?: {name: "keep_aside" \| "adopt" \| "acknowledge" \| "add_addition"}, "restore"?: [kept id], "repack"?: [target], "additions"?: {name: {"system", "name", "parent"?}}}`; `201`, approved as a plan |
 | `POST /api/v1/managed-folders/{id}/checks`         | check it; `202` with the check job                           |
 | `GET /api/v1/managed-folders/{id}/check`           | its latest check: each built file, the drift and the acknowledged entries; `404` when never checked |
 | `GET /api/v1/managed-folders/{id}/incomplete`      | what its current build lacks, by reason                      |
@@ -721,14 +778,14 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/ingest-folders/{root}/scans`         | scan it; `202` with the scan job                             |
 | `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence and proposal      |
 | `GET /api/v1/ingest-folders/{root}/plans`          | its plans, newest first                                      |
-| `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import", "items": [id], "provider"?}`; `201` |
+| `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import" \| "addition", "items": [id], "provider"?, "additions"?: {id: {"system", "name", "parent"?}}}`; `201` |
 | `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans kept aside                               |
 | `GET /api/v1/ingest-items/{id}`                    | one item                                                     |
 | `POST /api/v1/ingest-items/{id}/dismissal`         | dismiss it until it changes                                  |
 | `GET /api/v1/ingest-plans/{id}`                    | an ingest plan, with its digest and outcomes                 |
 | `POST /api/v1/ingest-plans/{id}/approval`          | approve it: `{"digest"}`; moves the items and answers with each outcome, `409` when the folder changed |
 | `GET /api/v1/source-sets/{name}/repairs`           | its repair plans, newest first                               |
-| `POST /api/v1/source-sets/{name}/repairs`          | plan a repair from its latest audit: `{"choices"?: {key: "apply" \| "leave" \| "keep_aside"}}`; `201` |
+| `POST /api/v1/source-sets/{name}/repairs`          | plan a repair from its latest audit: `{"choices"?: {key: "apply" \| "leave" \| "keep_aside" \| "add_addition"}, "additions"?: {key: {"system", "name", "parent"?}}}`; `201` |
 | `GET /api/v1/repairs/{id}`                         | a repair plan, with its items, steps, digest and outcomes    |
 | `POST /api/v1/repairs/{id}/approval`               | approve it: `{"digest"}`; queues its repair job and answers with the plan naming it, `409` when anything changed |
 | `GET /api/v1/source-sets/{name}/kept-files`        | the files its repairs kept aside                             |
@@ -738,6 +795,17 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/plans/{id}`                           | a plan, with its digest, summary and changes                 |
 | `POST /api/v1/plans/{id}/approval`                 | approve it: `{"digest"}`; `202` with the build job, `409` when the plan changed |
 | `GET /api/v1/builds/{id}`                          | a build and each file it wrote                               |
+| `GET /api/v1/additions-sets`                       | every additions set, with its additions                      |
+| `GET /api/v1/additions-set?system=`                | one system's additions set                                   |
+| `POST /api/v1/additions-set/checks?system=`        | check it for drift; changes nothing                          |
+| `GET /api/v1/additions/{id}`                       | one operator addition                                        |
+| `PATCH /api/v1/additions/{id}`                     | rename it or set its parent: `{"name"?, "parent"?: name \| null}` |
+| `POST /api/v1/additions/{id}/retirement`           | retire it: builds no longer read it, and its file is kept aside |
+| `POST /api/v1/additions/{id}/restoration`          | restore a retired one: its file is moved back                |
+| `GET /api/v1/additions-set/kept-files?system=`     | the files of additions retired from it                       |
+| `POST /api/v1/additions-set/kept-deletions?system=` | plan deleting some or all of them: `{"ids"?: [id], "all"?: true}`; `201` |
+| `GET /api/v1/additions-kept-deletions/{id}`        | a plan to delete an additions set's kept files               |
+| `POST /api/v1/additions-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
 | `GET /api/v1/jobs`                                 | the latest 100 jobs, newest first                            |
 | `GET /api/v1/jobs/{id}`                            | one job                                                      |
 | `GET /api/v1/jobs/{id}/events`                     | server-sent events for one job, ending at its final state    |
@@ -838,7 +906,8 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   heuristic), and the ROMs it matches. A pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has a global settings tab and
-  a tab per system; each system setting says whether it comes from your global settings or is set for that system,
+  a tab per system, where a system can opt in to its additions set; each system setting says whether it comes from
+  your global settings or is set for that system,
   with "Use global setting" to go back. "Reset to defaults" and "Reset to default choices" work per group, per system
   and for the whole profile. An empty region or video order shows the default order it stands for, which you can
   expand, start your own order from, or reset to, with a link to how the default orders work. The preview follows your edits 500 ms after you stop, cancelling a preview still
@@ -863,19 +932,25 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   aside has a choice to keep it aside and rebuild. The plan lists the built files no longer selected and what
   happens to each. The folder lists its kept files by generation, where you pick some or all and approve deleting
   them. It plans a cleanup of what the latest check found: an action for each entry not built here, kept files to
-  put back and built files to repack as TorrentZip, reviewed and approved as a plan. The folder shows badges
+  put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry added as an operator
+  addition asks for its system, name and parent game. The folder shows badges
   for an incomplete folder and an interrupted build, what the folder lacks, and its latest check, which you can run
   again. Each build shows every file it wrote or failed to write.
 - **Ingest folders** lists each ingest root and registers it. Opening one scans it, and lists each item with its
   state, the evidence assessing it found and what is proposed. You pick items to plan discarding them or importing
-  DATs, review the plan, approve it and see what happened to each item; you can dismiss an item until it changes.
-  It lists the folder's kept files.
+  DATs, or adding them as operator additions with the system, name and parent game you give each, review the plan,
+  approve it and see what happened to each item; you can dismiss an item until it changes. It lists the folder's
+  kept files.
 - **Repair**, opened from a source set or an audit, proposes a repair of the source set, lists each item with what is
   proposed and a choice you can change before planning again, and every change in order, including what is kept
-  aside. You approve it with its digest and see what happened to each item. While an approved repair hasn't
+  aside. An unmatched entry you add as an operator addition asks for its system, name and parent game. You approve it with its digest and see what happened to each item. While an approved repair hasn't
   finished, the screen opens on it, with its job's progress and a way to cancel it, instead of proposing another, and
   says what stopped it if it was left unfinished; a repair job on the jobs screen links to its plan. It lists the
   source set's kept files, where you pick some and approve deleting them.
+- **Operator additions** lists each system's additions set and its additions, with each one's name, hashes, state,
+  parent game and where it came from. You rename an addition, set or clear its parent, retire or restore it, and
+  check the additions set for drift. Each set lists its kept files, which you pick, review and approve deleting, and
+  any found entries a stop left.
 - **Jobs** lists the latest jobs with their kind, state, progress and result, live: it follows `/api/v1/events`, applies `state`
   and `progress` events by the job `version` rule above, and replaces what it holds with each `resync` snapshot,
   which also arrives after a reconnect.

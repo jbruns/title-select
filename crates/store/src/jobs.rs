@@ -45,13 +45,15 @@ pub(super) const JOB_QUERY: &str =
     "SELECT j.id, j.state, coalesce(s.name, ''), coalesce(r.sha256, ''), j.actor, j.attempt, j.requeued_from,
             j.audit_id, j.error, j.readers, j.hashers, j.created_at, j.started_at, j.finished_at, j.version,
             j.kind, p.name, v.version, j.selection_id, j.managed_folder_id, j.plan_id, i.root, j.evidence,
-            j.repair_plan_id, j.cancel_requested_at
+            j.repair_plan_id, j.cancel_requested_at, ad.provider || '/' || ad.name
      FROM jobs j
      LEFT JOIN source_sets s ON s.id = j.source_set_id
      LEFT JOIN dat_revisions r ON r.id = j.dat_revision_id
      LEFT JOIN ingest_folders i ON i.id = j.ingest_folder_id
      LEFT JOIN profile_versions v ON v.id = j.profile_version_id
-     LEFT JOIN profiles p ON p.id = v.profile_id";
+     LEFT JOIN profiles p ON p.id = v.profile_id
+     LEFT JOIN additions_sets a ON a.id = j.additions_set_id
+     LEFT JOIN dats ad ON ad.id = a.dat_id";
 
 pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
     let state: String = row.get(1)?;
@@ -97,6 +99,7 @@ pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
         },
         repair: row.get(23)?,
         cancel_requested_at: row.get(24)?,
+        additions_set: row.get(25)?,
         state,
         source_set: row.get(2)?,
         dat_revision: row.get(3)?,
@@ -116,14 +119,14 @@ pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
     })
 }
 
-pub(super) fn job_by_id(c: &Connection, id: i64) -> Result<Job> {
+pub(crate) fn job_by_id(c: &Connection, id: i64) -> Result<Job> {
     c.query_row(&format!("{JOB_QUERY} WHERE j.id = ?1"), [id], job_from_row)
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no job {id}")))
 }
 
 /// Moves the Running Job `id` to `to`, failing if it is not Running.
-pub(super) fn finish_running(
+pub(crate) fn finish_running(
     tx: &Transaction,
     id: i64,
     to: JobState,
@@ -386,6 +389,18 @@ impl Store {
                         return Ok(Interruption {
                             job: job_by_id(tx, id)?,
                             requeued: Some(job_by_id(tx, requeued)?),
+                        });
+                    }
+                    if kind == JobKind::Additions.as_str() {
+                        // Every addition records its step before it is taken; another Job settles what this left.
+                        finish_running(tx, id, JobState::Interrupted, Some(INTERRUPTED))?;
+                        let requeued = crate::additions::queue_additions_jobs(tx)?;
+                        return Ok(Interruption {
+                            job: job_by_id(tx, id)?,
+                            requeued: match requeued.first() {
+                                Some(job) => Some(job_by_id(tx, *job)?),
+                                None => None,
+                            },
                         });
                     }
                     if attempt > 1 {

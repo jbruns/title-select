@@ -853,6 +853,194 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
 }
 
 #[test]
+fn the_api_adds_an_ingest_item_as_an_operator_addition_lists_edits_checks_and_retires_it() {
+    use title_select_api::JobKind;
+    use title_select_api::additions::{Addition, AdditionState, AdditionsCheck, AdditionsSet};
+    use title_select_api::build::PlanKeptDeletion;
+    use title_select_api::ingest::{IngestItem, IngestPlan, Proposal};
+    use title_select_api::repair::{SourceKeptDeletion, SourceKeptFile};
+    let env = Env::new();
+    let drop = env.tmp.path().join("drop");
+    let additions = env.tmp.path().join("additions");
+    std::fs::create_dir_all(&drop).unwrap();
+    std::fs::create_dir_all(&additions).unwrap();
+    let service = title_select_server::spawn(env.settings(&format!(
+        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n\n\
+         [roots.additions]\npath = {:?}\nwritable = true\n",
+        drop.display().to_string(),
+        additions.display().to_string(),
+    )))
+    .unwrap();
+    let client = Client::new(&service);
+    let (status, _) = client.upload("Test - System (20260101).dat", &env.dat());
+    assert_eq!(status, 201);
+    client.add_set();
+    let job: Job = client.start_audit().body_mut().read_json().unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    let response = client
+        .post("/ingest-folders")
+        .send_json(serde_json::json!({"root": "drop"}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    write_file(&drop.join("My Hack.a26"), b"hack");
+    for _ in 0..2 {
+        let mut response = client
+            .post("/ingest-folders/drop/scans")
+            .send_empty()
+            .unwrap();
+        let job: Job = response.body_mut().read_json().unwrap();
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    }
+    let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
+    let item = items.iter().find(|i| i.name == "My Hack.a26").unwrap();
+    let system = "No-Intro/Test - System";
+    assert_eq!(
+        item.assessment.proposal,
+        Some(Proposal::OperatorAddition {
+            system: Some(system.into())
+        })
+    );
+
+    let mut response = client
+        .post("/ingest-folders/drop/plans")
+        .send_json(serde_json::json!({
+            "action": "addition",
+            "items": [item.id],
+            "additions": {item.id.to_string(): {"system": system, "name": "My Hack"}},
+        }))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let plan: IngestPlan = response.body_mut().read_json().unwrap();
+    assert!(
+        client
+            .json::<Vec<AdditionsSet>>("/additions-sets")
+            .is_empty(),
+        "planning adds nothing"
+    );
+    let mut response = client
+        .post(&format!("/ingest-plans/{}/approval", plan.id))
+        .send_json(serde_json::json!({"digest": plan.digest}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let approved: IngestPlan = response.body_mut().read_json().unwrap();
+    assert!(
+        approved.finished_at.is_none(),
+        "an additions job publishes it"
+    );
+    // Waits for the latest Additions Job to end.
+    let settle = || {
+        let jobs: Vec<Job> = client.json("/jobs");
+        let job = jobs
+            .iter()
+            .filter(|j| j.kind == JobKind::Additions)
+            .max_by_key(|j| j.id)
+            .expect("an additions job is queued");
+        assert_eq!(job.additions_set.as_deref(), Some("No-Intro/Test - System"));
+        assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    };
+    settle();
+    let done: IngestPlan = client.json(&format!("/ingest-plans/{}", plan.id));
+    assert!(done.outcomes.iter().all(|o| o.moved), "{done:?}");
+    assert!(!drop.join("My Hack.a26").exists());
+    assert!(additions.join(SET).join("My Hack.zip").exists());
+
+    let sets: Vec<AdditionsSet> = client.json("/additions-sets");
+    assert_eq!(sets.len(), 1);
+    assert_eq!(sets[0].system, system);
+    let query = "system=No-Intro%2FTest%20-%20System";
+    let set: AdditionsSet = client.json(&format!("/additions-set?{query}"));
+    let added = &set.additions[0];
+    assert_eq!(added.state, AdditionState::Active);
+    assert!(added.rom.as_ref().is_some_and(|r| r.sha1.is_some()));
+
+    let path = format!("{}/additions/{}", client.base, added.id);
+    let patch = |body: serde_json::Value| {
+        let (name, value) = client.auth.clone().unwrap();
+        agent().patch(&path).header(name, value).send_json(body)
+    };
+    let mut response =
+        patch(serde_json::json!({"name": "Renamed", "parent": "Pong (USA)"})).unwrap();
+    assert_eq!(response.status(), 200);
+    let edited: Addition = response.body_mut().read_json().unwrap();
+    assert_eq!(
+        (edited.name.as_str(), edited.parent.as_deref()),
+        ("Renamed", Some("Pong (USA)"))
+    );
+    let mut response = patch(serde_json::json!({"parent": null})).unwrap();
+    let cleared: Addition = response.body_mut().read_json().unwrap();
+    assert_eq!((cleared.name.as_str(), cleared.parent), ("Renamed", None));
+    assert_eq!(status_of(patch(serde_json::json!({"name": "a/b"}))), 400);
+
+    let mut response = client
+        .post(&format!("/additions-set/checks?{query}"))
+        .send_empty()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let check: AdditionsCheck = response.body_mut().read_json().unwrap();
+    assert!(!check.drifted(), "{check:?}");
+
+    let mut response = client
+        .post(&format!("/additions/{}/retirement", added.id))
+        .send_empty()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let retiring: Addition = response.body_mut().read_json().unwrap();
+    assert_eq!(retiring.state, AdditionState::Retiring);
+    settle();
+    let set: AdditionsSet = client.json(&format!("/additions-set?{query}"));
+    assert_eq!(set.additions[0].state, AdditionState::Retired);
+    assert!(!additions.join(SET).join("My Hack.zip").exists());
+    let kept: Vec<SourceKeptFile> = client.json(&format!("/additions-set/kept-files?{query}"));
+    assert_eq!(kept.len(), 1);
+    assert_eq!(set.kept, kept);
+
+    let response = client
+        .post(&format!("/additions/{}/restoration", added.id))
+        .send_empty()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    settle();
+    let set: AdditionsSet = client.json(&format!("/additions-set?{query}"));
+    assert_eq!(set.additions[0].state, AdditionState::Active);
+    assert!(additions.join(SET).join("My Hack.zip").exists());
+
+    client
+        .post(&format!("/additions/{}/retirement", added.id))
+        .send_empty()
+        .unwrap();
+    settle();
+    let kept: Vec<SourceKeptFile> = client.json(&format!("/additions-set/kept-files?{query}"));
+    let mut response = client
+        .post(&format!("/additions-set/kept-deletions?{query}"))
+        .send_json(PlanKeptDeletion {
+            ids: vec![kept[0].id],
+            all: false,
+        })
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let deletion: SourceKeptDeletion = response.body_mut().read_json().unwrap();
+    let mut response = client
+        .post(&format!(
+            "/additions-kept-deletions/{}/approval",
+            deletion.id
+        ))
+        .send_json(serde_json::json!({"digest": deletion.digest}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let deleted: SourceKeptDeletion = response.body_mut().read_json().unwrap();
+    assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:?}");
+    assert!(
+        client
+            .json::<Vec<SourceKeptFile>>(&format!("/additions-set/kept-files?{query}"))
+            .is_empty()
+    );
+    assert_eq!(
+        status_of(client.get("/additions-set?system=No-Intro%2FNope").call()),
+        404
+    );
+}
+
+#[test]
 fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_sets_aside() {
     use title_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
     let env = Env::new();

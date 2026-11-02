@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use title_select_api::selection::{
-    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile,
+    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile, SystemSettings,
 };
 
 pub use trace::stable_trace;
@@ -257,6 +257,14 @@ impl Engine {
         let systems = run_dir.join("systems");
         std::fs::create_dir(&systems).map_err(io(systems.display().to_string()))?;
         for (name, system) in &profile.systems {
+            // Whether builds read the system's Additions Set is no concern of Retool's.
+            let selecting = SystemSettings {
+                additions: false,
+                ..system.clone()
+            };
+            if selecting.is_empty() && !system.is_empty() {
+                continue;
+            }
             write(
                 systems.join(format!("{name}.yaml")),
                 config::system_config(system, &vocabulary),

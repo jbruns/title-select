@@ -136,6 +136,13 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
              It is finished when the service next starts"
         );
     }
+    for job in store.recover_additions()? {
+        eprintln!(
+            "title-select: the operator additions of {} were not all settled; job {} was queued to settle them",
+            job.additions_set.as_deref().unwrap_or_default(),
+            job.id
+        );
+    }
     // Audits owed when the service stopped: queued now, or once the Job they wait for ends.
     for why in store.fulfil_repair_audits()?.failed {
         eprintln!("title-select: cannot queue an owed audit: {why}");

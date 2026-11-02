@@ -98,6 +98,7 @@ pub async fn run(
                     JobKind::Audit | JobKind::Build | JobKind::Check | JobKind::Repair => {
                         run_one(&store, &config, &jobs, kind, id, version)
                     }
+                    JobKind::Additions => run_additions(&store, &config, id),
                     JobKind::Selection => run_selection(&store, &config, engine.as_deref(), id),
                     JobKind::IngestScan => run_ingest_scan(&store, &config, id),
                 })
@@ -148,6 +149,14 @@ pub async fn run(
                 Ok(Err(err)) => eprintln!("title-select: cannot queue an owed audit: {err}"),
                 Err(err) => eprintln!("title-select: cannot queue an owed audit: {err}"),
             }
+            // Additions Jobs a Repair or Build Job queued as it ended publish what it kept aside.
+            let queued = {
+                let store = store.clone();
+                tokio::task::spawn_blocking(move || store.queued_additions_jobs()).await
+            };
+            if let Ok(Ok(queued)) = queued {
+                queued.into_iter().for_each(|job| jobs.changed(job));
+            }
             drop(slot);
             jobs.wake.notify_one();
         });
@@ -184,6 +193,20 @@ fn run_one(
         _ => store.run_audit_job(config, id, Some(&progress)),
     };
     match ran {
+        Ok(job) => Some(job),
+        Err(err) => {
+            eprintln!("title-select: job {id}: {err}");
+            match store.job(id) {
+                Ok(job) if job.state.is_final() => Some(job),
+                _ => store.fail_job(id, &err.to_string()).ok(),
+            }
+        }
+    }
+}
+
+/// Runs one claimed Additions Job, and returns the Job as it ended.
+fn run_additions(store: &Store, config: &Config, id: i64) -> Option<Job> {
+    match store.run_additions_job(config, id) {
         Ok(job) => Some(job),
         Err(err) => {
             eprintln!("title-select: job {id}: {err}");

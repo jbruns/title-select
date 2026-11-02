@@ -254,10 +254,12 @@ impl Store {
         };
         let changes = !choices.restore.is_empty()
             || !choices.repack.is_empty()
-            || choices
-                .entries
-                .values()
-                .any(|a| matches!(a, CleanupAction::KeepAside | CleanupAction::Adopt));
+            || choices.entries.values().any(|a| {
+                matches!(
+                    a,
+                    CleanupAction::KeepAside | CleanupAction::Adopt | CleanupAction::AddAddition
+                )
+            });
         let mut blockers = Vec::new();
         let found = check_folder(config, &inputs, dat.as_ref(), &mut blockers);
         // Acknowledging writes nothing to the folder, so it needs no writable root.
@@ -297,12 +299,26 @@ impl Store {
                     freed: scan
                         .drift
                         .iter()
-                        .filter(|d| choices.entries.get(&d.name) == Some(&CleanupAction::KeepAside))
+                        .filter(|d| {
+                            matches!(
+                                choices.entries.get(&d.name),
+                                Some(CleanupAction::KeepAside | CleanupAction::AddAddition)
+                            )
+                        })
                         .map(|d| d.name.to_lowercase())
                         .collect(),
                     claimed: HashSet::new(),
                 };
                 let drift: HashSet<&str> = scan.drift.iter().map(|d| d.name.as_str()).collect();
+                for name in choices.additions.keys() {
+                    if choices.entries.get(name) != Some(&CleanupAction::AddAddition) {
+                        blockers.push(refuse(
+                            name,
+                            format!("{name} is not chosen to be added as an operator addition"),
+                        ));
+                    }
+                }
+                let mut added = HashSet::new();
                 for name in choices.entries.keys() {
                     if !drift.contains(name.as_str()) {
                         blockers.push(refuse(
@@ -339,6 +355,8 @@ impl Store {
                         roms: Vec::new(),
                         group: String::new(),
                         torrentzip: probe.is_none_or(|p| p.torrentzip),
+                        addition: None,
+                        addition_target: None,
                     };
                     let why = match entry.action {
                         None => None,
@@ -348,6 +366,46 @@ impl Store {
                                     "{} is neither a file nor a folder, so it cannot be kept aside",
                                     d.name
                                 )
+                            })
+                        }
+                        Some(CleanupAction::AddAddition) => {
+                            let rom = match (f.regular, probe) {
+                                (false, _) => Err("only a file can be added".to_owned()),
+                                (true, None) => Err("the check could not read it".to_owned()),
+                                (true, Some(p)) => crate::additions::sole_rom(p, &d.name)
+                                    .map(|(rom, _)| rom)
+                                    .ok_or_else(|| "it does not hold exactly one ROM".to_owned()),
+                            };
+                            let new = choices.additions.get(&d.name).ok_or_else(|| {
+                                "choose the system and name to add it under".to_owned()
+                            });
+                            let checked = match rom.and_then(|rom| new.map(|new| (rom, new))) {
+                                Err(why) => Err(why),
+                                Ok((rom, new)) => {
+                                    let checked = self.read(|c| {
+                                        let own = crate::additions::pending_drift_addition(c, folder, &d.name)?;
+                                        crate::additions::check_new_except(c, new, own, &rom.name)
+                                    });
+                                    match checked {
+                                        Ok(_) if !added.insert((new.system.clone(), new.name.to_lowercase())) => {
+                                            Err(format!(
+                                                "another entry is added as {} of {} too",
+                                                new.name, new.system
+                                            ))
+                                        }
+                                        Ok(target) => {
+                                            entry.roms = vec![rom];
+                                            entry.addition = Some(new.clone());
+                                            entry.addition_target = Some(target.reviewed());
+                                            Ok(())
+                                        }
+                                        Err(Error::Refused(why) | Error::Conflict(why)) => Err(why),
+                                        Err(err) => return Err(err),
+                                    }
+                                }
+                            };
+                            checked.err().map(|why| {
+                                format!("{} cannot be added as an operator addition: {why}", d.name)
                             })
                         }
                         Some(CleanupAction::Acknowledge) => d.conflict.then(|| {
@@ -618,6 +676,9 @@ impl Store {
         let Some(dir) = dir else {
             return Ok(Err("the managed folder cannot be opened".into()));
         };
+        if let Some(why) = self.read(|c| crate::additions::managed_kept_reserved(c, kept.id))? {
+            return Ok(Err(why));
+        }
         let retention = match open_retention(self, kept.folder, dir, kept.generation, false)? {
             Ok(Some(retention)) => retention,
             Ok(None) => {

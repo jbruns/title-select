@@ -42,6 +42,7 @@ pub(super) enum Scope {
     Managed(i64),
     Ingest(i64),
     Source(i64),
+    Additions(i64),
 }
 
 impl From<i64> for Scope {
@@ -53,7 +54,7 @@ impl From<i64> for Scope {
 impl Scope {
     pub fn id(self) -> i64 {
         match self {
-            Scope::Managed(id) | Scope::Ingest(id) | Scope::Source(id) => id,
+            Scope::Managed(id) | Scope::Ingest(id) | Scope::Source(id) | Scope::Additions(id) => id,
         }
     }
 
@@ -63,6 +64,7 @@ impl Scope {
             Scope::Managed(_) => "folder_",
             Scope::Ingest(_) => "ingest_",
             Scope::Source(_) => "source_",
+            Scope::Additions(_) => "additions_",
         };
         sql.replace("{dirs}", &format!("{prefix}dirs"))
             .replace("{temps}", &format!("{prefix}temps"))
@@ -74,7 +76,7 @@ impl Scope {
 fn scoped_temps(c: &Connection, folder: Scope) -> Result<HashMap<String, Identity>> {
     match folder {
         Scope::Managed(id) => temps(c, id),
-        Scope::Ingest(id) | Scope::Source(id) => {
+        Scope::Ingest(id) | Scope::Source(id) | Scope::Additions(id) => {
             let mut stmt =
                 c.prepare(&folder.sql("SELECT name, dev, ino FROM {temps} WHERE folder_id = ?1"))?;
             let rows = stmt.query_map([id], |r| {
@@ -1219,6 +1221,16 @@ impl Store {
                 }
                 files
             };
+            // A kept file an Operator Addition is still being added from is reserved until its Additions Job ends.
+            let mut free = Vec::new();
+            for file in files {
+                match crate::additions::managed_kept_reserved(tx, file.id)? {
+                    None => free.push(file),
+                    Some(_) if request.all => {}
+                    Some(why) => return Err(Error::Conflict(why)),
+                }
+            }
+            let files = free;
             if files.is_empty() {
                 return Err(Error::Refused("pick at least one kept file to delete".into()));
             }
@@ -1272,6 +1284,11 @@ impl Store {
             }
             if let Some(busy) = deletion_active(tx, folder)? {
                 return Err(Error::Conflict(busy));
+            }
+            for file in &content.files {
+                if let Some(why) = crate::additions::managed_kept_reserved(tx, file.id)? {
+                    return Err(Error::Conflict(why));
+                }
             }
             let ids: Vec<i64> = content.files.iter().map(|f| f.id).collect();
             let now_kept = kept_where(tx, "k.folder_id = ?1 AND k.state = 'kept'", [folder])?;
