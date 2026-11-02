@@ -117,6 +117,7 @@ pub fn cleanup_action_label(action: CleanupAction) -> &'static str {
         CleanupAction::KeepAside => "Keep aside",
         CleanupAction::Adopt => "Adopt",
         CleanupAction::Acknowledge => "Acknowledge",
+        CleanupAction::AddAddition => "Add as operator addition",
     }
 }
 
@@ -129,9 +130,13 @@ pub fn restore_kind_label(kind: RestoreKind) -> &'static str {
 }
 
 /// What a cleanup can do with drift entry `d`: keep it aside, always; adopt it, only a file that names a selected
-/// title or holds a known one under another name; acknowledge it, unless it is at a selected game's file name.
+/// title or holds a known one under another name; add it as an operator addition, only a file no DAT knows;
+/// acknowledge it, unless it is at a selected game's file name.
 pub fn cleanup_actions(d: &DriftEntry) -> Vec<CleanupAction> {
     let mut actions = vec![CleanupAction::KeepAside];
+    if d.kind == DriftKind::Unknown {
+        actions.push(CleanupAction::AddAddition);
+    }
     if d.game.is_some() && matches!(d.kind, DriftKind::Selected | DriftKind::Renamed) {
         actions.push(CleanupAction::Adopt);
     }
@@ -317,6 +322,7 @@ mod tests {
             adoptable: false,
             loose: false,
             converts: None,
+            addition: None,
         }
     }
 

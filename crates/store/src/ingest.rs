@@ -15,7 +15,7 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::{FileType, Stat};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use title_select_api::build::{Approval, FileStat, MARKER, RETENTION, kept_name};
+use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, RETENTION, kept_name};
 use title_select_api::ingest::{
     Assessment, FolderEntry, FoundDat, IngestAction, IngestFolder, IngestItem, IngestKeptFile,
     IngestMarker, IngestOutcome, IngestPlan, IngestPlanContent, IngestPlanItem, ItemMatch,
@@ -286,6 +286,80 @@ fn item_from_row(r: &Row) -> rusqlite::Result<ItemRow> {
         hashed: seen_at(r, 9)?,
         read,
     })
+}
+
+/// Records, in `tx`, the intent to add the item `item` of plan `plan` as the Operator Addition it plans, with the one
+/// move out of the folder every ingest makes: its Additions Job then moves it into its Additions Set, repacked as
+/// TorrentZip, and the original is deleted only once the copy reads back as exactly the ROM the item was assessed to
+/// hold. `Err(Refused | Conflict)` says why it was not recorded, leaving the item as it is.
+fn add_from_ingest(
+    tx: &Transaction,
+    row: &IngestRow,
+    plan: i64,
+    generation: u64,
+    item: &IngestPlanItem,
+    actor: &str,
+) -> Result<()> {
+    let Some(new) = &item.addition else {
+        return Err(Error::Refused(
+            "the plan does not say what to add it as".into(),
+        ));
+    };
+    let found = item_by_id(tx, item.item)?;
+    let [payload] = found.item.assessment.payloads.as_slice() else {
+        return Err(Error::Refused(
+            "it does not hold exactly one ROM now; it was left as it is".into(),
+        ));
+    };
+    let rom = ExpectedRom {
+        name: payload.member.clone().unwrap_or_else(|| item.name.clone()),
+        size: payload.size,
+        crc: Some(payload.crc.clone()),
+        md5: Some(payload.md5.clone()),
+        sha1: Some(payload.sha1.clone()),
+        sha256: Some(payload.sha256.clone()),
+    };
+    let target = crate::additions::check_new(tx, new, &rom.name)?;
+    let set = crate::additions::ensure_set(tx, target.dat)?;
+    let path: String = tx.query_row(
+        "SELECT path FROM additions_sets WHERE id = ?1",
+        [set],
+        |r| r.get(0),
+    )?;
+    let mv = moves::insert_move(
+        tx,
+        &Move {
+            folder: row.id,
+            plan: Some(plan),
+            item: Some(item.item),
+            name: &item.name,
+            seen: Seen {
+                identity: item.identity.into(),
+                file: item.file.clone(),
+                ctime_ns: item.ctime_ns,
+            },
+            sha256: item.sha256.clone(),
+            dest: Destination::Path {
+                root: crate::config::ADDITIONS_ROOT.into(),
+                rel: path,
+                name: target.file_name,
+                generation,
+            },
+            repack: Some(vec![(rom.clone(), payload.member.clone())]),
+            exact: Some(rom.clone()),
+            loose: target.loose,
+        },
+        "repack",
+    )?;
+    crate::additions::insert_addition(
+        tx,
+        new,
+        &item.name,
+        crate::additions::Link::Ingest(mv),
+        &rom,
+        actor,
+    )?;
+    Ok(())
 }
 
 fn item_by_id(c: &Connection, id: i64) -> Result<ItemRow> {
@@ -1302,6 +1376,7 @@ impl Store {
         let generation = row.generation + 1;
         let mut items = Vec::new();
         let mut names = HashSet::new();
+        let mut additions = HashMap::new();
         for id in &request.items {
             let found = self.read(|c| item_by_id(c, *id))?;
             let in_folder: i64 = self.read(|c| {
@@ -1352,8 +1427,60 @@ impl Store {
                 }
             }
             let kept = kept_name(&item.name, 1);
+            let mut addition = None;
+            let mut destination = format!("{RETENTION}/{generation}/{kept}");
             let (reason, provider) = match request.action {
                 IngestAction::Discard => ("you discarded it".to_owned(), None),
+                IngestAction::Addition => {
+                    if !matches!(
+                        item.assessment.proposal,
+                        Some(Proposal::OperatorAddition { .. })
+                    ) {
+                        return Err(Error::Refused(format!(
+                            "{} is not something no source set's DAT knows; only such an item can be added as an \
+                             operator addition",
+                            item.name
+                        )));
+                    }
+                    if item.assessment.payloads.len() != 1 {
+                        return Err(Error::Refused(format!(
+                            "{} holds {} payloads; an operator addition holds exactly one ROM",
+                            item.name,
+                            item.assessment.payloads.len()
+                        )));
+                    }
+                    let Some(new) = request.additions.get(&item.id) else {
+                        return Err(Error::Refused(format!(
+                            "choose the system and name to add {} as an operator addition under",
+                            item.name
+                        )));
+                    };
+                    let rom = item.assessment.payloads[0]
+                        .member
+                        .clone()
+                        .unwrap_or_else(|| item.name.clone());
+                    let file_name = self
+                        .read(|c| crate::additions::check_new(c, new, &rom))?
+                        .file_name;
+                    if additions
+                        .insert((new.system.clone(), new.name.to_lowercase()), ())
+                        .is_some()
+                    {
+                        return Err(Error::Refused(format!(
+                            "two items would be added as the operator addition {} of {}; choose another name for one",
+                            new.name, new.system
+                        )));
+                    }
+                    destination = format!("the additions set of {}: {file_name}", new.system);
+                    addition = Some(new.clone());
+                    (
+                        format!(
+                            "added as the operator addition {} of {}",
+                            new.name, new.system
+                        ),
+                        None,
+                    )
+                }
                 IngestAction::DatImport => {
                     let Some(dat) = &item.assessment.dat else {
                         return Err(Error::Refused(format!(
@@ -1399,9 +1526,10 @@ impl Store {
                 file: item.file.clone(),
                 ctime_ns: found.seen.ctime_ns,
                 sha256: item.assessment.sha256.clone(),
-                destination: format!("{RETENTION}/{generation}/{kept}"),
+                destination,
                 reason,
                 provider,
+                addition,
             });
         }
         let content = IngestPlanContent {
@@ -1484,11 +1612,24 @@ impl Store {
                     "{why}; nothing was moved. Scan the folder, plan again and review the new plan"
                 )));
             }
+            let moving: bool = self.read(|c| {
+                Ok(c.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM ingest_moves WHERE item_id = ?1 AND state NOT IN ('done', 'failed'))",
+                    [item.item],
+                    |r| r.get(0),
+                )?)
+            })?;
+            if moving {
+                return Err(Error::Conflict(format!(
+                    "{} is still being moved by an earlier plan; nothing was moved. Wait for it to finish",
+                    item.name
+                )));
+            }
         }
         if let Err(why) = settle_dir_temps(self, Scope::Ingest(row.id), &dir)? {
             return Err(Error::Refused(why));
         }
-        self.write(|tx| {
+        let approve = |tx: &Transaction| {
             let advanced = tx.execute(
                 "UPDATE ingest_folders SET generation = ?2 WHERE id = ?1 AND generation = ?3",
                 params![row.id, content.generation as i64, row.generation as i64],
@@ -1504,7 +1645,53 @@ impl Store {
                 )));
             }
             Ok(())
-        })?;
+        };
+        if content.action == IngestAction::Addition {
+            // The approval, every addition it records, what became of the rest and the Additions Jobs that settle
+            // them are recorded at once: a Job never sees part of an approval.
+            return self.write(|tx| {
+                approve(tx)?;
+                let mut outcomes = Vec::new();
+                let mut adding = false;
+                for item in &content.items {
+                    tx.execute_batch("SAVEPOINT addition")?;
+                    match add_from_ingest(tx, &row, id, content.generation, item, actor) {
+                        Ok(()) => {
+                            tx.execute_batch("RELEASE addition")?;
+                            self.fault_point(Fault::IngestAdditionRecorded);
+                            adding = true;
+                        }
+                        Err(Error::Refused(why) | Error::Conflict(why)) => {
+                            tx.execute_batch("ROLLBACK TO addition; RELEASE addition")?;
+                            outcomes.push(IngestOutcome {
+                                item: item.item,
+                                name: item.name.clone(),
+                                moved: false,
+                                detail: None,
+                                error: Some(why),
+                            });
+                        }
+                        Err(err) => return Err(err),
+                    }
+                }
+                if adding {
+                    // The additions recorded are published by their Additions Jobs, the last of which finishes the
+                    // plan.
+                    tx.execute(
+                        "UPDATE ingest_plans SET outcomes = ?2 WHERE id = ?1",
+                        params![id, to_json(&outcomes)],
+                    )?;
+                    crate::additions::queue_additions_jobs(tx)?;
+                } else {
+                    tx.execute(
+                        "UPDATE ingest_plans SET finished_at = ?2, outcomes = ?3 WHERE id = ?1",
+                        params![id, now(), to_json(&outcomes)],
+                    )?;
+                }
+                plan_by_id(tx, id)
+            });
+        }
+        self.write(approve)?;
         let mut outcomes = Vec::new();
         for item in &content.items {
             let mut detail = Vec::new();
@@ -1831,8 +2018,11 @@ impl Store {
             }
         }
         let unfinished = self.read(|c| {
+            // A move that adds an Operator Addition is its Additions Job's to drive.
             let mut stmt = c.prepare(
-                "SELECT id FROM ingest_moves WHERE state NOT IN ('done', 'failed') ORDER BY id",
+                "SELECT id FROM ingest_moves m WHERE state NOT IN ('done', 'failed')
+                 AND NOT EXISTS (SELECT 1 FROM additions a WHERE a.move_id = m.id)
+                 ORDER BY id",
             )?;
             Ok(stmt
                 .query_map([], |r| r.get::<_, i64>(0))?
@@ -1847,7 +2037,9 @@ impl Store {
             let mut stmt = c.prepare(&format!(
                 "{PLAN_QUERY} WHERE approved_at IS NOT NULL AND finished_at IS NULL
                  AND NOT EXISTS (SELECT 1 FROM ingest_moves m WHERE m.plan_id = ingest_plans.id
-                                 AND m.state NOT IN ('done', 'failed'))"
+                                 AND m.state NOT IN ('done', 'failed'))
+                 AND NOT EXISTS (SELECT 1 FROM ingest_moves m JOIN additions a ON a.move_id = m.id
+                                 WHERE m.plan_id = ingest_plans.id)"
             ))?;
             Ok(stmt
                 .query_map([], ingest_plan_from_row)?

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::additions::NewAddition;
 use crate::build::{Approval, ExpectedRom, FileIdentity, FileStat, KeptDeletionOutcome};
 use crate::ingest::FolderEntry;
 use crate::storage::Storage;
@@ -62,6 +63,8 @@ pub enum RepairChoice {
     Leave,
     /// Keep the file aside in the Source Set's kept files.
     KeepAside,
+    /// Keep the file aside, then add its one ROM as an Operator Addition.
+    AddAddition,
 }
 
 impl RepairChoice {
@@ -70,6 +73,7 @@ impl RepairChoice {
             RepairChoice::Apply => "apply",
             RepairChoice::Leave => "leave",
             RepairChoice::KeepAside => "keep aside",
+            RepairChoice::AddAddition => "add as operator addition",
         }
     }
 }
@@ -95,6 +99,13 @@ pub struct RepairItem {
     /// Why the chosen repair cannot be carried out, or anything else to know about it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// When it is added as an Operator Addition: its system, name and parent Game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addition: Option<NewAddition>,
+    /// When it is added as an Operator Addition: the one ROM its file held, with its hashes, read through a
+    /// descriptor while the file held still when the plan was made. It is published only while it still holds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addition_rom: Option<crate::build::ExpectedRom>,
 }
 
 /// A file as the plan saw it, which a step changes only while it is still so.
@@ -293,14 +304,18 @@ pub struct RepairPlan {
 pub struct PlanRepair {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub choices: BTreeMap<String, RepairChoice>,
+    /// For each item you add as an Operator Addition: its system, name and parent Game, by its key.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub additions: BTreeMap<String, NewAddition>,
 }
 
 /// A file a repair kept aside in a Source Set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceKeptFile {
     pub id: i64,
+    /// The Source Set it was kept in; for a kept file of an Additions Set, that Additions Set.
     pub source_set: i64,
-    /// The repair that kept it.
+    /// The repair that kept it; for a kept file of an Additions Set, the Operator Addition retired.
     pub plan: i64,
     pub generation: u64,
     /// Where it was, relative to the Source Set's folder.

@@ -55,6 +55,9 @@ pub struct Root {
     pub scan_every_minutes: Option<u64>,
 }
 
+/// The Root that holds the Additions Sets, one folder per system.
+pub const ADDITIONS_ROOT: &str = "additions";
+
 /// How long an item in an Ingest Folder must stay unchanged before it is assessed, when the Root does not say.
 pub const DEFAULT_SETTLE_SECS: u64 = 60;
 
@@ -337,6 +340,14 @@ impl Config {
                         "roots.{name}.writable_paths: {path:?}: a source set's path {e}"
                     )));
                 }
+            }
+            if name == ADDITIONS_ROOT
+                && (!root.writable || root.is_ingest() || !root.writable_paths.is_empty())
+            {
+                return Err(Error(format!(
+                    "roots.{name} holds the additions sets, which needs writable = true, no kind and no \
+                     writable_paths"
+                )));
             }
             if root.scan_every_minutes == Some(0) {
                 return Err(Error(format!(

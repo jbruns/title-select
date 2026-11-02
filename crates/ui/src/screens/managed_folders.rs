@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -6,6 +6,7 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 use leptos_struct_table::ColumnSort;
+use title_select_api::additions::NewAddition;
 use title_select_api::build::{
     AddManagedFolder, ApprovePlan, BlockerKind, BuildDetail, BuildItem, BuildSummary, BuiltFile,
     ChangeManagedFolder, Cleanup, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemKind,
@@ -27,6 +28,7 @@ use crate::build_model::{
 use crate::events::use_live;
 use crate::model::{age, earlier, short_sha, when};
 use crate::registration;
+use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::progress_view;
 use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
 
@@ -548,7 +550,7 @@ fn FolderView(folder: ManagedFolder, refresh: RwSignal<u64>) -> impl IntoView {
         {active_job.map(|job| view! { <BuildProgress job /> })}
         {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id /> })}
         <CheckPanel folder=id busy=active_job.is_some() refresh />
-        <CleanupForm folder=id busy=active_job.is_some() refresh />
+        <CleanupForm folder=id source_set=folder.source_set.clone() busy=active_job.is_some() refresh />
         <PlanForm folder=folder.clone() refresh />
         {folder.latest_plan.map(|plan| view! { <PlanPanel plan refresh /> })}
         <ChangeBinding folder=folder.clone() refresh />
@@ -746,8 +748,18 @@ fn check_view(check: FolderCheck) -> impl IntoView {
 /// choose, the kept files to put back, and the built files to repack as TorrentZip. Nothing changes until you
 /// approve the plan.
 #[component]
-fn CleanupForm(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
+fn CleanupForm(
+    folder: i64,
+    source_set: String,
+    busy: bool,
+    refresh: RwSignal<u64>,
+) -> impl IntoView {
     let live = use_live();
+    // An entry added as an operator addition is suggested its source set's DAT as its system.
+    let system = LocalResource::new(move || {
+        let path = format!("/source-sets/{}", api::segment(&source_set));
+        async move { api::get::<SourceSetRecord>(&path).await.ok().map(|s| s.dat) }
+    });
     let loaded = LocalResource::new(move || {
         live.settled.track();
         refresh.track();
@@ -762,11 +774,20 @@ fn CleanupForm(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView
         }
     });
     let request = RwSignal::new(PlanCleanup::default());
+    // What each entry you choose to add as an operator addition is added as, by name.
+    let adding = RwSignal::new(BTreeMap::<String, RwSignal<NewAddition>>::new());
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
     let plan = move |_| {
         working.set(true);
-        let body = request.get_untracked();
+        let mut body = request.get_untracked();
+        body.additions = adding.with_untracked(|adding| {
+            body.entries
+                .iter()
+                .filter(|(_, a)| **a == CleanupAction::AddAddition)
+                .filter_map(|(name, _)| adding.get(name).map(|a| (name.clone(), a.get_untracked())))
+                .collect()
+        });
         leptos::task::spawn_local(async move {
             let planned =
                 api::post::<_, Plan>(&format!("/managed-folders/{folder}/cleanups"), &body).await;
@@ -843,6 +864,22 @@ fn CleanupForm(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView
                                         }
                                     });
                                 };
+                                let addable = cleanup_actions(&d).contains(&CleanupAction::AddAddition).then(|| {
+                                    let n = d.name.clone();
+                                    adding.with_untracked(|a| a.get(&n).copied()).unwrap_or_else(|| {
+                                        let suggested = system.get_untracked().flatten();
+                                        let fields = RwSignal::new(new_addition(&n, suggested.as_deref()));
+                                        adding.update_untracked(|a| {
+                                            a.insert(n, fields);
+                                        });
+                                        fields
+                                    })
+                                });
+                                let adds = move || {
+                                    request.with(|r| {
+                                        name.with_value(|n| r.entries.get(n) == Some(&CleanupAction::AddAddition))
+                                    })
+                                };
                                 view! {
                                     <li>
                                         <label>
@@ -856,6 +893,11 @@ fn CleanupForm(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView
                                                     .collect_view()}
                                             </select>
                                         </label>
+                                        {addable.map(|value| view! {
+                                            <Show when=adds>
+                                                <p>"Add it as: " <AdditionFields value /></p>
+                                            </Show>
+                                        })}
                                     </li>
                                 }
                             })
@@ -937,7 +979,9 @@ fn CleanupForm(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView
                 {format!(
                     "Choose what to do with what the latest check found. Keep an entry aside, and it is moved, whole, \
                      into {RETENTION}; adopt a file that holds a selected game, and it is recorded as built under that \
-                     game's file name; acknowledge an entry, and it is no longer reported until it changes. Anything \
+                     game's file name; acknowledge an entry, and it is no longer reported until it changes; add a file \
+                     no DAT knows as an operator addition, and it is kept aside and copied into its system's \
+                     additions set. Anything \
                      you do not choose is left as it is, and nothing changes until you approve the plan."
                 )}
             </p>
@@ -947,11 +991,12 @@ fn CleanupForm(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView
     }
 }
 
-fn cleanup_actions_all() -> [CleanupAction; 3] {
+fn cleanup_actions_all() -> [CleanupAction; 4] {
     [
         CleanupAction::KeepAside,
         CleanupAction::Adopt,
         CleanupAction::Acknowledge,
+        CleanupAction::AddAddition,
     ]
 }
 

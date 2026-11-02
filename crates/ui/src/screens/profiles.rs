@@ -1019,6 +1019,18 @@ fn SystemSettingsForm(
             <p class="note small">
                 "Reset to defaults sets every setting for this system to the defaults, whatever your global settings say. Your global overrides still apply, and your choices stay."
             </p>
+            <label class="inline">
+                <input
+                    type="checkbox"
+                    prop:checked=move || profile.with(|p| own(p, &s.get_value()).additions)
+                    on:change=move |ev| {
+                        let on = event_target_checked(&ev);
+                        update_own(profile, &s.get_value(), |o| o.additions = on)
+                    }
+                />
+                " Builds of this system also read its additions set: the operator additions you added for it, \
+                each built under its own name alongside the selected games"
+            </label>
             <SystemSetting
                 profile
                 system=s

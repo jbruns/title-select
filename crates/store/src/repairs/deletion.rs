@@ -1,6 +1,6 @@
-//! Deleting kept files of a Source Set, once you approve it: as for a Managed Folder, each file is moved, by one
-//! rename that never replaces anything, into the private folder kept files are deleted from, and deleted there only
-//! once it is found to be the file that was kept. Anything else moved there is moved back.
+//! Deleting kept files of a Source Set or of an Additions Set, once you approve it: as for a Managed Folder, each file
+//! is moved, by one rename that never replaces anything, into the private folder kept files are deleted from, and
+//! deleted there only once it is found to be the file that was kept. Anything else moved there is moved back.
 
 use std::collections::BTreeSet;
 
@@ -13,6 +13,7 @@ use title_select_api::repair::{
 };
 
 use super::{MarkerRule, open_repairable, repair_active};
+use crate::additions::{additions_kept_reserved, set_of_system, source_kept_reserved};
 use crate::builds::still_sha256;
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
@@ -21,8 +22,82 @@ use crate::plans::{json, to_json};
 use crate::sets::set_by_name;
 use crate::{Error, Result, Store, now};
 
-const KEPT_QUERY: &str = "SELECT id, source_set_id, plan_id, generation, name, kept_name, reason, sha256, size, \
-     mtime_ns, dev, ino, kept_at FROM source_kept";
+/// Whose kept files: a Source Set's, kept by its repairs, or an Additions Set's, kept as its additions retire.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Owner {
+    Source,
+    Additions,
+}
+
+impl Owner {
+    /// `sql` with `{kept}`, `{owner}`, `{plan}` and `{deletions}` naming this owner's tables and columns.
+    fn sql(self, sql: &str) -> String {
+        let (kept, owner, plan, deletions) = match self {
+            Owner::Source => (
+                "source_kept",
+                "source_set_id",
+                "plan_id",
+                "source_kept_deletions",
+            ),
+            Owner::Additions => (
+                "additions_kept",
+                "additions_set_id",
+                "addition_id",
+                "additions_kept_deletions",
+            ),
+        };
+        sql.replace("{kept}", kept)
+            .replace("{owner}", owner)
+            .replace("{plan}", plan)
+            .replace("{deletions}", deletions)
+    }
+
+    fn scope(self, set: i64) -> Scope {
+        match self {
+            Owner::Source => Scope::Source(set),
+            Owner::Additions => Scope::Additions(set),
+        }
+    }
+
+    fn what(self) -> &'static str {
+        match self {
+            Owner::Source => "source set",
+            Owner::Additions => "additions set",
+        }
+    }
+
+    /// Why kept file `id` cannot be deleted now, or `None`.
+    fn reserved(self, c: &Connection, id: i64) -> Result<Option<String>> {
+        match self {
+            Owner::Source => source_kept_reserved(c, id),
+            Owner::Additions => additions_kept_reserved(c, id),
+        }
+    }
+
+    /// Why no deletion of the kept files of `set` can be approved now, or `None`.
+    fn busy(self, c: &Connection, set: i64) -> Result<Option<String>> {
+        if self == Owner::Source {
+            return repair_active(c, set);
+        }
+        let deletion: Option<i64> = c
+            .query_row(
+                "SELECT id FROM additions_kept_deletions
+                 WHERE additions_set_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
+                [set],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(deletion.map(|id| {
+            format!(
+                "deletion {id} of kept files of the additions set is not finished; the service finishes it when it \
+                 next starts"
+            )
+        }))
+    }
+}
+
+const KEPT_QUERY: &str = "SELECT id, {owner}, {plan}, generation, name, kept_name, reason, sha256, size, \
+     mtime_ns, dev, ino, kept_at FROM {kept}";
 
 fn kept_from_row(r: &Row) -> rusqlite::Result<SourceKeptFile> {
     let mtime: String = r.get(9)?;
@@ -44,17 +119,22 @@ fn kept_from_row(r: &Row) -> rusqlite::Result<SourceKeptFile> {
     })
 }
 
-fn kept_of(c: &Connection, set: i64, state: &str) -> Result<Vec<SourceKeptFile>> {
-    let mut stmt = c.prepare(&format!(
-        "{KEPT_QUERY} WHERE source_set_id = ?1 AND state = ?2 ORDER BY generation DESC, id"
-    ))?;
+fn kept_of(c: &Connection, owner: Owner, set: i64, state: &str) -> Result<Vec<SourceKeptFile>> {
+    let mut stmt = c.prepare(&owner.sql(&format!(
+        "{KEPT_QUERY} WHERE {{owner}} = ?1 AND state = ?2 ORDER BY generation DESC, id"
+    )))?;
     Ok(stmt
         .query_map(params![set, state], kept_from_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// The kept files of Additions Set `set`, newest generation first.
+pub(crate) fn additions_kept_of(c: &Connection, set: i64) -> Result<Vec<SourceKeptFile>> {
+    kept_of(c, Owner::Additions, set, "kept")
+}
+
 const DELETION_QUERY: &str = "SELECT id, digest, created_at, content, approved_digest, approved_by, approved_at, \
-     finished_at, outcomes, recovery_error FROM source_kept_deletions";
+     finished_at, outcomes, recovery_error FROM {deletions}";
 
 fn deletion_from_row(r: &Row) -> rusqlite::Result<SourceKeptDeletion> {
     let outcomes: Option<String> = r.get(8)?;
@@ -80,14 +160,19 @@ fn deletion_from_row(r: &Row) -> rusqlite::Result<SourceKeptDeletion> {
     })
 }
 
-fn deletion_by_id(c: &Connection, id: i64) -> Result<SourceKeptDeletion> {
+fn deletion_by_id(c: &Connection, owner: Owner, id: i64) -> Result<SourceKeptDeletion> {
     c.query_row(
-        &format!("{DELETION_QUERY} WHERE id = ?1"),
+        &owner.sql(&format!("{DELETION_QUERY} WHERE id = ?1")),
         [id],
         deletion_from_row,
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("no deletion {id} of kept files of a source set")))
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "no deletion {id} of kept files of an {}",
+            owner.what()
+        ))
+    })
 }
 
 fn digest(content: &SourceKeptDeletionContent) -> String {
@@ -142,13 +227,20 @@ fn reads_as_reviewed(
 /// says why it cannot be: it is no longer the file that was kept, or cannot be read.
 fn review(
     store: &Store,
+    owner: Owner,
     dir: &FolderDir,
     file: &SourceKeptFile,
 ) -> Result<std::result::Result<KeptFileReviewed, String>> {
     let kept = &file.kept_name;
+    // A kept file of an Additions Set is deleted only on the hash recorded when Title Select kept it.
+    if owner == Owner::Additions && file.sha256.is_none() {
+        return Ok(Err(format!(
+            "{kept} was found in place of the file kept, so it is never deleted"
+        )));
+    }
     let generation = match open_retention(
         store,
-        Scope::Source(file.source_set),
+        owner.scope(file.source_set),
         dir,
         file.generation,
         false,
@@ -173,6 +265,9 @@ fn review(
     else {
         return Ok(Err(format!("{kept} changed while it was read")));
     };
+    if owner == Owner::Additions && file.sha256.as_deref() != Some(sha256.as_str()) {
+        return Ok(Err(format!("{kept} is no longer the file that was kept")));
+    }
     Ok(Ok(KeptFileReviewed {
         id: file.id,
         ctime_ns: ctime_ns(&st),
@@ -182,28 +277,107 @@ fn review(
 
 const CHANGED: &str = "it changed since you reviewed its deletion";
 
-fn slot(file: &SourceKeptFile) -> String {
-    format!("source-kept-{}", file.id)
+fn slot(owner: Owner, file: &SourceKeptFile) -> String {
+    match owner {
+        Owner::Source => format!("source-kept-{}", file.id),
+        Owner::Additions => format!("additions-kept-{}", file.id),
+    }
 }
 
 impl Store {
     /// The kept files of Source Set `name`, newest generation first.
     pub fn source_kept_files(&self, name: &str) -> Result<Vec<SourceKeptFile>> {
-        self.read(|c| kept_of(c, set_by_name(c, name)?.id, "kept"))
+        self.read(|c| kept_of(c, Owner::Source, set_by_name(c, name)?.id, "kept"))
     }
 
     /// Plans deleting the kept files of Source Set `name` that `request` picks, each read through a descriptor so
     /// the plan binds what it holds, and stores the plan for review. Nothing is deleted until you approve it. A kept
-    /// file that is no longer the file kept is left out of "all", and refuses a plan that picks it.
+    /// file that is no longer the file kept is left out of "all", and refuses a plan that picks it; so does one an
+    /// Operator Addition is still being added from.
     pub fn plan_source_kept_deletion(
         &self,
         config: &Config,
         name: &str,
         request: &PlanKeptDeletion,
     ) -> Result<SourceKeptDeletion> {
-        let (set, picked) = self.read(|c| {
-            let set = set_by_name(c, name)?;
-            let kept = kept_of(c, set.id, "kept")?;
+        let set = self.read(|c| Ok(set_by_name(c, name)?.id))?;
+        self.plan_kept_deletion_of(config, Owner::Source, set, name, request)
+    }
+
+    pub fn source_kept_deletion(&self, id: i64) -> Result<SourceKeptDeletion> {
+        self.read(|c| deletion_by_id(c, Owner::Source, id))
+    }
+
+    /// Approves deleting kept files of a Source Set as reviewed with `digest`, and carries it out. Each file is
+    /// deleted only while its kept entry is the file that was kept; anything else is left, and its outcome says why.
+    /// Refused while a repair or another deletion of the Source Set is unfinished, while an Operator Addition is
+    /// still being added from a file it picks, and when its kept files changed since the plan.
+    pub fn approve_source_kept_deletion(
+        &self,
+        config: &Config,
+        id: i64,
+        digest_reviewed: &str,
+        actor: &str,
+    ) -> Result<SourceKeptDeletion> {
+        self.approve_kept_deletion_of(config, Owner::Source, id, digest_reviewed, actor)
+    }
+
+    /// The kept files of the Additions Set of `system`, newest generation first: the files of retired additions.
+    pub fn additions_kept_files(&self, system: &str) -> Result<Vec<SourceKeptFile>> {
+        self.read(|c| additions_kept_of(c, set_of_system(c, system)?.id))
+    }
+
+    /// Plans deleting the kept files of the Additions Set of `system` that `request` picks, as for a Source Set. A
+    /// file kept with no hash recorded, or one whose addition is being restored, is never picked.
+    pub fn plan_additions_kept_deletion(
+        &self,
+        config: &Config,
+        system: &str,
+        request: &PlanKeptDeletion,
+    ) -> Result<SourceKeptDeletion> {
+        let set = self.read(|c| Ok(set_of_system(c, system)?.id))?;
+        self.plan_kept_deletion_of(config, Owner::Additions, set, system, request)
+    }
+
+    pub fn additions_kept_deletion(&self, id: i64) -> Result<SourceKeptDeletion> {
+        self.read(|c| deletion_by_id(c, Owner::Additions, id))
+    }
+
+    /// Approves deleting kept files of an Additions Set as reviewed with `digest`, and carries it out, as for a
+    /// Source Set.
+    pub fn approve_additions_kept_deletion(
+        &self,
+        config: &Config,
+        id: i64,
+        digest_reviewed: &str,
+        actor: &str,
+    ) -> Result<SourceKeptDeletion> {
+        self.approve_kept_deletion_of(config, Owner::Additions, id, digest_reviewed, actor)
+    }
+
+    /// Opens the folder of `owner`'s set `set`, which must be in place and this store's.
+    fn open_owner(
+        &self,
+        config: &Config,
+        owner: Owner,
+        set: i64,
+    ) -> Result<std::result::Result<FolderDir, String>> {
+        match owner {
+            Owner::Source => open_repairable(self, config, set, MarkerRule::Required),
+            Owner::Additions => self.open_additions(config, set),
+        }
+    }
+
+    fn plan_kept_deletion_of(
+        &self,
+        config: &Config,
+        owner: Owner,
+        set: i64,
+        name: &str,
+        request: &PlanKeptDeletion,
+    ) -> Result<SourceKeptDeletion> {
+        let picked = self.read(|c| {
+            let kept = kept_of(c, owner, set, "kept")?;
             let files: Vec<SourceKeptFile> = if request.all {
                 kept
             } else {
@@ -213,20 +387,30 @@ impl Store {
                         Some(k) => files.push(k.clone()),
                         None => {
                             return Err(Error::Refused(format!(
-                                "source set {name} has no kept file {id}"
+                                "{} {name} has no kept file {id}",
+                                owner.what()
                             )));
                         }
                     }
                 }
                 files
             };
-            Ok((set.id, files))
+            let mut free = Vec::new();
+            for file in files {
+                match owner.reserved(c, file.id)? {
+                    None => free.push(file),
+                    Some(_) if request.all => {}
+                    Some(why) => return Err(Error::Conflict(why)),
+                }
+            }
+            Ok(free)
         })?;
-        let dir =
-            open_repairable(self, config, set, MarkerRule::Required)?.map_err(Error::Refused)?;
+        let dir = self
+            .open_owner(config, owner, set)?
+            .map_err(Error::Refused)?;
         let (mut files, mut reviewed) = (Vec::new(), Vec::new());
         for file in picked {
-            match review(self, &dir, &file)? {
+            match review(self, owner, &dir, &file)? {
                 Ok(read) => {
                     files.push(file);
                     reviewed.push(read);
@@ -241,7 +425,7 @@ impl Store {
             ));
         }
         self.write(|tx| {
-            let now_kept = kept_of(tx, set, "kept")?;
+            let now_kept = kept_of(tx, owner, set, "kept")?;
             if files.iter().any(|f| !now_kept.contains(f)) {
                 return Err(Error::Conflict(
                     "the kept files changed while the deletion was planned; plan it again".into(),
@@ -253,30 +437,24 @@ impl Store {
                 reviewed,
             };
             tx.execute(
-                "INSERT INTO source_kept_deletions (source_set_id, content, digest, created_at)
-                 VALUES (?1, ?2, ?3, ?4)",
+                &owner.sql(
+                    "INSERT INTO {deletions} ({owner}, content, digest, created_at) VALUES (?1, ?2, ?3, ?4)",
+                ),
                 params![set, to_json(&content), digest(&content), now()],
             )?;
-            deletion_by_id(tx, tx.last_insert_rowid())
+            deletion_by_id(tx, owner, tx.last_insert_rowid())
         })
     }
 
-    pub fn source_kept_deletion(&self, id: i64) -> Result<SourceKeptDeletion> {
-        self.read(|c| deletion_by_id(c, id))
-    }
-
-    /// Approves deleting kept files of a Source Set as reviewed with `digest`, and carries it out. Each file is
-    /// deleted only while its kept entry is the file that was kept; anything else is left, and its outcome says why.
-    /// Refused while a repair or another deletion of the Source Set is unfinished, and when its kept files changed
-    /// since the plan.
-    pub fn approve_source_kept_deletion(
+    fn approve_kept_deletion_of(
         &self,
         config: &Config,
+        owner: Owner,
         id: i64,
         digest_reviewed: &str,
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
-        let plan = self.source_kept_deletion(id)?;
+        let plan = self.read(|c| deletion_by_id(c, owner, id))?;
         if plan.approval.is_some() {
             return Err(Error::Conflict(format!(
                 "deletion {id} is already approved"
@@ -289,12 +467,18 @@ impl Store {
         }
         let content = &plan.content;
         let set = content.source_set;
-        open_repairable(self, config, set, MarkerRule::Required)?.map_err(Error::Refused)?;
+        self.open_owner(config, owner, set)?
+            .map_err(Error::Refused)?;
         self.write(|tx| {
-            if let Some(busy) = repair_active(tx, set)? {
+            if let Some(busy) = owner.busy(tx, set)? {
                 return Err(Error::Conflict(busy));
             }
-            let now_kept = kept_of(tx, set, "kept")?;
+            for file in &content.files {
+                if let Some(why) = owner.reserved(tx, file.id)? {
+                    return Err(Error::Conflict(why));
+                }
+            }
+            let now_kept = kept_of(tx, owner, set, "kept")?;
             if content
                 .files
                 .iter()
@@ -305,40 +489,45 @@ impl Store {
                 )));
             }
             tx.execute(
-                "UPDATE source_kept_deletions SET approved_digest = ?2, approved_by = ?3, approved_at = ?4
-                 WHERE id = ?1 AND approved_at IS NULL",
+                &owner.sql(
+                    "UPDATE {deletions} SET approved_digest = ?2, approved_by = ?3, approved_at = ?4
+                     WHERE id = ?1 AND approved_at IS NULL",
+                ),
                 params![id, plan.digest, actor, now()],
             )?;
             for file in &content.files {
                 tx.execute(
-                    "UPDATE source_kept SET state = 'deleting', deletion_id = ?2 WHERE id = ?1 AND state = 'kept'",
+                    &owner.sql(
+                        "UPDATE {kept} SET state = 'deleting', deletion_id = ?2 WHERE id = ?1 AND state = 'kept'",
+                    ),
                     params![file.id, id],
                 )?;
             }
             Ok(())
         })?;
-        if let Err(why) = self.carry_out_source_deletion(config, id)? {
+        if let Err(why) = self.carry_out_kept_deletion(config, owner, id)? {
             return Err(Error::Refused(why));
         }
-        self.source_kept_deletion(id)
+        self.read(|c| deletion_by_id(c, owner, id))
     }
 
-    /// Finishes each approved deletion of kept files of a Source Set that a stop interrupted. Returns each left
-    /// unfinished, with why.
+    /// Finishes each approved deletion of kept files of a Source Set or an Additions Set that a stop interrupted.
+    /// Returns each left unfinished, with why.
     pub fn recover_source_kept_deletions(&self, config: &Config) -> Result<Vec<(i64, String)>> {
-        let unfinished: Vec<i64> = self.read(|c| {
-            let mut stmt = c.prepare(
-                "SELECT id FROM source_kept_deletions WHERE approved_at IS NOT NULL AND finished_at IS NULL
-                 ORDER BY id",
-            )?;
-            Ok(stmt
-                .query_map([], |r| r.get(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?)
-        })?;
         let mut left = Vec::new();
-        for id in unfinished {
-            if let Err(why) = self.carry_out_source_deletion(config, id)? {
-                left.push((id, why));
+        for owner in [Owner::Source, Owner::Additions] {
+            let unfinished: Vec<i64> = self.read(|c| {
+                let mut stmt = c.prepare(&owner.sql(
+                    "SELECT id FROM {deletions} WHERE approved_at IS NOT NULL AND finished_at IS NULL ORDER BY id",
+                ))?;
+                Ok(stmt
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
+            })?;
+            for id in unfinished {
+                if let Err(why) = self.carry_out_kept_deletion(config, owner, id)? {
+                    left.push((id, why));
+                }
             }
         }
         Ok(left)
@@ -346,28 +535,29 @@ impl Store {
 
     /// Deletes each file of deletion `id` still recorded as being deleted, then records it finished. `Err` says why
     /// it was left unfinished.
-    fn carry_out_source_deletion(
+    fn carry_out_kept_deletion(
         &self,
         config: &Config,
+        owner: Owner,
         id: i64,
     ) -> Result<std::result::Result<(), String>> {
-        let plan = self.source_kept_deletion(id)?;
+        let plan = self.read(|c| deletion_by_id(c, owner, id))?;
         let set = plan.content.source_set;
         let unfinished = |why: String| -> Result<std::result::Result<(), String>> {
             self.write(|tx| {
                 tx.execute(
-                    "UPDATE source_kept_deletions SET recovery_error = ?2 WHERE id = ?1",
+                    &owner.sql("UPDATE {deletions} SET recovery_error = ?2 WHERE id = ?1"),
                     params![id, why],
                 )?;
                 Ok(())
             })?;
             Ok(Err(why))
         };
-        let dir = match open_repairable(self, config, set, MarkerRule::Required)? {
+        let dir = match self.open_owner(config, owner, set)? {
             Ok(dir) => dir,
             Err(why) => return unfinished(why),
         };
-        let deleting = match open_area_deleting(self, Scope::Source(set), &dir, true)? {
+        let deleting = match open_area_deleting(self, owner.scope(set), &dir, true)? {
             Ok(Some(deleting)) => deleting,
             Ok(None) => {
                 return unfinished("the folder kept files are deleted from is missing".into());
@@ -378,7 +568,7 @@ impl Store {
         for file in &plan.content.files {
             let state: String = self.read(|c| {
                 Ok(c.query_row(
-                    "SELECT state FROM source_kept WHERE id = ?1",
+                    &owner.sql("SELECT state FROM {kept} WHERE id = ?1"),
                     [file.id],
                     |r| r.get(0),
                 )?)
@@ -386,7 +576,7 @@ impl Store {
             let done = match state.as_str() {
                 "deleting" => {
                     let reviewed = plan.content.reviewed.iter().find(|r| r.id == file.id);
-                    self.delete_source_kept(&dir, &deleting, file, reviewed)?
+                    self.delete_kept_of(owner, &dir, &deleting, file, reviewed)?
                 }
                 "deleted" => outcome(file, true, None),
                 "gone" => outcome(
@@ -400,8 +590,9 @@ impl Store {
         }
         self.write(|tx| {
             tx.execute(
-                "UPDATE source_kept_deletions SET finished_at = ?2, outcomes = ?3, recovery_error = NULL
-                 WHERE id = ?1",
+                &owner.sql(
+                    "UPDATE {deletions} SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
+                ),
                 params![id, now(), to_json(&outcomes)],
             )?;
             Ok(())
@@ -419,7 +610,11 @@ impl Store {
         read: &KeptFileReviewed,
     ) -> Result<KeptDeletionOutcome> {
         let file = self.read(|c| {
-            Ok(c.query_row(&format!("{KEPT_QUERY} WHERE id = ?1"), [id], kept_from_row)?)
+            Ok(c.query_row(
+                &Owner::Source.sql(&format!("{KEPT_QUERY} WHERE id = ?1")),
+                [id],
+                kept_from_row,
+            )?)
         })?;
         let deleting = match open_area_deleting(self, Scope::Source(file.source_set), dir, true)? {
             Ok(Some(deleting)) => deleting,
@@ -430,23 +625,28 @@ impl Store {
             }
             Err(why) => return Err(Error::Io(why)),
         };
-        self.delete_source_kept(dir, &deleting, &file, Some(read))
+        self.delete_kept_of(Owner::Source, dir, &deleting, &file, Some(read))
     }
 
-    fn set_slot_ctime(&self, file: &SourceKeptFile, ctime: Option<i128>) -> Result<()> {
+    fn set_slot_ctime(
+        &self,
+        owner: Owner,
+        file: &SourceKeptFile,
+        ctime: Option<i128>,
+    ) -> Result<()> {
         self.write(|tx| {
             tx.execute(
-                "UPDATE source_kept SET slot_ctime_ns = ?2 WHERE id = ?1",
+                &owner.sql("UPDATE {kept} SET slot_ctime_ns = ?2 WHERE id = ?1"),
                 params![file.id, ctime.map(|c| c.to_string())],
             )?;
             Ok(())
         })
     }
 
-    fn slot_ctime(&self, file: &SourceKeptFile) -> Result<Option<i128>> {
+    fn slot_ctime(&self, owner: Owner, file: &SourceKeptFile) -> Result<Option<i128>> {
         self.read(|c| {
             let at: Option<String> = c.query_row(
-                "SELECT slot_ctime_ns FROM source_kept WHERE id = ?1",
+                &owner.sql("SELECT slot_ctime_ns FROM {kept} WHERE id = ?1"),
                 [file.id],
                 |r| r.get(0),
             )?;
@@ -456,16 +656,19 @@ impl Store {
 
     fn settle_source_kept(
         &self,
+        owner: Owner,
         file: &SourceKeptFile,
         state: &str,
         error: Option<&str>,
     ) -> Result<()> {
         self.write(|tx| {
             tx.execute(
-                "UPDATE source_kept SET state = ?2, error = ?3, slot_ctime_ns = NULL,
-                        deleted_at = CASE WHEN ?2 = 'kept' THEN NULL ELSE ?4 END,
-                        deletion_id = CASE WHEN ?2 = 'kept' THEN NULL ELSE deletion_id END
-                 WHERE id = ?1",
+                &owner.sql(
+                    "UPDATE {kept} SET state = ?2, error = ?3, slot_ctime_ns = NULL,
+                            deleted_at = CASE WHEN ?2 = 'kept' THEN NULL ELSE ?4 END,
+                            deletion_id = CASE WHEN ?2 = 'kept' THEN NULL ELSE deletion_id END
+                     WHERE id = ?1",
+                ),
                 params![file.id, state, error, now()],
             )?;
             Ok(())
@@ -474,18 +677,19 @@ impl Store {
 
     /// Deletes kept file `file`, recorded as being deleted, from wherever a stop left it: its kept entry or its slot
     /// in the private folder kept files are deleted from.
-    fn delete_source_kept(
+    fn delete_kept_of(
         &self,
+        owner: Owner,
         dir: &FolderDir,
         deleting: &FolderDir,
         file: &SourceKeptFile,
         reviewed: Option<&KeptFileReviewed>,
     ) -> Result<KeptDeletionOutcome> {
         let io = |e: std::io::Error| Error::Io(e.to_string());
-        let slot = slot(file);
+        let slot = slot(owner, file);
         let generation = match open_retention(
             self,
-            Scope::Source(file.source_set),
+            owner.scope(file.source_set),
             dir,
             file.generation,
             false,
@@ -504,6 +708,7 @@ impl Store {
         if !in_slot {
             let Some(generation) = &generation else {
                 self.settle_source_kept(
+                    owner,
                     file,
                     "gone",
                     Some("it was gone when its deletion was carried out"),
@@ -512,6 +717,7 @@ impl Store {
             };
             if generation.stat(&file.kept_name).map_err(io)?.is_none() {
                 self.settle_source_kept(
+                    owner,
                     file,
                     "gone",
                     Some("it was gone when its deletion was carried out"),
@@ -520,7 +726,7 @@ impl Store {
             }
             if !is_kept(generation, &file.kept_name, file)? {
                 let why = "it is no longer the file that was kept, so it is never deleted";
-                self.settle_source_kept(file, "kept", Some(why))?;
+                self.settle_source_kept(owner, file, "kept", Some(why))?;
                 return Ok(outcome(file, false, Some(why.into())));
             }
             // Read as reviewed before the rename, which moves its ctime, and held through it.
@@ -532,20 +738,20 @@ impl Store {
                 }
                 _ => {
                     let why = format!("{CHANGED}, so it was left kept");
-                    self.settle_source_kept(file, "kept", Some(&why))?;
+                    self.settle_source_kept(owner, file, "kept", Some(&why))?;
                     return Ok(outcome(file, false, Some(why)));
                 }
             };
-            self.set_slot_ctime(file, None)?;
+            self.set_slot_ctime(owner, file, None)?;
             if let Err(e) = generation.rename_new(&file.kept_name, deleting, &slot) {
                 let why =
                     format!("it could not be moved to be deleted ({e}), so it is never deleted");
-                self.settle_source_kept(file, "kept", Some(&why))?;
+                self.settle_source_kept(owner, file, "kept", Some(&why))?;
                 return Ok(outcome(file, false, Some(why)));
             }
             let moved = rustix::fs::fstat(&read).map_err(|e| io(e.into()))?;
             if Identity::of(&moved) == Identity::from(file.identity) {
-                self.set_slot_ctime(file, Some(ctime_ns(&moved)))?;
+                self.set_slot_ctime(owner, file, Some(ctime_ns(&moved)))?;
             }
             held = Some(read);
             self.fault_point(crate::Fault::SourceKeptMoved(file.id));
@@ -559,13 +765,15 @@ impl Store {
             None => None,
         };
         let unchanged = match &held {
-            Some(held) => kept && reads_as_reviewed(held, file, reviewed, self.slot_ctime(file)?)?,
+            Some(held) => {
+                kept && reads_as_reviewed(held, file, reviewed, self.slot_ctime(owner, file)?)?
+            }
             None => false,
         };
         if unchanged && is_kept(deleting, &slot, file)? {
             deleting.unlink(&slot).map_err(io)?;
             deleting.sync().map_err(io)?;
-            self.settle_source_kept(file, "deleted", None)?;
+            self.settle_source_kept(owner, file, "deleted", None)?;
             return Ok(outcome(file, true, None));
         }
         // Not the file that was kept, or changed since you reviewed it: put back, never deleted.
@@ -583,7 +791,7 @@ impl Store {
                 } else {
                     "what was moved to be deleted was not the file that was kept, so it was moved back".into()
                 };
-                self.settle_source_kept(file, "kept", Some(&why))?;
+                self.settle_source_kept(owner, file, "kept", Some(&why))?;
                 Ok(outcome(file, false, Some(why)))
             }
             Err(e) => Err(Error::Io(format!(

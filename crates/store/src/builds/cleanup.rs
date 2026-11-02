@@ -94,6 +94,7 @@ fn steps(cleanup: &Cleanup) -> Vec<Step<'_>> {
             .filter(move |e| e.action == Some(action))
     };
     chosen(CleanupAction::KeepAside)
+        .chain(chosen(CleanupAction::AddAddition))
         .map(Step::Keep)
         .chain(chosen(CleanupAction::Adopt).map(Step::Adopt))
         .chain(cleanup.restores.iter().map(Step::Restore))
@@ -130,6 +131,7 @@ fn built_item(
         keepable: false,
         keep: None,
         converts: None,
+        addition: None,
     }
 }
 

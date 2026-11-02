@@ -109,6 +109,7 @@ impl Env {
                 .iter()
                 .map(|(key, choice)| (key.to_string(), *choice))
                 .collect(),
+            additions: Default::default(),
         };
         self.store
             .plan_repair(&self.config, "Alpha", &request)

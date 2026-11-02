@@ -411,7 +411,7 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
         let item = plan.content.items.iter().find(|i| i.game == game).unwrap();
         item.sources
             .iter()
-            .map(|s| (s.path.clone(), s.finding))
+            .map(|s| (s.path.clone(), s.finding.expect("a source set entry")))
             .collect::<Vec<_>>()
     };
     use title_select_api::Finding::*;
@@ -1955,7 +1955,13 @@ fn a_quick_inventorys_claims_are_never_build_sources() {
         item(game)
             .sources
             .iter()
-            .map(|s| (s.path.clone(), s.finding, s.evidence))
+            .map(|s| {
+                (
+                    s.path.clone(),
+                    s.finding.expect("a source set entry"),
+                    s.evidence,
+                )
+            })
             .collect::<Vec<_>>()
     };
     use title_select_api::{EvidenceLevel::Payload, Finding::*};

@@ -14,6 +14,9 @@ use axum::routing::{any, get, post};
 use axum::{Extension, Json, Router, middleware};
 use futures_util::StreamExt;
 use serde::Deserialize;
+use title_select_api::additions::{
+    Addition, AdditionsCheck, AdditionsSet, EditAddition, SystemQuery,
+};
 use title_select_api::build::{
     AddManagedFolder, ApprovePlan, BuildDetail, BuildSummary, BuiltFile, ChangeManagedFolder,
     FolderCheck, Incomplete, KeptDeletion, KeptFile, ManagedFolder, Plan, PlanBuild, PlanCleanup,
@@ -162,6 +165,25 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route(
             "/source-kept-deletions/{id}/approval",
             post(approve_source_kept_deletion),
+        )
+        .route("/additions-sets", get(additions_sets))
+        .route("/additions-set", get(additions_set))
+        .route("/additions-set/checks", post(check_additions))
+        .route("/additions/{id}", get(addition).patch(edit_addition))
+        .route("/additions/{id}/retirement", post(retire_addition))
+        .route("/additions/{id}/restoration", post(restore_addition))
+        .route("/additions-set/kept-files", get(additions_kept_files))
+        .route(
+            "/additions-set/kept-deletions",
+            post(plan_additions_kept_deletion),
+        )
+        .route(
+            "/additions-kept-deletions/{id}",
+            get(additions_kept_deletion),
+        )
+        .route(
+            "/additions-kept-deletions/{id}/approval",
+            post(approve_additions_kept_deletion),
         )
         .route("/plans/{id}", get(plan))
         .route("/plans/{id}/approval", post(approve_plan))
@@ -757,7 +779,7 @@ async fn ingest_plan(
 }
 
 /// Approves an ingest plan with the digest you reviewed, and carries it out before it answers. Audits a DAT import
-/// queues start at once.
+/// queues, and Additions Jobs that publish the Operator Additions it adds, start at once.
 async fn approve_ingest_plan(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
@@ -790,6 +812,149 @@ async fn ingest_kept_files(
     let Path(root) = root?;
     Ok(Json(
         blocking(&state, move |store| store.ingest_kept_files(&root)).await?,
+    ))
+}
+
+async fn additions_sets(State(state): State<AppState>) -> ApiResult<Json<Vec<AdditionsSet>>> {
+    Ok(Json(
+        blocking(&state, move |store| store.additions_sets()).await?,
+    ))
+}
+
+/// The Additions Set of `?system=<provider>/<name>`, with its additions.
+async fn additions_set(
+    State(state): State<AppState>,
+    query: Result<Query<SystemQuery>, QueryRejection>,
+) -> ApiResult<Json<AdditionsSet>> {
+    let Query(query) = query?;
+    Ok(Json(
+        blocking(&state, move |store| store.additions_set(&query.system)).await?,
+    ))
+}
+
+/// Checks the Additions Set of `?system=` for drift against its additions' records; it only reads the folder.
+async fn check_additions(
+    State(state): State<AppState>,
+    query: Result<Query<SystemQuery>, QueryRejection>,
+) -> ApiResult<Json<AdditionsCheck>> {
+    let Query(query) = query?;
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.check_additions(&config, &query.system)
+        })
+        .await?,
+    ))
+}
+
+async fn addition(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<Addition>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.addition(id)).await?,
+    ))
+}
+
+/// Renames an Operator Addition, or sets or clears its parent Game.
+async fn edit_addition(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<EditAddition>, JsonRejection>,
+) -> ApiResult<Json<Addition>> {
+    let Path(id) = id?;
+    let Json(edit) = body?;
+    Ok(Json(
+        blocking(&state, move |store| store.edit_addition(id, &edit)).await?,
+    ))
+}
+
+/// Retires an Operator Addition: builds stop reading it, and its Additions Job moves its file into the Additions Set's
+/// kept files.
+async fn retire_addition(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<Addition>> {
+    let Path(id) = id?;
+    let (addition, queued) = blocking(&state, move |store| {
+        Ok((store.retire_addition(id)?, store.queued_additions_jobs()?))
+    })
+    .await?;
+    queued.into_iter().for_each(|job| state.jobs.changed(job));
+    Ok(Json(addition))
+}
+
+/// Restores a retired Operator Addition: its Additions Job moves its file back from the kept files, and builds that
+/// opt in read it again.
+async fn restore_addition(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<Addition>> {
+    let Path(id) = id?;
+    let (addition, queued) = blocking(&state, move |store| {
+        Ok((store.restore_addition(id)?, store.queued_additions_jobs()?))
+    })
+    .await?;
+    queued.into_iter().for_each(|job| state.jobs.changed(job));
+    Ok(Json(addition))
+}
+
+/// The kept files of the Additions Set of `?system=`: files of additions you retired.
+async fn additions_kept_files(
+    State(state): State<AppState>,
+    query: Result<Query<SystemQuery>, QueryRejection>,
+) -> ApiResult<Json<Vec<SourceKeptFile>>> {
+    let Query(query) = query?;
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.additions_kept_files(&query.system)
+        })
+        .await?,
+    ))
+}
+
+/// Plans deleting kept files of the Additions Set of `?system=`; nothing is deleted until the plan is approved.
+async fn plan_additions_kept_deletion(
+    State(state): State<AppState>,
+    query: Result<Query<SystemQuery>, QueryRejection>,
+    body: Result<Json<PlanKeptDeletion>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<SourceKeptDeletion>)> {
+    let Query(query) = query?;
+    let Json(request) = body?;
+    let config = state.config.clone();
+    let plan = blocking(&state, move |store| {
+        store.plan_additions_kept_deletion(&config, &query.system, &request)
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+async fn additions_kept_deletion(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<SourceKeptDeletion>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.additions_kept_deletion(id)).await?,
+    ))
+}
+
+/// Approves deleting kept files of an Additions Set with the digest you reviewed, and deletes them before it answers.
+async fn approve_additions_kept_deletion(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<ApprovePlan>, JsonRejection>,
+) -> ApiResult<Json<SourceKeptDeletion>> {
+    let Path(id) = id?;
+    let Json(approve) = body?;
+    let config = state.config.clone();
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.approve_additions_kept_deletion(&config, id, &approve.digest, &actor)
+        })
+        .await?,
     ))
 }
 

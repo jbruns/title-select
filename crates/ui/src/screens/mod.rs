@@ -1,4 +1,5 @@
 mod about;
+pub mod additions;
 pub mod audit;
 #[cfg(feature = "bench")]
 mod bench;
@@ -7,12 +8,13 @@ mod ingest_folders;
 mod jobs;
 mod managed_folders;
 mod profiles;
-mod repair;
+pub mod repair;
 pub mod selection;
 mod source_sets;
 mod storage;
 
 pub use about::About;
+pub use additions::Additions;
 pub use audit::AuditScreen;
 #[cfg(feature = "bench")]
 pub use bench::Bench;

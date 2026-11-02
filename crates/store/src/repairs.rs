@@ -9,7 +9,7 @@
 //! files: nothing in a Source Set is deleted, except kept files you approve deleting. A Game filled from an Ingest
 //! Folder is moved with the one move out of an Ingest Folder there is.
 
-mod deletion;
+pub(crate) mod deletion;
 mod planning;
 
 use std::collections::{BTreeMap, HashMap};
@@ -22,8 +22,8 @@ use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, kept_name};
 use title_select_api::ingest::FolderEntry;
 use title_select_api::repair::{
-    KeptFileReviewed, PlanRepair, PlannedStep, RepairOutcome, RepairPlan, RepairPlanContent,
-    RepairRom, RepairStep, SeenFile, SourceSetMarker,
+    KeptFileReviewed, PlanRepair, PlannedStep, RepairChoice, RepairOutcome, RepairPlan,
+    RepairPlanContent, RepairRom, RepairStep, SeenFile, SourceSetMarker,
 };
 use title_select_api::storage::StorageScope;
 use title_select_api::{AuditEvidence, Job, JobKind, JobState, Workers};
@@ -566,7 +566,61 @@ impl Store {
             candidates: &candidates,
             choices: &request.choices,
             storage,
+            additions: &request.additions,
         })?;
+        let mut planned = planned;
+        // Each file added as an Operator Addition is read now, through a descriptor held on it while it is the file
+        // walked and its ctime, size and mtime stay still: the plan binds the one ROM it holds, and the addition is
+        // published only while its kept file still holds exactly that.
+        for item in planned.items.iter_mut() {
+            let (Some(_), Some(path)) = (&item.addition, &item.path) else {
+                continue;
+            };
+            let rom = (|| -> io::Result<Option<ExpectedRom>> {
+                let (parent, name) = parent_of(&dir, path)?;
+                let held = parent.as_ref().unwrap_or(&dir).open_file(name)?;
+                let before = rustix::fs::fstat(&held)?;
+                let seen = files.get(path.as_str());
+                if seen.is_none_or(|s| {
+                    s.identity != Identity::of(&before)
+                        || s.file != file_stat(&before)
+                        || s.ctime_ns != ctime_ns(&before)
+                }) {
+                    return Ok(None);
+                }
+                let read = title_select_engine::build::probe(&held)?;
+                let after = rustix::fs::fstat(&held)?;
+                if file_stat(&after) != file_stat(&before) || ctime_ns(&after) != ctime_ns(&before)
+                {
+                    return Ok(None);
+                }
+                Ok(crate::additions::sole_rom(&read, path).map(|(rom, _)| rom))
+            })()
+            .map_err(io_err)?;
+            match rom {
+                Some(rom) => item.addition_rom = Some(rom),
+                None => {
+                    return Err(Error::Refused(format!(
+                        "{path} changed while it was read, or does not hold exactly one ROM that can be read whole, \
+                         so it cannot be added as an operator addition; plan the repair again"
+                    )));
+                }
+            }
+        }
+        let mut names = std::collections::HashSet::new();
+        for (new, rom) in planned
+            .items
+            .iter()
+            .filter_map(|i| i.addition.as_ref().zip(i.addition_rom.as_ref()))
+        {
+            self.read(|c| crate::additions::check_new(c, new, &rom.name).map(|_| ()))?;
+            if !names.insert((new.system.clone(), new.name.to_lowercase())) {
+                return Err(Error::Refused(format!(
+                    "two files would be added as the operator addition {} of {}; choose another name for one",
+                    new.name, new.system
+                )));
+            }
+        }
         let (generation, marked) = self.read(|c| source_folder(c, set.id))?;
         let content = RepairPlanContent {
             source_set: record.name.clone(),
@@ -752,6 +806,22 @@ impl Store {
                     params![id, seq as i64, item, to_json(step)],
                 )?;
             }
+            // Each Operator Addition is published from the file its item keeps aside, once the repair has kept it.
+            for item in &content.items {
+                if let (RepairChoice::AddAddition, Some(new), Some(path)) = (item.chosen, &item.addition, &item.path) {
+                    let rom = item.addition_rom.as_ref().ok_or_else(|| {
+                        Error::Refused(format!("{path} records no ROM to add; plan the repair again"))
+                    })?;
+                    crate::additions::insert_addition(
+                        tx,
+                        new,
+                        path,
+                        crate::additions::Link::Repair { plan: id, key: &item.key },
+                        rom,
+                        actor,
+                    )?;
+                }
+            }
             queue_repair_job(tx, id, None)?;
             Ok(())
         })?;
@@ -823,19 +893,22 @@ impl Store {
             })?;
         }
         drop(ran);
+        // Operator Additions whose files the repair kept aside are published from there by their Additions Jobs.
+        self.write(|tx| crate::additions::queue_additions_jobs(tx).map(drop))?;
         self.job(id)
     }
 
-    /// Asks the Queued or Running Repair or Build Job `id` to stop at its next safe point. A repair stops between
-    /// two steps: each step that changed something, and every step of the same item, still ends as planned; every
-    /// other is skipped. A build stops between two files: each file it put in place stays, recorded as built, and
-    /// the original a conversion replaced is disposed of before it stops.
+    /// Asks the Queued or Running Repair, Build or Additions Job `id` to stop at its next safe point. A repair stops
+    /// between two steps: each step that changed something, and every step of the same item, still ends as planned;
+    /// every other is skipped. A build stops between two files: each file it put in place stays, recorded as built,
+    /// and the original a conversion replaced is disposed of before it stops. An Additions Job stops between two
+    /// additions: each it started is settled, and each it had not fails.
     pub fn cancel_job(&self, id: i64) -> Result<Job> {
         self.write(|tx| {
             let job = job_by_id(tx, id)?;
-            if !matches!(job.kind, JobKind::Repair | JobKind::Build) {
+            if !matches!(job.kind, JobKind::Repair | JobKind::Build | JobKind::Additions) {
                 return Err(Error::Refused(format!(
-                    "job {id} is not a repair or a build; only those can be cancelled"
+                    "job {id} is not a repair, a build or an additions job; only those can be cancelled"
                 )));
             }
             if job.state.is_final() {
@@ -1226,7 +1299,7 @@ impl Store {
         })
     }
 
-    pub(super) fn cancel_requested(&self, job: i64) -> Result<bool> {
+    pub(crate) fn cancel_requested(&self, job: i64) -> Result<bool> {
         self.read(|c| {
             Ok(c.query_row(
                 "SELECT cancel_requested_at IS NOT NULL FROM jobs WHERE id = ?1",

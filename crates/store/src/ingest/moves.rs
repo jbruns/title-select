@@ -438,52 +438,8 @@ impl Store {
                 }
             }
         };
-        let (dev, ino) = mv.seen.identity.to_sql();
-        let (dest_kind, dest_root, dest_rel, generation, dest_name, reason) = match &mv.dest {
-            Destination::Kept {
-                generation,
-                kept_name,
-                reason,
-            } => ("kept", None, None, *generation, kept_name, Some(reason)),
-            Destination::Path {
-                root,
-                rel,
-                name,
-                generation,
-            } => ("path", Some(root), Some(rel), *generation, name, None),
-        };
         let id = self.write(|tx| {
-            tx.execute(
-                "INSERT INTO ingest_moves (folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns,
-                                           ctime_ns, sha256, dest_kind, dest_root, dest_rel, generation, dest_name,
-                                           reason, roms, exact_rom, created_at, loose)
-                 VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                         ?19, ?20, ?21)",
-                params![
-                    mv.folder,
-                    mv.plan,
-                    mv.item,
-                    kind,
-                    mv.name,
-                    dev,
-                    ino,
-                    mv.seen.file.size as i64,
-                    mv.seen.file.mtime_ns.to_string(),
-                    mv.seen.ctime_ns.to_string(),
-                    mv.sha256,
-                    dest_kind,
-                    dest_root,
-                    dest_rel,
-                    generation as i64,
-                    dest_name,
-                    reason,
-                    mv.repack.as_ref().map(to_json),
-                    mv.exact.as_ref().map(to_json),
-                    now(),
-                    mv.loose && mv.repack.is_some()
-                ],
-            )?;
-            let id = tx.last_insert_rowid();
+            let id = insert_move(tx, &mv, kind)?;
             also(tx, id)?;
             Ok(id)
         })?;
@@ -1266,6 +1222,9 @@ impl Store {
         root: &str,
         rel: &str,
     ) -> Result<std::result::Result<FolderDir, String>> {
+        if let Some(opened) = self.open_set_at(config, root, rel)? {
+            return Ok(opened);
+        }
         let set: Option<i64> = self.read(|c| {
             Ok(c.query_row(
                 "SELECT id FROM source_sets WHERE root = ?1 AND path = ?2",
@@ -1574,7 +1533,7 @@ impl Store {
 
 /// Whether `sums` are exactly those of `rom`: the same size, and every checksum the ROM lists, of which it lists one at
 /// least.
-fn exactly(rom: &ExpectedRom, sums: &Checksums) -> bool {
+pub(crate) fn exactly(rom: &ExpectedRom, sums: &Checksums) -> bool {
     let same = |want: &Option<String>, have: &str| {
         want.as_deref()
             .is_none_or(|want| want.eq_ignore_ascii_case(have))
@@ -1676,6 +1635,55 @@ fn copy_hashing(mut source: &std::fs::File, mut dest: &std::fs::File) -> io::Res
     source.seek(SeekFrom::Start(0))?;
     io::copy(&mut source, &mut dest)?;
     Ok(sha256_of(source)?.0)
+}
+
+/// Records move `mv`, of kind `kind`, as pending, in `tx`. Returns its id.
+pub(crate) fn insert_move(tx: &Transaction, mv: &Move, kind: &str) -> Result<i64> {
+    let (dev, ino) = mv.seen.identity.to_sql();
+    let (dest_kind, dest_root, dest_rel, generation, dest_name, reason) = match &mv.dest {
+        Destination::Kept {
+            generation,
+            kept_name,
+            reason,
+        } => ("kept", None, None, *generation, kept_name, Some(reason)),
+        Destination::Path {
+            root,
+            rel,
+            name,
+            generation,
+        } => ("path", Some(root), Some(rel), *generation, name, None),
+    };
+    tx.execute(
+            "INSERT INTO ingest_moves (folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns,
+                                       ctime_ns, sha256, dest_kind, dest_root, dest_rel, generation, dest_name,
+                                       reason, roms, exact_rom, created_at, loose)
+             VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                     ?19, ?20, ?21)",
+            params![
+                mv.folder,
+                mv.plan,
+                mv.item,
+                kind,
+                mv.name,
+                dev,
+                ino,
+                mv.seen.file.size as i64,
+                mv.seen.file.mtime_ns.to_string(),
+                mv.seen.ctime_ns.to_string(),
+                mv.sha256,
+                dest_kind,
+                dest_root,
+                dest_rel,
+                generation as i64,
+                dest_name,
+                reason,
+                mv.repack.as_ref().map(to_json),
+                mv.exact.as_ref().map(to_json),
+                now(),
+                mv.loose && mv.repack.is_some()
+            ],
+        )?;
+    Ok(tx.last_insert_rowid())
 }
 
 #[cfg(test)]

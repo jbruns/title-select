@@ -145,6 +145,7 @@ fn kind_label(kind: JobKind) -> &'static str {
         JobKind::Check => "Check",
         JobKind::IngestScan => "Ingest scan",
         JobKind::Repair => "Repair",
+        JobKind::Additions => "Additions",
     }
 }
 
@@ -157,6 +158,9 @@ fn result_link(job: &Job) -> AnyView {
             api::segment(&job.source_set)
         );
         return view! { <A href=href>"Repair"</A> }.into_any();
+    }
+    if let Some(system) = &job.additions_set {
+        return view! { <A href="/additions">{format!("Additions of {system}")}</A> }.into_any();
     }
     if let Some(folder) = job.managed_folder {
         return view! {

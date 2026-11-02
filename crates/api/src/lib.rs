@@ -1,6 +1,7 @@
 //! The types of Title Select's versioned JSON API (`/api/v1`), shared by the Service, the headless client and the UI
 //! (ADR 0005). Every response body is one of these, or the `schema: 2` [`Report`].
 
+pub mod additions;
 pub mod build;
 pub mod ingest;
 pub mod paths;
@@ -408,6 +409,8 @@ pub enum JobKind {
     IngestScan,
     /// Carries out an approved repair of a Source Set.
     Repair,
+    /// Publishes, retires and restores the Operator Additions of one Additions Set.
+    Additions,
 }
 
 impl JobKind {
@@ -419,6 +422,7 @@ impl JobKind {
             JobKind::Check => "check",
             JobKind::IngestScan => "ingest_scan",
             JobKind::Repair => "repair",
+            JobKind::Additions => "additions",
         }
     }
 
@@ -430,6 +434,7 @@ impl JobKind {
             JobKind::Check,
             JobKind::IngestScan,
             JobKind::Repair,
+            JobKind::Additions,
         ]
         .into_iter()
         .find(|k| k.as_str() == s)
@@ -482,6 +487,9 @@ pub struct Job {
     /// The approved repair plan a Repair Job carries out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repair: Option<i64>,
+    /// The system whose Additions Set an Additions Job works on, as `<provider>/<name>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additions_set: Option<String>,
     /// When you asked the Job to stop at its next safe point.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cancel_requested_at: Option<String>,

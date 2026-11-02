@@ -364,6 +364,7 @@ mod tests {
             managed_folder: None,
             ingest_folder: None,
             repair: None,
+            additions_set: None,
             cancel_requested_at: None,
             plan: None,
             evidence: None,

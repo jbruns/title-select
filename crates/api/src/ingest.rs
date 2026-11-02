@@ -1,8 +1,11 @@
 //! Ingest Folders: writable folders where new files arrive, the items Title Select finds in them, what assessing each
 //! one found, and the plans that move items out of them once you approve.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
+use crate::additions::NewAddition;
 use crate::build::{Approval, FileIdentity, FileStat};
 
 /// What an Ingest Folder's marker says: that it is this store's Ingest Folder `ingest_folder`. Its fields differ from
@@ -253,6 +256,9 @@ pub enum IngestAction {
     Discard,
     /// Import it as a DAT Revision, then keep it aside.
     DatImport,
+    /// Add it as an Operator Addition: written into its system's Additions Set, the original deleted only once the
+    /// copy is found to be exactly it.
+    Addition,
 }
 
 impl IngestAction {
@@ -260,13 +266,18 @@ impl IngestAction {
         match self {
             IngestAction::Discard => "discard",
             IngestAction::DatImport => "dat_import",
+            IngestAction::Addition => "addition",
         }
     }
 
     pub fn parse(s: &str) -> Option<IngestAction> {
-        [IngestAction::Discard, IngestAction::DatImport]
-            .into_iter()
-            .find(|a| a.as_str() == s)
+        [
+            IngestAction::Discard,
+            IngestAction::DatImport,
+            IngestAction::Addition,
+        ]
+        .into_iter()
+        .find(|a| a.as_str() == s)
     }
 }
 
@@ -278,6 +289,9 @@ pub struct PlanIngest {
     /// For a DAT import: the provider to import under, when no registered DAT names one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// For an Operator Addition: its system, name and parent Game, by item.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub additions: BTreeMap<i64, NewAddition>,
 }
 
 /// An entry of the Ingest Folder as the plan saw it: what approval checks the folder still holds.
@@ -309,6 +323,9 @@ pub struct IngestPlanItem {
     /// For a DAT import: the provider it is imported under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// For an Operator Addition: its system, name and parent Game.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addition: Option<NewAddition>,
 }
 
 /// What an approval binds: the items, where each goes, and the whole folder as it was seen.

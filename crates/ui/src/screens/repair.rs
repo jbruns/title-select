@@ -3,18 +3,20 @@ use std::collections::BTreeMap;
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_params_map, use_query_map};
-use title_select_api::Job;
+use title_select_api::additions::NewAddition;
 use title_select_api::build::{ApprovePlan, PlanKeptDeletion, RETENTION};
 use title_select_api::repair::{
     PlanRepair, RepairChoice, RepairPlan, RepairStep, SourceKeptDeletion, SourceKeptFile,
 };
 use title_select_api::storage::{Storage, StorageFormat};
+use title_select_api::{Job, SourceSetRecord};
 
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
 use crate::repair_model::{fetch_after, repair_to_show, unfinished_note};
+use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::{progress_view, state_view};
 
 /// The repair screen of a Source Set: a plan proposed from its latest audit, the choice you make for each item, every
@@ -76,6 +78,18 @@ fn Repair(name: String) -> impl IntoView {
     let working = RwSignal::new(false);
     // The job the plan was last fetched for as it ended; kept here, as the progress shown is made again each time.
     let fetched = RwSignal::new(None::<i64>);
+    // What each item you choose to add as an operator addition is added as, by key; its system defaults to the
+    // source set's DAT.
+    let adding = RwSignal::new(BTreeMap::<String, RwSignal<NewAddition>>::new());
+    let system = RwSignal::new(None::<String>);
+    {
+        let path = base.clone();
+        leptos::task::spawn_local(async move {
+            if let Ok(set) = api::get::<SourceSetRecord>(&path).await {
+                system.set(Some(set.dat));
+            }
+        });
+    }
     let query = use_query_map();
     let wanted = query
         .read_untracked()
@@ -99,8 +113,29 @@ fn Repair(name: String) -> impl IntoView {
         let path = format!("{base}/repairs");
         move || {
             working.set(true);
+            let chosen = choices.get_untracked();
+            let shown = plan.get_untracked();
+            let additions = adding.with_untracked(|adding| {
+                adding
+                    .iter()
+                    .filter(|(key, _)| {
+                        let choice = chosen.get(*key).copied().or_else(|| {
+                            shown.as_ref().and_then(|p| {
+                                p.content
+                                    .items
+                                    .iter()
+                                    .find(|i| &i.key == *key)
+                                    .map(|i| i.chosen)
+                            })
+                        });
+                        choice == Some(RepairChoice::AddAddition)
+                    })
+                    .map(|(key, a)| (key.clone(), a.get_untracked()))
+                    .collect()
+            });
             let body = PlanRepair {
-                choices: choices.get_untracked(),
+                choices: chosen,
+                additions,
             };
             let path = path.clone();
             leptos::task::spawn_local(async move {
@@ -169,6 +204,27 @@ fn Repair(name: String) -> impl IntoView {
                         .collect_view();
                     let offered = item.choices.clone();
                     let default = item.default;
+                    // An item that can be added as an operator addition shows what it would be added as.
+                    let addable = item.choices.contains(&RepairChoice::AddAddition).then(|| {
+                        adding.with_untracked(|a| a.get(&key).copied()).unwrap_or_else(|| {
+                            let path = item.path.clone().unwrap_or_else(|| key.clone());
+                            let fields = RwSignal::new(item.addition.clone().unwrap_or_else(|| {
+                                new_addition(&path, system.get_untracked().as_deref())
+                            }));
+                            adding.update_untracked(|a| {
+                                a.insert(key.clone(), fields);
+                            });
+                            fields
+                        })
+                    });
+                    let shows = {
+                        let key = key.clone();
+                        let planned = item.chosen;
+                        move || {
+                            choices.with(|m| m.get(&key).copied().unwrap_or(planned))
+                                == RepairChoice::AddAddition
+                        }
+                    };
                     view! {
                         <li>
                             <strong>{item.kind.label()}</strong>
@@ -195,6 +251,18 @@ fn Repair(name: String) -> impl IntoView {
                                 >
                                     {options}
                                 </select>
+                            })}
+                            {addable.map(|value| {
+                                let shows = shows.clone();
+                                view! {
+                                    <Show when=move || open && shows()>
+                                        <p>"Add it as: " <AdditionFields value /></p>
+                                    </Show>
+                                }
+                            })}
+                            {item.addition.clone().filter(|_| !open).map(|a| view! {
+                                <p>{format!("Added as the operator addition {} of {}", a.name, a.system)}
+                                {a.parent.map(|p| format!(", a version of {p}"))}</p>
                             })}
                             {item.note.clone().map(|n| view! { <p class="note">{n}</p> })}
                             {outcome}
@@ -391,11 +459,35 @@ fn RepairProgress(
 
 #[component]
 fn SourceKept(name: String) -> impl IntoView {
-    let live = use_live();
     let base = format!("/source-sets/{}", api::segment(&name));
+    view! {
+        <KeptFiles
+            files_path=format!("{base}/kept-files")
+            plan_path=format!("{base}/kept-deletions")
+            approval_prefix="/source-kept-deletions"
+            kept_by="repair"
+            title="Kept files"
+            lede="What repairs replaced or set aside, kept in the source set. Audits do not read them. Nothing here \
+                is deleted until you approve deleting it."
+        />
+    }
+}
+
+/// Kept files of a source set or an additions set, and the approved deletion of the ones you pick.
+#[component]
+pub fn KeptFiles(
+    files_path: String,
+    plan_path: String,
+    approval_prefix: &'static str,
+    /// What `plan` of each kept file names: the repair that kept it, or the addition retired.
+    kept_by: &'static str,
+    title: &'static str,
+    lede: &'static str,
+) -> impl IntoView {
+    let live = use_live();
     let refresh = RwSignal::new(0u64);
     let files = {
-        let path = format!("{base}/kept-files");
+        let path = files_path;
         LocalResource::new(move || {
             live.settled.track();
             refresh.track();
@@ -408,7 +500,7 @@ fn SourceKept(name: String) -> impl IntoView {
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
     let plan = {
-        let path = format!("{base}/kept-deletions");
+        let path = plan_path;
         move |_| {
             working.set(true);
             let body = PlanKeptDeletion {
@@ -439,7 +531,7 @@ fn SourceKept(name: String) -> impl IntoView {
         };
         leptos::task::spawn_local(async move {
             let done = api::post::<_, SourceKeptDeletion>(
-                &format!("/source-kept-deletions/{}/approval", d.id),
+                &format!("{approval_prefix}/{}/approval", d.id),
                 &body,
             )
             .await;
@@ -487,7 +579,7 @@ fn SourceKept(name: String) -> impl IntoView {
                                     <code>{f.name.clone()}</code>
                                 </label>
                                 {format!(
-                                    " as {RETENTION}/{}/{}: {}, {} bytes, repair #{}, {}",
+                                    " as {RETENTION}/{}/{}: {}, {} bytes, {kept_by} #{}, {}",
                                     f.generation,
                                     f.kept_name,
                                     f.reason,
@@ -537,12 +629,9 @@ fn SourceKept(name: String) -> impl IntoView {
         })
     };
     view! {
-        <section aria-labelledby="source-kept-title">
-            <h2 id="source-kept-title">"Kept files"</h2>
-            <p class="lede">
-                "What repairs replaced or set aside, kept in the source set. Audits do not read them. Nothing here is \
-                deleted until you approve deleting it."
-            </p>
+        <section aria-label=title>
+            <h2>{title}</h2>
+            <p class="lede">{lede}</p>
             {list}
             <div class="form">
                 <button type="button" disabled=move || working.get() || picked.with(Vec::is_empty) on:click=plan>

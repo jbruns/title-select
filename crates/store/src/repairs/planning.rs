@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use title_select_api::additions::NewAddition;
 use title_select_api::build::{ExpectedRom, invalid_name, kept_name};
 use title_select_api::repair::{
     PlannedStep, RepairChoice, RepairItem, RepairKind, RepairRom, RepairStep,
@@ -31,6 +32,8 @@ pub(super) struct Inputs<'a> {
     pub choices: &'a BTreeMap<String, RepairChoice>,
     /// What the Storage Policy says for the Source Set's system.
     pub storage: Storage,
+    /// What to add each file chosen to be added as an Operator Addition as, by its item's key.
+    pub additions: &'a BTreeMap<String, NewAddition>,
 }
 
 pub(super) struct Planned {
@@ -150,6 +153,8 @@ fn game_item(game: &str, target: &str, kind: RepairKind, summary: String) -> Rep
         default: RepairChoice::Apply,
         chosen: RepairChoice::Apply,
         note: None,
+        addition: None,
+        addition_rom: None,
     }
 }
 
@@ -266,6 +271,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 RepairChoice::Leave => {
                     left_conflicts.insert(path);
                 }
+                RepairChoice::AddAddition => {
+                    return Err(Error::Refused(format!(
+                        "{key} cannot be set to {}",
+                        chosen.label()
+                    )));
+                }
             }
             referenced.insert(path);
             proposed.push(Proposed {
@@ -288,6 +299,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     default,
                     chosen: default,
                     note: None,
+                    addition: None,
+                    addition_rom: None,
                 },
                 proposal: None,
                 displaces: match chosen {
@@ -685,13 +698,37 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         let key = format!("file:{path}");
         let default = RepairChoice::KeepAside;
         let chosen = i.choices.get(&key).copied().unwrap_or(default);
-        let choices = vec![RepairChoice::KeepAside, RepairChoice::Leave];
+        // A file holding one ROM no DAT knows can be added as an Operator Addition, from where it is kept.
+        let addable =
+            matches!(file.entries.as_slice(), [only] if only.finding == Finding::Unmatched);
+        let choices = match addable {
+            true => vec![
+                RepairChoice::KeepAside,
+                RepairChoice::AddAddition,
+                RepairChoice::Leave,
+            ],
+            false => vec![RepairChoice::KeepAside, RepairChoice::Leave],
+        };
         if !choices.contains(&chosen) {
             return Err(Error::Refused(format!(
                 "{key} cannot be set to {}",
                 chosen.label()
             )));
         }
+        let addition = match (chosen, i.additions.get(&key)) {
+            (RepairChoice::AddAddition, Some(new)) => Some(new.clone()),
+            (RepairChoice::AddAddition, None) => {
+                return Err(Error::Refused(format!(
+                    "{key}: choose the system and name to add it as an operator addition under"
+                )));
+            }
+            (_, Some(_)) => {
+                return Err(Error::Refused(format!(
+                    "{key} is not chosen to be added as an operator addition"
+                )));
+            }
+            (_, None) => None,
+        };
         let summary = match file.entries.iter().any(|e| e.finding != Finding::Unmatched) {
             true => format!("{path} holds only copies of ROMs a game's own file holds"),
             false => format!("{path} holds nothing a game needs"),
@@ -708,6 +745,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 default,
                 chosen,
                 note: None,
+                addition,
+                addition_rom: None,
             },
             proposal: None,
             displaces: vec![(path.to_string(), summary)],
@@ -717,7 +756,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             converts: None,
         });
     }
-    for key in i.choices.keys() {
+    for key in i.choices.keys().chain(i.additions.keys()) {
         if key.starts_with("file:") && !aside.iter().any(|p| p.item.key == *key) {
             return Err(Error::Refused(format!("the plan has no item {key}")));
         }
@@ -740,7 +779,13 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     let last: Vec<(usize, Vec<String>)> = proposed
         .iter()
         .enumerate()
-        .filter(|(_, p)| !p.checked && p.item.chosen == RepairChoice::KeepAside)
+        .filter(|(_, p)| {
+            !p.checked
+                && matches!(
+                    p.item.chosen,
+                    RepairChoice::KeepAside | RepairChoice::AddAddition
+                )
+        })
         .filter_map(|(n, p)| {
             let lost: BTreeSet<String> = p
                 .displaces
