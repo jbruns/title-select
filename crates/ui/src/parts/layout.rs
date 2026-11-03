@@ -5,7 +5,8 @@
 use leptos::prelude::*;
 use leptos_router::components::{A, Outlet};
 
-use super::icon::{Glyph, Icon};
+use super::icon::{Glyph, Svg};
+use super::overlay::Tooltip;
 
 /// A list beside the detail pane its nested route renders. On a narrow screen the pane stacks over the list as a
 /// drawer.
@@ -31,9 +32,11 @@ pub fn DetailPane(
         <aside class="detail-pane" aria-label=move || title.get()>
             <header class="detail-head">
                 <h2>{move || title.get()}</h2>
-                <A href=move || close.get() attr:class="icon-button">
-                    <Icon glyph=Glyph::X label="Close the detail" />
-                </A>
+                <Tooltip label="Close the detail">
+                    <A href=move || close.get() attr:class="icon-button" attr:aria-label="Close the detail">
+                        <Svg glyph=Glyph::X />
+                    </A>
+                </Tooltip>
             </header>
             <div class="detail-body">{children()}</div>
         </aside>

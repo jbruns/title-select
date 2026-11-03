@@ -32,12 +32,13 @@ pub(crate) fn Svg(
     }
 }
 
-/// An icon, with `label` as both its tooltip and its accessible name. Colour it by wrapping it in an element with a
+/// An icon, with `label` as both its tooltip and its accessible name, and a tab stop so the keyboard reaches its
+/// tooltip. Inside a link or button, draw the glyph with `Svg` and name the control instead. Colour it by wrapping it in an element with a
 /// `tone-*` class; a status's icon comes from `parts::status::StatusIcon`.
 #[component]
 pub fn Icon(glyph: Glyph, #[prop(into)] label: Signal<String>) -> impl IntoView {
     view! {
-        <Tooltip label>
+        <Tooltip label focusable=true>
             <Svg glyph label />
         </Tooltip>
     }

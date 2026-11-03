@@ -1,7 +1,10 @@
 //! Overlays hosted in a `<Portal>` on the page's body, so no table cell or scrolling pane clips them: `Tooltip`,
 //! `Menu` with its `MenuItem`s, and `Drawer`. `place` positions them against what opened them.
 
-use leptos::ev::KeyboardEvent;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use leptos::ev::{self, KeyboardEvent};
 use leptos::html;
 use leptos::portal::Portal;
 use leptos::prelude::*;
@@ -101,13 +104,66 @@ fn placement_of(element: &web_sys::Element, room: f64, centred: bool) -> Placeme
     )
 }
 
+/// What Tab does inside a focus trap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trap {
+    /// The browser moves focus as usual.
+    Pass,
+    /// Focus stays where it is: the trap holds nothing focusable.
+    Stay,
+    /// Focus moves to the trap's focusable element at this index.
+    To(usize),
+}
+
+/// Where Tab (or Shift+Tab, `backwards`) moves focus in a trap of `count` focusable elements, from the one at `at`,
+/// or from the trap's own panel or outside it when `None`: on past either end, it wraps.
+pub fn trap(at: Option<usize>, count: usize, backwards: bool) -> Trap {
+    match (at, backwards) {
+        _ if count == 0 => Trap::Stay,
+        (None, false) => Trap::To(0),
+        (None, true) | (Some(0), true) => Trap::To(count - 1),
+        (Some(i), false) if i + 1 >= count => Trap::To(0),
+        _ => Trap::Pass,
+    }
+}
+
+const FOCUSABLE: &str = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), \
+                         textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+fn focusables(within: &web_sys::Element) -> Vec<web_sys::HtmlElement> {
+    let Ok(list) = within.query_selector_all(FOCUSABLE) else {
+        return Vec::new();
+    };
+    (0..list.length())
+        .filter_map(|i| list.item(i))
+        .filter_map(|n| n.dyn_into::<web_sys::HtmlElement>().ok())
+        .collect()
+}
+
+/// Calls `close` on Escape anywhere in the page, until the current owner is cleaned up: an overlay closes on Escape
+/// even while focus or the pointer is elsewhere.
+fn close_on_escape(close: impl Fn() + 'static) {
+    let handle = window_event_listener(ev::keydown, move |ev| {
+        if ev.key() == "Escape" {
+            close();
+        }
+    });
+    on_cleanup(move || handle.remove());
+}
+
 const TOOLTIP_ROOM: f64 = 40.0;
 const MENU_ROOM: f64 = 240.0;
 
 /// Shows `label` beside its children while the pointer is over them or focus is in them, until Escape. The label
-/// repeats the accessible name the children already carry, so it is hidden from assistive technology.
+/// repeats the accessible name the children already carry, so it is hidden from assistive technology. `focusable`
+/// makes the anchor a tab stop, so keyboard users can reach the tooltip; leave it off when the children are already
+/// focusable, such as a button.
 #[component]
-pub fn Tooltip(#[prop(into)] label: Signal<String>, children: Children) -> impl IntoView {
+pub fn Tooltip(
+    #[prop(into)] label: Signal<String>,
+    #[prop(optional)] focusable: bool,
+    children: Children,
+) -> impl IntoView {
     let anchor = NodeRef::<html::Span>::new();
     let at = RwSignal::new(None::<Placement>);
     let show = move || {
@@ -124,14 +180,11 @@ pub fn Tooltip(#[prop(into)] label: Signal<String>, children: Children) -> impl 
             on:mouseleave=move |_| hide()
             on:focusin=move |_| show()
             on:focusout=move |_| hide()
-            on:keydown=move |ev| {
-                if ev.key() == "Escape" {
-                    hide();
-                }
-            }
+            tabindex=focusable.then_some("0")
         >
             {children()}
             <Show when=move || at.with(Option::is_some)>
+                {close_on_escape(hide)}
                 <Portal>
                     <div
                         class="tooltip"
@@ -217,6 +270,7 @@ pub fn Menu(
             </button>
         </Tooltip>
         <Show when=move || at.with(Option::is_some)>
+            {close_on_escape(close)}
             <Portal>
                 <div class="overlay-scrim" on:click=move |_| close()></div>
                 <div
@@ -229,7 +283,7 @@ pub fn Menu(
                     on:keydown=move |ev: KeyboardEvent| {
                         let Some(menu) = list.get_untracked() else { return };
                         match ev.key().as_str() {
-                            "Escape" | "Tab" => close(),
+                            "Tab" => close(),
                             "ArrowDown" => {
                                 ev.prevent_default();
                                 step_focus(&menu, 1);
@@ -264,8 +318,8 @@ pub fn MenuItem(
     }
 }
 
-/// A panel that slides in over the page's side while `open`, titled `title`. Its close button, Escape or clicking
-/// beside it closes it, and focus returns to where it was.
+/// A modal panel that slides in over the page's side while `open`, titled `title`. Tab stays within it and the rest
+/// of the page is inert. Its close button, Escape or clicking beside it closes it, and focus returns to where it was.
 #[component]
 pub fn Drawer(
     open: RwSignal<bool>,
@@ -283,21 +337,36 @@ pub fn Drawer(
 #[component]
 fn DrawerPanel(open: RwSignal<bool>, title: Signal<String>, children: ChildrenFn) -> impl IntoView {
     let panel = NodeRef::<html::Aside>::new();
-    let before = SendWrapper::new(
-        document()
-            .active_element()
-            .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok()),
-    );
+    let before = document()
+        .active_element()
+        .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok());
+    // The page's other top-level elements this drawer made inert, to wake again when it closes.
+    let stilled = Rc::new(RefCell::new(Vec::<web_sys::Element>::new()));
+    let restore = SendWrapper::new((before, stilled.clone()));
     on_cleanup(move || {
-        if let Some(e) = before.take() {
+        let (before, stilled) = restore.take();
+        for e in stilled.borrow_mut().drain(..) {
+            let _ = e.remove_attribute("inert");
+        }
+        if let Some(e) = before {
             let _ = e.focus();
         }
     });
+    let stilled = SendWrapper::new(stilled);
     Effect::new(move || {
-        if let Some(p) = panel.get() {
-            let _ = p.focus();
+        let Some(p) = panel.get() else { return };
+        let body = document().body().expect("the page has a body");
+        let siblings = body.children();
+        let mut stilled = stilled.borrow_mut();
+        for e in (0..siblings.length()).filter_map(|i| siblings.item(i)) {
+            if !e.contains(Some(&p)) && !e.has_attribute("inert") {
+                let _ = e.set_attribute("inert", "");
+                stilled.push(e);
+            }
         }
+        let _ = p.focus();
     });
+    close_on_escape(move || open.set(false));
     view! {
         <Portal>
             <div class="overlay-scrim dim" on:click=move |_| open.set(false)></div>
@@ -309,8 +378,20 @@ fn DrawerPanel(open: RwSignal<bool>, title: Signal<String>, children: ChildrenFn
                 tabindex="-1"
                 node_ref=panel
                 on:keydown=move |ev: KeyboardEvent| {
-                    if ev.key() == "Escape" {
-                        open.set(false);
+                    if ev.key() != "Tab" {
+                        return;
+                    }
+                    let Some(p) = panel.get_untracked() else { return };
+                    let items = focusables(&p);
+                    let active = document().active_element();
+                    let at = items.iter().position(|i| active.as_ref() == Some(i.unchecked_ref()));
+                    match trap(at, items.len(), ev.shift_key()) {
+                        Trap::Pass => {}
+                        Trap::Stay => ev.prevent_default(),
+                        Trap::To(i) => {
+                            ev.prevent_default();
+                            let _ = items[i].focus();
+                        }
                     }
                 }
             >
@@ -338,6 +419,18 @@ mod tests {
             right: left + 20.0,
             bottom: top + 20.0,
         }
+    }
+
+    #[test]
+    fn tab_wraps_within_a_trap() {
+        assert_eq!(trap(Some(0), 3, false), Trap::Pass);
+        assert_eq!(trap(Some(1), 3, true), Trap::Pass);
+        assert_eq!(trap(Some(2), 3, false), Trap::To(0));
+        assert_eq!(trap(Some(0), 3, true), Trap::To(2));
+        // From the panel itself, or from anywhere outside it.
+        assert_eq!(trap(None, 3, false), Trap::To(0));
+        assert_eq!(trap(None, 3, true), Trap::To(2));
+        assert_eq!(trap(None, 0, false), Trap::Stay);
     }
 
     #[test]
