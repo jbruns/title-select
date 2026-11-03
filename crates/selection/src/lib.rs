@@ -8,6 +8,7 @@
 pub mod choices;
 mod config;
 mod patterns;
+mod systems;
 mod trace;
 
 use std::fs::File;
@@ -223,6 +224,36 @@ impl Engine {
     pub fn check(&self, profile: &SelectionProfile) -> Result<(), Error> {
         self.vocabulary()?.check(profile)?;
         patterns::check(&self.python(), profile)
+    }
+
+    /// The system each of `dats` is for, as Retool names it and as a Profile files its system settings and choices
+    /// under, or `None` for a DAT Retool can't read. It works in a scratch folder under `work_dir`.
+    pub fn systems(&self, dats: &[&Path], work_dir: &Path) -> Result<Vec<Option<String>>, Error> {
+        let vocabulary = self.vocabulary()?;
+        let dats = dats
+            .iter()
+            .map(|d| std::path::absolute(d).map_err(io(d.display().to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        let work_dir = std::path::absolute(work_dir).map_err(io(work_dir.display().to_string()))?;
+        std::fs::create_dir_all(&work_dir).map_err(io(work_dir.display().to_string()))?;
+        let run = tempfile::Builder::new()
+            .prefix("systems-")
+            .tempdir_in(&work_dir)
+            .map_err(io(work_dir.display().to_string()))?;
+        let user_config = run.path().join("user-config.yaml");
+        std::fs::write(
+            &user_config,
+            config::user_config(&SelectionProfile::default(), &vocabulary),
+        )
+        .map_err(io(user_config.display().to_string()))?;
+        let dats: Vec<&Path> = dats.iter().map(PathBuf::as_path).collect();
+        systems::name(
+            &self.python(),
+            &self.root.join("retool"),
+            run.path(),
+            &user_config,
+            &dats,
+        )
     }
 
     /// Selects from `dat` with `profile`, applies the Profile's choices for the DAT's system, and keeps the trace.

@@ -397,6 +397,7 @@ mod tests {
             summary: SelectionSummary::default(),
             created_at: String::new(),
             pruned: false,
+            library_folders: Vec::new(),
         };
 
         let ids: Vec<i64> = folders_for(&folders, &selection)

@@ -127,3 +127,53 @@ mod tests {
         assert!(!previews.0.lock().unwrap().contains_key("someone"));
     }
 }
+
+/// The systems already named, by DAT Revision SHA-256: a revision's header never changes.
+static SYSTEMS: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
+
+/// The system each registered Source Set's latest DAT Revision is for, asking the engine only about revisions
+/// it hasn't named yet. A Source Set without a readable revision has none.
+pub fn systems(
+    store: &Store,
+    engine: &Engine,
+) -> Result<Vec<title_select_api::SourceSetSystem>, crate::routes::ApiError> {
+    let revisions: Vec<(String, Option<(String, std::path::PathBuf)>)> = store
+        .source_sets()?
+        .into_iter()
+        .map(|set| {
+            let revision = store
+                .selection_revision(&set.name, None)
+                .ok()
+                .map(|(revision, blob)| (revision.sha256, blob));
+            (set.name, revision)
+        })
+        .collect();
+    let unnamed: Vec<&(String, std::path::PathBuf)> = {
+        let known = SYSTEMS.lock().unwrap();
+        let mut seen = std::collections::HashSet::new();
+        revisions
+            .iter()
+            .filter_map(|(_, r)| r.as_ref())
+            .filter(|(sha, _)| known.as_ref().is_none_or(|k| !k.contains_key(sha)))
+            .filter(|(sha, _)| seen.insert(sha.clone()))
+            .collect()
+    };
+    if !unnamed.is_empty() {
+        let dats: Vec<&Path> = unnamed.iter().map(|(_, blob)| blob.as_path()).collect();
+        let names = engine.systems(&dats, &store.dir().join(TMP))?;
+        let mut known = SYSTEMS.lock().unwrap();
+        let known = known.get_or_insert_with(HashMap::new);
+        for ((sha, _), name) in unnamed.into_iter().zip(names) {
+            known.insert(sha.clone(), name);
+        }
+    }
+    let known = SYSTEMS.lock().unwrap();
+    Ok(revisions
+        .into_iter()
+        .map(|(source_set, revision)| title_select_api::SourceSetSystem {
+            source_set,
+            system: revision
+                .and_then(|(sha, _)| known.as_ref().and_then(|k| k.get(&sha).cloned().flatten())),
+        })
+        .collect())
+}

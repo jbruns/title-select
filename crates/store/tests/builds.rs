@@ -5865,3 +5865,23 @@ fn an_original_changed_while_it_waited_to_be_deleted_is_moved_back_by_recovery()
     );
     assert!(names(&deleting).is_empty());
 }
+
+#[test]
+fn a_selection_names_the_library_folders_that_plan_from_it_and_lists_by_profile() {
+    let env = Env::new();
+    env.audit();
+    let planned = env.record(&everything(&env.sha256));
+    let what_if = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    env.plan(&folder, planned);
+
+    let records = env.store.selections_of(None, Some(PROFILE)).unwrap();
+
+    let used: Vec<(i64, Vec<i64>)> = records
+        .iter()
+        .map(|r| (r.id, r.library_folders.clone()))
+        .collect();
+    assert_eq!(used, [(what_if, vec![]), (planned, vec![folder.id])]);
+    assert_eq!(env.store.selections(SET).unwrap(), records);
+    assert!(env.store.selections_of(None, Some("Nobody's")).is_err());
+}
