@@ -13,7 +13,7 @@ use title_select_api::ingest::{
 };
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::{Loading, Problem, use_ingest_changed};
 use crate::events::use_live;
 use crate::model::{short_sha, when};
 use crate::screens::additions::{AdditionFields, new_addition};
@@ -115,7 +115,8 @@ fn evidence(a: &Assessment) -> AnyView {
 #[component]
 pub fn IngestFolders() -> impl IntoView {
     let live = use_live();
-    let refresh = RwSignal::new(0u64);
+    // Shared with the Ingest badge, which counts again after every change made here.
+    let refresh = use_ingest_changed();
     let folders = LocalResource::new(move || {
         live.settled.track();
         refresh.track();
@@ -190,7 +191,8 @@ pub fn IngestFolderScreen() -> impl IntoView {
     let params = use_params_map();
     let root = move || params.read().get("root").unwrap_or_default();
     let live = use_live();
-    let refresh = RwSignal::new(0u64);
+    // Shared with the Ingest badge, which counts again after every change made here.
+    let refresh = use_ingest_changed();
     let folder = LocalResource::new(move || {
         live.settled.track();
         refresh.track();

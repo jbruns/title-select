@@ -446,6 +446,15 @@ impl Store {
         })
     }
 
+    /// The ID of every Failed Job, oldest first, however long ago it failed.
+    pub fn failed_job_ids(&self) -> Result<Vec<i64>> {
+        self.read(|c| {
+            let mut stmt = c.prepare("SELECT id FROM jobs WHERE state = 'failed' ORDER BY id")?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
     /// The latest `limit` Jobs, newest first.
     pub fn jobs(&self, limit: usize) -> Result<Vec<Job>> {
         self.read(|c| {

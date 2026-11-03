@@ -2,15 +2,16 @@ use codee::string::FromToStringCodec;
 use leptos::prelude::*;
 use leptos_router::components::{A, Outlet, ParentRoute, Redirect, Route, Router, Routes};
 use leptos_router::hooks::{use_location, use_navigate, use_params_map};
-use leptos_router::path;
+use leptos_router::{NavigateOptions, path};
 use leptos_use::storage::use_local_storage;
-use title_select_api::Job;
+use title_select_api::JobState;
 use title_select_api::ingest::IngestFolder;
 
 use crate::api;
 use crate::events::{Stream, provide_live, use_live};
 use crate::parts::icon::{Glyph, LabelledIcon};
 use crate::parts::layout::{Tab, Tabs};
+use crate::parts::overlay::Tooltip;
 use crate::parts::theme::ThemeToggle;
 #[cfg(feature = "bench")]
 use crate::screens::Bench;
@@ -30,6 +31,7 @@ use NotFound as Bench;
 pub fn App() -> impl IntoView {
     provide_live();
     provide_seen_jobs();
+    provide_context(IngestChanged(RwSignal::new(0)));
     view! {
         <Router>
             <a class="skip" href="#main">"Skip to content"</a>
@@ -44,7 +46,7 @@ pub fn App() -> impl IntoView {
             </header>
             <main id="main" tabindex="-1">
                 <Routes fallback=|| view! { <NotFound /> }>
-                    <Route path=path!("/") view=|| view! { <Redirect path="/source-sets" /> } />
+                    <Route path=path!("/") view=|| view! { <Redirect path="/source-sets" options=replace() /> } />
                     <Route path=path!("/source-sets") view=SourceSets />
                     // A Source Set's page and its repair nest under it, ready for its tabs (#74).
                     <ParentRoute path=path!("/source-sets/:name") view=Outlet>
@@ -60,7 +62,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/libraries") view=Libraries />
                     <Route path=path!("/libraries/:id") view=LibraryFolderScreen />
                     // Library folders' pages before #73, kept so that old bookmarks still open them.
-                    <Route path=path!("/managed-folders") view=|| view! { <Redirect path="/libraries" /> } />
+                    <Route path=path!("/managed-folders") view=|| view! { <Redirect path="/libraries" options=replace() /> } />
                     <Route path=path!("/managed-folders/:id") view=OldLibraryFolder />
                     <Route path=path!("/builds/:id") view=BuildScreen />
                     <Route path=path!("/ingest") view=IngestFolders />
@@ -69,7 +71,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/additions") view=Additions />
                     <Route path=path!("/activity") view=Jobs />
                     <ParentRoute path=path!("/settings") view=Settings>
-                        <Route path=path!("") view=|| view! { <Redirect path="/settings/storage" /> } />
+                        <Route path=path!("") view=|| view! { <Redirect path="/settings/storage" options=replace() /> } />
                         <Route path=path!("storage") view=StoragePolicyScreen />
                         <Route path=path!("roots") view=Roots />
                         <Route path=path!("about") view=About />
@@ -97,16 +99,30 @@ pub fn App() -> impl IntoView {
 fn Nav() -> impl IntoView {
     let live = use_live();
     let seen = use_seen_jobs();
-    let location = use_location();
+    let ingest_changed = use_ingest_changed();
     let folders = LocalResource::new(move || {
         live.settled.track();
-        // Dismissing an item settles no Job, so leaving the ingest page also counts again.
-        location.pathname.track();
+        ingest_changed.track();
         api::get::<Vec<IngestFolder>>("/ingest-folders")
     });
-    let jobs = LocalResource::new(move || {
+    let failed = LocalResource::new(move || {
         live.settled.track();
-        api::get::<Vec<Job>>("/jobs")
+        api::get::<Vec<i64>>("/failed-jobs")
+    });
+    // Forget the seen Jobs that no longer failed, which keeps local storage bounded. A failure the live Jobs show
+    // may be newer than the fetched list, so it stays.
+    Effect::new(move || {
+        if let Some(Ok(mut ids)) = failed.get() {
+            live.book.with_untracked(|book| {
+                ids.extend(
+                    book.newest_first()
+                        .iter()
+                        .filter(|l| l.job.state == JobState::Failed)
+                        .map(|l| l.job.id),
+                )
+            });
+            seen.keep_only(ids);
+        }
     });
     let waiting = Signal::derive(move || {
         folders
@@ -115,10 +131,10 @@ fn Nav() -> impl IntoView {
             .map_or(0, |f| waiting_on_decision(&f))
     });
     let attention = Signal::derive(move || {
-        let fetched = jobs.get().and_then(Result::ok).unwrap_or_default();
-        let shown = live.book.with(|book| book.overlay(&fetched));
+        let failed = failed.get().and_then(Result::ok).unwrap_or_default();
+        let live = live.book.with(|book| book.newest_first());
         seen.get()
-            .with(|seen| needing_attention(shown.iter().map(|l| &l.job), seen))
+            .with(|seen| needing_attention(live.iter().map(|l| &l.job), failed, seen))
     });
     view! {
         <nav aria-label="Workbench">
@@ -155,21 +171,28 @@ fn NavLink(
     #[prop(optional)] badge_label: Option<fn(u64) -> String>,
 ) -> impl IntoView {
     let count = move || badge.map_or(0, |b| b.get());
+    let words = move |n: u64| badge_label.map(|f| f(n)).unwrap_or_default();
+    // Below 48rem the label is hidden, so the tooltip names the screen; the link stays the only tab stop.
+    let tip = Signal::derive(move || match count() {
+        0 => label.to_string(),
+        n => format!("{label}: {}", words(n)),
+    });
     view! {
+        <Tooltip label=tip>
         <A href=href>
             <LabelledIcon glyph label />
             {move || {
                 let n = count();
                 (n > 0)
                     .then(|| {
-                        let words = badge_label.map(|f| f(n)).unwrap_or_default();
                         view! {
                             <span class="nav-badge" aria-hidden="true">{n}</span>
-                            <span class="visually-hidden">{format!(", {words}")}</span>
+                            <span class="visually-hidden">{format!(", {}", words(n))}</span>
                         }
                     })
             }}
         </A>
+        </Tooltip>
     }
 }
 
@@ -200,7 +223,15 @@ fn Moved() -> impl IntoView {
         search,
         location.hash.get_untracked(),
     );
-    view! { <Redirect path=moved(&path).unwrap_or_else(|| "/".into()) /> }
+    view! { <Redirect path=moved(&path).unwrap_or_else(|| "/".into()) options=replace() /> }
+}
+
+/// Legacy paths redirect in place, so that Back doesn't return to the old path only to be sent forward again.
+fn replace() -> NavigateOptions {
+    NavigateOptions {
+        replace: true,
+        ..Default::default()
+    }
 }
 
 /// The local storage key holding the failed Jobs the Operator opened.
@@ -226,6 +257,24 @@ impl Seen {
             self.set.set(next);
         }
     }
+
+    /// Forgets the seen Jobs not in `failed`, the server's list of every Failed Job's ID.
+    fn keep_only(self, failed: Vec<i64>) {
+        let mut next = self.seen.get_untracked();
+        if next.keep_only(failed) {
+            self.set.set(next);
+        }
+    }
+}
+
+/// Bumped whenever an ingest screen changes an Ingest Folder, so the Ingest badge counts again: dismissing an item
+/// settles no Job.
+#[derive(Clone, Copy)]
+struct IngestChanged(RwSignal<u64>);
+
+/// The shared ingest-change counter; ingest screens fetch again on it and bump it after each change.
+pub fn use_ingest_changed() -> RwSignal<u64> {
+    expect_context::<IngestChanged>().0
 }
 
 fn provide_seen_jobs() {
@@ -242,7 +291,7 @@ pub fn use_seen_jobs() -> Seen {
 fn OldLibraryFolder() -> impl IntoView {
     let params = use_params_map();
     let id = params.with_untracked(|p| p.get("id").unwrap_or_default());
-    view! { <Redirect path=format!("/libraries/{id}") /> }
+    view! { <Redirect path=format!("/libraries/{id}") options=replace() /> }
 }
 
 #[component]

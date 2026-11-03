@@ -45,50 +45,56 @@ pub fn waiting_on_decision(folders: &[IngestFolder]) -> u64 {
         .sum()
 }
 
-/// How many Jobs are Running, plus those that Failed and the Operator hasn't seen.
-pub fn needing_attention<'a>(jobs: impl IntoIterator<Item = &'a Job>, seen: &SeenJobs) -> u64 {
-    jobs.into_iter()
-        .filter(|job| match job.state {
-            JobState::Running => true,
-            JobState::Failed => !seen.is_seen(job.id),
-            _ => false,
-        })
-        .count() as u64
+/// How many Jobs are Running, plus those that Failed and the Operator hasn't seen. `jobs` are the live Jobs, whose
+/// failures may be newer than `failed`, the server's list of every Failed Job's ID.
+pub fn needing_attention<'a>(
+    jobs: impl IntoIterator<Item = &'a Job>,
+    failed: impl IntoIterator<Item = i64>,
+    seen: &SeenJobs,
+) -> u64 {
+    let mut unseen: BTreeSet<i64> = failed.into_iter().collect();
+    let mut running = 0;
+    for job in jobs {
+        match job.state {
+            JobState::Running => running += 1,
+            JobState::Failed => {
+                unseen.insert(job.id);
+            }
+            _ => {}
+        }
+    }
+    unseen.retain(|id| !seen.is_seen(*id));
+    running + unseen.len() as u64
 }
 
-/// The failed Jobs the Operator opened, kept in local storage. Bounded: when it holds more than [`SeenJobs::CAP`]
-/// IDs it forgets the oldest and counts every Job up to the newest forgotten one as seen, since Job IDs only grow.
+/// The failed Jobs the Operator opened, kept in local storage. It stays bounded by forgetting Jobs that no longer
+/// failed (see [`SeenJobs::keep_only`]), never by guessing that an unopened Job was seen.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SeenJobs {
-    /// Every Job at or below this was seen.
-    floor: i64,
     ids: BTreeSet<i64>,
 }
 
 impl SeenJobs {
-    pub const CAP: usize = 200;
-
     pub fn is_seen(&self, id: i64) -> bool {
-        id <= self.floor || self.ids.contains(&id)
+        self.ids.contains(&id)
     }
 
     pub fn mark(&mut self, id: i64) {
-        if self.is_seen(id) {
-            return;
-        }
         self.ids.insert(id);
-        while self.ids.len() > Self::CAP {
-            if let Some(oldest) = self.ids.pop_first() {
-                self.floor = oldest;
-            }
-        }
+    }
+
+    /// Forgets every seen Job not in `failed`, the server's list of every Failed Job's ID. Whether it changed.
+    pub fn keep_only(&mut self, failed: impl IntoIterator<Item = i64>) -> bool {
+        let failed: BTreeSet<i64> = failed.into_iter().collect();
+        let before = self.ids.len();
+        self.ids.retain(|id| failed.contains(id));
+        self.ids.len() != before
     }
 }
 
-/// Stored as `<floor>;<id>,<id>,…`.
+/// Stored as `<id>,<id>,…`.
 impl fmt::Display for SeenJobs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{};", self.floor)?;
         let ids: Vec<String> = self.ids.iter().map(i64::to_string).collect();
         f.write_str(&ids.join(","))
     }
@@ -98,19 +104,13 @@ impl FromStr for SeenJobs {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.is_empty() {
-            return Ok(SeenJobs::default());
-        }
-        let bad = || format!("not a list of seen jobs: {s}");
-        let (floor, ids) = s.split_once(';').ok_or_else(bad)?;
-        let mut seen = SeenJobs {
-            floor: floor.parse().map_err(|_| bad())?,
-            ids: BTreeSet::new(),
-        };
-        for id in ids.split(',').filter(|id| !id.is_empty()) {
-            seen.mark(id.parse().map_err(|_| bad())?);
-        }
-        Ok(seen)
+        let ids = s
+            .split(',')
+            .filter(|id| !id.is_empty())
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .map_err(|_| format!("not a list of seen jobs: {s}"))?;
+        Ok(SeenJobs { ids })
     }
 }
 
@@ -224,17 +224,22 @@ mod tests {
     #[test]
     fn running_and_unseen_failed_jobs_need_attention() {
         let jobs = [
-            job(1, JobState::Failed),
-            job(2, JobState::Failed),
             job(3, JobState::Running),
             job(4, JobState::Queued),
             job(5, JobState::Succeeded),
             job(6, JobState::Interrupted),
+            job(8, JobState::Failed),
         ];
         let mut seen = SeenJobs::default();
-        assert_eq!(needing_attention(&jobs, &seen), 3);
+        assert_eq!(needing_attention(&jobs, [1, 2], &seen), 4);
         seen.mark(2);
-        assert_eq!(needing_attention(&jobs, &seen), 2);
+        assert_eq!(needing_attention(&jobs, [1, 2], &seen), 3);
+    }
+
+    #[test]
+    fn a_failure_in_both_the_list_and_the_live_jobs_counts_once() {
+        let jobs = [job(8, JobState::Failed)];
+        assert_eq!(needing_attention(&jobs, [8], &SeenJobs::default()), 1);
     }
 
     #[test]
@@ -252,22 +257,29 @@ mod tests {
     #[test]
     fn nothing_is_seen_when_storage_is_empty_or_garbled() {
         assert_eq!("".parse::<SeenJobs>(), Ok(SeenJobs::default()));
-        assert!("not;ids".parse::<SeenJobs>().is_err());
+        assert!("not,ids".parse::<SeenJobs>().is_err());
     }
 
     #[test]
-    fn past_its_cap_it_forgets_the_oldest_but_still_counts_them_seen() {
+    fn many_marks_never_make_an_unopened_failure_seen() {
         let mut seen = SeenJobs::default();
-        let cap = SeenJobs::CAP as i64;
-        for id in (1..=cap + 10).map(|n| n * 2) {
+        for id in 2..=1000 {
             seen.mark(id);
         }
-        assert_eq!(seen.ids.len(), SeenJobs::CAP);
-        // The oldest marked IDs fell under the floor, and so did the unmarked ones between them.
-        assert!(seen.is_seen(2));
-        assert!(seen.is_seen(3));
-        assert!(seen.is_seen((cap + 10) * 2));
-        assert!(!seen.is_seen((cap + 10) * 2 - 1));
-        assert!(!seen.is_seen((cap + 10) * 2 + 1));
+        assert!(!seen.is_seen(1));
+        assert!(!seen.is_seen(1001));
+    }
+
+    #[test]
+    fn it_forgets_only_seen_jobs_that_no_longer_failed() {
+        let mut seen = SeenJobs::default();
+        for id in [1, 2, 3] {
+            seen.mark(id);
+        }
+        assert!(seen.keep_only([2, 3, 9]));
+        assert!(!seen.is_seen(1));
+        assert!(seen.is_seen(2) && seen.is_seen(3));
+        assert!(!seen.is_seen(9));
+        assert!(!seen.keep_only([2, 3]));
     }
 }

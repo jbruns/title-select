@@ -742,6 +742,25 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
 }
 
 #[test]
+fn the_api_lists_every_failed_job_by_id() {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System.dat", &env.dat());
+    client.add_set();
+    let ok: Job = client.start_audit().body_mut().read_json().unwrap();
+    client.follow(ok.id);
+    std::fs::remove_dir_all(env.tmp.path().join("roots/sets").join(SET)).unwrap();
+    let broken: Job = client.start_audit().body_mut().read_json().unwrap();
+    let (_, broken) = client.follow(broken.id);
+    assert_eq!(broken.state, JobState::Failed);
+
+    let failed: Vec<i64> = client.json("/failed-jobs");
+
+    assert_eq!(failed, vec![broken.id]);
+}
+
+#[test]
 fn the_service_holds_the_store_lock() {
     let env = Env::new();
     let service = env.start();
