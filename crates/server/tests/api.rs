@@ -1539,7 +1539,7 @@ mod selections {
         );
         assert!(made.library_folders.is_empty(), "no Library Folder uses it");
         let by_profile: Vec<SelectionRecord> = client.json("/selections?profile=Everyday");
-        assert_eq!(by_profile, [made.clone()]);
+        assert_eq!(by_profile, std::slice::from_ref(&made));
         let both: Vec<SelectionRecord> =
             client.json("/selections?profile=Everyday&source_set=Test%20-%20System");
         assert_eq!(both, [made]);

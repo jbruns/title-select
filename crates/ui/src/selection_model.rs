@@ -10,6 +10,7 @@ use title_select_api::selection::{
 };
 
 use crate::model::{Sort, status_text};
+use crate::parts::status::GroupStatus;
 
 pub fn role_label(role: Role) -> &'static str {
     match role {
@@ -383,6 +384,60 @@ pub fn include_and_check(
         .insert(group.group.clone(), set);
 }
 
+/// How a group stands in the Selection: a choice of yours to review comes first, then a pick the engine left to
+/// you, then your choice, the engine's choice, and a group whose every release is excluded.
+pub fn group_status(group: &SelectionGroup) -> GroupStatus {
+    match &group.choice {
+        Some(c) if matches!(c.status, ChoiceStatus::Stale | ChoiceStatus::Conflicting) => {
+            GroupStatus::ChoiceToReview
+        }
+        _ if group.unresolved => GroupStatus::Unresolved,
+        Some(c) if c.status == ChoiceStatus::Applied => GroupStatus::YourChoice,
+        _ if group.winners.is_empty() => GroupStatus::Excluded,
+        _ => GroupStatus::Chosen,
+    }
+}
+
+/// Confirms the engine's pick, or your checked releases, in every unresolved group you haven't staged a choice
+/// for, and says how many it confirmed.
+pub fn confirm_unresolved(
+    profile: &mut SelectionProfile,
+    system: &str,
+    groups: &[SelectionGroup],
+) -> usize {
+    let mut confirmed = 0;
+    for group in groups.iter().filter(|g| g.unresolved) {
+        if profile
+            .choices
+            .get(system)
+            .is_some_and(|c| c.contains_key(&group.group))
+        {
+            continue;
+        }
+        confirm(profile, system, group);
+        confirmed += 1;
+    }
+    confirmed
+}
+
+/// The systems the Profile editor has a tab for: every system of a registered Source Set, every system the
+/// Profile has settings or choices for, and the one last previewed, in name order.
+pub fn system_tabs<'a>(
+    profile: &SelectionProfile,
+    registered: impl IntoIterator<Item = &'a str>,
+    previewed: Option<&str>,
+) -> Vec<String> {
+    let mut tabs: BTreeSet<String> = profile
+        .systems
+        .keys()
+        .chain(profile.choices.keys())
+        .cloned()
+        .collect();
+    tabs.extend(registered.into_iter().map(str::to_owned));
+    tabs.extend(previewed.map(str::to_owned));
+    tabs.into_iter().collect()
+}
+
 /// How many groups of `system` your staged choices change, and whether its settings changed, compared with `saved`.
 pub fn staged_changes(saved: &SelectionProfile, staged: &SelectionProfile, system: &str) -> usize {
     let empty = BTreeMap::new();
@@ -587,6 +642,102 @@ mod tests {
             choice: None,
             drift: false,
         }
+    }
+
+    #[test]
+    fn a_group_shows_a_choice_to_review_before_an_unresolved_pick_then_yours_the_engines_and_none()
+    {
+        let applied = |status| GroupChoice {
+            checked: BTreeSet::from(["Pong (USA)".to_owned()]),
+            status,
+            picks: vec!["Pong (USA)".into()],
+            engine_unresolved: false,
+            problems: Vec::new(),
+        };
+        let mut review = group("pong", "Pong (USA)", &[], &[]);
+        review.unresolved = true;
+        review.choice = Some(applied(ChoiceStatus::Stale));
+        let mut unresolved = group("pong", "Pong (USA)", &[], &[]);
+        unresolved.unresolved = true;
+        let mut yours = group("pong", "Pong (USA)", &[], &[]);
+        yours.choice = Some(applied(ChoiceStatus::Applied));
+        let mut matching = group("pong", "Pong (USA)", &[], &[]);
+        matching.choice = Some(applied(ChoiceStatus::MatchesDefault));
+        let mut excluded = group("demo", "Demo (USA)", &[], &["Demo (USA)"]);
+        excluded.winners.clear();
+
+        let statuses: Vec<GroupStatus> = [review, unresolved, yours, matching, excluded]
+            .iter()
+            .map(group_status)
+            .collect();
+
+        assert_eq!(
+            statuses,
+            [
+                GroupStatus::ChoiceToReview,
+                GroupStatus::Unresolved,
+                GroupStatus::YourChoice,
+                GroupStatus::Chosen,
+                GroupStatus::Excluded,
+            ]
+        );
+    }
+
+    #[test]
+    fn confirming_every_unresolved_pick_keeps_the_choices_you_staged() {
+        let mut tie = group("tie", "Tie Alpha (Europe)", &["Tie Beta (Europe)"], &[]);
+        tie.unresolved = true;
+        let mut staged = group("staged", "Staged (USA)", &["Staged (Japan)"], &[]);
+        staged.unresolved = true;
+        let settled = group("settled", "Settled (USA)", &[], &[]);
+        let mut profile = SelectionProfile::default();
+        toggle(&mut profile, "Atari", &staged, "Staged (Japan)", true);
+
+        let confirmed = confirm_unresolved(&mut profile, "Atari", &[tie, staged, settled]);
+
+        assert_eq!(confirmed, 1);
+        let choices = &profile.choices["Atari"];
+        assert_eq!(
+            choices.keys().collect::<Vec<_>>(),
+            ["staged", "tie"],
+            "the settled group needs no choice"
+        );
+        assert_eq!(
+            choices["tie"],
+            BTreeSet::from(["Tie Alpha (Europe)".to_owned()])
+        );
+        assert_eq!(
+            choices["staged"],
+            BTreeSet::from(["Staged (USA)".to_owned(), "Staged (Japan)".to_owned()])
+        );
+    }
+
+    #[test]
+    fn the_editor_has_a_tab_for_every_registered_system_before_any_preview() {
+        let mut profile = SelectionProfile::default();
+        profile
+            .systems
+            .insert("Atari".into(), SystemSettings::default());
+        profile
+            .choices
+            .entry("Coleco".into())
+            .or_default()
+            .insert("g".into(), BTreeSet::new());
+
+        let tabs = system_tabs(
+            &profile,
+            ["Nintendo - Game Boy Advance (No-Intro)", "Atari"],
+            None,
+        );
+
+        assert_eq!(
+            tabs,
+            ["Atari", "Coleco", "Nintendo - Game Boy Advance (No-Intro)"]
+        );
+        assert_eq!(
+            system_tabs(&SelectionProfile::default(), [], Some("Previewed")),
+            ["Previewed"]
+        );
     }
 
     fn selection(groups: Vec<SelectionGroup>) -> Selection {

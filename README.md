@@ -745,6 +745,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
 | `GET /api/v1/vocabulary`                           | the names, categories and default orders                     |
+| `GET /api/v1/systems`                              | each source set's system, as a profile's system settings name it: `[{"source_set", "system"}]` |
 | `POST /api/v1/check`                               | check a selection profile: `{"problems": [...]}`             |
 | `GET /api/v1/profiles`                             | the selection profiles, each with its newest version         |
 | `POST /api/v1/profiles`                            | create one with no versions: `{"name"}`                      |
@@ -755,7 +756,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "systems"}`, `format` being `torrent_zip` or `loose`, and `systems` each system's own `{"format"?, "delete_originals"?}` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
 | `POST /api/v1/preview`                             | the selection a profile would make: `{"source_set", "profile", "revision"?}`, with the changes from the latest saved selection |
-| `GET /api/v1/selections?source_set=`               | a source set's selections, newest first                      |
+| `GET /api/v1/selections?source_set=&profile=`      | selections, newest first, of a source set, a profile or both; each names the library folders that use it |
 | `POST /api/v1/selections`                          | queue a selection job: `{"source_set", "profile", "version"?, "revision"?}`; `202` |
 | `GET /api/v1/selections/{id}`                      | a selection's record and summary                             |
 | `GET /api/v1/selections/{id}/selection`            | the explained selection, as `select` prints it               |
@@ -923,20 +924,33 @@ Its screens:
   when its payload was last read and whether this audit reused that read because the file looked unchanged (a
   heuristic), and the ROMs it matches. A pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
-  preview what it selects, change anything, and confirm to save version 1. The editor has a global settings tab and
-  a tab per system, where a system can opt in to its additions set; each system setting says whether it comes from
-  your global settings or is set for that system,
+  preview what it selects, change anything, and confirm to save version 1. The editor has your settings on the left
+  and a live what-if preview against a source set you choose on the right; on a narrow screen the preview comes
+  under the settings. The settings have a global settings tab and a tab for every system with a registered source
+  set, and for every system the profile has settings or choices for, so you needn't preview first. A system can opt
+  in to its additions set on its tab; a tab for a system without settings of its own says that every setting comes
+  from your global settings. Opening a system's tab previews against its source set. Each system setting says
+  whether it comes from your global settings or is set for that system,
   with "Use global setting" to go back. "Reset to defaults" and "Reset to default choices" work per group, per system
   and for the whole profile. An empty region or video order shows the default order it stands for, which you can
   expand, start your own order from, or reset to, with a link to how the default orders work. The preview follows your edits 500 ms after you stop, cancelling a preview still
-  running; when a preview of a source set takes more than 2 seconds, it waits for the Preview button instead. It
-  shows what changed from the latest saved selection. Saving creates the next version and can make a selection.
-- **Selection** explains every group: each release's role, the rule that decided it, its availability in the latest
-  audit against the same DAT revision, and flags for unresolved, stale, conflicting and drift. Its releases filter by
-  name, role, availability and flag as you type. Opening a group lets you check the releases you want, confirm an
+  running; when a preview of a source set takes more than 2 seconds, it waits for the Preview button instead. While
+  a preview runs, it shows how long it has taken (a large system takes several seconds). It shows what changed from
+  the latest saved selection. Saving creates the next version and can make a selection. A profile's page lists its
+  what-if selections, the selections no library folder uses, with "New what-if selection" to make another.
+- **New what-if selection** (`/selections/new`) makes a selection without changing any library folder: from a
+  profile (`?profile=`) you pick a source set, and from a source set (`?source_set=`) you pick a profile. It is
+  listed on its profile, not on its source set, until a library folder uses it.
+- **Selection** lists its game groups on the left, each chosen, unresolved, your choice, a choice to review, or
+  excluded, with the releases kept, the rule that chose them and whether you have them in the latest audit against
+  the same DAT revision. A strip of counts across the top shows how many groups have each status; select a count to
+  list only those groups, and "Apply to all" confirms every unresolved pick at once. Opening a group shows, on the
+  right, its candidate releases with the rule that decided each, where you check the releases you want, confirm an
   unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
-  until you save them as the next version of the profile, which makes a new selection. "Plan a build" plans building
-  it into a library folder bound to its source set and selection profile.
+  until you save them as the next version of the profile, which makes a new selection. A link to a group
+  (`?group=`) opens it. The selection names the library folders that use it; one no library folder uses is a
+  what-if. "Create library folder from this" makes a library folder from it, and "Plan a build" plans building it
+  into a library folder bound to its source set and selection profile.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip or loose, and whether a
   conversion deletes each original once its converted file verifies, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its

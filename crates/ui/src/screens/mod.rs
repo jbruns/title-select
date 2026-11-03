@@ -26,6 +26,6 @@ pub use library_folders::{BuildScreen, Libraries, LibraryFolderScreen, PlanABuil
 pub use profiles::{NewProfile, ProfileScreen, Profiles};
 pub use repair::RepairScreen;
 pub use roots::Roots;
-pub use selection::SelectionScreen;
+pub use selection::{NewSelection, SelectionScreen};
 pub use source_sets::{SourceSet, SourceSets};
 pub use storage::StoragePolicyScreen;

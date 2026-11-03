@@ -17,8 +17,9 @@ use crate::parts::theme::ThemeToggle;
 use crate::screens::Bench;
 use crate::screens::{
     About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen,
-    IngestFolders, Jobs, KeptFiles, Libraries, LibraryFolderScreen, NewProfile, ProfileScreen,
-    Profiles, RepairScreen, Roots, SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen,
+    IngestFolders, Jobs, KeptFiles, Libraries, LibraryFolderScreen, NewProfile, NewSelection,
+    ProfileScreen, Profiles, RepairScreen, Roots, SelectionScreen, SourceSet, SourceSets,
+    StoragePolicyScreen,
 };
 use crate::shell::{SeenJobs, moved, needing_attention, waiting_on_decision};
 
@@ -58,6 +59,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/profiles") view=Profiles />
                     <Route path=path!("/new-profile") view=NewProfile />
                     <Route path=path!("/profiles/:name") view=ProfileScreen />
+                    <Route path=path!("/selections/new") view=NewSelection />
                     <Route path=path!("/selections/:id") view=SelectionScreen />
                     <Route path=path!("/libraries") view=Libraries />
                     <Route path=path!("/libraries/:id") view=LibraryFolderScreen />

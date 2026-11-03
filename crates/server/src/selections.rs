@@ -99,35 +99,6 @@ impl Drop for PreviewGuard {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_newer_preview_cancels_the_older_one_of_the_same_actor_only() {
-        let previews = Arc::new(Previews::default());
-        let older = previews.start("someone");
-        let other = previews.start("someone else");
-        let newer = previews.start("someone");
-
-        assert!(older.flag().load(Ordering::Relaxed));
-        assert!(!newer.flag().load(Ordering::Relaxed));
-        assert!(!other.flag().load(Ordering::Relaxed));
-        drop(older);
-        assert!(
-            previews.0.lock().unwrap().contains_key("someone"),
-            "the older guard leaves the newer preview registered"
-        );
-        let flag = newer.flag();
-        drop(newer);
-        assert!(
-            flag.load(Ordering::Relaxed),
-            "a dropped request kills its run"
-        );
-        assert!(!previews.0.lock().unwrap().contains_key("someone"));
-    }
-}
-
 /// The systems already named, by DAT Revision SHA-256: a revision's header never changes.
 static SYSTEMS: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
 
@@ -176,4 +147,33 @@ pub fn systems(
                 .and_then(|(sha, _)| known.as_ref().and_then(|k| k.get(&sha).cloned().flatten())),
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_newer_preview_cancels_the_older_one_of_the_same_actor_only() {
+        let previews = Arc::new(Previews::default());
+        let older = previews.start("someone");
+        let other = previews.start("someone else");
+        let newer = previews.start("someone");
+
+        assert!(older.flag().load(Ordering::Relaxed));
+        assert!(!newer.flag().load(Ordering::Relaxed));
+        assert!(!other.flag().load(Ordering::Relaxed));
+        drop(older);
+        assert!(
+            previews.0.lock().unwrap().contains_key("someone"),
+            "the older guard leaves the newer preview registered"
+        );
+        let flag = newer.flag();
+        drop(newer);
+        assert!(
+            flag.load(Ordering::Relaxed),
+            "a dropped request kills its run"
+        );
+        assert!(!previews.0.lock().unwrap().contains_key("someone"));
+    }
 }

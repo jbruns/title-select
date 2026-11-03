@@ -675,6 +675,61 @@ impl Status for IngestStatus {
     }
 }
 
+/// How a game group stands in a Selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GroupStatus {
+    ChoiceToReview,
+    Unresolved,
+    YourChoice,
+    Chosen,
+    Excluded,
+}
+
+impl Status for GroupStatus {
+    const ALL: &'static [Self] = &[
+        GroupStatus::ChoiceToReview,
+        GroupStatus::Unresolved,
+        GroupStatus::YourChoice,
+        GroupStatus::Chosen,
+        GroupStatus::Excluded,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            GroupStatus::ChoiceToReview => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "Choice to review",
+                "Your choice names a release that is now excluded or gone, so the default applies until you change it.",
+            ),
+            GroupStatus::Unresolved => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Unresolved",
+                "The selection picked a release by a tie-break, so it needs your decision.",
+            ),
+            GroupStatus::YourChoice => look(
+                Glyph::PencilLine,
+                Tone::Good,
+                "Your choice",
+                "Your choice decides which releases are kept.",
+            ),
+            GroupStatus::Chosen => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Chosen",
+                "The selection chose a release by your settings.",
+            ),
+            GroupStatus::Excluded => look(
+                Glyph::CircleOff,
+                Tone::Neutral,
+                "Excluded",
+                "Your settings exclude every release of the group.",
+            ),
+        }
+    }
+}
+
 /// Whether the store still keeps a DAT Revision's file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DatFileStatus {
@@ -784,6 +839,7 @@ mod tests {
             ("ingest items", vocabulary::<IngestStatus>()),
             ("jobs", vocabulary::<JobState>()),
             ("DAT files", vocabulary::<DatFileStatus>()),
+            ("selection groups", vocabulary::<GroupStatus>()),
         ]
     }
 
