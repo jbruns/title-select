@@ -98,6 +98,10 @@ pub struct RepairDesk {
     requested: RwSignal<Option<Option<i64>>>,
     /// The choices asked for and picked on each plan shown before, by plan, so coming back to one keeps them.
     staged: StoredValue<BTreeMap<i64, Staged>>,
+    /// Goes up each time another plan is asked for or shown: a response to an earlier request is dropped.
+    epoch: StoredValue<u64>,
+    /// The epoch the last proposal was asked for in.
+    proposed_in: StoredValue<u64>,
     proposal: Action<PlanRepair, Result<Proposed, String>>,
 }
 
@@ -126,14 +130,29 @@ impl RepairDesk {
             said: RwSignal::new(None),
             requested: RwSignal::new(None),
             staged: StoredValue::new(BTreeMap::new()),
+            epoch: StoredValue::new(0),
+            proposed_in: StoredValue::new(0),
             proposal,
         };
         Effect::new(move || {
-            if let Some(Ok((p, chosen))) = proposal.value().get() {
+            if let Some(Ok((p, chosen))) = proposal.value().get()
+                && desk.is_current(desk.proposed_in.get_value())
+            {
                 desk.show(p, chosen);
             }
         });
         desk
+    }
+
+    /// Starts another epoch, ending every request made before it.
+    fn next_epoch(self) -> u64 {
+        self.epoch.update_value(|e| *e += 1);
+        self.epoch.get_value()
+    }
+
+    /// Whether nothing else was asked for or shown since `epoch` began.
+    fn is_current(self, epoch: u64) -> bool {
+        self.epoch.get_value() == epoch
     }
 
     /// Keeps what was asked for and picked on the plan shown, for coming back to it.
@@ -153,6 +172,7 @@ impl RepairDesk {
             .staged
             .with_value(|s| s.get(&plan.id).cloned())
             .unwrap_or((asked, BTreeMap::new()));
+        self.next_epoch();
         self.problem.set(None);
         self.said.set(None);
         self.picked.set(picked);
@@ -182,10 +202,11 @@ impl RepairDesk {
             api::segment(&self.name.get_value())
         );
         let before = self.shown_id();
+        let epoch = self.next_epoch();
         leptos::task::spawn_local(async move {
             let plans = api::get::<Vec<RepairPlan>>(&path).await;
-            // Another plan was asked for, or one was proposed, meanwhile: that one wins.
-            if self.requested.get_untracked() != Some(wanted) || self.shown_id() != before {
+            // Another plan was asked for, or one was proposed or shown, meanwhile: that one wins.
+            if !self.is_current(epoch) {
                 return;
             }
             match plans {
@@ -194,6 +215,7 @@ impl RepairDesk {
                     Some(p) => self.show(p.clone(), chosen(p)),
                     None => {
                         self.stash();
+                        self.next_epoch();
                         self.plan.set(None);
                     }
                 },
@@ -222,6 +244,7 @@ impl RepairDesk {
                 .map(|p| to_add(p, &chosen, &adding, &self.system.get_value()))
                 .unwrap_or_default()
         });
+        self.proposed_in.set_value(self.next_epoch());
         self.proposal.dispatch_local(PlanRepair {
             choices: chosen,
             additions,
@@ -236,13 +259,22 @@ impl RepairDesk {
         let body = ApprovePlan {
             digest: p.digest.clone(),
         };
+        let epoch = self.next_epoch();
         leptos::task::spawn_local(async move {
             let done =
                 api::post::<_, RepairPlan>(&format!("/repairs/{}/approval", p.id), &body).await;
             self.working.set(false);
+            // An approved plan holds no picks, shown or not.
+            if done.is_ok() {
+                self.staged.update_value(|s| {
+                    s.remove(&p.id);
+                });
+            }
+            if !self.is_current(epoch) {
+                return;
+            }
             match done {
                 Ok(p) => {
-                    // An approved plan holds no picks.
                     self.picked.set(BTreeMap::new());
                     self.asked.set(BTreeMap::new());
                     self.show(p, BTreeMap::new());
@@ -715,7 +747,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
             )}
             " " {storage_line(&p.content.storage)}
         </p>
-        {p.job.map(|job| view! { <RepairProgress job plan=p.id shown=desk.plan fetched=desk.fetched /> })}
+        {p.job.map(|job| view! { <RepairProgress job plan=p.id desk /> })}
         {match unfinished_note(&p) {
             Some(note) => Some(view! { <p class="notice" role="status">{note}</p> }.into_any()),
             None => p.recovery_error.clone().map(|e| view! { <Problem message=e /> }.into_any()),
@@ -802,12 +834,8 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
 /// The repair's job, live: its state and progress, a way to cancel it while it runs, and the plan fetched again
 /// with its outcomes once it ends.
 #[component]
-fn RepairProgress(
-    job: i64,
-    plan: i64,
-    shown: RwSignal<Option<RepairPlan>>,
-    fetched: RwSignal<Option<i64>>,
-) -> impl IntoView {
+fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
+    let (shown, fetched) = (desk.plan, desk.fetched);
     let live = use_live();
     let problem = RwSignal::new(None::<String>);
     let cancelling = RwSignal::new(false);
@@ -819,8 +847,14 @@ fn RepairProgress(
             shown.with_untracked(|p| p.as_ref().is_some_and(|p| p.finished_at.is_none()));
         if fetch_after(job, ended, unfinished, fetched.get_untracked()) {
             fetched.set(Some(job));
+            let epoch = desk.epoch.get_value();
             leptos::task::spawn_local(async move {
-                match api::get::<RepairPlan>(&format!("/repairs/{plan}")).await {
+                let done = api::get::<RepairPlan>(&format!("/repairs/{plan}")).await;
+                // Another plan was asked for or shown meanwhile: this one is no longer on screen.
+                if !desk.is_current(epoch) || desk.shown_id() != Some(plan) {
+                    return;
+                }
+                match done {
                     Ok(p) if p.id == plan => shown.set(Some(p)),
                     Ok(_) => {}
                     Err(message) => problem.set(Some(message)),

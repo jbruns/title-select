@@ -25,8 +25,9 @@ pub trait PlanRow: ListRow {
 /// The kind the URL's `kind` filters a plan review by, and a way to change it.
 pub fn use_kind_filter<K: Status>() -> (Signal<Option<K>>, Callback<Option<K>>) {
     let query = use_query_map();
-    let kind =
-        Signal::derive(move || query.with(|q| q.get("kind").and_then(|s| kind_from_slug(&s))));
+    // A memo, so the rest of the query changing (checking every matching row sets `all`) leaves the kind, and the
+    // list's filter by it, as they are: a new filter would clear the matching rows just checked.
+    let kind = Memo::new(move |_| query.with(|q| q.get("kind").and_then(|s| kind_from_slug(&s))));
     let edit = use_query_edit();
     let set = Callback::new(move |k: Option<K>| {
         // Another kind shows other rows, so the open row and the checked rows go.
@@ -37,7 +38,7 @@ pub fn use_kind_filter<K: Status>() -> (Signal<Option<K>>, Callback<Option<K>>) 
             ("all", None),
         ])
     });
-    (kind, set)
+    (kind.into(), set)
 }
 
 /// A cell reading `current` → `proposed`, each cut off where it doesn't fit.
