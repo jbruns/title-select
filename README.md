@@ -197,7 +197,8 @@ The store is one directory: a SQLite database (`title-select.sqlite`), the unmod
 first use. Only one Title Select process may have a store open at a time: it holds an exclusive lock on
 `<store>/lock`, and another process fails at once with "the store is in use by another Title Select process".
 
-- The database runs in WAL mode. Every connection uses `synchronous=FULL`, `foreign_keys=ON` and a busy timeout.
+- The database runs in WAL mode. Every connection uses `synchronous=FULL`, `foreign_keys=ON`, a busy timeout and
+  `temp_store=MEMORY`, so SQLite never writes temporary files outside the store.
 - A DAT file is written to a temp file, fsynced and renamed into place before its row is inserted. Files under
   `dats/` that no DAT revision holds are deleted each time the store opens.
 - Migrations are embedded and forward-only. Before one runs on a store that already has a schema, the database is
@@ -857,8 +858,8 @@ the token is refused or the Service cannot be reached.
 with its pinned clone lists and venv (at `/opt/retool`) on `gcr.io/distroless/python3-debian12:nonroot`, for
 linux/amd64. The licence texts the About page shows are at `/ui/licences`: Title Select's, the selection engine's and
 the clone lists and metadata's. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
-`/store`, and serves the workbench at `/`. It needs nothing else writable but your writable roots, so you can run it
-with a read-only root filesystem:
+`/store`, and serves the workbench at `/`. It needs nothing else writable but your writable roots, not even `/tmp`, so you can
+run it with a read-only root filesystem:
 
 ```sh
 docker run --read-only -p 8080:8080 -v title-select-store:/store \
