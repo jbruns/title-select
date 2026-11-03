@@ -47,15 +47,24 @@ pub fn live_status(folder: &LibraryFolder, jobs: &[Job]) -> LibraryStatus {
     })
 }
 
-/// The oldest selection job not yet ended for the folder's source set and profile, which a new plan waits for rather
-/// than starting another.
-pub fn selection_under_way(jobs: &[Job], folder: &LibraryFolder) -> Option<i64> {
+/// The oldest selection job not yet ended for the folder's source set and profile that runs the profile's `newest`
+/// version on the `verified` DAT revision (the one the source set was last audited against), which a new plan waits
+/// for rather than starting another. A job pinned to anything older makes an older selection, so it isn't followed.
+pub fn selection_under_way(
+    jobs: &[Job],
+    folder: &LibraryFolder,
+    newest: Option<u32>,
+    verified: Option<&str>,
+) -> Option<i64> {
     jobs.iter()
         .filter(|j| {
             j.kind == JobKind::Selection
                 && !j.state.is_final()
                 && j.source_set == folder.source_set
-                && j.profile.as_ref().is_some_and(|p| p.name == folder.profile)
+                && j.profile.as_ref().is_some_and(|p| {
+                    p.name == folder.profile && newest.is_some_and(|v| p.version == v)
+                })
+                && verified.is_none_or(|v| j.dat_revision == v)
         })
         .map(|j| j.id)
         .min()
@@ -71,6 +80,16 @@ pub enum Pick {
     None,
 }
 
+/// Whether a new build plan of the folder may build `selection` without asking: made for the folder's source set
+/// with its profile's newest version, from the DAT revision the source set was last audited against.
+pub fn fresh(selection: &SelectionRecord, folder: &LibraryFolder, verified: Option<&str>) -> bool {
+    !selection.pruned
+        && selection.source_set == folder.source_set
+        && selection.profile.name == folder.profile
+        && selection.profile.version == selection.latest_profile_version
+        && verified.is_none_or(|v| selection.dat_revision_sha256 == v)
+}
+
 pub fn pick(
     selections: &[SelectionRecord],
     folder: &LibraryFolder,
@@ -81,14 +100,11 @@ pub fn pick(
             !s.pruned && s.source_set == folder.source_set && s.profile.name == folder.profile
         })
     };
-    let fresh = usable()
-        .filter(|s| {
-            s.profile.version == s.latest_profile_version
-                && verified.is_none_or(|v| s.dat_revision_sha256 == v)
-        })
+    let newest = usable()
+        .filter(|s| fresh(s, folder, verified))
         .map(|s| s.id)
         .max();
-    match (fresh, usable().map(|s| s.id).max()) {
+    match (newest, usable().map(|s| s.id).max()) {
         (Some(id), _) => Pick::Fresh(id),
         (None, Some(id)) => Pick::Older(id),
         (None, None) => Pick::None,
@@ -444,7 +460,20 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_follows_a_selection_already_under_way_for_its_source_set_and_profile() {
+    fn a_folder_follows_a_selection_already_under_way_only_when_it_runs_the_newest_profile_on_the_latest_revision()
+     {
+        let latest = "ab".repeat(32);
+        let older_profile = Job {
+            profile: Some(ProfileVersionRef {
+                name: "Mine".into(),
+                version: 1,
+            }),
+            ..selection_job(4, JobState::Queued, "Atari", "Mine")
+        };
+        let older_revision = Job {
+            dat_revision: "00".repeat(32),
+            ..selection_job(3, JobState::Queued, "Atari", "Mine")
+        };
         let jobs = [
             selection_job(9, JobState::Running, "Atari", "Other"),
             selection_job(8, JobState::Running, "Other", "Mine"),
@@ -454,9 +483,47 @@ mod tests {
                 library_folder: Some(1),
                 ..job(5, JobKind::Check, JobState::Running)
             },
+            older_profile,
+            older_revision,
         ];
-        assert_eq!(selection_under_way(&jobs, &folder()), Some(6));
-        assert_eq!(selection_under_way(&jobs[..3], &folder()), None);
+        let under_way = |jobs: &[Job], newest: u32| {
+            selection_under_way(jobs, &folder(), Some(newest), Some(&latest))
+        };
+        assert_eq!(under_way(&jobs, 2), Some(6));
+        assert_eq!(under_way(&jobs[..3], 2), None);
+        assert_eq!(under_way(&jobs[5..], 2), None);
+        assert_eq!(under_way(&jobs, 3), None, "the profile was saved since");
+        assert_eq!(
+            selection_under_way(&jobs, &folder(), None, Some(&latest)),
+            None
+        );
+    }
+
+    #[test]
+    fn a_selection_a_followed_job_made_is_fresh_only_with_the_newest_profile_on_the_latest_revision()
+     {
+        let f = folder();
+        assert!(fresh(
+            &selection(4, "Atari", "Mine", 2, "aa"),
+            &f,
+            Some("aa")
+        ));
+        assert!(fresh(&selection(4, "Atari", "Mine", 2, "aa"), &f, None));
+        assert!(!fresh(
+            &selection(4, "Atari", "Mine", 1, "aa"),
+            &f,
+            Some("aa")
+        ));
+        assert!(!fresh(
+            &selection(4, "Atari", "Mine", 2, "00"),
+            &f,
+            Some("aa")
+        ));
+        assert!(!fresh(
+            &selection(4, "Atari", "Theirs", 2, "aa"),
+            &f,
+            Some("aa")
+        ));
     }
 
     #[test]

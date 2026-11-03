@@ -17,8 +17,8 @@ use title_select_api::build::{
     RETENTION,
 };
 use title_select_api::{
-    Dat, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root, SelectionRecord,
-    SourceSetRecord, StartSelection,
+    Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
+    SelectionRecord, SourceSetRecord, StartSelection,
 };
 
 use crate::api;
@@ -30,7 +30,7 @@ use crate::build_model::{
 };
 use crate::events::{Live, use_live};
 use crate::library_model::{
-    FolderTab, Pick, drifted, live_status, pick, selection_under_way, stale_label,
+    FolderTab, Pick, drifted, fresh, live_status, pick, selection_under_way, stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
@@ -302,8 +302,8 @@ async fn make_plan(
     api::post(&format!("/libraries/{}/plans", request.folder), &body).await
 }
 
-/// The folder's newest fresh selection, made now when there is none. When making one fails, the newest older one is
-/// offered in `older`, never taken silently.
+/// The folder's newest fresh selection, made now when there is none. When making one fails, or makes one that isn't
+/// fresh after all, the newest older one is offered in `older`, never taken silently.
 async fn fresh_selection(
     folder: &LibraryFolder,
     status: RwSignal<String>,
@@ -325,27 +325,44 @@ async fn fresh_selection(
             .map(|s| OlderSelection::of(folder.id, s)),
         Pick::None => None,
     };
-    let made = make_selection(folder, status).await;
-    if made.is_err() {
-        older.set(fallback);
+    let profile: ProfileRecord =
+        api::get(&format!("/profiles/{}", api::segment(&folder.profile))).await?;
+    let newest = profile.latest.map(|v| v.version);
+    let made = match make_selection(folder, status, newest, verified).await {
+        Ok(id) => api::get::<SelectionRecord>(&format!("/selections/{id}")).await,
+        Err(message) => Err(message),
+    };
+    match made {
+        Ok(s) if fresh(&s, folder, verified) => Ok(s.id),
+        Ok(s) => {
+            older.set(Some(OlderSelection::of(folder.id, &s)));
+            Err(format!(
+                "Selection #{} isn't of the profile's newest version on the latest audited DAT revision.",
+                s.id
+            ))
+        }
+        Err(message) => {
+            older.set(fallback);
+            Err(message)
+        }
     }
-    made
 }
 
-/// A fresh selection of the folder's source set with its profile's newest version: the one a selection job already
-/// queued or running for them makes, or else a new job's.
-async fn make_selection(folder: &LibraryFolder, status: RwSignal<String>) -> Result<i64, String> {
-    let under_way = || async {
-        api::get::<Vec<Job>>("/jobs")
-            .await
-            .ok()
-            .and_then(|jobs| selection_under_way(&jobs, folder))
-    };
+/// A selection of the folder's source set with its profile's `newest` version on the `verified` DAT revision: the one a
+/// selection job already queued or running for them makes, or else a new job's. Its caller checks it is fresh, since
+/// the job the Service names when it refuses a new one may run something older.
+async fn make_selection(
+    folder: &LibraryFolder,
+    status: RwSignal<String>,
+    newest: Option<u32>,
+    verified: Option<&str>,
+) -> Result<i64, String> {
     let wait = |job: i64| {
         status.set(format!("Waiting for selection job #{job}…"));
         follow(job)
     };
-    if let Some(job) = under_way().await {
+    let jobs: Vec<Job> = api::get("/jobs").await?;
+    if let Some(job) = selection_under_way(&jobs, folder, newest, verified) {
         return wait(job).await;
     }
     status.set("Making selection…".into());
@@ -355,12 +372,18 @@ async fn make_selection(folder: &LibraryFolder, status: RwSignal<String>) -> Res
         profile: folder.profile.clone(),
         version: None,
     };
-    match api::post::<_, Job>("/selections", &start).await {
+    match api::post_refusable::<_, Job>("/selections", &start).await {
         Ok(job) => wait(job.id).await,
-        Err(message) => match under_way().await {
-            Some(job) => wait(job).await,
-            None => Err(format!("Couldn't make a fresh selection: {message}")),
+        Err(ErrorBody {
+            error,
+            job: Some(job),
+        }) => match api::get::<Job>(&format!("/jobs/{job}")).await {
+            Ok(j) if j.kind == JobKind::Selection => wait(job).await,
+            _ => Err(format!("Couldn't make a fresh selection: {error}")),
         },
+        Err(ErrorBody { error, job: None }) => {
+            Err(format!("Couldn't make a fresh selection: {error}"))
+        }
     }
 }
 
