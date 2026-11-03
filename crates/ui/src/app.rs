@@ -17,9 +17,9 @@ use crate::parts::theme::ThemeToggle;
 use crate::screens::Bench;
 use crate::screens::{
     About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen,
-    IngestFolders, Jobs, KeptFiles, Libraries, LibraryFolderScreen, NewProfile, NewSelection,
-    ProfileScreen, Profiles, RepairScreen, Roots, SelectionScreen, SourceSet, SourceSets,
-    StoragePolicyScreen,
+    IngestFolders, Jobs, KeptFiles, Libraries, LibrariesPages, LibraryFolderScreen,
+    NewLibraryFolder, NewProfile, NewSelection, ProfileScreen, Profiles, RepairScreen, Roots,
+    SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, provide_planner,
 };
 use crate::shell::{SeenJobs, moved, needing_attention, waiting_on_decision};
 
@@ -33,6 +33,7 @@ pub fn App() -> impl IntoView {
     provide_live();
     provide_seen_jobs();
     provide_context(IngestChanged(RwSignal::new(0)));
+    provide_planner();
     view! {
         <Router>
             <a class="skip" href="#main">"Skip to content"</a>
@@ -61,8 +62,11 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/profiles/:name") view=ProfileScreen />
                     <Route path=path!("/selections/new") view=NewSelection />
                     <Route path=path!("/selections/:id") view=SelectionScreen />
-                    <Route path=path!("/libraries") view=Libraries />
-                    <Route path=path!("/libraries/:id") view=LibraryFolderScreen />
+                    <ParentRoute path=path!("/libraries") view=LibrariesPages>
+                        <Route path=path!("") view=Libraries />
+                        <Route path=path!("new") view=NewLibraryFolder />
+                        <Route path=path!(":id") view=LibraryFolderScreen />
+                    </ParentRoute>
                     // Library folders' pages before #73, kept so that old bookmarks still open them.
                     <Route path=path!("/managed-folders") view=|| view! { <Redirect path="/libraries" options=replace() /> } />
                     <Route path=path!("/managed-folders/:id") view=OldLibraryFolder />

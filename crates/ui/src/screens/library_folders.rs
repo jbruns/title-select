@@ -1,36 +1,47 @@
-use std::collections::{BTreeMap, VecDeque};
-use std::sync::Arc;
+//! The Libraries pages: every Library Folder, with its status and quick actions; a new folder, from its Source Set
+//! or one of its Selections; and a folder's page, in tabs. A folder's latest plan shows in its Plan tab through
+//! `library_plan`.
+
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
-use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
-use leptos_struct_table::ColumnSort;
+use leptos_router::components::{A, Outlet};
+use leptos_router::hooks::{use_params_map, use_query_map};
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{
-    AddLibraryFolder, ApprovePlan, BlockerKind, BuildDetail, BuildItem, BuildSummary, BuiltFile,
-    ChangeLibraryFolder, Cleanup, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemKind,
-    KeepReason, KeptDeletion, KeptFile, LibraryFolder, Plan, PlanBuild, PlanChoices, PlanCleanup,
-    PlanItem, PlanKeptDeletion, PlanSummary, RETENTION,
+    AddLibraryFolder, ApprovePlan, BuildDetail, BuildItem, BuildSummary, BuiltFile,
+    ChangeLibraryFolder, CleanupAction, FileOutcome, FolderCheck, Incomplete, KeptDeletion,
+    KeptFile, LibraryFolder, Plan, PlanBuild, PlanChoices, PlanCleanup, PlanKeptDeletion,
+    RETENTION,
 };
 use title_select_api::{
-    Dat, Job, JobKind, PathTemplateDefaults, ProfileRecord, Root, SelectionRecord, SourceSetRecord,
+    Dat, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root, SelectionRecord,
+    SourceSetRecord, StartSelection,
 };
 
 use crate::api;
 use crate::app::{Loading, Problem, navigator};
 use crate::build_model::{
-    blocker_label, build_state_label, by_kind, cause_label, cleanup_action_label, cleanup_actions,
-    drift_kind_label, file_outcome_label, folders_for, group_href, incomplete_counts,
-    incomplete_reason_label, item_kind_label, item_kind_note, item_state_label, keep_reason_label,
-    removal_kind_label, restore_kind_label, unfinished_label, with_adopt, with_keep_aside,
+    build_state_label, cleanup_action_label, cleanup_actions, drift_kind_label, file_outcome_label,
+    folders_for, incomplete_counts, incomplete_reason_label, item_kind_label, item_state_label,
+    keep_reason_label, unfinished_label,
 };
 use crate::events::use_live;
-use crate::model::{age, earlier, short_sha, when};
+use crate::library_model::{FolderTab, Pick, drifted, pick, stale_label, status};
+use crate::model::{age, earlier, when};
+use crate::parts::icon::{Glyph, LabelledIcon, Svg};
+use crate::parts::legend::{Legend, present};
+use crate::parts::list::{
+    Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
+};
+use crate::parts::pending::{ActionPending, Pending, action_problem};
+use crate::parts::status::{BuildKind, Status, StatusBadge, StatusIcon};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::progress_view;
-use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
+use crate::screens::library_plan::PlanReview;
 
 fn folder_href(id: i64) -> String {
     format!("/libraries/{id}")
@@ -96,153 +107,485 @@ fn last_checked(folder: &LibraryFolder, full: bool) -> AnyView {
     .into_any()
 }
 
-/// The folder's badges: incomplete, with its counts by reason, and a build that stopped before it finished.
-fn badges(folder: &LibraryFolder) -> AnyView {
-    let incomplete = folder.incomplete.as_ref().map(|counts| {
-        let text = format!("Incomplete: {}", incomplete_counts(counts));
-        view! { <span class="state review">{text}</span> " " }
-    });
-    let unfinished = folder.unfinished.as_ref().map(|u| {
-        let text = unfinished_label(u);
-        view! { <span class="state review">{text}</span> }
-    });
-    view! { {incomplete} {unfinished} }.into_any()
+fn tab_href(id: i64, tab: FolderTab) -> String {
+    format!("/libraries/{id}?tab={}", tab.key())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+fn set_href(name: &str) -> String {
+    format!("/source-sets/{}", api::segment(name))
+}
+
+/// Why the folder has its status, beyond its status alone: one line each.
+fn reasons(folder: &LibraryFolder) -> AnyView {
+    let mut lines: Vec<String> = Vec::new();
+    if folder.plan_open {
+        lines.push("A plan waits on your approval.".into());
+    }
+    if drifted(folder) {
+        lines.push("Its latest check found files that differ from its build.".into());
+    }
+    if let Some(counts) = &folder.incomplete {
+        lines.push(format!("Incomplete: {}.", incomplete_counts(counts)));
+    }
+    if let Some(u) = &folder.unfinished {
+        lines.push(format!("{}.", unfinished_label(u)));
+    }
+    lines.extend(folder.stale.iter().map(stale_label));
+    if lines.is_empty() {
+        return ().into_any();
+    }
+    view! {
+        <ul class="plain reasons">
+            {lines.into_iter().map(|l| view! { <li>{l}</li> }).collect_view()}
+        </ul>
+    }
+    .into_any()
+}
+
+/// A trail of links to the pages above this one.
+#[component]
+fn Crumbs(trail: Vec<(String, String)>, #[prop(into)] here: String) -> impl IntoView {
+    view! {
+        <nav class="crumbs" aria-label="Breadcrumb">
+            <ol>
+                {trail
+                    .into_iter()
+                    .map(|(href, label)| {
+                        view! {
+                            <li>
+                                <A href=href>{label}</A>
+                                <Svg glyph=Glyph::ChevronRight />
+                            </li>
+                        }
+                    })
+                    .collect_view()}
+                <li aria-current="page">{here}</li>
+            </ol>
+        </nav>
+    }
+}
+
+/// A request to plan a build of a folder: of `selection`, or else of the newest fresh selection, made first when there
+/// is none.
+#[derive(Debug, Clone)]
+struct MakePlan {
+    folder: i64,
+    selection: Option<i64>,
+    choices: PlanChoices,
+}
+
+/// Makes build plans for the Libraries pages, so that a plan started from the list or a new folder shows as under way
+/// in the folder's Plan tab.
+#[derive(Clone, Copy)]
+pub(crate) struct Planner {
+    action: Action<MakePlan, Result<Plan, String>>,
+    status: RwSignal<String>,
+    folder: RwSignal<Option<i64>>,
+}
+
+impl Planner {
+    fn new() -> Self {
+        let status = RwSignal::new(String::new());
+        let action = Action::new_local(move |request: &MakePlan| {
+            let request = request.clone();
+            async move { make_plan(request, status).await }
+        });
+        Planner {
+            action,
+            status,
+            folder: RwSignal::new(None),
+        }
+    }
+
+    fn start(self, folder: i64, selection: Option<i64>, choices: PlanChoices) {
+        self.folder.set(Some(folder));
+        self.status.set("Making plan…".into());
+        self.action.dispatch(MakePlan {
+            folder,
+            selection,
+            choices,
+        });
+    }
+
+    fn pending(self, folder: i64) -> Signal<bool> {
+        Signal::derive(move || self.action.pending().get() && self.folder.get() == Some(folder))
+    }
+
+    fn problem(self, folder: i64) -> Signal<Option<String>> {
+        let problem = action_problem(self.action);
+        Signal::derive(move || {
+            if self.folder.get() == Some(folder) {
+                problem.get()
+            } else {
+                None
+            }
+        })
+    }
+}
+
+/// Provides the `Planner` for the whole workbench, so that a plan under way outlives the page that started it.
+pub fn provide_planner() {
+    provide_context(Planner::new());
+}
+
+fn use_planner() -> Planner {
+    expect_context::<Planner>()
+}
+
+async fn make_plan(request: MakePlan, status: RwSignal<String>) -> Result<Plan, String> {
+    let selection = match request.selection {
+        Some(selection) => selection,
+        None => {
+            status.set("Finding a selection…".into());
+            let folder: LibraryFolder = api::get(&format!("/libraries/{}", request.folder)).await?;
+            fresh_selection(&folder, status).await?
+        }
+    };
+    status.set("Making plan…".into());
+    let body = PlanBuild {
+        selection,
+        choices: request.choices,
+    };
+    api::post(&format!("/libraries/{}/plans", request.folder), &body).await
+}
+
+/// The folder's newest fresh selection, made now when there is none; the newest older one when making one fails.
+async fn fresh_selection(folder: &LibraryFolder, status: RwSignal<String>) -> Result<i64, String> {
+    let set = api::segment(&folder.source_set);
+    let selections: Vec<SelectionRecord> =
+        api::get(&format!("/selections?source_set={set}")).await?;
+    let record: SourceSetRecord = api::get(&format!("/source-sets/{set}")).await?;
+    let verified = record
+        .last_verified_against
+        .as_ref()
+        .map(|v| v.sha256.as_str());
+    let older = match pick(&selections, folder, verified) {
+        Pick::Fresh(id) => return Ok(id),
+        Pick::Older(id) => Some(id),
+        Pick::None => None,
+    };
+    status.set("Making selection…".into());
+    let start = StartSelection {
+        source_set: folder.source_set.clone(),
+        revision: None,
+        profile: folder.profile.clone(),
+        version: None,
+    };
+    let made = match api::post::<_, Job>("/selections", &start).await {
+        Ok(job) => follow(job.id).await,
+        Err(message) => Err(message),
+    };
+    match (made, older) {
+        (Ok(id), _) | (Err(_), Some(id)) => Ok(id),
+        (Err(message), None) => Err(message),
+    }
+}
+
+/// The selection a selection job made, once it ends.
+async fn follow(job: i64) -> Result<i64, String> {
+    loop {
+        sleep(1000).await;
+        let j: Job = api::get(&format!("/jobs/{job}")).await?;
+        if j.state.is_final() {
+            return match (j.state, j.selection) {
+                (JobState::Succeeded, Some(id)) => Ok(id),
+                _ => Err(j.error.unwrap_or_else(|| {
+                    format!("Selection job #{job} ended {}.", j.state.as_str())
+                })),
+            };
+        }
+    }
+}
+
+async fn sleep(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        if let Some(window) = web_sys::window() {
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+/// Starts a check of the folder, and says how that went in `said`.
+fn check(folder: i64, what: String, said: RwSignal<Option<Result<String, String>>>) {
+    leptos::task::spawn_local(async move {
+        let started = api::post::<_, Job>(&format!("/libraries/{folder}/checks"), &()).await;
+        said.set(Some(match started {
+            Ok(job) => Ok(format!("Checking {what}: job #{}.", job.id)),
+            Err(message) => Err(format!("Couldn't check {what}: {message}")),
+        }));
+    });
+}
+
+fn said_view(said: RwSignal<Option<Result<String, String>>>) -> impl IntoView {
+    move || {
+        said.get().map(|said| match said {
+            Ok(text) => view! { <p class="done" role="status">{text}</p> }.into_any(),
+            Err(message) => view! { <Problem message /> }.into_any(),
+        })
+    }
+}
+
+/// The Libraries pages share one clock.
+#[component]
+pub fn LibrariesPages() -> impl IntoView {
+    provide_now();
+    view! { <Outlet /> }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FolderCol {
-    Location,
-    System,
+    Status,
+    Library,
     SourceSet,
     Profile,
     Build,
-    Checked,
     Files,
-    Status,
 }
 
 #[derive(Clone, PartialEq)]
-struct FolderItem(LibraryFolder);
+struct FolderRow(LibraryFolder);
 
-impl Grid for FolderItem {
+impl ListRow for FolderRow {
     type Col = FolderCol;
     const COLUMNS: &'static [FolderCol] = &[
-        FolderCol::Location,
-        FolderCol::System,
+        FolderCol::Status,
+        FolderCol::Library,
         FolderCol::SourceSet,
         FolderCol::Profile,
         FolderCol::Build,
-        FolderCol::Checked,
         FolderCol::Files,
-        FolderCol::Status,
     ];
 
-    fn header(col: FolderCol) -> &'static str {
+    fn column(col: FolderCol) -> Column {
         match col {
-            FolderCol::Location => "Root and path",
-            FolderCol::System => "System",
-            FolderCol::SourceSet => "Source set",
-            FolderCol::Profile => "Selection profile",
-            FolderCol::Build => "Current build",
-            FolderCol::Checked => "Last checked",
-            FolderCol::Files => "Files",
-            FolderCol::Status => "Status",
+            FolderCol::Status => Column::new("status", "Status", Width::Fixed(4.0))
+                .sortable()
+                .hint("Where the folder stands"),
+            FolderCol::Library => Column::new(
+                "library",
+                "Library folder",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            FolderCol::SourceSet => Column::new(
+                "source-set",
+                "Source set",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            FolderCol::Profile => {
+                Column::new("profile", "Profile", Width::Flex { min: 8.0, share: 1 }).sortable()
+            }
+            FolderCol::Build => Column::new("build", "Build", Width::Fixed(6.0))
+                .sortable()
+                .hint("Its current build"),
+            FolderCol::Files => Column::new("files", "Files", Width::Fixed(5.0))
+                .sortable()
+                .numeric(),
         }
     }
 
-    fn class(col: FolderCol) -> &'static str {
-        match col {
-            FolderCol::Location => "c-wide data",
-            FolderCol::Files => "c-num",
-            _ => "c-wide",
-        }
+    fn key(&self) -> String {
+        self.0.id.to_string()
     }
 
-    fn sortable(col: FolderCol) -> bool {
-        matches!(
-            col,
-            FolderCol::Location | FolderCol::System | FolderCol::SourceSet
+    fn title(&self) -> String {
+        location(&self.0)
+    }
+
+    fn search(&self) -> String {
+        let f = &self.0;
+        format!(
+            "{} {} {} {}",
+            location(f),
+            f.system,
+            f.source_set,
+            f.profile
         )
     }
 
     fn cell(&self, col: FolderCol) -> AnyView {
         let f = &self.0;
         match col {
-            FolderCol::Location => {
-                let (href, text) = (folder_href(f.id), location(f));
-                view! { <A href=href>{text}</A> }.into_any()
+            FolderCol::Status => {
+                view! { <StatusIcon status=status(f) tab_stop=false /> }.into_any()
             }
-            FolderCol::System => f.system.clone().into_any(),
-            FolderCol::SourceSet => f.source_set.clone().into_any(),
-            FolderCol::Profile => f.profile.clone().into_any(),
-            FolderCol::Build => current_build(&f.build),
-            FolderCol::Checked => last_checked(f, false),
+            FolderCol::Library => view! { <Clip text=location(f) /> }.into_any(),
+            FolderCol::SourceSet => view! { <Clip text=f.source_set.clone() /> }.into_any(),
+            FolderCol::Profile => view! { <Clip text=f.profile.clone() /> }.into_any(),
+            FolderCol::Build => match &f.build {
+                Some(b) => format!("#{}", b.id).into_any(),
+                None => "".into_any(),
+            },
             FolderCol::Files => f.files.to_string().into_any(),
-            FolderCol::Status => badges(f),
         }
+    }
+
+    fn compare(&self, other: &Self, col: FolderCol) -> Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            FolderCol::Status => status(a).rank().cmp(&status(b).rank()),
+            FolderCol::Library => location(a).cmp(&location(b)),
+            FolderCol::SourceSet => a.source_set.cmp(&b.source_set),
+            FolderCol::Profile => a.profile.cmp(&b.profile),
+            FolderCol::Build => a
+                .build
+                .as_ref()
+                .map(|b| b.id)
+                .cmp(&b.build.as_ref().map(|b| b.id)),
+            FolderCol::Files => a.files.cmp(&b.files),
+        }
+    }
+
+    fn href(&self) -> Option<String> {
+        Some(folder_href(self.0.id))
     }
 }
 
-/// The library folders, and the form to register another.
+/// What the folder is bound to and where it stands.
+fn folder_facts(f: &LibraryFolder) -> AnyView {
+    let writable = if f.writable {
+        ", writable"
+    } else {
+        ", not writable now"
+    };
+    let checked = last_checked(f, true);
+    let (set, profile) = (f.source_set.clone(), f.profile.clone());
+    let profile_href = format!("/profiles/{}", api::segment(&profile));
+    view! {
+        <dl class="facts">
+            <dt>"System"</dt>
+            <dd>{f.system.clone()}</dd>
+            <dt>"Source set"</dt>
+            <dd>
+                <A href=set_href(&set)>{set.clone()}</A>
+            </dd>
+            <dt>"Selection profile"</dt>
+            <dd>
+                <A href=profile_href>{profile}</A>
+            </dd>
+            <dt>"Root"</dt>
+            <dd>
+                {f.root.clone()}
+                {writable}
+            </dd>
+            <dt>"Current build"</dt>
+            <dd>{current_build(&f.build)}</dd>
+            <dt>"Last checked"</dt>
+            <dd>{checked}</dd>
+            <dt>"Files"</dt>
+            <dd>{f.files}</dd>
+        </dl>
+    }
+    .into_any()
+}
+
+fn folder_detail(row: FolderRow) -> AnyView {
+    let f = row.0;
+    view! {
+        <p>
+            <StatusBadge status=status(&f) />
+        </p>
+        {reasons(&f)}
+        {folder_facts(&f)}
+    }
+    .into_any()
+}
+
+/// Every library folder, with its status and its quick actions.
 #[component]
 pub fn Libraries() -> impl IntoView {
-    provide_now();
     let live = use_live();
+    let planner = use_planner();
     let folders = LocalResource::new(move || {
         live.settled.track();
+        planner.action.version().track();
         api::get::<Vec<LibraryFolder>>("/libraries")
     });
-    let sorting = RwSignal::new(VecDeque::<(FolderCol, ColumnSort)>::new());
-    let selected = RwSignal::new(None::<usize>);
-    let shown = Memo::new(move |_| {
-        let mut items: Vec<FolderItem> = folders
+    let rows = last_good_rows(move || {
+        folders
             .get()
-            .and_then(Result::ok)
-            .unwrap_or_default()
-            .into_iter()
-            .map(FolderItem)
-            .collect();
-        if let Some(sort) = sorting.with(sort_of) {
-            items.sort_by(|a, b| {
-                let ord = match sort.column {
-                    FolderCol::System => a.0.system.cmp(&b.0.system),
-                    FolderCol::SourceSet => a.0.source_set.cmp(&b.0.source_set),
-                    _ => location(&a.0).cmp(&location(&b.0)),
-                };
-                if sort.descending { ord.reverse() } else { ord }
-            });
-        }
-        Arc::new(items)
+            .map(|r| r.map(|f| f.into_iter().map(FolderRow).collect::<Vec<_>>()))
     });
-    let rows = Signal::derive(move || rows_of(shown.get().as_ref().clone()) as Rows<FolderItem>);
+    let statuses = Signal::derive(move || present(rows.get().iter().map(|r| status(&r.0))));
+    let said = RwSignal::new(None::<Result<String, String>>);
     let go = navigator();
+    let actions = vec![
+        ToolAction::page(Glyph::Plus, "New library folder", move || {
+            go.run("/libraries/new".to_string())
+        }),
+        ToolAction::checked(
+            Glyph::FileCheck,
+            "Check",
+            move |chosen: Selected<FolderRow>| {
+                for row in chosen.rows {
+                    check(row.0.id, location(&row.0), said);
+                }
+            },
+        ),
+    ];
+    let row_actions = Callback::new(move |row: FolderRow| {
+        let (id, what) = (row.0.id, location(&row.0));
+        vec![
+            RowAction::run(Glyph::FileCheck, "Check", move || {
+                check(id, what.clone(), said)
+            }),
+            RowAction::run(Glyph::ClipboardList, "Plan build", move || {
+                planner.start(id, None, PlanChoices::default());
+                go.run(tab_href(id, FolderTab::Plan));
+            }),
+        ]
+    });
 
     view! {
         <h1>"Libraries"</h1>
-        <p class="lede">
-            "A library folder is a folder in a writable root that you build a source set's selections into, \
-            for your front end to play from. Open one to plan a build, review it and approve it."
-        </p>
+        <p class="lede">"Folders you build a source set's selections into, for your front end to play from."</p>
         {move || match folders.get() {
             None => view! { <Loading what="the library folders" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
-        <DataTable
+        {said_view(said)}
+        <List
             id="libraries"
-            label="Libraries".to_string()
+            label="Library folders"
             rows
-            sorting
-            selected
-            on_open=Callback::new(move |item: FolderItem| go.run(folder_href(item.0.id)))
-            empty="No library folders yet. Register one in a writable root below.".to_string()
+            empty="No library folders yet. Choose New library folder to make one."
+            placeholder="Filter by folder, system, source set or profile"
+            actions
+            row_actions
+            quick=2
+            detail=Callback::new(folder_detail)
+            legend=move || view! { <Legend statuses list="libraries" /> }
         />
-        <RegisterFolder on_added=Callback::new(move |id: i64| go.run(folder_href(id))) />
     }
 }
 
+/// A new library folder: of a source set, or of one of its selections, with a profile and a writable root you pick and
+/// the path the template proposes. Once made, its first build plan is made.
 #[component]
-fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
+pub fn NewLibraryFolder() -> impl IntoView {
+    let query = use_query_map();
+    let from_set = query.with_untracked(|q| q.get("source_set"));
+    let from_selection =
+        query.with_untracked(|q| q.get("selection").and_then(|s| s.parse::<i64>().ok()));
+    let planner = use_planner();
+    let go = navigator();
+    let chosen = LocalResource::new(move || async move {
+        match from_selection {
+            Some(id) => api::get::<SelectionRecord>(&format!("/selections/{id}"))
+                .await
+                .map(Some),
+            None => Ok(None),
+        }
+    });
     let roots = LocalResource::new(|| api::get::<Vec<Root>>("/roots"));
     let sets = LocalResource::new(|| api::get::<Vec<SourceSetRecord>>("/source-sets"));
     let dats = LocalResource::new(|| api::get::<Vec<Dat>>("/dats"));
@@ -254,9 +597,10 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
             .and_then(Result::ok)
             .unwrap_or_default()
             .into_iter()
-            .filter(|r| r.writable)
+            .filter(|r| r.writable && !r.ingest)
             .collect::<Vec<_>>()
     };
+    let existing = LocalResource::new(|| api::get::<Vec<LibraryFolder>>("/libraries"));
     let saved = move || {
         profiles
             .get()
@@ -266,13 +610,13 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
             .filter(|p| p.latest.is_some())
             .collect::<Vec<_>>()
     };
+    let fixed = from_set.is_some() || from_selection.is_some();
     let root = RwSignal::new(String::new());
-    let set = RwSignal::new(String::new());
+    let set = RwSignal::new(from_set.clone().unwrap_or_default());
     let profile = RwSignal::new(String::new());
     let template = RwSignal::new(None::<String>);
     let typed = RwSignal::new(None::<String>);
     let problem = RwSignal::new(None::<String>);
-    let busy = RwSignal::new(false);
 
     let proposal = Memo::new(move |_| {
         let Some(template) = template.get() else {
@@ -304,11 +648,27 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
         }
     };
 
+    // The root your library folders are already in, else the first writable one.
     Effect::new(move || {
+        let Some(Ok(folders)) = existing.get() else {
+            return;
+        };
+        let roots = writable();
         if root.get_untracked().is_empty()
-            && let Some(first) = writable().into_iter().next()
+            && let Some(first) = roots.iter().max_by_key(|r| {
+                (
+                    folders.iter().filter(|f| f.root == r.name).count(),
+                    std::cmp::Reverse(r.name.clone()),
+                )
+            })
         {
-            root.set(first.name);
+            root.set(first.name.clone());
+        }
+    });
+    Effect::new(move || {
+        if let Some(Ok(Some(selection))) = chosen.get() {
+            set.set(selection.source_set);
+            profile.set(selection.profile.name);
         }
     });
     Effect::new(move || {
@@ -321,6 +681,7 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
     });
     Effect::new(move || {
         if profile.get_untracked().is_empty()
+            && from_selection.is_none()
             && let Some(first) = saved().into_iter().next()
         {
             profile.set(first.name);
@@ -334,6 +695,16 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
         }
     });
 
+    let create = Action::new_local(move |request: &AddLibraryFolder| {
+        let request = request.clone();
+        async move { api::post::<_, LibraryFolder>("/libraries", &request).await }
+    });
+    Effect::new(move || {
+        if let Some(Ok(folder)) = create.value().get() {
+            planner.start(folder.id, from_selection, PlanChoices::default());
+            go.run(tab_href(folder.id, FolderTab::Plan));
+        }
+    });
     let submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let chosen = path.get_untracked();
@@ -343,88 +714,102 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
             ));
             return;
         }
-        let request = AddLibraryFolder {
+        problem.set(None);
+        create.dispatch(AddLibraryFolder {
             root: root.get_untracked(),
             path: Some(chosen),
             template: None,
             source_set: set.get_untracked(),
             profile: profile.get_untracked(),
-        };
-        busy.set(true);
-        leptos::task::spawn_local(async move {
-            let added = api::post::<_, LibraryFolder>("/libraries", &request).await;
-            busy.set(false);
-            match added {
-                Ok(folder) => on_added.run(folder.id),
-                Err(message) => problem.set(Some(message)),
-            }
         });
     };
 
+    let trail = match &from_set {
+        Some(name) => vec![
+            ("/source-sets".to_string(), "Source sets".to_string()),
+            (set_href(name), name.clone()),
+        ],
+        None => vec![("/libraries".to_string(), "Libraries".to_string())],
+    };
     view! {
-        <section aria-labelledby="register-title">
-            <h2 id="register-title">"Register a library folder"</h2>
-            {move || match roots.get() {
-                Some(Ok(_)) if writable().is_empty() => view! {
-                    <p class="note">
-                        "None of your roots is writable. To build into your front end's folders, add a root \
-                        for them with "<code>"writable = true"</code>" to your configuration."
-                    </p>
-                }
-                .into_any(),
-                _ => ().into_any(),
-            }}
+        <Crumbs trail here="New library folder" />
+        <h1>"New library folder"</h1>
+        {move || match roots.get() {
+            Some(Ok(_)) if writable().is_empty() => view! {
+                <p class="note">
+                    "None of your roots is writable. To build into your front end's folders, add a root for them \
+                    with "<code>"writable = true"</code>" to your configuration."
+                </p>
+            }
+            .into_any(),
+            _ => ().into_any(),
+        }}
+        {move || match chosen.get() {
+            Some(Err(message)) => view! { <Problem message /> }.into_any(),
+            Some(Ok(Some(s))) => view! {
+                <p class="note">
+                    "It builds selection "
+                    <A href=format!("/selections/{}", s.id)>{format!("#{}", s.id)}</A>
+                    {format!(" of {}, with {} version {}.", s.source_set, s.profile.name, s.profile.version)}
+                </p>
+            }
+            .into_any(),
+            _ => ().into_any(),
+        }}
+        <ActionPending action=create status="Making the folder…">
             <form class="form" on:submit=submit>
+                {(!fixed).then(|| view! {
+                    <label>
+                        "Source set"
+                        <select required prop:value=set on:change=move |ev| set.set(event_target_value(&ev))>
+                            {move || {
+                                sets.get()
+                                    .and_then(Result::ok)
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .map(|s| {
+                                        let label = format!("{} ({})", s.name, s.dat);
+                                        view! { <option value=s.name>{label}</option> }
+                                    })
+                                    .collect_view()
+                            }}
+                        </select>
+                    </label>
+                })}
+                {fixed.then(|| view! {
+                    <p class="field">"Source set " <strong>{move || set.get()}</strong></p>
+                })}
+                <label>
+                    "Selection profile"
+                    <select
+                        required
+                        disabled=from_selection.is_some()
+                        prop:value=profile
+                        on:change=move |ev| profile.set(event_target_value(&ev))
+                    >
+                        {move || {
+                            let mut names: Vec<String> = saved().into_iter().map(|p| p.name).collect();
+                            let current = profile.get();
+                            if !current.is_empty() && !names.contains(&current) {
+                                names.push(current);
+                            }
+                            names
+                                .into_iter()
+                                .map(|n| view! { <option value=n.clone()>{n.clone()}</option> })
+                                .collect_view()
+                        }}
+                    </select>
+                </label>
                 <label>
                     "Writable root"
                     <select required prop:value=root on:change=move |ev| root.set(event_target_value(&ev))>
                         {move || {
                             writable()
                                 .into_iter()
-                                .map(|r| {
-                                    let label = format!("{} ({})", r.name, r.path);
-                                    view! { <option value=r.name>{label}</option> }
-                                })
+                                .map(|r| view! { <option value=r.name.clone()>{r.name.clone()}</option> })
                                 .collect_view()
                         }}
                     </select>
-                </label>
-                <label>
-                    "Source set"
-                    <select required prop:value=set on:change=move |ev| set.set(event_target_value(&ev))>
-                        {move || {
-                            sets.get()
-                                .and_then(Result::ok)
-                                .unwrap_or_default()
-                                .into_iter()
-                                .map(|s| {
-                                    let label = format!("{} ({})", s.name, s.dat);
-                                    view! { <option value=s.name>{label}</option> }
-                                })
-                                .collect_view()
-                        }}
-                    </select>
-                </label>
-                <label>
-                    "Selection profile"
-                    <select required prop:value=profile on:change=move |ev| profile.set(event_target_value(&ev))>
-                        {move || {
-                            saved()
-                                .into_iter()
-                                .map(|p| view! { <option value=p.name.clone()>{p.name.clone()}</option> })
-                                .collect_view()
-                        }}
-                    </select>
-                </label>
-                <label>
-                    "Path template"
-                    <input
-                        type="text"
-                        class="data"
-                        title="Tokens: {provider}, {dat} and {platform}"
-                        prop:value=move || template.get().unwrap_or_default()
-                        on:input=move |ev| template.set(Some(event_target_value(&ev)))
-                    />
                 </label>
                 <label>
                     "Path in the root"
@@ -449,48 +834,77 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
                 <button
                     type="submit"
                     class="primary"
-                    disabled=move || busy.get() || root.with(String::is_empty) || profile.with(String::is_empty)
+                    disabled=move || {
+                        create.pending().get() || root.with(String::is_empty) || profile.with(String::is_empty)
+                            || set.with(String::is_empty)
+                    }
                 >
-                    "Register"
+                    "Create and plan a build"
                 </button>
             </form>
-            <p class="note" aria-live="polite">
-                {move || match preview() {
-                    Ok(folder) => view! { "Registers " <code>{folder}</code> }.into_any(),
-                    Err(reason) => reason.into_any(),
-                }}
-            </p>
+        </ActionPending>
+        <p class="note" aria-live="polite">
+            {move || match preview() {
+                Ok(folder) => view! { "Creates " <code>{folder}</code> }.into_any(),
+                Err(reason) => reason.into_any(),
+            }}
+        </p>
+        {move || {
+            (profiles.get().is_some_and(|p| p.is_ok()) && saved().is_empty() && from_selection.is_none())
+                .then(|| view! {
+                    <p class="note">
+                        "None of your selection profiles is saved yet. "
+                        <A href="/profiles">"Save one"</A>
+                        " to build with it."
+                    </p>
+                })
+        }}
+        <details class="help">
+            <summary>"About the path"</summary>
             <p class="note small">
-                "The folder must be empty or missing; registering it creates it with a marker file that ties it \
-                to this store. {platform} is the front end's folder name for the system. Several library folders \
-                may hold the same system, each with its own selection profile."
+                "The path template proposes the path; you can type over it. The folder must be empty or missing: \
+                making it creates it with a marker file that ties it to this store. Several library folders may \
+                hold the same system, each with its own selection profile."
             </p>
-            {move || problem.get().map(|message| view! { <Problem message /> })}
-        </section>
+            <label>
+                "Path template"
+                <input
+                    type="text"
+                    class="data"
+                    title="Tokens: {provider}, {dat} and {platform}"
+                    prop:value=move || template.get().unwrap_or_default()
+                    on:input=move |ev| template.set(Some(event_target_value(&ev)))
+                />
+            </label>
+        </details>
+        {move || problem.get().map(|message| view! { <Problem message /> })}
     }
 }
 
-/// One library folder: what it is bound to, its latest plan, its builds and its files.
+/// One library folder's page, in tabs.
 #[component]
 pub fn LibraryFolderScreen() -> impl IntoView {
-    provide_now();
     let params = use_params_map();
+    let query = use_query_map();
     let id = move || {
         params
             .read()
             .get("id")
             .and_then(|id| id.parse::<i64>().ok())
     };
+    let tab = Memo::new(move |_| query.with(|q| FolderTab::parse(q.get("tab").as_deref())));
     let live = use_live();
+    let planner = use_planner();
     let refresh = RwSignal::new(0u64);
     let folder = LocalResource::new(move || {
         live.settled.track();
         refresh.track();
+        planner.action.version().track();
         let id = id();
         async move {
             match id {
                 Some(id) => api::get::<LibraryFolder>(&format!("/libraries/{id}")).await,
-                None => Err("That is not a library folder number.".into()),
+                None => Err("That isn't a library folder number.".into()),
             }
         }
     });
@@ -501,65 +915,134 @@ pub fn LibraryFolderScreen() -> impl IntoView {
             <Problem message />
         }
         .into_any(),
-        Some(Ok(folder)) => view! { <FolderView folder refresh /> }.into_any(),
+        Some(Ok(folder)) => view! { <FolderPage folder tab refresh /> }.into_any(),
     }
 }
 
 #[component]
-fn FolderView(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
+fn FolderPage(
+    folder: LibraryFolder,
+    tab: Memo<FolderTab>,
+    refresh: RwSignal<u64>,
+) -> impl IntoView {
     let id = folder.id;
-    let set_href = format!("/source-sets/{}", api::segment(&folder.source_set));
-    let profile_href = format!("/profiles/{}", api::segment(&folder.profile));
-    let active_job = folder.active_job;
-    let (title, system, source_set, profile) = (
-        format!("Library folder {}", location(&folder)),
-        folder.system.clone(),
-        folder.source_set.clone(),
-        folder.profile.clone(),
-    );
+    let planner = use_planner();
+    let go = navigator();
+    let busy = folder.active_job.is_some();
+    let title = location(&folder);
+    let said = RwSignal::new(None::<Result<String, String>>);
+    let what = title.clone();
+    let start_check = move |_| check(id, what.clone(), said);
+    let plan = move |_| {
+        planner.start(id, None, PlanChoices::default());
+        go.run(tab_href(id, FolderTab::Plan));
+    };
+    let planning = planner.pending(id);
+    let trail = vec![
+        ("/source-sets".to_string(), "Source sets".to_string()),
+        (set_href(&folder.source_set), folder.source_set.clone()),
+    ];
+    let latest = folder.latest_plan;
+    let current = status(&folder);
+    let folder = StoredValue::new(folder);
     view! {
-        <h1>{title}</h1>
-        <p>{badges(&folder)}</p>
-        <dl class="facts">
-            <dt>"System"</dt>
-            <dd>{system}</dd>
-            <dt>"Source set"</dt>
-            <dd>
-                <A href=set_href>{source_set}</A>
-            </dd>
-            <dt>"Selection profile"</dt>
-            <dd>
-                <A href=profile_href>{profile}</A>
-            </dd>
-            <dt>"Root"</dt>
-            <dd>
-                {folder.root.clone()}
-                {if folder.writable { ", writable" } else { ", not writable now" }}
-            </dd>
-            <dt>"Generation"</dt>
-            <dd>{folder.generation}</dd>
-            <dt>"Current build"</dt>
-            <dd>{current_build(&folder.build)}</dd>
-            <dt>"Last checked"</dt>
-            <dd>{last_checked(&folder, true)}</dd>
-            <dt>"Files"</dt>
-            <dd>{folder.files}</dd>
-            <dt>"Registered"</dt>
-            <dd>{when(&folder.created_at)}</dd>
-        </dl>
-        {active_job.map(|job| view! { <BuildProgress job /> })}
-        {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id /> })}
-        <CheckPanel folder=id busy=active_job.is_some() refresh />
-        <CleanupForm folder=id source_set=folder.source_set.clone() busy=active_job.is_some() refresh />
-        <PlanForm folder=folder.clone() refresh />
-        {folder.latest_plan.map(|plan| view! { <PlanPanel plan refresh /> })}
-        <ChangeBinding folder=folder.clone() refresh />
-        <Builds folder=id />
-        <BuiltFiles folder=id />
-        <KeptFiles folder=id busy=active_job.is_some() refresh />
+        <Crumbs trail here=title.clone() />
+        <header class="page-head">
+            <div class="page-title">
+                <h1>{title}</h1>
+                <StatusBadge status=current />
+            </div>
+            <div class="page-actions">
+                <button type="button" disabled=busy on:click=start_check>
+                    <LabelledIcon glyph=Glyph::FileCheck label="Check" />
+                </button>
+                <button type="button" class="primary" disabled=move || busy || planning.get() on:click=plan>
+                    <LabelledIcon glyph=Glyph::ClipboardList label="Plan build" />
+                </button>
+            </div>
+        </header>
+        {said_view(said)}
+        <nav class="tabs" aria-label="Library folder">
+            {FolderTab::ALL
+                .into_iter()
+                .map(|t| {
+                    view! {
+                        <a href=tab_href(id, t) aria-current=move || (tab.get() == t).then_some("page")>
+                            {t.label()}
+                        </a>
+                    }
+                })
+                .collect_view()}
+        </nav>
+        {move || match tab.get() {
+            FolderTab::Overview => view! { <Overview folder=folder.get_value() /> }.into_any(),
+            FolderTab::Selection => view! {
+                <SelectionTab folder=folder.get_value() refresh />
+            }
+            .into_any(),
+            FolderTab::Plan => view! { <PlanTab folder=id latest refresh /> }.into_any(),
+            FolderTab::Builds => view! { <Builds folder=id /> }.into_any(),
+            FolderTab::Drift => {
+                let source_set = folder.with_value(|f| f.source_set.clone());
+                view! {
+                    <CheckPanel folder=id busy refresh />
+                    <CleanupForm folder=id source_set busy refresh />
+                }
+                .into_any()
+            }
+            FolderTab::Kept => view! { <KeptFiles folder=id busy refresh /> }.into_any(),
+        }}
     }
 }
 
+/// Where the folder stands, what it's bound to, and the files built into it.
+#[component]
+fn Overview(folder: LibraryFolder) -> impl IntoView {
+    let id = folder.id;
+    view! {
+        {folder.active_job.map(|job| view! { <BuildProgress job /> })}
+        {reasons(&folder)}
+        {folder_facts(&folder)}
+        {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id /> })}
+        <BuiltFiles folder=id />
+    }
+}
+
+/// The selection the folder's current build built, a plan of another, and what the folder is bound to.
+#[component]
+fn SelectionTab(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
+    let built = folder.build.as_ref().map(|b| b.selection);
+    view! {
+        <dl class="facts">
+            <dt>"Built from"</dt>
+            <dd>
+                {match built {
+                    Some(s) => view! { <A href=format!("/selections/{s}")>{format!("Selection #{s}")}</A> }.into_any(),
+                    None => "Never built".into_any(),
+                }}
+            </dd>
+        </dl>
+        <PlanForm folder=folder.clone() />
+        <ChangeBinding folder refresh />
+    }
+}
+
+/// The folder's latest plan, or the one being made for it.
+#[component]
+fn PlanTab(folder: i64, latest: Option<i64>, refresh: RwSignal<u64>) -> impl IntoView {
+    let planner = use_planner();
+    let replan = Callback::new(move |(selection, choices): (i64, PlanChoices)| {
+        planner.start(folder, Some(selection), choices)
+    });
+    view! {
+        <Pending pending=planner.pending(folder) status=planner.status problem=planner.problem(folder)>
+            {match latest {
+                Some(plan) => view! { <PlanReview plan replan refresh /> }.into_any(),
+                None => view! { <p class="note">"No plan yet. Choose Plan build to make one."</p> }.into_any(),
+            }}
+        </Pending>
+    }
+}
 /// What the folder lacks of its current build's selection, and why.
 #[component]
 fn IncompleteItems(folder: i64) -> impl IntoView {
@@ -776,10 +1259,19 @@ fn CleanupForm(
     let request = RwSignal::new(PlanCleanup::default());
     // What each entry you choose to add as an addition is added as, by name.
     let adding = RwSignal::new(BTreeMap::<String, RwSignal<NewAddition>>::new());
-    let problem = RwSignal::new(None::<String>);
-    let working = RwSignal::new(false);
+    let go = navigator();
+    let planning = Action::new_local(move |body: &PlanCleanup| {
+        let body = body.clone();
+        async move { api::post::<_, Plan>(&format!("/libraries/{folder}/cleanups"), &body).await }
+    });
+    Effect::new(move || {
+        if let Some(Ok(_)) = planning.value().get() {
+            request.set(PlanCleanup::default());
+            refresh.update(|n| *n += 1);
+            go.run(tab_href(folder, FolderTab::Plan));
+        }
+    });
     let plan = move |_| {
-        working.set(true);
         let mut body = request.get_untracked();
         body.additions = adding.with_untracked(|adding| {
             body.entries
@@ -788,19 +1280,7 @@ fn CleanupForm(
                 .filter_map(|(name, _)| adding.get(name).map(|a| (name.clone(), a.get_untracked())))
                 .collect()
         });
-        leptos::task::spawn_local(async move {
-            let planned =
-                api::post::<_, Plan>(&format!("/libraries/{folder}/cleanups"), &body).await;
-            working.set(false);
-            match planned {
-                Ok(_) => {
-                    problem.set(None);
-                    request.set(PlanCleanup::default());
-                    refresh.update(|n| *n += 1);
-                }
-                Err(message) => problem.set(Some(message)),
-            }
-        });
+        planning.dispatch(body);
     };
     let toggle = |list: &mut Vec<String>, name: &str| match list.iter().position(|x| x == name) {
         Some(at) => {
@@ -962,7 +1442,7 @@ fn CleanupForm(
                 <div class="form">
                     <button
                         type="button"
-                        disabled=move || busy || working.get() || request.with(PlanCleanup::is_empty)
+                        disabled=move || busy || planning.pending().get() || request.with(PlanCleanup::is_empty)
                         on:click=plan
                     >
                         "Plan the cleanup"
@@ -985,8 +1465,9 @@ fn CleanupForm(
                      you do not choose is left as it is, and nothing changes until you approve the plan."
                 )}
             </p>
-            {form}
-            {move || problem.get().map(|message| view! { <Problem message /> })}
+            <ActionPending action=planning status="Making the cleanup plan…">
+                {form}
+            </ActionPending>
         </section>
     }
 }
@@ -999,79 +1480,9 @@ fn cleanup_actions_all() -> [CleanupAction; 4] {
         CleanupAction::AddAddition,
     ]
 }
-
-/// What an approved cleanup does: each entry you chose, each kept file put back and each file repacked.
-fn cleanup_view(cleanup: &Cleanup) -> AnyView {
-    let chosen: Vec<_> = cleanup
-        .entries
-        .iter()
-        .filter_map(|e| e.action.map(|a| (a, e)))
-        .map(|(a, e)| {
-            let to = e
-                .target
-                .as_ref()
-                .filter(|t| **t != e.name)
-                .map(|t| view! { " as " <code>{t.clone()}</code> });
-            view! {
-                <li>
-                    <strong>{cleanup_action_label(a)}</strong>
-                    " "
-                    <code>{e.name.clone()}</code>
-                    {to}
-                </li>
-            }
-        })
-        .collect();
-    let left = cleanup
-        .entries
-        .iter()
-        .filter(|e| e.action.is_none())
-        .count();
-    view! {
-        <h3>"What the cleanup does"</h3>
-        <ul class="plain">
-            {chosen}
-            {cleanup
-                .restores
-                .iter()
-                .map(|r| view! {
-                    <li>
-                        <strong>{restore_kind_label(r.kind)}</strong>
-                        " "
-                        <code>{format!("{RETENTION}/{}/{}", r.kept.generation, r.kept.kept_name)}</code>
-                        " as "
-                        <code>{r.target.clone()}</code>
-                    </li>
-                })
-                .collect_view()}
-            {cleanup
-                .repacks
-                .iter()
-                .map(|r| view! {
-                    <li>
-                        <strong>"Repack as TorrentZip"</strong>
-                        " "
-                        <code>{r.target.clone()}</code>
-                        ", keeping the file as it is aside"
-                    </li>
-                })
-                .collect_view()}
-        </ul>
-        {(left > 0).then(|| view! {
-            <p class="note small">
-                {format!(
-                    "{left} other entries are left as they are. The plan holds the folder as it found it: if anything \
-                     in it changes before you approve, you are asked to plan again."
-                )}
-            </p>
-        })}
-    }
-    .into_any()
-}
-
 /// A job's progress on the folder, live, with a way to cancel a build while it runs.
 #[component]
-fn BuildProgress(job: i64) -> impl IntoView {
+pub(crate) fn BuildProgress(job: i64) -> impl IntoView {
     let live = use_live();
     let problem = RwSignal::new(None::<String>);
     let cancelling = RwSignal::new(false);
@@ -1133,7 +1544,7 @@ fn BuildProgress(job: i64) -> impl IntoView {
 
 /// Plans building one of the bound selection profile's selections of the source set.
 #[component]
-fn PlanForm(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
+fn PlanForm(folder: LibraryFolder) -> impl IntoView {
     let id = folder.id;
     let set = folder.source_set.clone();
     let selections = LocalResource::new(move || {
@@ -1158,31 +1569,20 @@ fn PlanForm(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
             chosen.set(first.id.to_string());
         }
     });
-    let problem = RwSignal::new(None::<String>);
-    let busy = RwSignal::new(false);
+    let planner = use_planner();
+    let busy = planner.pending(id);
+    let go = navigator();
     let submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let Ok(selection) = chosen.get_untracked().parse::<i64>() else {
             return;
         };
-        busy.set(true);
-        problem.set(None);
-        leptos::task::spawn_local(async move {
-            let planned = api::post::<_, Plan>(
-                &format!("/libraries/{id}/plans"),
-                &PlanBuild::new(selection),
-            )
-            .await;
-            busy.set(false);
-            match planned {
-                Ok(_) => refresh.update(|n| *n += 1),
-                Err(message) => problem.set(Some(message)),
-            }
-        });
+        planner.start(id, Some(selection), PlanChoices::default());
+        go.run(tab_href(id, FolderTab::Plan));
     };
     view! {
         <section aria-labelledby="plan-title">
-            <h2 id="plan-title">"Plan a build"</h2>
+            <h2 id="plan-title">"Plan a build of another selection"</h2>
             <p class="lede">
                 "A plan lists what a build would write into the folder from a selection and the source set's \
                 latest audit. Nothing is written until you approve it."
@@ -1216,527 +1616,16 @@ fn PlanForm(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
                                 }}
                             </select>
                         </label>
-                        <button type="submit" class="primary" disabled=move || busy.get() || chosen.with(String::is_empty)>
+                        <button type="submit" disabled=move || busy.get() || chosen.with(String::is_empty)>
                             "Plan a build"
                         </button>
                     </form>
                 }
                 .into_any(),
             }}
-            {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
     }
 }
-
-fn summary_view(s: &PlanSummary) -> AnyView {
-    let counts = [
-        ("Copy", s.copy, "count verified"),
-        ("Repack", s.repack, "count verified"),
-        ("Adopt", s.adopt, "count verified"),
-        ("Unchanged", s.unchanged, "count"),
-        ("Kept aside", s.keep, "count review"),
-        ("No longer selected", s.remove, "count review"),
-        ("No source", s.no_source, "count review"),
-        ("Conflict", s.conflict, "count review"),
-        ("Unresolved", s.unresolved, "count review"),
-        ("Blocked", s.blocked, "count review"),
-        ("Put back", s.restore, "count"),
-        ("Acknowledged", s.acknowledge, "count"),
-    ];
-    view! {
-        <ul class="counts">
-            {counts
-                .into_iter()
-                .map(|(what, n, class)| {
-                    view! {
-                        <li class=class>
-                            <span class="n">{n}</span>
-                            <span class="what">{what}</span>
-                        </li>
-                    }
-                })
-                .collect_view()}
-        </ul>
-    }
-    .into_any()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ItemCol {
-    Kind,
-    Game,
-    Target,
-    Detail,
-}
-
-#[derive(Clone, PartialEq)]
-struct ItemRow(PlanItem);
-
-fn item_detail(item: &PlanItem) -> String {
-    let kept = item.keep.as_ref().map(|k| {
-        format!(
-            "{} is kept aside first ({}); ",
-            k.name,
-            keep_reason_label(k.reason)
-        )
-    });
-    let mut kept = kept.unwrap_or_default();
-    if let Some(c) = &item.converts {
-        kept.push_str(&format!(
-            "converted from {}, stored the other way, which is set aside once this is written; ",
-            c.name
-        ));
-    }
-    if let Some(reason) = &item.reason {
-        return format!("{kept}{reason}");
-    }
-    let mut paths: Vec<String> = item
-        .sources
-        .iter()
-        .map(|s| match &s.member {
-            Some(member) => format!("{} ({member})", s.path),
-            None => s.path.clone(),
-        })
-        .collect();
-    paths.dedup();
-    format!("{kept}{}", paths.join(", "))
-}
-
-impl Grid for ItemRow {
-    type Col = ItemCol;
-    const COLUMNS: &'static [ItemCol] = &[
-        ItemCol::Kind,
-        ItemCol::Game,
-        ItemCol::Target,
-        ItemCol::Detail,
-    ];
-
-    fn header(col: ItemCol) -> &'static str {
-        match col {
-            ItemCol::Kind => "Does",
-            ItemCol::Game => "Game",
-            ItemCol::Target => "File",
-            ItemCol::Detail => "From, or why not",
-        }
-    }
-
-    fn class(col: ItemCol) -> &'static str {
-        match col {
-            ItemCol::Kind => "c-state",
-            ItemCol::Target | ItemCol::Detail => "c-wide data",
-            ItemCol::Game => "c-wide",
-        }
-    }
-
-    fn sortable(col: ItemCol) -> bool {
-        matches!(col, ItemCol::Kind | ItemCol::Game)
-    }
-
-    fn cell(&self, col: ItemCol) -> AnyView {
-        let i = &self.0;
-        match col {
-            ItemCol::Kind => item_kind_label(i.kind).into_any(),
-            ItemCol::Game => i.game.clone().into_any(),
-            ItemCol::Target => i.target.clone().into_any(),
-            ItemCol::Detail => item_detail(i).into_any(),
-        }
-    }
-}
-
-/// A plan: what it would write, what it skips, what blocks it, and the approval.
-#[component]
-fn PlanPanel(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
-    let live = use_live();
-    let loaded = LocalResource::new(move || {
-        live.settled.track();
-        async move { api::get::<Plan>(&format!("/plans/{plan}")).await }
-    });
-    move || match loaded.get() {
-        None => view! { <Loading what="the plan" /> }.into_any(),
-        Some(Err(message)) => view! { <Problem message /> }.into_any(),
-        Some(Ok(plan)) => view! { <PlanView plan refresh /> }.into_any(),
-    }
-}
-
-#[component]
-fn PlanView(plan: Plan, refresh: RwSignal<u64>) -> impl IntoView {
-    let id = plan.id;
-    let selection = plan.content.selection;
-    let digest = StoredValue::new(plan.digest.clone());
-    let kind = RwSignal::new(String::new());
-    let all_items = StoredValue::new(plan.content.items.clone());
-    let sorting = RwSignal::new(VecDeque::<(ItemCol, ColumnSort)>::new());
-    let selected = RwSignal::new(None::<usize>);
-    let shown = Memo::new(move |_| {
-        let wanted = ItemKind::parse(&kind.get());
-        let mut items: Vec<ItemRow> = all_items.with_value(|items| {
-            by_kind(items)
-                .into_iter()
-                .filter(|(k, _)| wanted.is_none_or(|w| w == *k))
-                .flat_map(|(_, items)| items.into_iter().cloned().map(ItemRow))
-                .collect()
-        });
-        if let Some(sort) = sorting.with(sort_of) {
-            items.sort_by(|a, b| {
-                let ord = match sort.column {
-                    ItemCol::Kind => a.0.kind.cmp(&b.0.kind),
-                    _ => a.0.game.cmp(&b.0.game),
-                };
-                if sort.descending { ord.reverse() } else { ord }
-            });
-        }
-        Arc::new(items)
-    });
-    let rows = Signal::derive(move || rows_of(shown.get().as_ref().clone()) as Rows<ItemRow>);
-    let kinds: Vec<ItemKind> = by_kind(&plan.content.items)
-        .into_iter()
-        .map(|(k, _)| k)
-        .collect();
-    let outcome = RwSignal::new(None::<Result<Job, String>>);
-    let busy = RwSignal::new(false);
-    let approve = move |_| {
-        busy.set(true);
-        let request = ApprovePlan {
-            digest: digest.get_value(),
-        };
-        leptos::task::spawn_local(async move {
-            let approved = api::post::<_, Job>(&format!("/plans/{id}/approval"), &request).await;
-            busy.set(false);
-            outcome.set(Some(approved));
-            refresh.update(|n| *n += 1);
-        });
-    };
-    let approvable = plan.approvable() && plan.approval.is_none();
-    let writes = plan.summary.copy + plan.summary.repack;
-    // Your choices are part of the plan: changing one plans again, and you review the new plan.
-    let (folder, choices) = (plan.content.folder, plan.content.choices.clone());
-    let replan = move |choices: PlanChoices| {
-        busy.set(true);
-        let request = PlanBuild { selection, choices };
-        leptos::task::spawn_local(async move {
-            let planned =
-                api::post::<_, Plan>(&format!("/libraries/{folder}/plans"), &request).await;
-            busy.set(false);
-            match planned {
-                Ok(_) => refresh.update(|n| *n += 1),
-                Err(message) => outcome.set(Some(Err(message))),
-            }
-        });
-    };
-    let open = plan.approval.is_none();
-    let unresolved = plan
-        .content
-        .blockers
-        .iter()
-        .any(|b| b.kind == BlockerKind::Unresolved);
-    let partial = {
-        let choices = choices.clone();
-        (open && (unresolved || choices.resolved_only)).then(|| {
-            let on = !choices.resolved_only;
-            let next = PlanChoices {
-                resolved_only: on,
-                ..choices.clone()
-            };
-            let label = if on {
-                "Build resolved groups only"
-            } else {
-                "Plan every group again"
-            };
-            view! {
-                <div class="form">
-                    <button type="button" disabled=busy on:click=move |_| replan(next.clone())>{label}</button>
-                </div>
-            }
-        })
-    };
-    let conflicts: Vec<PlanItem> = plan
-        .content
-        .items
-        .iter()
-        .filter(|i| i.adoptable || i.kind == ItemKind::Adopt)
-        .cloned()
-        .collect();
-    let adopt_choices = (open && !conflicts.is_empty()).then(|| {
-        view! {
-            <h3>"Conflicts you can adopt"</h3>
-            <p class="note small">
-                "Each of these files holds the ROMs the DAT expects at its name. Leave it, and it is skipped and the \
-                folder is incomplete; adopt it, and it is recorded as built without writing anything."
-            </p>
-            <ul class="plain">
-                {conflicts
-                    .into_iter()
-                    .map(|i| {
-                        let adopted = i.kind == ItemKind::Adopt;
-                        let next = with_adopt(&choices, &i.target, !adopted);
-                        let (now, label) = if adopted {
-                            ("adopted", "Leave it")
-                        } else {
-                            ("left as it is", "Adopt it")
-                        };
-                        view! {
-                            <li>
-                                <code>{i.target.clone()}</code>
-                                {format!(": {now} ")}
-                                <button type="button" disabled=busy on:click=move |_| replan(next.clone())>{label}</button>
-                            </li>
-                        }
-                    })
-                    .collect_view()}
-            </ul>
-        }
-    });
-
-    let keepable: Vec<PlanItem> = plan
-        .content
-        .items
-        .iter()
-        .filter(|i| {
-            i.keepable && i.kind != ItemKind::Adopt
-                || i.keep
-                    .as_ref()
-                    .is_some_and(|k| k.reason == KeepReason::Conflict)
-        })
-        .cloned()
-        .collect();
-    let keep_choices = (open && !keepable.is_empty()).then(|| {
-        let choices = plan.content.choices.clone();
-        view! {
-            <h3>"Conflicts you can keep aside"</h3>
-            <p class="note small">
-                "Keep a file aside, and it is moved into the folder's retention area, never deleted, and the game is \
-                built in its place. You can delete kept files later, from this folder's kept files."
-            </p>
-            <ul class="plain">
-                {keepable
-                    .into_iter()
-                    .map(|i| {
-                        let chosen = choices.keep_aside.contains(&i.target);
-                        let next = with_keep_aside(&choices, &i.target, !chosen);
-                        let (now, label) = if chosen {
-                            ("kept aside and rebuilt", "Leave it")
-                        } else {
-                            ("left as it is", "Keep it aside and rebuild")
-                        };
-                        view! {
-                            <li>
-                                <code>{i.target.clone()}</code>
-                                {format!(": {now} ")}
-                                <button type="button" disabled=busy on:click=move |_| replan(next.clone())>{label}</button>
-                            </li>
-                        }
-                    })
-                    .collect_view()}
-            </ul>
-        }
-    });
-    let removals = (!plan.content.removals.is_empty()).then(|| {
-        view! {
-            <h3>"Built files no longer selected"</h3>
-            <p class="note small">
-                {format!(
-                    "Each file kept aside is moved into {RETENTION}, never deleted; you delete kept files only by \
-                     approving that separately."
-                )}
-            </p>
-            <ul class="plain">
-                {plan
-                    .content
-                    .removals
-                    .iter()
-                    .map(|r| {
-                        view! {
-                            <li>
-                                <strong>{removal_kind_label(r.kind)}</strong>
-                                " "
-                                <code>{r.target.clone()}</code>
-                                {format!(": {}", r.reason)}
-                            </li>
-                        }
-                    })
-                    .collect_view()}
-            </ul>
-        }
-    });
-    let removes = plan
-        .content
-        .removals
-        .iter()
-        .filter(|r| r.kind == title_select_api::build::RemovalKind::Keep)
-        .count();
-    let cleanup = plan.content.cleanup.as_ref().map(cleanup_view);
-    let is_cleanup = cleanup.is_some();
-    let approve_label = match (is_cleanup, removes) {
-        (true, _) => "Approve the cleanup".to_string(),
-        (false, 0) => format!("Approve and build {writes} files"),
-        (false, n) => format!("Approve and build {writes} files, keeping {n} aside"),
-    };
-    let heading = if is_cleanup {
-        format!("Cleanup plan #{id}")
-    } else {
-        format!("Plan #{id}")
-    };
-
-    view! {
-        <section aria-labelledby="latest-plan-title">
-            <h2 id="latest-plan-title">{heading}</h2>
-            <dl class="facts">
-                <dt>"Selection"</dt>
-                <dd>
-                    <A href=format!("/selections/{selection}")>{format!("#{selection}")}</A>
-                    {plan.previous_selection.map(|p| format!(", replacing #{p} of the current build"))}
-                </dd>
-                <dt>"Audit"</dt>
-                <dd>
-                    {match plan.content.audit {
-                        Some(a) => view! { <A href=format!("/audits/{a}")>{format!("#{a}")}</A> }.into_any(),
-                        None => "None".into_any(),
-                    }}
-                </dd>
-                <dt>"DAT revision"</dt>
-                <dd>
-                    <code class="hash">{short_sha(&plan.content.dat_revision).to_string()}</code>
-                </dd>
-                <dt>"Storage"</dt>
-                <dd>{crate::screens::repair::storage_line(&plan.content.storage)}</dd>
-                <dt>"Planned"</dt>
-                <dd>{when(&plan.created_at)}</dd>
-                <dt>"Digest"</dt>
-                <dd>
-                    <code class="hash">{plan.digest.clone()}</code>
-                </dd>
-                <dt>"Approval"</dt>
-                <dd>
-                    {match &plan.approval {
-                        Some(a) => format!("Approved by {} · {}", a.actor, when(&a.at)),
-                        None => "Not approved".to_string(),
-                    }}
-                    {plan.job.map(|j| view! { ", build job " <A href="/activity">{format!("#{j}")}</A> })}
-                </dd>
-            </dl>
-            {summary_view(&plan.summary)}
-            {(!plan.content.notes.is_empty())
-                .then(|| {
-                    view! {
-                        <h3>"Stored differently from the storage policy"</h3>
-                        <ul class="plain">
-                            {plan.content.notes.iter().map(|n| view! { <li>{n.clone()}</li> }).collect_view()}
-                        </ul>
-                    }
-                })}
-            {(!plan.content.blockers.is_empty())
-                .then(|| {
-                    view! {
-                        <div class="notice" role="status">
-                            <p>"You cannot approve this plan until these are fixed:"</p>
-                            <ul class="plain">
-                                {plan
-                                    .content
-                                    .blockers
-                                    .iter()
-                                    .map(|b| {
-                                        let link = b
-                                            .group
-                                            .as_ref()
-                                            .map(|g| {
-                                                view! {
-                                                    " " <A href=group_href(selection, g)>"Confirm a choice"</A>
-                                                }
-                                            });
-                                        view! {
-                                            <li>
-                                                <strong>{blocker_label(b.kind)}</strong>
-                                                {format!(": {}", b.message)}
-                                                {link}
-                                            </li>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </ul>
-                        </div>
-                    }
-                })}
-            {cleanup}
-            {partial}
-            {adopt_choices}
-            {keep_choices}
-            {removals}
-            {approvable
-                .then(|| {
-                    view! {
-                        <div class="form">
-                            <button type="button" class="primary" disabled=busy on:click=approve>
-                                {approve_label.clone()}
-                            </button>
-                        </div>
-                    }
-                })}
-            {move || {
-                outcome
-                    .get()
-                    .map(|outcome| match outcome {
-                        Ok(job) => view! { <BuildProgress job=job.id /> }.into_any(),
-                        Err(message) => view! { <Problem message /> }.into_any(),
-                    })
-            }}
-            {(!plan.changes.is_empty())
-                .then(|| {
-                    view! {
-                        <h3>"What changed since the current build"</h3>
-                        <ul class="plain">
-                            {plan
-                                .changes
-                                .iter()
-                                .map(|c| {
-                                    let what = match (c.before, c.after) {
-                                        (None, _) => "added",
-                                        (_, None) => "gone",
-                                        _ => "changed",
-                                    };
-                                    view! {
-                                        <li>
-                                            {format!("{}: {what}, by {}", c.title, cause_label(c.cause))}
-                                        </li>
-                                    }
-                                })
-                                .collect_view()}
-                        </ul>
-                    }
-                })}
-            {(!is_cleanup).then(|| view! {
-            <h3>"Files"</h3>
-            <ul class="plain small">
-                {kinds
-                    .iter()
-                    .map(|k| view! { <li><strong>{item_kind_label(*k)}</strong>{format!(": {}", item_kind_note(*k))}</li> })
-                    .collect_view()}
-            </ul>
-            <form class="form" on:submit=|ev| ev.prevent_default()>
-                <label>
-                    "Show"
-                    <select prop:value=kind on:change=move |ev| kind.set(event_target_value(&ev))>
-                        <option value="">"Every file"</option>
-                        {kinds
-                            .iter()
-                            .map(|k| view! { <option value=k.as_str()>{item_kind_label(*k)}</option> })
-                            .collect_view()}
-                    </select>
-                </label>
-            </form>
-            <DataTable
-                id="plan-items"
-                label="Plan items".to_string()
-                rows
-                sorting
-                selected
-                on_open=Callback::new(|_: ItemRow| {})
-                empty="The plan has no files.".to_string()
-            />
-            })}
-        </section>
-    }
-}
-
 /// Rebinds the folder to another source set of the same DAT, or to another selection profile.
 #[component]
 fn ChangeBinding(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
@@ -1806,24 +1695,132 @@ fn ChangeBinding(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView
         </section>
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuildCol {
+    Build,
+    State,
+    Selection,
+    Finished,
+    Written,
+    Failed,
+    NotWritten,
+}
 
-fn build_line(b: BuildSummary) -> impl IntoView {
-    view! {
-        <li>
-            <A href=format!("/builds/{}", b.id)>{format!("Build #{}", b.id)}</A>
-            {format!(
-                ", {}, selection #{}, {}: {} written, {} failed, {} not written",
-                build_state_label(b.state).to_lowercase(),
-                b.selection,
-                when(b.finished_at.as_deref().unwrap_or(&b.started_at)),
-                b.applied,
-                b.failed,
-                b.pending,
-            )}
-        </li>
+#[derive(Clone, PartialEq)]
+struct BuildRow(BuildSummary);
+
+impl ListRow for BuildRow {
+    type Col = BuildCol;
+    const COLUMNS: &'static [BuildCol] = &[
+        BuildCol::Build,
+        BuildCol::State,
+        BuildCol::Selection,
+        BuildCol::Finished,
+        BuildCol::Written,
+        BuildCol::Failed,
+        BuildCol::NotWritten,
+    ];
+
+    fn column(col: BuildCol) -> Column {
+        match col {
+            BuildCol::Build => Column::new("build", "Build", Width::Fixed(5.0)).sortable(),
+            BuildCol::State => Column::new("state", "State", Width::Flex { min: 7.0, share: 1 }),
+            BuildCol::Selection => Column::new("selection", "Selection", Width::Fixed(6.0)),
+            BuildCol::Finished => Column::new(
+                "finished",
+                "Finished",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            BuildCol::Written => Column::new("written", "Written", Width::Fixed(5.0)).numeric(),
+            BuildCol::Failed => Column::new("failed", "Failed", Width::Fixed(5.0)).numeric(),
+            BuildCol::NotWritten => Column::new("not-written", "Not written", Width::Fixed(6.0))
+                .numeric()
+                .hint("Left for a new plan"),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.id.to_string()
+    }
+
+    fn title(&self) -> String {
+        format!("Build #{}", self.0.id)
+    }
+
+    fn search(&self) -> String {
+        format!("#{} {}", self.0.id, build_state_label(self.0.state))
+    }
+
+    fn cell(&self, col: BuildCol) -> AnyView {
+        let b = &self.0;
+        match col {
+            BuildCol::Build => format!("#{}", b.id).into_any(),
+            BuildCol::State => build_state_label(b.state).into_any(),
+            BuildCol::Selection => format!("#{}", b.selection).into_any(),
+            BuildCol::Finished => b
+                .finished_at
+                .as_deref()
+                .map(when)
+                .unwrap_or_default()
+                .into_any(),
+            BuildCol::Written => b.applied.to_string().into_any(),
+            BuildCol::Failed => b.failed.to_string().into_any(),
+            BuildCol::NotWritten => b.pending.to_string().into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: BuildCol) -> Ordering {
+        match col {
+            BuildCol::Finished => self.0.finished_at.cmp(&other.0.finished_at),
+            _ => self.0.id.cmp(&other.0.id),
+        }
+    }
+
+    fn href(&self) -> Option<String> {
+        Some(format!("/builds/{}", self.0.id))
     }
 }
 
+fn build_detail(row: BuildRow) -> AnyView {
+    let b = row.0;
+    view! {
+        <dl class="facts">
+            <dt>"State"</dt>
+            <dd>{build_state_label(b.state)}</dd>
+            <dt>"Generation"</dt>
+            <dd>{b.generation}</dd>
+            <dt>"Selection"</dt>
+            <dd>
+                <A href=format!("/selections/{}", b.selection)>{format!("#{}", b.selection)}</A>
+            </dd>
+            <dt>"Started"</dt>
+            <dd>{when(&b.started_at)}</dd>
+            <dt>"Finished"</dt>
+            <dd>{b.finished_at.as_deref().map(when).unwrap_or_default()}</dd>
+        </dl>
+        <ul class="counts">
+            <li class="count verified">
+                <span class="n">{b.applied}</span>
+                <span class="what">"Written"</span>
+            </li>
+            <li class="count review">
+                <span class="n">{b.failed}</span>
+                <span class="what">"Failed"</span>
+            </li>
+            <li class="count">
+                <span class="n">{b.pending}</span>
+                <span class="what">"Not written"</span>
+            </li>
+        </ul>
+    }
+    .into_any()
+}
+
+/// The folder's builds, newest first.
 #[component]
 fn Builds(folder: i64) -> impl IntoView {
     let live = use_live();
@@ -1831,29 +1828,32 @@ fn Builds(folder: i64) -> impl IntoView {
         live.settled.track();
         async move { api::get::<Vec<BuildSummary>>(&format!("/libraries/{folder}/builds")).await }
     });
+    let rows = last_good_rows(move || {
+        builds
+            .get()
+            .map(|r| r.map(|b| b.into_iter().map(BuildRow).collect::<Vec<_>>()))
+    });
     view! {
-        <section aria-labelledby="builds-title">
-            <h2 id="builds-title">"Builds"</h2>
-            {move || match builds.get() {
-                None => view! { <Loading what="the builds" /> }.into_any(),
-                Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(list)) if list.is_empty() => {
-                    view! { <p class="note">"Not built yet."</p> }.into_any()
-                }
-                Some(Ok(list)) => view! {
-                    <ul class="plain">{list.into_iter().map(build_line).collect_view()}</ul>
-                }
-                .into_any(),
-            }}
-        </section>
+        {move || match builds.get() {
+            None => view! { <Loading what="the builds" /> }.into_any(),
+            Some(Err(message)) => view! { <Problem message /> }.into_any(),
+            Some(Ok(_)) => ().into_any(),
+        }}
+        <List
+            id="builds"
+            label="Builds"
+            rows
+            empty="Not built yet."
+            detail=Callback::new(build_detail)
+        />
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileCol {
+    Kind,
     Target,
     Game,
-    Kind,
     Build,
     Size,
 }
@@ -1861,55 +1861,106 @@ enum FileCol {
 #[derive(Clone, PartialEq)]
 struct FileRow(BuiltFile);
 
-impl Grid for FileRow {
+impl ListRow for FileRow {
     type Col = FileCol;
     const COLUMNS: &'static [FileCol] = &[
+        FileCol::Kind,
         FileCol::Target,
         FileCol::Game,
-        FileCol::Kind,
         FileCol::Build,
         FileCol::Size,
     ];
 
-    fn header(col: FileCol) -> &'static str {
+    fn column(col: FileCol) -> Column {
         match col {
-            FileCol::Target => "File",
-            FileCol::Game => "Game",
-            FileCol::Kind => "Made by",
-            FileCol::Build => "Build",
-            FileCol::Size => "Bytes",
+            FileCol::Kind => Column::new("kind", "Kind", Width::Fixed(4.5))
+                .sortable()
+                .hint("How its build wrote it"),
+            FileCol::Target => Column::new(
+                "file",
+                "File",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            FileCol::Game => Column::new(
+                "game",
+                "Game",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            FileCol::Build => Column::new("build", "Build", Width::Fixed(5.0)).sortable(),
+            FileCol::Size => Column::new("size", "Bytes", Width::Fixed(7.0))
+                .sortable()
+                .numeric(),
         }
     }
 
-    fn class(col: FileCol) -> &'static str {
-        match col {
-            FileCol::Target => "c-wide data",
-            FileCol::Game => "c-wide",
-            FileCol::Kind => "c-state",
-            FileCol::Build => "c-id",
-            FileCol::Size => "c-num",
-        }
+    fn key(&self) -> String {
+        self.0.target.clone()
     }
 
-    fn sortable(col: FileCol) -> bool {
-        matches!(col, FileCol::Target | FileCol::Build)
+    fn title(&self) -> String {
+        self.0.target.clone()
+    }
+
+    fn search(&self) -> String {
+        format!("{} {}", self.0.target, self.0.game)
     }
 
     fn cell(&self, col: FileCol) -> AnyView {
         let f = &self.0;
         match col {
-            FileCol::Target => f.target.clone().into_any(),
-            FileCol::Game => f.game.clone().into_any(),
-            FileCol::Kind => item_kind_label(f.kind).into_any(),
-            FileCol::Build => {
-                view! { <A href=format!("/builds/{}", f.build)>{format!("#{}", f.build)}</A> }
-                    .into_any()
+            FileCol::Kind => {
+                view! { <StatusIcon status=BuildKind::from(f.kind) tab_stop=false /> }.into_any()
             }
+            FileCol::Target => view! { <Clip text=f.target.clone() /> }.into_any(),
+            FileCol::Game => view! { <Clip text=f.game.clone() /> }.into_any(),
+            FileCol::Build => format!("#{}", f.build).into_any(),
             FileCol::Size => f.file.size.to_string().into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: FileCol) -> Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            FileCol::Kind => BuildKind::from(a.kind)
+                .rank()
+                .cmp(&BuildKind::from(b.kind).rank()),
+            FileCol::Target => a.target.cmp(&b.target),
+            FileCol::Game => a.game.cmp(&b.game),
+            FileCol::Build => a.build.cmp(&b.build),
+            FileCol::Size => a.file.size.cmp(&b.file.size),
         }
     }
 }
 
+fn file_detail(row: FileRow) -> AnyView {
+    let f = row.0;
+    view! {
+        <p>
+            <StatusBadge status=BuildKind::from(f.kind) />
+        </p>
+        <dl class="facts">
+            <dt>"Game"</dt>
+            <dd>{f.game.clone()}</dd>
+            <dt>"Build"</dt>
+            <dd>
+                <A href=format!("/builds/{}", f.build)>{format!("#{}", f.build)}</A>
+            </dd>
+            <dt>"Bytes"</dt>
+            <dd>{f.file.size}</dd>
+        </dl>
+    }
+    .into_any()
+}
+
+/// Each file the store built into the folder, with the build that wrote it.
 #[component]
 fn BuiltFiles(folder: i64) -> impl IntoView {
     let live = use_live();
@@ -1917,45 +1968,29 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
         live.settled.track();
         async move { api::get::<Vec<BuiltFile>>(&format!("/libraries/{folder}/files")).await }
     });
-    let sorting = RwSignal::new(VecDeque::<(FileCol, ColumnSort)>::new());
-    let selected = RwSignal::new(None::<usize>);
-    let shown = Memo::new(move |_| {
-        let mut items: Vec<FileRow> = files
+    let rows = last_good_rows(move || {
+        files
             .get()
-            .and_then(Result::ok)
-            .unwrap_or_default()
-            .into_iter()
-            .map(FileRow)
-            .collect();
-        if let Some(sort) = sorting.with(sort_of) {
-            items.sort_by(|a, b| {
-                let ord = match sort.column {
-                    FileCol::Build => a.0.build.cmp(&b.0.build),
-                    _ => a.0.target.cmp(&b.0.target),
-                };
-                if sort.descending { ord.reverse() } else { ord }
-            });
-        }
-        Arc::new(items)
+            .map(|r| r.map(|f| f.into_iter().map(FileRow).collect::<Vec<_>>()))
     });
-    let rows = Signal::derive(move || rows_of(shown.get().as_ref().clone()) as Rows<FileRow>);
+    let kinds =
+        Signal::derive(move || present(rows.get().iter().map(|r| BuildKind::from(r.0.kind))));
     view! {
         <section aria-labelledby="files-title">
             <h2 id="files-title">"Built files"</h2>
-            <p class="lede">"Each file the store built into the folder, with the build that wrote it."</p>
             {move || match files.get() {
                 None => view! { <Loading what="the built files" /> }.into_any(),
                 Some(Err(message)) => view! { <Problem message /> }.into_any(),
                 Some(Ok(_)) => ().into_any(),
             }}
-            <DataTable
+            <List
                 id="built-files"
-                label="Built files".to_string()
+                label="Built files"
                 rows
-                sorting
-                selected
-                on_open=Callback::new(|_: FileRow| {})
-                empty="No files built yet.".to_string()
+                empty="No files built yet."
+                placeholder="Filter by file or game"
+                detail=Callback::new(file_detail)
+                legend=move || view! { <Legend statuses=kinds list="built-files" /> }
             />
         </section>
     }
@@ -2069,20 +2104,14 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
 #[component]
 pub fn PlanABuild(selection: SelectionRecord) -> impl IntoView {
     let folders = LocalResource::new(|| api::get::<Vec<LibraryFolder>>("/libraries"));
+    let new_href = format!("/libraries/new?selection={}", selection.id);
     let selection = StoredValue::new(selection);
-    let problem = RwSignal::new(None::<String>);
+    let planner = use_planner();
     let go = navigator();
     let plan = move |folder: i64| {
         let id = selection.with_value(|s| s.id);
-        leptos::task::spawn_local(async move {
-            let planned =
-                api::post::<_, Plan>(&format!("/libraries/{folder}/plans"), &PlanBuild::new(id))
-                    .await;
-            match planned {
-                Ok(_) => go.run(folder_href(folder)),
-                Err(message) => problem.set(Some(message)),
-            }
-        });
+        planner.start(folder, Some(id), PlanChoices::default());
+        go.run(tab_href(folder, FolderTab::Plan));
     };
     view! {
         {move || {
@@ -2093,8 +2122,8 @@ pub fn PlanABuild(selection: SelectionRecord) -> impl IntoView {
                 return view! {
                     <p class="note">
                         "To build this selection for your front end, "
-                        <A href="/libraries">"register a library folder"</A>
-                        " with its source set and selection profile."
+                        <A href=new_href.clone()>"make a library folder"</A>
+                        " of it."
                     </p>
                 }
                 .into_any();
@@ -2117,7 +2146,6 @@ pub fn PlanABuild(selection: SelectionRecord) -> impl IntoView {
             }
             .into_any()
         }}
-        {move || problem.get().map(|message| view! { <Problem message /> })}
     }
 }
 
@@ -2135,28 +2163,27 @@ fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
     let plan = RwSignal::new(None::<KeptDeletion>);
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
+    let planning = Action::new_local(move |body: &PlanKeptDeletion| {
+        let body = body.clone();
+        async move {
+            api::post::<_, KeptDeletion>(&format!("/libraries/{folder}/kept-deletions"), &body)
+                .await
+        }
+    });
+    Effect::new(move || {
+        if let Some(Ok(p)) = planning.value().get() {
+            plan.set(Some(p));
+        }
+    });
     let request = move |all: bool| {
-        working.set(true);
-        let body = PlanKeptDeletion {
+        problem.set(None);
+        planning.dispatch(PlanKeptDeletion {
             ids: if all {
                 Vec::new()
             } else {
                 picked.get_untracked()
             },
             all,
-        };
-        leptos::task::spawn_local(async move {
-            let planned =
-                api::post::<_, KeptDeletion>(&format!("/libraries/{folder}/kept-deletions"), &body)
-                    .await;
-            working.set(false);
-            match planned {
-                Ok(p) => {
-                    problem.set(None);
-                    plan.set(Some(p));
-                }
-                Err(message) => problem.set(Some(message)),
-            }
         });
     };
     let approve = move |_| {
@@ -2246,12 +2273,12 @@ fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
                 <div class="form">
                     <button
                         type="button"
-                        disabled=move || busy || working.get() || picked.with(Vec::is_empty)
+                        disabled=move || busy || planning.pending().get() || picked.with(Vec::is_empty)
                         on:click=move |_| request(false)
                     >
                         "Plan deleting the files you picked"
                     </button>
-                    <button type="button" disabled=move || busy || working.get() on:click=move |_| request(true)>
+                    <button type="button" disabled=move || busy || planning.pending().get() on:click=move |_| request(true)>
                         "Plan deleting every kept file"
                     </button>
                 </div>
@@ -2320,7 +2347,9 @@ fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
                 "Files builds moved aside instead of deleting: removed, replaced, or conflicts you chose to keep aside. \
                 Nothing here is deleted until you approve it."
             </p>
-            {list}
+            <ActionPending action=planning status="Making the deletion plan…">
+                {list}
+            </ActionPending>
             {review}
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>

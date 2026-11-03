@@ -1793,6 +1793,8 @@ mod selections {
         assert_eq!(status, 201, "{plan}");
         let plan: Plan = serde_json::from_value(plan).unwrap();
         assert!(plan.approvable(), "{:?}", plan.content.blockers);
+        let read = |id: i64| client.json::<Value>(&format!("/libraries/{id}"));
+        assert_eq!(read(folder.id)["plan_open"], true, "the plan waits on you");
         let kind = |game: &str| {
             plan.content
                 .items
@@ -1831,6 +1833,8 @@ mod selections {
         let folder: LibraryFolder = client.json(&format!("/libraries/{}", folder.id));
         let build = folder.build.unwrap();
         assert_eq!((folder.generation, build.applied, build.failed), (1, 2, 0));
+        assert!(!folder.plan_open);
+        assert!(folder.stale.is_empty());
         let files: Vec<title_select_api::build::BuiltFile> =
             client.json(&format!("/libraries/{}/files", folder.id));
         assert_eq!(files.len(), 2);
@@ -1900,5 +1904,12 @@ mod selections {
             client.json(&format!("/libraries/{}/kept-files", folder.id));
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].name, "notes.txt");
+
+        // Saving the profile again leaves the build behind it.
+        save(&client, json!({"region_order": ["Japan"]}));
+        assert_eq!(
+            read(folder.id)["stale"],
+            json!([{"kind": "profile_saved", "built": 1, "latest": 2}])
+        );
     }
 }

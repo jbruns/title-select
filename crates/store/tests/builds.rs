@@ -5885,3 +5885,88 @@ fn a_selection_names_the_library_folders_that_plan_from_it_and_lists_by_profile(
     assert_eq!(env.store.selections(SET).unwrap(), records);
     assert!(env.store.selections_of(None, Some("Nobody's")).is_err());
 }
+
+#[test]
+fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_a_plan_is_open_until_built()
+ {
+    use title_select_api::build::Stale;
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    let read = || env.store.library_folder(&env.config, folder.id).unwrap();
+    assert!(!read().plan_open);
+    assert!(read().stale.is_empty(), "never built, so never stale");
+
+    let plan = env.plan(&folder, id);
+    assert!(read().plan_open);
+    assert!(read().stale.is_empty());
+    env.build(&plan);
+    assert!(!read().plan_open, "built, so its plan is no longer open");
+    assert!(read().stale.is_empty(), "nothing changed since the build");
+
+    // A plan from before the build is not open, even unapproved.
+    let replaced = env.plan(&folder, id);
+    env.build(&env.plan(&folder, id));
+    assert!(env.store.plan(replaced.id).unwrap().approval.is_none());
+    assert!(!read().plan_open);
+
+    env.audit();
+    let built_audit = read().build.unwrap().audit;
+    let latest = match read().stale.as_slice() {
+        [Stale::SourceSetAudited { built, latest }] if *built == built_audit => *latest,
+        other => panic!("{other:?}"),
+    };
+    assert!(latest > built_audit);
+
+    let changed = SelectionProfile {
+        region_order: vec!["USA".into()],
+        ..Default::default()
+    };
+    env.store
+        .save_profile(PROFILE, &changed, Some(1), "Operator", &[], WORKERS)
+        .unwrap();
+    assert!(
+        read().stale.contains(&Stale::ProfileSaved {
+            built: 1,
+            latest: 2
+        }),
+        "{:?}",
+        read().stale
+    );
+
+    env.store
+        .save_profile(
+            "Other",
+            &SelectionProfile::default(),
+            None,
+            "Operator",
+            &[],
+            WORKERS,
+        )
+        .unwrap();
+    std::fs::create_dir_all(env.tmp.path().join("roots/sets/Another")).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "Another", "No-Intro/Test - System")
+        .unwrap();
+    env.store
+        .change_library_folder(
+            &env.config,
+            folder.id,
+            &title_select_api::build::ChangeLibraryFolder {
+                source_set: Some("Another".into()),
+                profile: Some("Other".into()),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        read().stale,
+        [
+            Stale::SourceSetRebound { built: SET.into() },
+            Stale::ProfileRebound {
+                built: PROFILE.into()
+            },
+        ],
+        "a rebound folder is stale for its binding, not for the old source set's audits or profile's versions"
+    );
+}

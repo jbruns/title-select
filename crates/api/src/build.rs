@@ -72,6 +72,28 @@ pub struct LibraryFolder {
     /// The latest check of the folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<CheckSummary>,
+    /// The newest plan waits on approval: it is not approved, and was made at the folder's current generation.
+    #[serde(default)]
+    pub plan_open: bool,
+    /// What changed since the current build's Selection was made, so that building again would build something
+    /// else; empty when nothing did, and before the first build.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stale: Vec<Stale>,
+}
+
+/// One thing that changed since a Library Folder's current Build: its Source Set or its Selection Profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Stale {
+    /// The folder was rebound to another Source Set; `built` is the one its current Build was made from.
+    SourceSetRebound { built: String },
+    /// The Source Set was audited since: `latest` is its latest Audit, `built` the one the current Build used.
+    SourceSetAudited { built: i64, latest: i64 },
+    /// The folder was rebound to another Profile; `built` is the one its current Build's Selection used.
+    ProfileRebound { built: String },
+    /// The Profile was saved since: `latest` is its newest version, `built` the one the current Build's Selection
+    /// used.
+    ProfileSaved { built: u32, latest: u32 },
 }
 
 /// A build that stopped before it finished, as the store recorded it: shown straight after a restart, without a
