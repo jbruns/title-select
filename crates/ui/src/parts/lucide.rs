@@ -65,10 +65,13 @@ pub enum Glyph {
     Activity,
     HardDrive,
     FolderTree,
+    Upload,
+    FileCheck,
+    FileX,
 }
 
 impl Glyph {
-    pub const ALL: [Glyph; 61] = [
+    pub const ALL: [Glyph; 64] = [
         Glyph::ShieldCheck,
         Glyph::CircleCheck,
         Glyph::Tag,
@@ -130,6 +133,9 @@ impl Glyph {
         Glyph::Activity,
         Glyph::HardDrive,
         Glyph::FolderTree,
+        Glyph::Upload,
+        Glyph::FileCheck,
+        Glyph::FileX,
     ];
 
     /// The icon's elements inside a 24 × 24 `<svg>`, stroked with `currentColor`.
@@ -298,6 +304,15 @@ impl Glyph {
             Glyph::FolderTree => {
                 "<path d='M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z' /><path d='M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z' /><path d='M3 5a2 2 0 0 0 2 2h3' /><path d='M3 3v13a2 2 0 0 0 2 2h3' />"
             }
+            Glyph::Upload => {
+                "<path d='M12 3v12' /><path d='m17 8-5-5-5 5' /><path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' />"
+            }
+            Glyph::FileCheck => {
+                "<path d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='m9 15 2 2 4-4' />"
+            }
+            Glyph::FileX => {
+                "<path d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='m14.5 12.5-5 5' /><path d='m9.5 12.5 5 5' />"
+            }
         }
     }
 
@@ -365,6 +380,9 @@ impl Glyph {
             Glyph::Activity => "activity",
             Glyph::HardDrive => "hard-drive",
             Glyph::FolderTree => "folder-tree",
+            Glyph::Upload => "upload",
+            Glyph::FileCheck => "file-check",
+            Glyph::FileX => "file-x",
         }
     }
 }

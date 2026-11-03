@@ -129,25 +129,62 @@ const MENU_ROOM: f64 = 240.0;
 /// Shows `label` beside its children while the pointer is over them or focus is in them, until Escape. The label
 /// repeats the accessible name the children already carry, so it is hidden from assistive technology. `focusable`
 /// makes the anchor a tab stop, so keyboard users can reach the tooltip; leave it off when the children are already
-/// focusable, such as a button.
+/// focusable, such as a button. `clipped` cuts the children off with an ellipsis where they don't fit, and shows the
+/// tooltip only when they are cut off: give it the children's full text.
 #[component]
 pub fn Tooltip(
     #[prop(into)] label: Signal<String>,
     #[prop(optional)] focusable: bool,
+    #[prop(optional)] clipped: bool,
+    /// Shows the tooltip while true, as hovering does; for an anchor the keyboard reaches without focusing it.
+    #[prop(optional, into)]
+    shown: Option<Signal<bool>>,
     children: Children,
 ) -> impl IntoView {
     let anchor = NodeRef::<html::Span>::new();
     let at = RwSignal::new(None::<Placement>);
-    let show = move || {
+    // Shown by `shown`, the tooltip keeps within its anchor's width, so a row's several tooltips don't overlap.
+    let fit = RwSignal::new(None::<i32>);
+    let tip = NodeRef::<html::Div>::new();
+    let open = move |pinned: bool| {
         if let Some(el) = anchor.get_untracked() {
-            at.set(Some(placement_of(&el, TOOLTIP_ROOM, true)));
+            if clipped && el.scroll_width() <= el.client_width() {
+                return;
+            }
+            fit.set(pinned.then(|| el.client_width()));
+            at.set(Some(placement_of(&el, TOOLTIP_ROOM, !pinned)));
         }
     };
+    let show = move || open(false);
     let hide = move || at.set(None);
-    let tip = NodeRef::<html::Div>::new();
+    if let Some(shown) = shown {
+        Effect::watch(
+            move || shown.get(),
+            move |on, prev, _| match (*on, prev) {
+                (true, _) => open(true),
+                (false, Some(true)) => hide(),
+                (false, _) => {}
+            },
+            true,
+        );
+    }
+    // Placed first for one line, then again for the height the tooltip takes once drawn: wrapped text that doesn't
+    // fit below goes above.
+    Effect::new(move || {
+        let (Some(tip), Some(el)) = (tip.get(), anchor.get_untracked()) else {
+            return;
+        };
+        let room = f64::from(tip.offset_height());
+        let centred = fit.get_untracked().is_none();
+        let placed = placement_of(&el, room.max(TOOLTIP_ROOM), centred);
+        if at.get_untracked().is_some_and(|p| p != placed) {
+            at.set(Some(placed));
+        }
+    });
     view! {
         <span
             class="tip-anchor"
+            class:clip=clipped
             node_ref=anchor
             on:mouseenter=move |_| show()
             on:mouseleave=move |_| hide()
@@ -164,7 +201,13 @@ pub fn Tooltip(
                         node_ref=tip
                         role="tooltip"
                         aria-hidden="true"
-                        style=move || at.get().map(|p| p.style())
+                        style=move || {
+                            at.get()
+                                .map(|p| {
+                                    let fit = fit.get().map(|w| format!(";max-width:{w}px"));
+                                    format!("{}{}", p.style(), fit.unwrap_or_default())
+                                })
+                        }
                     >
                         {move || label.get()}
                     </div>
@@ -278,14 +321,22 @@ pub fn Menu(
 }
 
 /// One choice in a `Menu`. A destructive choice names what it destroys and asks you to confirm after it's chosen.
+/// A `disabled` choice is shown but skipped by the arrow keys.
 #[component]
 pub fn MenuItem(
     #[prop(into)] label: Signal<String>,
     #[prop(optional)] glyph: Option<Glyph>,
     #[prop(into)] on_select: Callback<()>,
+    #[prop(optional, into)] disabled: MaybeProp<bool>,
 ) -> impl IntoView {
     view! {
-        <button type="button" role="menuitem" class="menu-item" on:click=move |_| on_select.run(())>
+        <button
+            type="button"
+            role="menuitem"
+            class="menu-item"
+            disabled=move || disabled.get().unwrap_or(false)
+            on:click=move |_| on_select.run(())
+        >
             {glyph.map(|glyph| view! { <Svg glyph /> })}
             <span>{move || label.get()}</span>
         </button>

@@ -3,6 +3,7 @@
 //! - `icon`: `Icon`, `IconButton` and `LabelledIcon` over the vendored Lucide glyphs in `lucide`.
 //! - `status`: the status vocabulary, and `StatusIcon` and `StatusBadge` to show a status.
 //! - `legend`: the `Legend` strip under a list.
+//! - `list`: `List`, the toolbar, checkable rows, quick actions and detail every list screen uses, over `list_model`.
 //! - `pending`: `ActionPending` and `Pending` for slow requests and their problems.
 //! - `overlay`: `Tooltip`, `Menu` and `Drawer`, hosted in a `<Portal>`, stacked by `layers`.
 //! - `theme`: the light and dark themes and `ThemeToggle`.
@@ -13,6 +14,8 @@ pub mod icon;
 pub mod layers;
 pub mod layout;
 pub mod legend;
+pub mod list;
+pub mod list_model;
 pub mod lucide;
 pub mod overlay;
 pub mod pending;

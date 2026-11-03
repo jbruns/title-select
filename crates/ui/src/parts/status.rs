@@ -675,6 +675,34 @@ impl Status for IngestStatus {
     }
 }
 
+/// Whether the store still keeps a DAT Revision's file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DatFileStatus {
+    Kept,
+    Deleted,
+}
+
+impl Status for DatFileStatus {
+    const ALL: &'static [Self] = &[DatFileStatus::Kept, DatFileStatus::Deleted];
+
+    fn look(self) -> Look {
+        match self {
+            DatFileStatus::Kept => look(
+                Glyph::FileCheck,
+                Tone::Good,
+                "File kept",
+                "Its DAT file is kept in the store.",
+            ),
+            DatFileStatus::Deleted => look(
+                Glyph::FileX,
+                Tone::Neutral,
+                "File deleted",
+                "Its DAT file was deleted from the store; import it again to restore it.",
+            ),
+        }
+    }
+}
+
 impl Status for JobState {
     const ALL: &'static [Self] = &JobState::ALL;
 
@@ -711,13 +739,14 @@ impl Status for JobState {
     }
 }
 
-/// A status as its icon alone, for a table cell: its label is the icon's tooltip and accessible name.
+/// A status as its icon alone, for a table cell: its label is the icon's tooltip and accessible name. In a
+/// `parts::list` row, set `tab_stop` false: the row's detail pane names it too.
 #[component]
-pub fn StatusIcon<S: Status>(status: S) -> impl IntoView {
+pub fn StatusIcon<S: Status>(status: S, #[prop(default = true)] tab_stop: bool) -> impl IntoView {
     let look = status.look();
     view! {
         <span class=format!("status {}", look.tone.class())>
-            <Icon glyph=look.glyph label=look.label />
+            <Icon glyph=look.glyph label=look.label tab_stop />
         </span>
     }
 }
@@ -754,6 +783,7 @@ mod tests {
             ("build plan kinds", vocabulary::<BuildKind>()),
             ("ingest items", vocabulary::<IngestStatus>()),
             ("jobs", vocabulary::<JobState>()),
+            ("DAT files", vocabulary::<DatFileStatus>()),
         ]
     }
 

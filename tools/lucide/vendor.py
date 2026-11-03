@@ -81,6 +81,10 @@ ICONS = [
     "activity",
     "hard-drive",
     "folder-tree",
+    # Lists: importing, and a DAT revision's kept file.
+    "upload",
+    "file-check",
+    "file-x",
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
