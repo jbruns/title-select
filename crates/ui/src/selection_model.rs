@@ -306,6 +306,54 @@ pub fn availability_label(status: Option<GameStatus>, claimed: bool) -> String {
     status.map_or(String::new(), |s| status_text(s, claimed))
 }
 
+/// What you have of a group's kept releases: the worst status among them, and whether any rests on claim evidence
+/// alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GroupAvailability {
+    /// None when the latest audit says nothing about any kept release.
+    pub status: Option<GameStatus>,
+    pub claimed: bool,
+    /// How many kept releases have the worst status, of how many are kept.
+    pub worst: usize,
+    pub kept: usize,
+}
+
+impl GroupAvailability {
+    pub fn of(
+        group: &SelectionGroup,
+        games: &BTreeMap<String, GameStatus>,
+        claimed: &BTreeSet<String>,
+    ) -> Self {
+        let rank = |s: GameStatus| match s {
+            GameStatus::Missing => 0,
+            GameStatus::Incomplete => 1,
+            GameStatus::Complete => 2,
+        };
+        let statuses: Vec<GameStatus> = group
+            .winners
+            .iter()
+            .filter_map(|w| games.get(&w.title).copied())
+            .collect();
+        let status = statuses.iter().copied().min_by_key(|s| rank(*s));
+        GroupAvailability {
+            status,
+            claimed: group.winners.iter().any(|w| claimed.contains(&w.title)),
+            worst: statuses.iter().filter(|s| Some(**s) == status).count(),
+            kept: group.winners.len(),
+        }
+    }
+
+    /// The worst status, saying how many kept releases share it when they differ.
+    pub fn label(&self) -> String {
+        let label = availability_label(self.status, self.claimed);
+        if self.status.is_some() && self.kept > 1 && self.worst < self.kept {
+            format!("{label}: {} of {} kept", self.worst, self.kept)
+        } else {
+            label
+        }
+    }
+}
+
 /// The releases checked in a group as you have staged them: your staged choice, else the engine's picks.
 pub fn checked(
     profile: &SelectionProfile,
@@ -1005,5 +1053,49 @@ mod tests {
             lines(" |Pong (USA) \n\n/Demo/\n"),
             ["|Pong (USA)", "/Demo/"]
         );
+    }
+
+    #[test]
+    fn a_groups_availability_is_its_worst_kept_release() {
+        let mut g = group("golf", "Golf (USA)", &[], &[]);
+        g.winners.push(Winner {
+            title: "Golf (Europe)".into(),
+            rule: rule(),
+            unresolved: false,
+        });
+        let games = BTreeMap::from([
+            ("Golf (USA)".to_string(), GameStatus::Complete),
+            ("Golf (Europe)".to_string(), GameStatus::Missing),
+        ]);
+        let none = BTreeSet::new();
+
+        let mixed = GroupAvailability::of(&g, &games, &none);
+        assert_eq!(mixed.status, Some(GameStatus::Missing));
+        assert_eq!(
+            mixed.label(),
+            format!(
+                "{}: 1 of 2 kept",
+                availability_label(Some(GameStatus::Missing), false)
+            )
+        );
+
+        let both = BTreeMap::from([
+            ("Golf (USA)".to_string(), GameStatus::Complete),
+            ("Golf (Europe)".to_string(), GameStatus::Complete),
+        ]);
+        let claimed = BTreeSet::from(["Golf (Europe)".to_string()]);
+        let held = GroupAvailability::of(&g, &both, &claimed);
+        assert_eq!(held.status, Some(GameStatus::Complete));
+        assert!(
+            held.claimed,
+            "a second kept release on claim evidence alone shows"
+        );
+        assert_eq!(
+            held.label(),
+            availability_label(Some(GameStatus::Complete), true)
+        );
+
+        let unaudited = GroupAvailability::of(&g, &BTreeMap::new(), &none);
+        assert_eq!(unaudited.label(), "");
     }
 }

@@ -28,9 +28,9 @@ use crate::parts::url_state::use_list_query;
 use crate::screens::PlanABuild;
 use crate::screens::audit::{ReAudit, focus};
 use crate::selection_model::{
-    AvailabilityFilter, FlagFilter, ReleaseColumn, ReleaseFilter, SelectionIndex,
-    availability_label, checked, choice_label, confirm, confirm_unresolved, flag_labels,
-    group_status, include_and_check, role_label, staged_changes, toggle,
+    AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
+    SelectionIndex, availability_label, checked, choice_label, confirm, confirm_unresolved,
+    flag_labels, group_status, include_and_check, role_label, staged_changes, toggle,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
@@ -592,8 +592,7 @@ struct GroupItem {
     releases: usize,
     /// The rule that decided the first winner, or what excluded the group.
     rule: String,
-    availability: Option<GameStatus>,
-    claimed: bool,
+    availability: GroupAvailability,
 }
 
 impl GroupItem {
@@ -610,8 +609,7 @@ impl GroupItem {
             kept: group.winners.iter().map(|w| w.title.clone()).collect(),
             releases: group.winners.len() + group.alternatives.len() + group.exclusions.len(),
             rule,
-            availability: first.and_then(|w| availability.games.get(&w.title).copied()),
-            claimed: first.is_some_and(|w| availability.claimed.contains(&w.title)),
+            availability: GroupAvailability::of(group, &availability.games, &availability.claimed),
         }
     }
 }
@@ -674,9 +672,9 @@ impl ListRow for GroupItem {
                 .sortable()
                 .numeric()
                 .hint("How many releases the group has"),
-            GroupCol::Have => Column::new("have", "You have", Width::Fixed(8.0))
+            GroupCol::Have => Column::new("have", "You have", Width::Fixed(11.0))
                 .sortable()
-                .hint("Whether you have the kept release, from the latest audit"),
+                .hint("The worst of the kept releases, from the latest audit"),
         }
     }
 
@@ -708,10 +706,7 @@ impl ListRow for GroupItem {
             }
             GroupCol::Rule => view! { <Clip text=self.rule.clone() /> }.into_any(),
             GroupCol::Releases => self.releases.to_string().into_any(),
-            GroupCol::Have => {
-                view! { <Clip text=availability_label(self.availability, self.claimed) /> }
-                    .into_any()
-            }
+            GroupCol::Have => view! { <Clip text=self.availability.label() /> }.into_any(),
         }
     }
 
@@ -722,8 +717,7 @@ impl ListRow for GroupItem {
             GroupCol::Kept => self.kept.cmp(&other.kept),
             GroupCol::Rule => self.rule.cmp(&other.rule),
             GroupCol::Releases => self.releases.cmp(&other.releases),
-            GroupCol::Have => availability_label(self.availability, self.claimed)
-                .cmp(&availability_label(other.availability, other.claimed)),
+            GroupCol::Have => self.availability.label().cmp(&other.availability.label()),
         }
     }
 }
