@@ -69,10 +69,12 @@ pub enum Glyph {
     FileCheck,
     FileX,
     ArrowRight,
+    ScanSearch,
+    FileClock,
 }
 
 impl Glyph {
-    pub const ALL: [Glyph; 65] = [
+    pub const ALL: [Glyph; 67] = [
         Glyph::ShieldCheck,
         Glyph::CircleCheck,
         Glyph::Tag,
@@ -138,6 +140,8 @@ impl Glyph {
         Glyph::FileCheck,
         Glyph::FileX,
         Glyph::ArrowRight,
+        Glyph::ScanSearch,
+        Glyph::FileClock,
     ];
 
     /// The icon's elements inside a 24 × 24 `<svg>`, stroked with `currentColor`.
@@ -316,6 +320,12 @@ impl Glyph {
                 "<path d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='m14.5 12.5-5 5' /><path d='m9.5 12.5 5 5' />"
             }
             Glyph::ArrowRight => "<path d='M5 12h14' /><path d='m12 5 7 7-7 7' />",
+            Glyph::ScanSearch => {
+                "<path d='M3 7V5a2 2 0 0 1 2-2h2' /><path d='M17 3h2a2 2 0 0 1 2 2v2' /><path d='M21 17v2a2 2 0 0 1-2 2h-2' /><path d='M7 21H5a2 2 0 0 1-2-2v-2' /><circle cx='12' cy='12' r='3' /><path d='m16 16-1.9-1.9' />"
+            }
+            Glyph::FileClock => {
+                "<path d='M16 22h2a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v2.85' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='M8 14v2.2l1.6 1' /><circle cx='8' cy='16' r='6' />"
+            }
         }
     }
 
@@ -387,6 +397,8 @@ impl Glyph {
             Glyph::FileCheck => "file-check",
             Glyph::FileX => "file-x",
             Glyph::ArrowRight => "arrow-right",
+            Glyph::ScanSearch => "scan-search",
+            Glyph::FileClock => "file-clock",
         }
     }
 }

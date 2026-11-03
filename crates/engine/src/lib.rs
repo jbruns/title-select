@@ -121,6 +121,8 @@ pub trait PayloadReads: Sync {
     fn record_unreadable(&self, _path: &str, _stamp: &FileStamp) {}
     /// Notes that this Audit reused the read `prior` returned for the file at `path`, whose stamp is still `stamp`.
     fn reused(&self, _path: &str, _stamp: &FileStamp) {}
+    /// Notes the stamp the ZIP archive at `path` had when this Audit opened it to claim its members.
+    fn claimed(&self, _path: &str, _stamp: &FileStamp) {}
 }
 
 /// Whether `name`, an entry anywhere in a Source Set, is one Title Select keeps there for itself and an Audit passes
@@ -162,16 +164,19 @@ enum Item {
     File { rel: String },
 }
 
-/// Like [`audit`], with the DAT Revision's filename, confinement, worker counts and progress given by `options`.
-pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Report, Error> {
-    let started_at = jiff::Timestamp::now();
-    if !root.is_dir() {
-        return Err(Error::SourceSet(format!(
-            "{}: not a directory",
-            root.display()
-        )));
-    }
-    let dat = Dat::read(dat_path)?;
+/// What a walk of a Source Set found: its items in report order, and the files among them to read.
+struct Walked {
+    items: Vec<Item>,
+    files: Vec<ToRead>,
+}
+
+/// Walks the Source Set at `root` as an Audit does, passing over Title Select's own entries and confined as
+/// `confine` says. Stops, returning none, once `keep_going` says no.
+fn walk(
+    root: &Path,
+    confine: Option<&Path>,
+    keep_going: &dyn Fn() -> bool,
+) -> Result<Option<Walked>, Error> {
     let rel = |p: &Path| {
         p.strip_prefix(root)
             .unwrap_or(p)
@@ -185,6 +190,9 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         .sort_by_file_name()
         .into_iter();
     while let Some(item) = walk.next() {
+        if !keep_going() {
+            return Ok(None);
+        }
         let item = match item {
             Ok(item) => item,
             Err(err) if err.depth() == 0 => return Err(Error::SourceSet(err.to_string())),
@@ -204,7 +212,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
             continue;
         }
         let mut path = item.path().to_path_buf();
-        if let Some(confine) = options.confine {
+        if let Some(confine) = confine {
             let refusal = match item.path().canonicalize() {
                 Ok(real) if real.starts_with(confine) => {
                     path = real;
@@ -238,6 +246,69 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         items.push(Item::File { rel: rel.clone() });
         files.push(ToRead { path, is_zip, rel });
     }
+
+    Ok(Some(Walked { items, files }))
+}
+
+/// A file a stat walk found, with its stamp; none where it could not be statted or the platform has none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatEntry {
+    File {
+        rel: String,
+        stamp: Option<FileStamp>,
+    },
+    /// A path the walk could not read, or that resolves outside the Root.
+    Unreadable { rel: String },
+}
+
+/// Walks the Source Set at `root` as an Audit does, stats every file it finds and reads no payload. Stops, returning
+/// none, once `keep_going` says no; it is asked before each entry and each stat.
+pub fn stat_walk(
+    root: &Path,
+    confine: Option<&Path>,
+    keep_going: &dyn Fn() -> bool,
+) -> Result<Option<Vec<StatEntry>>, Error> {
+    if !root.is_dir() {
+        return Err(Error::SourceSet(format!(
+            "{}: not a directory",
+            root.display()
+        )));
+    }
+    let Some(Walked { items, files }) = walk(root, confine, keep_going)? else {
+        return Ok(None);
+    };
+    let mut files = files.into_iter();
+    let mut found = Vec::with_capacity(items.len());
+    for item in items {
+        if !keep_going() {
+            return Ok(None);
+        }
+        found.push(match item {
+            Item::Unreadable { rel, .. } => StatEntry::Unreadable { rel },
+            Item::File { rel } => {
+                let file = files.next().expect("one file per item");
+                StatEntry::File {
+                    rel,
+                    stamp: FileStamp::of(&file.path),
+                }
+            }
+        });
+    }
+    Ok(Some(found))
+}
+
+/// Like [`audit`], with the DAT Revision's filename, confinement, worker counts and progress given by `options`.
+pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Report, Error> {
+    let started_at = jiff::Timestamp::now();
+    if !root.is_dir() {
+        return Err(Error::SourceSet(format!(
+            "{}: not a directory",
+            root.display()
+        )));
+    }
+    let dat = Dat::read(dat_path)?;
+    let Walked { items, files } =
+        walk(root, options.confine, &|| true)?.expect("an audit's walk is never stopped");
 
     let how = read::How {
         evidence: options.evidence,

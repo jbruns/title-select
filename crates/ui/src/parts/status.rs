@@ -212,6 +212,34 @@ impl Status for GameStatus {
     }
 }
 
+/// Why a Source Set is Stale: each cause its own icon, with its tooltip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StaleCause {
+    FilesChanged,
+    NewerRevision,
+}
+
+impl Status for StaleCause {
+    const ALL: &'static [Self] = &[StaleCause::FilesChanged, StaleCause::NewerRevision];
+
+    fn look(self) -> Look {
+        match self {
+            StaleCause::FilesChanged => look(
+                Glyph::FileDiff,
+                Tone::Review,
+                "Files changed",
+                "A check found files changed, added or removed since its latest audit, by their sizes and times.",
+            ),
+            StaleCause::NewerRevision => look(
+                Glyph::FileClock,
+                Tone::Review,
+                "Newer DAT revision",
+                "You follow its DAT, and a revision newer than its latest audit's was imported.",
+            ),
+        }
+    }
+}
+
 /// A Source Set's row status, highest precedence first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SourceSetStatus {
@@ -294,7 +322,7 @@ impl Status for SourceSetStatus {
                 Glyph::ClockAlert,
                 Tone::Review,
                 "Stale",
-                "Its files look changed since its audit, or a newer DAT revision is waiting.",
+                "Its files look changed since its latest audit, or you follow its DAT and a newer revision is waiting.",
             ),
             SourceSetStatus::OnClaims => look(
                 Glyph::FileQuestionMark,
@@ -967,6 +995,7 @@ mod tests {
             ("findings", vocabulary::<FindingStatus>()),
             ("game status", vocabulary::<GameStatus>()),
             ("source set rows", vocabulary::<SourceSetStatus>()),
+            ("stale causes", vocabulary::<StaleCause>()),
             ("library folder rows", vocabulary::<LibraryStatus>()),
             ("plan kinds", vocabulary::<PlanKind>()),
             ("repair states", vocabulary::<RepairState>()),

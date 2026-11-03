@@ -186,6 +186,11 @@ impl Prepared {
                 state.config.clone(),
                 state.jobs.clone(),
             ));
+            tokio::spawn(jobs::schedule_stat_walks(
+                state.store.clone(),
+                state.config.clone(),
+                state.jobs.clone(),
+            ));
             tokio::spawn(jobs::run(
                 state.store,
                 state.config,

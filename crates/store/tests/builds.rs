@@ -5978,3 +5978,23 @@ fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_
         "a rebound folder is stale for its binding, not for the old source set's audits or profile's versions"
     );
 }
+
+#[test]
+fn a_stat_walk_stops_for_a_build_that_waits_and_never_delays_its_approval() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    let plan = env.plan(&folder, id);
+    let walk = env.store.enqueue_stat_walk(SET, "Operator").unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, walk.id);
+
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let ended = env.store.run_stat_walk_job(&env.config, walk.id).unwrap();
+
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+}

@@ -2662,3 +2662,59 @@ fn a_source_sets_summary_shows_its_latest_audit_and_the_repair_open_on_it() {
         "a finished repair isn't open, and neither is the plan it was approved over"
     );
 }
+
+#[test]
+fn a_stat_walk_never_holds_a_source_set_against_a_repair_and_waits_for_it() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let walk = env.store.enqueue_stat_walk("Alpha", "Operator").unwrap();
+    let plan = env.plan();
+
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let repair = env.store.claim_job().unwrap().unwrap();
+    assert_eq!(Some(repair.id), approved.job, "the repair goes first");
+    assert_eq!(
+        env.store.claim_job().unwrap(),
+        None,
+        "the walk waits while the repair runs"
+    );
+    env.store
+        .run_repair_job(&env.config, repair.id, None)
+        .unwrap();
+    env.store.fulfil_repair_audits().unwrap();
+    let audit = env.store.claim_job().unwrap().unwrap();
+    assert_eq!(
+        audit.kind,
+        JobKind::Audit,
+        "the audit the repair owes first"
+    );
+    env.store
+        .run_audit_job(&env.config, audit.id, None)
+        .unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, walk.id);
+}
+
+#[test]
+fn a_running_stat_walk_stops_for_a_repair_and_records_nothing() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let walk = env.store.enqueue_stat_walk("Alpha", "Operator").unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let plan = env.plan();
+    env.store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.put("new.bin", b"new");
+
+    let ended = env.store.run_stat_walk_job(&env.config, walk.id).unwrap();
+
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert!(ended.error.unwrap().contains("repair or build"));
+    assert_eq!(env.store.stat_walks("Alpha").unwrap(), []);
+    assert_eq!(env.store.source_set("Alpha").unwrap().stale, []);
+}

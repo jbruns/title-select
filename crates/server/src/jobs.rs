@@ -101,6 +101,7 @@ pub async fn run(
                     JobKind::Additions => run_additions(&store, &config, id),
                     JobKind::Selection => run_selection(&store, &config, engine.as_deref(), id),
                     JobKind::IngestScan => run_ingest_scan(&store, &config, id),
+                    JobKind::StatWalk => run_stat_walk(&store, &config, id),
                 })
                 .await
             };
@@ -228,6 +229,42 @@ fn run_ingest_scan(store: &Store, config: &Config, id: i64) -> Option<Job> {
                 Ok(job) if job.state.is_final() => Some(job),
                 _ => store.fail_job(id, &err.to_string()).ok(),
             }
+        }
+    }
+}
+
+/// Runs one claimed stat walk of a Source Set, and returns the Job as it ended.
+fn run_stat_walk(store: &Store, config: &Config, id: i64) -> Option<Job> {
+    match store.run_stat_walk_job(config, id) {
+        Ok(job) => Some(job),
+        Err(err) => {
+            eprintln!("title-select: job {id}: {err}");
+            match store.job(id) {
+                Ok(job) if job.state.is_final() => Some(job),
+                _ => store.fail_job(id, &err.to_string()).ok(),
+            }
+        }
+    }
+}
+
+/// Queues a stat walk of each audited Source Set every `check_every_minutes`, starting now; none when it is 0. A
+/// walk still queued or running is left to finish.
+pub async fn schedule_stat_walks(store: Arc<Store>, config: Arc<Config>, jobs: Arc<Jobs>) {
+    let minutes = config.source_sets.check_every_minutes;
+    if minutes == 0 {
+        return;
+    }
+    let mut every = tokio::time::interval(Duration::from_secs(minutes * 60));
+    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        every.tick().await;
+        let store = store.clone();
+        let queued =
+            tokio::task::spawn_blocking(move || store.enqueue_stat_walks("schedule")).await;
+        match queued {
+            Ok(Ok(queued)) => queued.into_iter().for_each(|job| jobs.changed(job)),
+            Ok(Err(err)) => eprintln!("title-select: cannot queue scheduled checks: {err}"),
+            Err(err) => eprintln!("title-select: cannot queue scheduled checks: {err}"),
         }
     }
 }

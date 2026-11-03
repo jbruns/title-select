@@ -9,7 +9,7 @@ use super::{Error, Result, Store, now};
 use crate::config::Config;
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
 
-pub use title_select_api::{LastVerified, SourceSetRecord};
+pub use title_select_api::{LastVerified, SourceSetRecord, SourceSetStale};
 
 pub(super) struct SourceSetRow {
     pub id: i64,
@@ -19,13 +19,20 @@ pub(super) struct SourceSetRow {
 
 const SET_QUERY: &str =
     "SELECT s.id, s.dat_id, s.name, s.root, s.path, d.provider || '/' || d.name, s.added_at,
-            r.sha256, r.version, a.finished_at
+            r.sha256, r.version, a.finished_at, s.follow,
+            w.id, w.found_at, w.changed, w.added, w.removed,
+            n.sha256, n.version, n.imported_at
      FROM source_sets s
      JOIN dats d ON d.id = s.dat_id
      LEFT JOIN audits a ON a.id = (SELECT id FROM audits
                                   WHERE source_set_id = s.id AND status = 'finished'
                                   ORDER BY finish_seq DESC LIMIT 1)
-     LEFT JOIN dat_revisions r ON r.id = a.dat_revision_id";
+     LEFT JOIN dat_revisions r ON r.id = a.dat_revision_id
+     LEFT JOIN stat_walks w ON w.id = (SELECT id FROM stat_walks WHERE source_set_id = s.id ORDER BY id DESC LIMIT 1)
+                           AND w.audit_id = a.id AND w.changed + w.added + w.removed > 0
+     LEFT JOIN dat_revisions n ON s.follow AND a.id IS NOT NULL
+                               AND n.id = (SELECT max(id) FROM dat_revisions WHERE dat_id = s.dat_id)
+                               AND n.id > a.dat_revision_id";
 
 fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
     let sha256: Option<String> = row.get(7)?;
@@ -37,6 +44,23 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
         }),
         None => None,
     };
+    let mut stale = Vec::new();
+    if let Some(walk) = row.get::<_, Option<i64>>(11)? {
+        stale.push(SourceSetStale::FilesChanged {
+            walk,
+            found_at: row.get(12)?,
+            changed: row.get::<_, i64>(13)? as u64,
+            added: row.get::<_, i64>(14)? as u64,
+            removed: row.get::<_, i64>(15)? as u64,
+        });
+    }
+    if let Some(sha256) = row.get::<_, Option<String>>(16)? {
+        stale.push(SourceSetStale::NewerRevision {
+            sha256,
+            version: row.get(17)?,
+            imported_at: row.get(18)?,
+        });
+    }
     Ok(SourceSetRow {
         id: row.get(0)?,
         dat_id: row.get(1)?,
@@ -47,6 +71,8 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             dat: row.get(5)?,
             added_at: row.get(6)?,
             last_verified_against,
+            follow: row.get(10)?,
+            stale,
         },
     })
 }
@@ -207,5 +233,18 @@ impl Store {
 
     pub fn source_set(&self, name: &str) -> Result<SourceSetRecord> {
         self.read(|c| set_by_name(c, name).map(|s| s.record))
+    }
+
+    /// Makes the Source Set `name` Follow its DAT, or stop. Following never starts an Audit: a newer DAT Revision
+    /// only makes it Stale.
+    pub fn set_follow(&self, name: &str, follow: bool) -> Result<SourceSetRecord> {
+        self.write(|tx| {
+            let set = set_by_name(tx, name)?;
+            tx.execute(
+                "UPDATE source_sets SET follow = ?2 WHERE id = ?1",
+                params![set.id, follow],
+            )?;
+            Ok(set_by_name(tx, name)?.record)
+        })
     }
 }

@@ -67,6 +67,7 @@ fn kind_label(kind: JobKind) -> &'static str {
         JobKind::IngestScan => "Ingest scan",
         JobKind::Repair => "Repair",
         JobKind::Additions => "Additions",
+        JobKind::StatWalk => "Check for changes",
     }
 }
 

@@ -10,7 +10,7 @@ use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, KeepAliveStream, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get, post};
+use axum::routing::{any, get, post, put};
 use axum::{Extension, Json, Router, middleware};
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -88,6 +88,11 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/source-set-summaries", get(source_set_summaries))
         .route("/source-sets/{name}", get(source_set))
         .route("/source-sets/{name}/history", get(history))
+        .route("/source-sets/{name}/follow", put(set_follow))
+        .route(
+            "/source-sets/{name}/stat-walks",
+            get(stat_walks).post(start_stat_walk),
+        )
         .route("/source-sets/{name}/ingests", get(source_set_ingests))
         .route("/audits", post(start_audit))
         .route("/audits/{id}", get(audit))
@@ -1113,6 +1118,42 @@ async fn source_set(
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.source_set(&name)).await?,
+    ))
+}
+
+/// Makes a Source Set Follow its DAT, or stop. Following never starts an Audit.
+async fn set_follow(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<title_select_api::SetFollow>, JsonRejection>,
+) -> ApiResult<Json<title_select_api::SourceSetRecord>> {
+    let Path(name) = name?;
+    let Json(request) = body?;
+    Ok(Json(
+        blocking(&state, move |store| store.set_follow(&name, request.follow)).await?,
+    ))
+}
+
+/// Queues a stat walk of a Source Set: a check, from sizes and times alone, for files changed since its latest Audit.
+async fn start_stat_walk(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<(StatusCode, Json<title_select_api::Job>)> {
+    let Path(name) = name?;
+    let job = blocking(&state, move |store| store.enqueue_stat_walk(&name, &actor)).await?;
+    state.jobs.changed(job.clone());
+    Ok((StatusCode::ACCEPTED, Json(job)))
+}
+
+/// The stat walks of a Source Set that found files changed, added or removed, newest first.
+async fn stat_walks(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<title_select_api::StatWalk>>> {
+    let Path(name) = name?;
+    Ok(Json(
+        blocking(&state, move |store| store.stat_walks(&name)).await?,
     ))
 }
 
