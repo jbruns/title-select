@@ -8,6 +8,8 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
+use leptos_router::hooks::use_query_map;
+use leptos_router::params::ParamsMap;
 use title_select_api::Job;
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{ApprovePlan, PlanKeptDeletion, RETENTION};
@@ -101,6 +103,13 @@ pub struct RepairDesk {
     staged: StoredValue<BTreeMap<i64, Staged>>,
     /// When the last proposal was asked for.
     proposed_from: StoredValue<Option<ChangeMark>>,
+    /// Whether the Repair tab is open, so a proposal shown can name its plan in the URL.
+    open_tab: StoredValue<bool>,
+    /// A plan proposed while the Repair tab was closed, and the plan the URL named then: for the URL to name the
+    /// proposal once the tab opens, unless you opened another plan meanwhile.
+    unnamed: StoredValue<Option<(i64, Option<i64>)>>,
+    edit_query: Callback<Vec<(&'static str, Option<String>)>>,
+    query: Memo<ParamsMap>,
     proposal: Action<PlanRepair, Result<Proposed, String>>,
 }
 
@@ -116,6 +125,7 @@ impl RepairDesk {
             }
         });
         let edit_query = use_query_edit();
+        let query = use_query_map();
         let desk = RepairDesk {
             name: StoredValue::new(name),
             picked: RwSignal::new(BTreeMap::new()),
@@ -131,6 +141,10 @@ impl RepairDesk {
             loads: StoredValue::new(Loads::default()),
             staged: StoredValue::new(BTreeMap::new()),
             proposed_from: StoredValue::new(None),
+            open_tab: StoredValue::new(false),
+            unnamed: StoredValue::new(None),
+            edit_query,
+            query,
             proposal,
         };
         Effect::new(move || {
@@ -146,7 +160,7 @@ impl RepairDesk {
                 let id = p.id;
                 desk.loads.update_value(|l| l.accepted(Some(id)));
                 desk.show(p, chosen);
-                edit_query.run(vec![("plan", Some(id.to_string()))]);
+                desk.name_in_url(id);
             }
         });
         desk
@@ -235,6 +249,18 @@ impl RepairDesk {
                 Err(message) => self.problem.set(Some(message)),
             }
         });
+    }
+
+    /// Names the plan `id`, just proposed, in the URL: now, if the Repair tab is open, or else once it opens. Another
+    /// tab's URL is left as it is.
+    fn name_in_url(self, id: i64) {
+        if self.open_tab.get_value() {
+            self.unnamed.set_value(None);
+            self.edit_query.run(vec![("plan", Some(id.to_string()))]);
+        } else {
+            let named = self.query.with_untracked(named_plan);
+            self.unnamed.set_value(Some((id, named)));
+        }
     }
 
     fn shown_id(self) -> Option<i64> {
@@ -618,7 +644,22 @@ pub fn RepairTab(
     #[prop(into)]
     running: Signal<bool>,
 ) -> impl IntoView {
-    Effect::new(move || desk.load(named.get(), current.get()));
+    desk.open_tab.set_value(true);
+    on_cleanup(move || desk.open_tab.set_value(false));
+    Effect::new(move || {
+        let (named, open) = (named.get(), current.get());
+        // A plan proposed while the tab was closed is shown already: the URL names it, rather than its old plan being
+        // fetched over it.
+        if let Some((id, then)) = desk.unnamed.get_value()
+            && named == then
+        {
+            desk.unnamed.set_value(None);
+            desk.edit_query.run(vec![("plan", Some(id.to_string()))]);
+            return;
+        }
+        desk.unnamed.set_value(None);
+        desk.load(named, open);
+    });
     let wanted = move || named.get().or(current.get());
     let replaced = Memo::new(move |_| {
         desk.plan.with(|p| {
@@ -1138,6 +1179,11 @@ pub fn KeptFiles(
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
     }
+}
+
+/// The plan the URL's `plan` names.
+fn named_plan(query: &ParamsMap) -> Option<i64> {
+    query.get("plan").and_then(|p| p.parse().ok())
 }
 
 /// A repair plan of `plan`, open for review, in the Repair tab's review: for the filtering benchmark.
