@@ -898,8 +898,8 @@ The top bar holds the navigation: **Source sets · Libraries · Ingest · DATs �
 the stream's status and the theme button. Ingest shows a badge counting the items in your ingest folders that wait
 on your decision: assessed, already held, unreadable or unsupported, until you plan them out or dismiss them.
 Activity shows a badge counting the jobs running and the failed jobs you haven't opened yet, however old. Activity
-lists every failed job beside the latest jobs; opening a failed job's row marks it seen in that browser, and the eye
-button beside the Activity heading marks every failure seen at once. Both badges follow `/api/v1/events`, and the
+lists every failed job beside the latest jobs; opening a failed job's row marks it seen in that browser, and **Mark
+all failures seen** in its toolbar marks every failure seen at once (**Mark seen** marks the failed jobs you checked). Both badges follow `/api/v1/events`, and the
 Ingest badge also counts again after each change you make on an ingest page. On a narrow screen the bar shows only
 the icons; hover over or focus one to see its name. Paths from earlier versions (`/ingest-folders`, `/dat-revisions`,
 `/jobs`, `/storage-policy`, `/about`) open their new place.
@@ -974,9 +974,15 @@ Its screens:
   parent game and where it came from. You rename an addition, set or clear its parent, retire or restore it, and
   check the additions set for drift. Each set lists its kept files, which you pick, review and approve deleting, and
   any found entries a stop left.
-- **Activity** (`/activity`) lists the latest jobs with their kind, state, progress and result, live: it follows `/api/v1/events`, applies `state`
-  and `progress` events by the job `version` rule above, and replaces what it holds with each `resync` snapshot,
-  which also arrives after a reconnect.
+- **Activity** (`/activity`) has two tabs. **Jobs** counts the running, queued and failed jobs above a list of the
+  latest jobs, each with its state, kind, what it works on, progress and when it was queued. Choosing a counter shows
+  only those jobs (`?state=`); choosing it again shows every job. Opening a job (`?row=<job id>`) shows its progress,
+  result, attempt, evidence and error, with links to the source set, library folder, ingest folder or additions set it
+  works on and to the audit, selection or repair it recorded. The list is live: it follows `/api/v1/events`, applies
+  `state` and `progress` events by the job `version` rule above, and replaces what it holds with each `resync`
+  snapshot, which also arrives after a reconnect. **Kept files** (`/activity/kept`) lists the kept files of every
+  library folder, ingest folder, source set and additions set, most recently kept first; each links to its folder,
+  where you review and delete them.
 
 Every table is virtualized, sorts by its column headers and works from the keyboard: Tab to the table, then the arrow
 keys, Page Up, Page Down, Home and End move the selected row, Enter opens it and Escape clears it. Each screen's

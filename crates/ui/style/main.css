@@ -495,6 +495,31 @@ input[type="file"] {
   accent-color: var(--color-action);
 }
 
+/* Activity's counters: each a toggle that narrows the list of jobs to one state. */
+
+.counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+}
+
+.counter {
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+}
+
+.counter .counter-count {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.counter[aria-pressed="true"] {
+  background: var(--color-selected);
+  border-color: var(--color-selected-edge);
+  box-shadow: inset 0 0 0 1px var(--color-selected-edge);
+}
+
 /* Tabs */
 
 /* The shared list (parts::list): a toolbar over a virtualized grid of 40px rows, laid out by --list-columns. */

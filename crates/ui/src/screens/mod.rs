@@ -21,7 +21,7 @@ pub use audit::AuditScreen;
 pub use bench::Bench;
 pub use dats::DatRevisions;
 pub use ingest_folders::{IngestFolderScreen, IngestFolders};
-pub use jobs::Jobs;
+pub use jobs::{Activity, Jobs, KeptFiles};
 pub use library_folders::{BuildScreen, Libraries, LibraryFolderScreen, PlanABuild};
 pub use profiles::{NewProfile, ProfileScreen, Profiles};
 pub use repair::RepairScreen;

@@ -16,9 +16,9 @@ use crate::parts::theme::ThemeToggle;
 #[cfg(feature = "bench")]
 use crate::screens::Bench;
 use crate::screens::{
-    About, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen, IngestFolders,
-    Jobs, Libraries, LibraryFolderScreen, NewProfile, ProfileScreen, Profiles, RepairScreen, Roots,
-    SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen,
+    About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen,
+    IngestFolders, Jobs, KeptFiles, Libraries, LibraryFolderScreen, NewProfile, ProfileScreen,
+    Profiles, RepairScreen, Roots, SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen,
 };
 use crate::shell::{SeenJobs, moved, needing_attention, waiting_on_decision};
 
@@ -69,7 +69,10 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/ingest/:root") view=IngestFolderScreen />
                     // Reachable from the source sets page until it becomes a tab of a source set's page (#74).
                     <Route path=path!("/additions") view=Additions />
-                    <Route path=path!("/activity") view=Jobs />
+                    <ParentRoute path=path!("/activity") view=Activity>
+                        <Route path=path!("") view=Jobs />
+                        <Route path=path!("kept") view=KeptFiles />
+                    </ParentRoute>
                     <ParentRoute path=path!("/settings") view=Settings>
                         <Route path=path!("") view=|| view! { <Redirect path="/settings/storage" options=replace() /> } />
                         <Route path=path!("storage") view=StoragePolicyScreen />
