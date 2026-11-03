@@ -76,9 +76,12 @@ triggering button with `action.pending()`. `screens/repair.rs` (propose repair) 
 ### Overlays
 
 `Tooltip`, `Menu` and `Drawer` render through `Portal`, so they escape table and pane overflow. An overlay opens
-above its anchor when only above has room, and lines up with the anchor's edge near the sides (`overlay::place`). Escape anywhere in the page closes each, through a window listener held only while the overlay is
-open. `Menu` supports arrow keys and closes on Tab. `Drawer` is modal: Tab and Shift+Tab wrap inside it (`trap`), the
-page's other top-level elements are `inert` while it is open, and focus returns to where it was when it closes.
+above its anchor when only above has room, and lines up with the anchor's edge near the sides (`overlay::place`). Each open overlay is a layer on one stack (`parts::layers`): a
+single window listener sends Escape to the topmost layer only. `Menu` supports arrow keys and closes on Tab. `Drawer`
+is modal: Tab and Shift+Tab wrap over its tabbable elements only (`trap`, `tabbables`), and while any modal is open
+the page's top-level elements are `inert`, except those holding the topmost modal and the layers above it. Each
+element gets back its original inert state when the last modal closes; then focus returns to where it was. A new
+overlay registers with `layers::layer` (or `open_layer`/`close_layer` when its cleanup order matters).
 
 ### URL state
 
