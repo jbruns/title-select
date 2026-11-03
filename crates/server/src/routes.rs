@@ -1559,7 +1559,7 @@ async fn selection_diff(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
     query: Result<Query<DiffQuery>, QueryRejection>,
-) -> ApiResult<Json<SelectionDiff>> {
+) -> ApiResult<Json<Option<SelectionDiff>>> {
     let (Path(id), Query(query)) = (id?, query?);
     Ok(Json(
         blocking(&state, move |store| {
@@ -1567,23 +1567,23 @@ async fn selection_diff(
                 Some(against) => against,
                 None => {
                     let record = store.selection_record(id)?;
-                    store
+                    let earlier = store
                         .selections(&record.source_set)?
                         .into_iter()
                         .find(|s| s.id < id && !s.pruned)
-                        .map(|s| s.id)
-                        .ok_or_else(|| {
-                            Error::NotFound(format!(
-                                "selection {id} has no earlier selection to compare with"
-                            ))
-                        })?
+                        .map(|s| s.id);
+                    match earlier {
+                        Some(earlier) => earlier,
+                        // The first Selection of its Source Set has nothing to compare with.
+                        None => return Ok(None),
+                    }
                 }
             };
-            Ok(SelectionDiff {
+            Ok(Some(SelectionDiff {
                 from: against,
                 to: id,
                 changes: diff_rows(&store.selection_rows(against)?, &store.selection_rows(id)?),
-            })
+            }))
         })
         .await?,
     ))

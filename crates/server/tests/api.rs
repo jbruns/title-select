@@ -1623,8 +1623,14 @@ mod selections {
         let (_, job) = client.follow(job.id);
         let second = job.selection.unwrap();
         assert_eq!(selection(&client, second), selection(&client, first.id));
-        let diff: SelectionDiff = client.json(&format!("/selections/{second}/diff"));
+        let diff: Option<SelectionDiff> = client.json(&format!("/selections/{second}/diff"));
+        let diff = diff.expect("the second selection compares with the first");
         assert_eq!((diff.from, diff.changes.len()), (first.id, 0));
+        let none: Option<SelectionDiff> = client.json(&format!("/selections/{}/diff", first.id));
+        assert_eq!(
+            none, None,
+            "the first selection has nothing earlier to compare with"
+        );
     }
 
     #[test]
