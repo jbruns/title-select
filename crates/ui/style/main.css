@@ -1256,6 +1256,7 @@ a.icon-button {
 .tooltip {
   z-index: 30;
   max-width: 20rem;
+  overflow-wrap: anywhere;
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-control);
   background: var(--color-text);

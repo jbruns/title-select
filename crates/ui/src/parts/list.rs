@@ -188,6 +188,24 @@ impl<T: Clone + Send + Sync + 'static> ToolAction<T> {
 /// A screen's own narrowing of a list beside its filter text, such as a status chosen from a `<select>`.
 pub type Keep<T> = Option<Arc<dyn Fn(&T) -> bool + Send + Sync>>;
 
+/// A list's `rows` from a load that may be pending or may fail: the last rows loaded, kept while a reload is under way
+/// or after it fails, so a transient error doesn't empty the list or close its open row. Show the error separately.
+pub fn last_good_rows<T, E>(
+    load: impl Fn() -> Option<Result<Vec<T>, E>> + Send + Sync + 'static,
+) -> Signal<Arc<Vec<T>>>
+where
+    T: Send + Sync + 'static,
+{
+    let rows = Memo::new_with_compare(
+        move |prev: Option<&Arc<Vec<T>>>| match load() {
+            Some(Ok(rows)) => Arc::new(rows),
+            _ => prev.cloned().unwrap_or_default(),
+        },
+        |prev, next| !matches!((prev, next), (Some(a), Some(b)) if Arc::ptr_eq(a, b)),
+    );
+    rows.into()
+}
+
 /// Whether the keyboard cursor rests on the row being drawn, so its clipped cells show their whole text.
 #[derive(Clone, Copy)]
 struct KeyboardCursor(Signal<bool>);

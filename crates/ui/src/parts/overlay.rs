@@ -145,6 +145,7 @@ pub fn Tooltip(
     let at = RwSignal::new(None::<Placement>);
     // Shown by `shown`, the tooltip keeps within its anchor's width, so a row's several tooltips don't overlap.
     let fit = RwSignal::new(None::<i32>);
+    let tip = NodeRef::<html::Div>::new();
     let open = move |pinned: bool| {
         if let Some(el) = anchor.get_untracked() {
             if clipped && el.scroll_width() <= el.client_width() {
@@ -167,7 +168,19 @@ pub fn Tooltip(
             true,
         );
     }
-    let tip = NodeRef::<html::Div>::new();
+    // Placed first for one line, then again for the height the tooltip takes once drawn: wrapped text that doesn't
+    // fit below goes above.
+    Effect::new(move || {
+        let (Some(tip), Some(el)) = (tip.get(), anchor.get_untracked()) else {
+            return;
+        };
+        let room = f64::from(tip.offset_height());
+        let centred = fit.get_untracked().is_none();
+        let placed = placement_of(&el, room.max(TOOLTIP_ROOM), centred);
+        if at.get_untracked().is_some_and(|p| p != placed) {
+            at.set(Some(placed));
+        }
+    });
     view! {
         <span
             class="tip-anchor"

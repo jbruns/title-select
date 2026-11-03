@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use leptos::html::Form;
 use leptos::prelude::*;
@@ -16,7 +15,9 @@ use crate::events::use_live;
 use crate::model::{short_sha, when};
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
-use crate::parts::list::{Clip, Column, List, ListRow, RowAction, ToolAction, Width};
+use crate::parts::list::{
+    Clip, Column, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
+};
 use crate::parts::overlay::Drawer;
 use crate::parts::status::{DatFileStatus, StatusIcon};
 
@@ -214,8 +215,7 @@ pub fn DatRevisions() -> impl IntoView {
         uploaded.track();
         revisions()
     });
-    let rows =
-        Signal::derive(move || Arc::new(items.get().and_then(Result::ok).unwrap_or_default()));
+    let rows = last_good_rows(move || items.get());
     let statuses =
         Signal::derive(move || present(rows.get().iter().map(RevisionItem::file_status)));
     let importing = RwSignal::new(false);

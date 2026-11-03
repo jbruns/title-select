@@ -87,6 +87,7 @@ the page's top-level elements are `inert`, except those holding the topmost moda
 element gets back its original inert state when the last modal closes; then focus returns to where it was. A new
 overlay registers with `layers::layer` (or `open_layer`/`close_layer` when its cleanup order matters). `Tooltip { shown }`
 shows it while a signal is true, kept within its anchor's width, for an anchor the keyboard reaches without focus.
+A tooltip wraps anywhere, and is placed again for its drawn height, so a tall one that doesn't fit below goes above.
 
 ### Lists
 
@@ -112,7 +113,10 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
 2. **The list.** `<List id label rows empty detail actions? row_actions? quick? placeholder? filters? keep? legend? />`:
    - `id: &'static str` prefixes element IDs; `label` names the grid and toolbar; `empty` shows when there are no
      rows at all.
-   - `rows: Signal<Arc<Vec<T>>>`: every row, in their default order. A reload replaces the `Arc`.
+   - `rows: Signal<Arc<Vec<T>>>`: every row, in their default order. A reload replaces the `Arc`. It must reflect
+     successful loads only: rows missing from it are gone, so an empty list from a failed or pending load would
+     close the open row. Build it with `last_good_rows(move || resource.get())`, which keeps the last rows loaded,
+     and show the error separately (`Problem`).
    - `detail: Callback<T, AnyView>`: the open row's summary, under its actions in the `DetailPane` (or the drawer
      below 1100px). Its title is `title()`. It follows the row's data across reloads, and closes if the row leaves
      `rows`.
