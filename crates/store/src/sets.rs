@@ -244,6 +244,7 @@ impl Store {
                 "UPDATE source_sets SET follow = ?2 WHERE id = ?1",
                 params![set.id, follow],
             )?;
+            crate::stale::note_followed_revisions(tx)?;
             Ok(set_by_name(tx, name)?.record)
         })
     }

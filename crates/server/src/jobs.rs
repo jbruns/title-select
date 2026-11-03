@@ -29,11 +29,12 @@ impl Jobs {
         }
     }
 
-    /// Announces a Job's new state, and wakes the runner in case it was queued.
+    /// Announces a Job's new state, and wakes the runner in case it can claim one now: this one, Queued, or one
+    /// that waited for this one to end, as a stat walk waits for a Repair or Build of its Source Set.
     pub fn changed(&self, job: Job) {
-        let queued = job.state == title_select_api::JobState::Queued;
+        let wake = job.state == title_select_api::JobState::Queued || job.state.is_final();
         self.publish(JobEvent::State(Box::new(job)));
-        if queued {
+        if wake {
             self.wake.notify_one();
         }
     }
@@ -247,20 +248,24 @@ fn run_stat_walk(store: &Store, config: &Config, id: i64) -> Option<Job> {
     }
 }
 
-/// Queues a stat walk of each audited Source Set every `check_every_minutes`, starting now; none when it is 0. A
-/// walk still queued or running is left to finish.
+/// How often the schedule looks for Source Sets due a stat walk.
+const CHECK_DUE_EVERY: Duration = Duration::from_secs(60);
+
+/// Queues a stat walk of each audited Source Set last checked, or else last audited, more than `check_every_minutes`
+/// ago, looking every minute from now; none when it is 0. A walk still queued or running is left to finish.
 pub async fn schedule_stat_walks(store: Arc<Store>, config: Arc<Config>, jobs: Arc<Jobs>) {
     let minutes = config.source_sets.check_every_minutes;
     if minutes == 0 {
         return;
     }
-    let mut every = tokio::time::interval(Duration::from_secs(minutes * 60));
-    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let every = Duration::from_secs(minutes * 60);
+    let mut tick = tokio::time::interval(CHECK_DUE_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        every.tick().await;
+        tick.tick().await;
         let store = store.clone();
         let queued =
-            tokio::task::spawn_blocking(move || store.enqueue_stat_walks("schedule")).await;
+            tokio::task::spawn_blocking(move || store.enqueue_stat_walks("schedule", every)).await;
         match queued {
             Ok(Ok(queued)) => queued.into_iter().for_each(|job| jobs.changed(job)),
             Ok(Err(err)) => eprintln!("title-select: cannot queue scheduled checks: {err}"),

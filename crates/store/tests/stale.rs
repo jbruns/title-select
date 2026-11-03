@@ -311,3 +311,123 @@ fn a_stat_walk_the_service_stopped_in_is_never_queued_again() {
     assert_eq!(interrupted[0].job.state, JobState::Interrupted);
     assert_eq!(interrupted[0].requeued, None);
 }
+
+#[test]
+fn a_stamped_file_that_turns_unreadable_looks_changed() {
+    use std::os::unix::fs::symlink;
+    let env = Env::new();
+    // Pong is a symlink to a file in the root but outside the source set, which the audit reads and stamps.
+    let target = env.tmp.path().join("sets/pong.bin");
+    write_file(&target, b"pong");
+    let pong = env.set("Alpha").join("Pong (USA).a26");
+    std::fs::remove_file(&pong).unwrap();
+    symlink(&target, &pong).unwrap();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    env.walk("Alpha");
+    assert_eq!(env.stale("Alpha"), [], "nothing changed since the audit");
+
+    std::fs::remove_file(&target).unwrap();
+    env.walk("Alpha");
+    assert_eq!(
+        env.files_changed("Alpha"),
+        Some((1, 0, 0)),
+        "its target was deleted"
+    );
+
+    let outside = env.tmp.path().join("pong-outside.bin");
+    write_file(&outside, b"pong");
+    std::fs::remove_file(&pong).unwrap();
+    symlink(&outside, &pong).unwrap();
+    env.walk("Alpha");
+    assert_eq!(
+        env.files_changed("Alpha"),
+        Some((1, 0, 0)),
+        "it now leaves the root"
+    );
+}
+
+#[test]
+fn each_newer_revision_that_made_a_followed_source_set_stale_stays_in_its_history() {
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    env.store.set_follow("Alpha", true).unwrap();
+    let versions = |name: &str| -> Vec<String> {
+        env.store
+            .followed_revisions(name)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.version)
+            .collect()
+    };
+    env.import("2", &games());
+    env.import("3", &games());
+    assert_eq!(versions("Alpha"), ["3", "2"], "newest first");
+
+    let three = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .find(|r| r.version == "3")
+        .unwrap()
+        .sha256;
+    env.store
+        .audit_source_set(
+            &env.config,
+            "Alpha",
+            Some(&three),
+            AuditEvidence::Incremental,
+        )
+        .unwrap();
+    assert_eq!(env.stale("Alpha"), [], "an audit clears it");
+    assert_eq!(versions("Alpha"), ["3", "2"], "but not its history");
+    env.import("4", &games());
+    assert_eq!(versions("Alpha"), ["4", "3", "2"]);
+
+    env.store.set_follow("Alpha", false).unwrap();
+    assert_eq!(versions("Alpha"), ["4", "3", "2"], "unfollowing keeps it");
+    env.import("5", &games());
+    assert_eq!(versions("Alpha"), ["4", "3", "2"], "nor makes it stale");
+    env.store.set_follow("Alpha", true).unwrap();
+    assert_eq!(
+        versions("Alpha"),
+        ["5", "4", "3", "2"],
+        "following again finds the newer revision waiting"
+    );
+    assert_eq!(
+        versions("Beta"),
+        Vec::<String>::new(),
+        "beta never followed"
+    );
+}
+
+#[test]
+fn the_schedule_checks_only_the_source_sets_whose_last_check_or_else_audit_is_older_than_its_interval()
+ {
+    use std::time::Duration;
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    env.audit("Beta", AuditEvidence::Incremental);
+    assert_eq!(
+        env.store
+            .enqueue_stat_walks("schedule", Duration::from_secs(3600))
+            .unwrap(),
+        [],
+        "both audited within the hour"
+    );
+
+    std::thread::sleep(Duration::from_millis(1200));
+    env.walk("Alpha");
+    let queued = env
+        .store
+        .enqueue_stat_walks("schedule", Duration::from_millis(600))
+        .unwrap();
+    assert_eq!(
+        queued
+            .iter()
+            .map(|j| j.source_set.as_str())
+            .collect::<Vec<_>>(),
+        ["Beta"],
+        "alpha was just checked"
+    );
+}

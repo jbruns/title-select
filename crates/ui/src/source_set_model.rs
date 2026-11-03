@@ -5,8 +5,8 @@ use title_select_api::build::{BuildState, BuildSummary};
 use title_select_api::ingest::{IngestAction, IngestPlan};
 use title_select_api::repair::{RepairPlan, RepairStep};
 use title_select_api::{
-    AuditEvidence, AuditSummary, Finding, JobKind, JobState, OpenRepair, SourceSetStale,
-    SourceSetSummary, StatWalk,
+    AuditEvidence, AuditSummary, Finding, FollowedRevision, JobKind, JobState, OpenRepair,
+    SourceSetStale, SourceSetSummary, StatWalk,
 };
 
 use crate::model::needs_review_from_counts;
@@ -256,14 +256,15 @@ impl Moment {
 
 /// One timeline, newest first, of a source set's audits, its repairs and the games they moved in from ingest folders,
 /// the ingest plans that changed it, the builds of its library folders, each given with its folder's path, the checks
-/// that found its files changed, and the newer DAT revision that makes it stale, if any.
+/// that found its files changed, and each newer revision of the DAT it follows that made it stale, whether or not it
+/// still is.
 pub fn timeline(
     audits: &[AuditSummary],
     repairs: &[RepairPlan],
     ingests: &[IngestPlan],
     builds: &[(String, BuildSummary)],
     walks: &[StatWalk],
-    stale: &[SourceSetStale],
+    followed: &[FollowedRevision],
 ) -> Vec<Moment> {
     let mut moments: Vec<Moment> = audits
         .iter()
@@ -348,19 +349,12 @@ pub fn timeline(
             removed: w.removed,
         },
     }));
-    moments.extend(stale.iter().filter_map(|s| match s {
-        SourceSetStale::NewerRevision {
-            sha256,
-            version,
-            imported_at,
-        } => Some(Moment {
-            at: imported_at.clone(),
-            what: Happened::NewerRevision {
-                sha256: sha256.clone(),
-                version: version.clone(),
-            },
-        }),
-        SourceSetStale::FilesChanged { .. } => None,
+    moments.extend(followed.iter().map(|r| Moment {
+        at: r.found_at.clone(),
+        what: Happened::NewerRevision {
+            sha256: r.sha256.clone(),
+            version: r.version.clone(),
+        },
     }));
     // Timestamps are ISO 8601 in UTC, so they sort as text.
     moments.sort_by(|a, b| b.at.cmp(&a.at));
@@ -573,7 +567,11 @@ mod tests {
             &[ingest],
             &[("GB".into(), build)],
             &[walk],
-            &[newer("c")],
+            // The older made it stale before its latest audit, which cleared it; it stays in the timeline.
+            &[
+                followed("c", "2026-01-08T00:00:00Z"),
+                followed("b", "2025-12-31T00:00:00Z"),
+            ],
         );
         let keys: Vec<String> = moments.iter().map(Moment::key).collect();
         assert_eq!(
@@ -584,7 +582,8 @@ mod tests {
                 "build-7",
                 "repair-4",
                 "ingested-9",
-                "audit-1"
+                "audit-1",
+                "revision-b"
             ]
         );
         assert_eq!(
@@ -628,6 +627,16 @@ mod tests {
                 "workers": {"readers": 1, "hashers": 1}, "version": 1,
             }))
             .unwrap()
+        }
+    }
+
+    fn followed(sha: &str, found_at: &str) -> FollowedRevision {
+        FollowedRevision {
+            source_set: "GB".into(),
+            sha256: sha.into(),
+            version: sha.into(),
+            imported_at: found_at.into(),
+            found_at: found_at.into(),
         }
     }
 

@@ -11,7 +11,7 @@ use super::jobs::{check_no_active, finish_running, job_by_id};
 use super::sets::{resolve, set_by_name};
 use super::{Error, Result, Store, now};
 use crate::config::Config;
-use title_select_api::{Job, JobKind, JobState, StatWalk};
+use title_select_api::{FollowedRevision, Job, JobKind, JobState, StatWalk};
 use title_select_engine::{FileStamp, StatEntry};
 
 /// Why a restart Interrupted a stat walk, which is never queued again: the next one finds the same.
@@ -47,7 +47,7 @@ impl Counts {
         let mut seen = BTreeSet::new();
         for entry in walked {
             let (rel, stamp) = match entry {
-                StatEntry::File { rel, stamp } => (rel, stamp.as_ref()),
+                StatEntry::File { rel, stamp } => (rel, Some(stamp.as_ref())),
                 StatEntry::Unreadable { rel } => (rel, None),
             };
             seen.insert(rel.as_str());
@@ -55,11 +55,15 @@ impl Counts {
                 None => counts.added += 1,
                 Some(before) => {
                     let changed = match (before, stamp) {
-                        (Some(before), Some(now)) => before != now,
-                        (None, Some(now)) => {
+                        (Some(before), Some(Some(now))) => before != now,
+                        (None, Some(Some(now))) => {
                             now.mtime_ns > baseline.started_ns || now.ctime_ns > baseline.started_ns
                         }
-                        (_, None) => false,
+                        // A file the audit stamped that can no longer be reached: a dangling symlink, or one that
+                        // now leaves the root.
+                        (Some(_), None) => true,
+                        // Unreadable to the audit too, or a platform with no stamps.
+                        (None, None) | (_, Some(None)) => false,
                     };
                     if changed {
                         counts.changed += 1;
@@ -185,7 +189,46 @@ fn record(tx: &Transaction, set: i64, audit: i64, job: i64, counts: &Counts) -> 
     Ok(())
 }
 
+/// Records, as the history of each Following Source Set, the newest revision of its DAT where it is newer than its
+/// latest Audit's: what makes it Stale now. Called as a revision is imported, an Audit finishes or you follow.
+pub(crate) fn note_followed_revisions(tx: &Transaction) -> Result<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO followed_revisions (source_set_id, dat_revision_id, found_at)
+         SELECT s.id, n.id, ?1 FROM source_sets s
+         JOIN audits a ON a.id = (SELECT id FROM audits WHERE source_set_id = s.id AND status = 'finished'
+                                  ORDER BY finish_seq DESC LIMIT 1)
+         JOIN dat_revisions n ON n.id = (SELECT max(id) FROM dat_revisions WHERE dat_id = s.dat_id)
+         WHERE s.follow AND n.id > a.dat_revision_id",
+        [now()],
+    )?;
+    Ok(())
+}
+
 impl Store {
+    /// The DAT Revisions that made the Source Set `name` Stale because it Follows its DAT, newest first.
+    pub fn followed_revisions(&self, name: &str) -> Result<Vec<FollowedRevision>> {
+        self.read(|c| {
+            let set = set_by_name(c, name)?;
+            let mut rows = c.prepare(
+                "SELECT r.sha256, r.version, r.imported_at, f.found_at FROM followed_revisions f
+                 JOIN dat_revisions r ON r.id = f.dat_revision_id
+                 WHERE f.source_set_id = ?1 ORDER BY r.id DESC",
+            )?;
+            let found = rows
+                .query_map([set.id], |r| {
+                    Ok(FollowedRevision {
+                        source_set: name.to_owned(),
+                        sha256: r.get(0)?,
+                        version: r.get(1)?,
+                        imported_at: r.get(2)?,
+                        found_at: r.get(3)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(found)
+        })
+    }
+
     /// Queues a stat walk of the Source Set `name`, started by `actor`. Refused before its first Audit, which it
     /// compares with, and while one is Queued or Running. A Repair or Build of it never waits for one.
     pub fn enqueue_stat_walk(&self, name: &str, actor: &str) -> Result<Job> {
@@ -310,22 +353,34 @@ impl Store {
         })
     }
 
-    /// Queues a stat walk of every audited Source Set that has none Queued or Running. Returns the Jobs queued.
-    pub fn enqueue_stat_walks(&self, actor: &str) -> Result<Vec<Job>> {
-        let names: Vec<String> = self.read(|c| {
+    /// Queues a stat walk of every audited Source Set that has none Queued or Running and was last checked, or else
+    /// last audited, longer than `every` ago, so a restart doesn't check everything again. Returns the Jobs queued.
+    pub fn enqueue_stat_walks(&self, actor: &str, every: Duration) -> Result<Vec<Job>> {
+        let due: Vec<(String, String)> = self.read(|c| {
             let mut rows = c.prepare(
-                "SELECT s.name FROM source_sets s
+                "SELECT s.name, coalesce(
+                     (SELECT max(j.created_at) FROM jobs j WHERE j.source_set_id = s.id AND j.kind = 'stat_walk'),
+                     (SELECT max(a.finished_at) FROM audits a WHERE a.source_set_id = s.id AND a.status = 'finished'))
+                 FROM source_sets s
                  WHERE EXISTS (SELECT 1 FROM audits a WHERE a.source_set_id = s.id AND a.status = 'finished')
                  AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.source_set_id = s.id AND j.kind = 'stat_walk'
                                  AND j.state IN ('queued', 'running'))
                  ORDER BY s.name",
             )?;
             Ok(rows
-                .query_map([], |r| r.get(0))?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .collect::<Result<Vec<_>, _>>()?)
         })?;
+        let now = jiff::Timestamp::now();
+        let every = jiff::SignedDuration::try_from(every).unwrap_or(jiff::SignedDuration::MAX);
         let mut queued = Vec::new();
-        for name in names {
+        for (name, last) in due {
+            let last = last
+                .parse::<jiff::Timestamp>()
+                .map_err(|e| Error::Io(format!("source set {name}: {e}")))?;
+            if now.duration_since(last) < every {
+                continue;
+            }
             match self.enqueue_stat_walk(&name, actor) {
                 Ok(job) => queued.push(job),
                 Err(Error::JobActive { .. } | Error::Refused(_) | Error::NotFound(_)) => {}

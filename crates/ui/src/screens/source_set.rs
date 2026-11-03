@@ -13,8 +13,8 @@ use title_select_api::build::{BuildSummary, LibraryFolder};
 use title_select_api::ingest::IngestPlan;
 use title_select_api::repair::RepairPlan;
 use title_select_api::{
-    AuditEvidence, AuditSummary, Dat, Finding, GameStatus, Job, SetFollow, SourceSetRecord,
-    SourceSetSummary, StartAudit, StatWalk,
+    AuditEvidence, AuditSummary, Dat, Finding, FollowedRevision, GameStatus, Job, SetFollow,
+    SourceSetRecord, SourceSetSummary, StartAudit, StatWalk,
 };
 
 use crate::api;
@@ -809,7 +809,7 @@ impl MomentRow {
                 model::change_counts(*changed, *added, *removed)
             ),
             Happened::NewerRevision { version, .. } => {
-                format!("Revision {version} of the DAT it follows")
+                format!("Revision {version} of its DAT made it stale")
             }
         }
     }
@@ -894,7 +894,7 @@ async fn history(name: String) -> Result<Vec<Moment>, String> {
     let repairs: Vec<RepairPlan> = api::get(&format!("{base}/repairs")).await?;
     let ingests: Vec<IngestPlan> = api::get(&format!("{base}/ingests")).await?;
     let walks: Vec<StatWalk> = api::get(&format!("{base}/stat-walks")).await?;
-    let set: SourceSetRecord = api::get(&base).await?;
+    let followed: Vec<FollowedRevision> = api::get(&format!("{base}/followed-revisions")).await?;
     let folders: Vec<LibraryFolder> = api::get("/libraries").await?;
     let mut builds = Vec::new();
     for f in folders.into_iter().filter(|f| f.source_set == name) {
@@ -903,7 +903,7 @@ async fn history(name: String) -> Result<Vec<Moment>, String> {
         builds.extend(made.into_iter().map(|b| (path.clone(), b)));
     }
     Ok(model::timeline(
-        &audits, &repairs, &ingests, &builds, &walks, &set.stale,
+        &audits, &repairs, &ingests, &builds, &walks, &followed,
     ))
 }
 

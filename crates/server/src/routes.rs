@@ -93,6 +93,10 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
             "/source-sets/{name}/stat-walks",
             get(stat_walks).post(start_stat_walk),
         )
+        .route(
+            "/source-sets/{name}/followed-revisions",
+            get(followed_revisions),
+        )
         .route("/source-sets/{name}/ingests", get(source_set_ingests))
         .route("/audits", post(start_audit))
         .route("/audits/{id}", get(audit))
@@ -1154,6 +1158,17 @@ async fn stat_walks(
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.stat_walks(&name)).await?,
+    ))
+}
+
+/// The newer DAT Revisions that made a Source Set that Follows its DAT Stale, newest first.
+async fn followed_revisions(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<title_select_api::FollowedRevision>>> {
+    let Path(name) = name?;
+    Ok(Json(
+        blocking(&state, move |store| store.followed_revisions(&name)).await?,
     ))
 }
 

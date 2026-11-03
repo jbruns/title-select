@@ -408,15 +408,18 @@ clears both:
 
 - **Files changed.** A check for changes, a job of kind `stat_walk`, walks the source set and compares each file's
   size and times with its latest audit, by the change test an incremental audit uses. It reads no payload and writes
-  nothing, so it is cheap. A changed, added or removed file makes the source set stale, and its history records the
-  check with how many files changed, were added and were removed. The Service checks every audited source set every
-  `[source_sets] check_every_minutes` (360 by default; 0 checks only when you ask), and you can check one or more at
+  nothing, so it is cheap. A changed, added or removed file makes the source set stale, as does a file the audit
+  stamped that can no longer be reached, such as a symlink whose target is gone or that now leaves the root. Its
+  history records the check with how many files changed, were added and were removed. The Service checks each audited
+  source set once its last check, or else its latest audit, is older than `[source_sets] check_every_minutes` (360 by
+  default; 0 checks only when you ask), so a restart doesn't check everything again, and you can check one or more at
   any time. A check runs after every other queued job, never starts while a repair or build of its source set is
   queued or running, and stops, recording nothing, as soon as a repair or build is queued, or one of its source set
   starts, so it never holds a source set against one. A stopped check ends `interrupted`; the next one starts afresh.
 - **A newer DAT revision.** A source set you follow becomes stale when a newer revision of its DAT is imported.
   Following never starts an audit; you choose when to audit against the new revision. A source set you don't follow
-  never goes stale on a newer revision.
+  never goes stale on a newer revision. Its history keeps each revision that made it stale, after an audit clears it
+  or you stop following.
 
 ### Selection profiles
 
@@ -762,6 +765,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `PUT /api/v1/source-sets/{name}/follow`            | follow its DAT, or stop: `{"follow"}`; returns the source set |
 | `POST /api/v1/source-sets/{name}/stat-walks`       | queue a check for changes; `202`, or `400` when it has never been audited |
+| `GET /api/v1/source-sets/{name}/followed-revisions` | the newer DAT revisions that made it stale while it followed its DAT, newest first: `{"source_set", "sha256", "version", "imported_at", "found_at"}` |
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |

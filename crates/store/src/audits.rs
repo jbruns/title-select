@@ -396,6 +396,7 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
     if updated != 1 {
         return Err(Error::Io(format!("audit {id} is no longer running")));
     }
+    crate::stale::note_followed_revisions(tx)?;
     // The Audit now holds its revision, so a restored blob needs no other hold.
     tx.execute(
         "UPDATE dat_revisions SET restored_at = NULL

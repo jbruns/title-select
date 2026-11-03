@@ -175,6 +175,18 @@ impl StatWalk {
     }
 }
 
+/// A DAT Revision that made a Source Set Stale because it Follows its DAT: newer than its latest Audit's when it was
+/// imported, or when you started following. Kept in its history after an Audit, or after you stop following.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FollowedRevision {
+    pub source_set: String,
+    pub sha256: String,
+    pub version: String,
+    pub imported_at: String,
+    /// When it made the Source Set Stale.
+    pub found_at: String,
+}
+
 /// The request to Follow a Source Set's DAT, or stop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetFollow {

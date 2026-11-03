@@ -22,6 +22,15 @@ CREATE TABLE stat_walks (
 );
 CREATE INDEX stat_walks_by_source_set ON stat_walks (source_set_id, id);
 
+-- Each DAT Revision that made a Following Source Set Stale, when it did: newer than its latest Audit's when it was
+-- imported, or when you started following. Its history; whether the Source Set is Stale now is in source_sets.
+CREATE TABLE followed_revisions (
+    source_set_id INTEGER NOT NULL REFERENCES source_sets (id),
+    dat_revision_id INTEGER NOT NULL REFERENCES dat_revisions (id),
+    found_at TEXT NOT NULL,
+    PRIMARY KEY (source_set_id, dat_revision_id)
+);
+
 -- The stamp of each ZIP archive a quick inventory took claims from, recorded as it opened it, so that a stat walk can
 -- tell whether it changed since. Kept apart from audit_stamps, which a repair acts on.
 CREATE TABLE audit_claim_stamps (

@@ -134,6 +134,7 @@ impl Store {
                 params![dat_id, dat.sha256, dat.version, file, now(), source_url],
             )?;
             let record = revision_by_sha(&tx, &dat.sha256)?.expect("just inserted").1;
+            crate::stale::note_followed_revisions(&tx)?;
             tx.commit()?;
             Ok((record, ImportOutcome::Added))
         })?;
