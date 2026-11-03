@@ -1,5 +1,6 @@
 //! A synthetic Audit for the filtering benchmark in `crates/ui/bench/`: `/bench?entries=100000`, or with `&list=1`,
-//! the same Entries in the shared list (`parts::list`).
+//! the same Entries in the shared list (`parts::list`), or with `&repair=1` a repair plan of as many items in the
+//! Repair tab's review.
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -15,6 +16,8 @@ use title_select_api::{
 use crate::model::{AuditEntries, DerivedCounts};
 use crate::parts::list::{Clip, Column, List, ListRow, Width};
 use crate::screens::audit::EntriesPanel;
+use crate::screens::repair::bench_plan;
+use title_select_api::repair::RepairPlan;
 
 /// A synthetic Entry as a row of the shared list.
 #[derive(Clone)]
@@ -189,6 +192,45 @@ pub fn synthetic(entries: usize) -> AuditEntries {
     AuditEntries::new(rows, &games)
 }
 
+/// A repair plan of `items` items, each with the steps of a rename: every row has its own steps among many.
+pub fn synthetic_repair(items: usize) -> RepairPlan {
+    let entries = synthetic(items);
+    let kinds = ["rename", "conflict", "keep_aside", "repack"];
+    let (items, steps): (Vec<_>, Vec<_>) = entries
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let path = &row.entry.path;
+            let key = format!("entry:{path}");
+            let kind = kinds[i % kinds.len()];
+            let (choices, default) = if kind == "keep_aside" {
+                (vec!["leave", "keep_aside", "add_addition"], "keep_aside")
+            } else {
+                (vec!["apply", "leave"], "apply")
+            };
+            let item = serde_json::json!({
+                "key": key, "kind": kind, "summary": "s", "path": path,
+                "choices": choices, "default": default, "chosen": default,
+            });
+            let step = serde_json::json!({
+                "item": key,
+                "step": {"publish": {"build": i, "target": format!("{} {i}.zip", row.entry.member.as_deref().unwrap_or(path))}},
+            });
+            (item, step)
+        })
+        .unzip();
+    serde_json::from_value(serde_json::json!({
+        "id": 1, "digest": "d", "created_at": "2026-01-01T00:00:00Z",
+        "content": {
+            "source_set": "Bench", "set_id": 1, "root": "bench", "path": "Bench", "audit": 1,
+            "dat_revision": "r", "generation": 1, "creates_marker": false,
+            "folder": {"dev": 1, "ino": 2}, "items": items, "steps": steps, "fingerprint": []
+        },
+    }))
+    .expect("a synthetic repair plan")
+}
+
 #[component]
 pub fn Bench() -> impl IntoView {
     let query = use_query_map();
@@ -198,6 +240,16 @@ pub fn Bench() -> impl IntoView {
         .and_then(|n| n.parse().ok())
         .unwrap_or(100_000);
     let list = query.read_untracked().get("list").is_some();
+    if query.read_untracked().get("repair").is_some() {
+        return view! {
+            <h1>"Filtering benchmark"</h1>
+            <p class="lede">
+                {format!("A repair plan of {n} synthetic items. Nothing here comes from the service.")}
+            </p>
+            {bench_plan(synthetic_repair(n))}
+        }
+            .into_any();
+    }
     let entries = Arc::new(synthetic(n));
     let DerivedCounts {
         verified,
@@ -227,4 +279,5 @@ pub fn Bench() -> impl IntoView {
             view! { <EntriesPanel entries /> }.into_any()
         }}
     }
+        .into_any()
 }

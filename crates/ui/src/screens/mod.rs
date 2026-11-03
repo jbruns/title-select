@@ -13,7 +13,8 @@ mod profiles;
 pub mod repair;
 mod roots;
 pub mod selection;
-mod source_sets;
+mod source_set;
+pub mod source_sets;
 mod storage;
 
 pub use about::About;
@@ -29,8 +30,8 @@ pub use library_folders::{
     provide_planner,
 };
 pub use profiles::{NewProfile, ProfileScreen, Profiles};
-pub use repair::RepairScreen;
 pub use roots::Roots;
 pub use selection::{NewSelection, SelectionScreen};
-pub use source_sets::{SourceSet, SourceSets};
+pub use source_set::{RepairRedirect, SourceSet};
+pub use source_sets::SourceSets;
 pub use storage::StoragePolicyScreen;

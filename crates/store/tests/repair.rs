@@ -541,6 +541,28 @@ fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
 }
 
 #[test]
+fn no_repair_is_proposed_while_an_approved_one_runs() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let request = PlanRepair::default();
+    let refused = env.store.plan_repair(&env.config, "Alpha", &request);
+    assert!(
+        matches!(&refused, Err(Error::Conflict(why)) if why.contains("hasn't finished")),
+        "{refused:?}"
+    );
+    let ended = env.run_repair_job(&approved);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    env.store.fulfil_repair_audits().unwrap();
+    env.plan();
+}
+
+#[test]
 fn an_approval_is_refused_when_an_audit_finishes_while_it_is_being_checked() {
     let env = Env::new();
     env.put("readme.txt", b"hello");
@@ -2593,4 +2615,50 @@ fn an_ingest_fill_into_a_loose_source_set_is_stored_loose() {
         let found = report.games.iter().find(|g| g.name == game);
         assert_eq!(found.unwrap().status, GameStatus::Complete, "{game}");
     }
+}
+
+#[test]
+fn a_source_sets_summary_shows_its_latest_audit_and_the_repair_open_on_it() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    let summary = |env: &Env| {
+        env.store
+            .source_set_summaries()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.set.name == "Alpha")
+            .unwrap()
+    };
+    assert_eq!(summary(&env).latest, None, "never audited");
+    env.audit(AuditEvidence::Full);
+    let audited = summary(&env);
+    let latest = audited.latest.expect("its audit").id;
+    assert_eq!(audited.repair, None);
+
+    let older = env.plan();
+    let plan = env.plan();
+    let open = summary(&env).repair.expect("a proposed repair is open");
+    assert_eq!(
+        (open.id, open.audit, open.approved),
+        (plan.id, latest, false)
+    );
+
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let open = summary(&env).repair.expect("an approved repair is open");
+    assert_eq!(
+        (open.id, open.approved, open.job),
+        (plan.id, true, approved.job)
+    );
+    assert_ne!(open.id, older.id);
+
+    env.run_repair_job(&approved);
+    env.store.fulfil_repair_audits().unwrap();
+    assert_eq!(
+        summary(&env).repair,
+        None,
+        "a finished repair isn't open, and neither is the plan it was approved over"
+    );
 }

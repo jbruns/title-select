@@ -193,8 +193,64 @@ pub fn use_list_query() -> (Memo<ListQuery>, Callback<ListQuery>) {
     (state, set)
 }
 
+/// Sets or removes the query string's `key`s, as `edit` gives them, keeping the rest: for a page's own state in the URL,
+/// such as a plan review's kind. Like `use_list_query`, it replaces the history entry and doesn't scroll.
+pub fn use_query_edit() -> Callback<Vec<(&'static str, Option<String>)>> {
+    let query = use_query_map();
+    let location = use_location();
+    let target = RwSignal::new(None::<String>);
+    let navigate = use_navigate();
+    Effect::new(move || {
+        if let Some(path) = target.get() {
+            navigate(
+                &path,
+                NavigateOptions {
+                    replace: true,
+                    scroll: false,
+                    ..Default::default()
+                },
+            );
+        }
+    });
+    Callback::new(move |edit: Vec<(&'static str, Option<String>)>| {
+        let pairs = query
+            .with_untracked(|q| edited(q.latest_values().map(|(k, v)| (k.as_ref(), v)), &edit));
+        let path = location.pathname.get_untracked();
+        target.set(Some(format!("{path}{}", query_string(&pairs))));
+    })
+}
+
+/// `pairs` with each key of `edit` set to its value, or removed for none.
+pub fn edited<'a>(
+    pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
+    edit: &[(&str, Option<String>)],
+) -> Vec<(String, String)> {
+    pairs
+        .into_iter()
+        .filter(|(k, _)| !edit.iter().any(|(e, _)| e == k))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .chain(
+            edit.iter()
+                .filter_map(|(k, v)| Some((k.to_string(), v.clone()?))),
+        )
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_edit_sets_and_removes_its_keys_and_keeps_the_rest() {
+        let pairs = [("tab", "repair"), ("kind", "rename"), ("q", "x")];
+        assert_eq!(
+            super::edited(pairs, &[("kind", None), ("plan", Some("3".into()))]),
+            [
+                ("tab".to_string(), "repair".to_string()),
+                ("q".into(), "x".into()),
+                ("plan".into(), "3".into())
+            ]
+        );
+    }
+
     use super::*;
 
     #[test]

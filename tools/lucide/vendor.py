@@ -85,6 +85,8 @@ ICONS = [
     "upload",
     "file-check",
     "file-x",
+    # The plan review: current → proposed.
+    "arrow-right",
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]

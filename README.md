@@ -736,8 +736,10 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
 | `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat"}`; with no `path`, the path `template`, else the default, proposes |
+| `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
+| `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
 | `GET /api/v1/audits/{id}/report`                   | the full `schema: 3` report                                  |
@@ -908,12 +910,23 @@ the icons; hover over or focus one to see its name. Paths from earlier versions 
 
 Its screens:
 
-- **Source sets** lists each source set with its latest audit and the DAT revision it was last verified against, and
-  registers another from a root, a DAT and a path in the root. The path template proposes the path from the DAT, with a
-  live preview of the folder it names; change the template, or type over the path and use "Use the proposed path" to
-  go back. When the DAT has no `{platform}`, the preview says so and you type the path. Opening a source set shows its facts, starts an audit against
-  the default DAT revision or a newer one, as a quick inventory or an incremental (the default) or full audit, makes a selection with a selection profile, lists its selections, and
-  lists its audit history, latest first, with a Re-audit for each row. A re-audit is incremental.
+- **Source sets** lists each source set with its status (running, repair open, needs review, behind a newer DAT
+  revision, resting on claims, verified or never audited); a set whose latest audit matched entries only on claims
+  (a quick inventory) never reads verified, its game counts by game status, its DAT and its latest audit. Each row audits
+  in one click and offers proposing or reviewing its repair, previewing a selection, making a library folder, and
+  its tabs; check rows to audit them or propose their repairs together, which says it is making each plan while it
+  waits. Register adds another from a root, a DAT and a path in the root. The path template proposes the path from
+  the DAT, with a live preview of the folder it names; change the template, or type over the path and use "Use the
+  proposed path" to go back. When the DAT has no `{platform}`, the preview says so and you type the path.
+- **A source set** (`/source-sets/<name>`) is one page in tabs, each linkable as `?tab=`. **Overview** shows the
+  latest audit's game statuses and how many entries need review, a badge per finding that opens the entries with
+  that finding, its facts with its evidence coverage (how many entries rest on payloads read and how many on
+  claims), and starts an audit against the default DAT revision or a newer one, as a quick inventory
+  or an incremental (the default) or full audit. **Games** and **Entries** show the latest audit's game statuses and
+  entries, as the audit screen does. **Libraries** lists its library folders with their status. **Additions** shows
+  its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it and builds from it,
+  newest first; a past audit opens read-only. **Kept files** lists what its repairs kept aside, where you pick some
+  and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
 - **DATs** (`/dats`) lists every DAT revision, newest import first within each DAT, with its provenance (provider,
   source URL, file, SHA-256, import time), whether its file is kept, and the audits that refer to it. It uploads a DAT
   file as a new DAT revision.
@@ -994,13 +1007,18 @@ Its screens:
   approve it before anything moves. Dismissing moves nothing. While a plan you approved is moving items, the page says so and links to its job, and each item
   being moved shows as moving, then as done or with what went wrong, without reloading. The folder's kept files
   are under the list.
-- **Repair**, opened from a source set or an audit, proposes a repair of the source set, lists each item with what is
-  proposed and a choice you can change before planning again, and every change in order, including what is kept
-  aside. An unmatched entry you add as an addition asks for its system, name and parent game. You approve it with its digest and see what happened to each item. While an approved repair hasn't
-  finished, the screen opens on it, with its job's progress and a way to cancel it, instead of proposing another, and
-  says what stopped it if it was left unfinished; a repair job in Activity links to its plan. It lists the
-  source set's kept files, where you pick some and approve deleting them.
-- **Additions** (`/additions`, linked from the source sets screen) lists each system's additions set and its additions, with each one's name, hashes, state,
+- **Repair**, a source set's tab, also opened from an audit, proposes a repair of the source set and says it is
+  making the plan while it waits, as a large source set can take a while. The plan's items count by kind (rename,
+  repack, fill, set aside, convert), each kind a filter with an "apply to all" choice that starts at "no change";
+  set a choice for every item of a kind, for the rows you check, or for every row matching the filter, and the
+  screen says how many items changed, how many had it already and how many don't offer it. Each row shows the file
+  now and what is proposed, and its choice; opening it shows why, the plan's note and its changes. An unmatched
+  entry you add as an addition asks for its system, name and parent game, one item at a time. Plan again with your
+  choices to review what they change, and approve with the plan's digest to see what happened to each item. While a
+  repair is open or hasn't finished, the tab opens on it, with its job's progress and a way to cancel it, and says
+  what stopped it if it was left unfinished; a link to a past repair shows it read-only. The old
+  `/source-sets/<name>/repair` opens the tab (`?plan=` the plan it names) or, without a plan, the kept files.
+- **Additions** (`/additions`, linked from a source set's Additions tab) lists each system's additions set and its additions, with each one's name, hashes, state,
   parent game and where it came from. You rename an addition, set or clear its parent, retire or restore it, and
   check the additions set for drift. Each set lists its kept files, which you pick, review and approve deleting, and
   any found entries a stop left.

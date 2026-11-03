@@ -70,7 +70,7 @@ impl Subject {
 pub enum Outcome {
     Audit(i64),
     Selection(i64),
-    /// The repair a Repair Job carries out, by its plan's ID, on its Source Set's repair screen.
+    /// The repair a Repair Job carries out, by its plan's ID, on its Source Set's Repair tab.
     Repair {
         source_set: String,
         plan: i64,
@@ -97,7 +97,7 @@ impl Outcome {
             Outcome::Audit(id) => format!("/audits/{id}"),
             Outcome::Selection(id) => format!("/selections/{id}"),
             Outcome::Repair { source_set, plan } => {
-                format!("/source-sets/{}/repair?plan={plan}", encode(source_set))
+                format!("/source-sets/{}?tab=repair&plan={plan}", encode(source_set))
             }
         }
     }
@@ -162,7 +162,7 @@ impl KeptPlace {
         match self {
             KeptPlace::LibraryFolder { id, .. } => format!("/libraries/{id}?tab=kept"),
             KeptPlace::IngestFolder(root) => format!("/ingest/{}", encode(root)),
-            KeptPlace::SourceSet(name) => format!("/source-sets/{}/repair", encode(name)),
+            KeptPlace::SourceSet(name) => format!("/source-sets/{}?tab=kept", encode(name)),
             KeptPlace::AdditionsSet(_) => "/additions".to_string(),
         }
     }
@@ -360,7 +360,7 @@ mod tests {
         repair.repair = Some(9);
         assert_eq!(
             Outcome::of(&repair).unwrap().href(),
-            "/source-sets/Atari%202600/repair?plan=9"
+            "/source-sets/Atari%202600?tab=repair&plan=9"
         );
 
         assert_eq!(Outcome::of(&job(4, JobState::Queued)), None);
@@ -422,7 +422,7 @@ mod tests {
             [
                 (
                     "source-set-1".to_string(),
-                    "/source-sets/Atari%202600/repair".to_string()
+                    "/source-sets/Atari%202600?tab=kept".to_string()
                 ),
                 ("additions-set-1".to_string(), "/additions".to_string()),
                 (

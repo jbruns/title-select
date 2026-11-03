@@ -18,7 +18,7 @@ use crate::screens::Bench;
 use crate::screens::{
     About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen,
     IngestFolders, Jobs, KeptFiles, Libraries, LibrariesPages, LibraryFolderScreen,
-    NewLibraryFolder, NewProfile, NewSelection, ProfileScreen, Profiles, RepairScreen, Roots,
+    NewLibraryFolder, NewProfile, NewSelection, ProfileScreen, Profiles, RepairRedirect, Roots,
     SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, provide_planner,
 };
 use crate::shell::{SeenJobs, moved, needing_attention, waiting_on_decision};
@@ -50,10 +50,10 @@ pub fn App() -> impl IntoView {
                 <Routes fallback=|| view! { <NotFound /> }>
                     <Route path=path!("/") view=|| view! { <Redirect path="/source-sets" options=replace() /> } />
                     <Route path=path!("/source-sets") view=SourceSets />
-                    // A Source Set's page and its repair nest under it, ready for its tabs (#74).
+                    // A source set's page holds its tabs in `?tab=`; its repair page from before them redirects there.
                     <ParentRoute path=path!("/source-sets/:name") view=Outlet>
                         <Route path=path!("") view=SourceSet />
-                        <Route path=path!("repair") view=RepairScreen />
+                        <Route path=path!("repair") view=RepairRedirect />
                     </ParentRoute>
                     <Route path=path!("/dats") view=DatRevisions />
                     <Route path=path!("/audits/:id") view=AuditScreen />
@@ -73,7 +73,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/builds/:id") view=BuildScreen />
                     <Route path=path!("/ingest") view=IngestFolders />
                     <Route path=path!("/ingest/:root") view=IngestFolderScreen />
-                    // Reachable from the source sets page until it becomes a tab of a source set's page (#74).
+                    // Every additions set; a source set's Additions tab shows its DAT's.
                     <Route path=path!("/additions") view=Additions />
                     <ParentRoute path=path!("/activity") view=Activity>
                         <Route path=path!("") view=Jobs />

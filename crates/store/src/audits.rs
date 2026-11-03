@@ -10,10 +10,11 @@ use sha2::{Digest, Sha256};
 use super::dats::revision_by_id;
 use super::dats::{DatRevisionRecord, REVISION_COLUMNS, revision_from_row};
 use super::jobs::JobRow;
+use super::repairs::open_repair;
 use super::sets::{Resolved, SourceSetRow, resolve, set_by_id, set_by_name};
 use super::{Error, Result, Store, now};
 use crate::config::Config;
-use title_select_api::{AuditSummary, EntryRow, GameRow};
+use title_select_api::{AuditSummary, EntryRow, GameRow, SourceSetSummary};
 use title_select_engine::payload::Checksums;
 use title_select_engine::{
     ALGORITHMS, AuditEvidence, DatRevision, Entry, Evidence, EvidenceLevel, FileStamp, Finding,
@@ -206,7 +207,10 @@ impl PayloadReads for StoredReads<'_> {
 
 const SUMMARY_QUERY: &str = "SELECT a.id, s.name, a.started_at, a.finished_at, r.sha256, r.version,
             a.pruned_at IS NOT NULL, a.matched, a.misnamed, a.conflicting, a.mismatched, a.unmatched, a.unreadable,
-            a.complete, a.incomplete, a.missing, a.evidence
+            a.complete, a.incomplete, a.missing, a.evidence,
+            CASE WHEN a.pruned_at IS NULL THEN
+                (SELECT COUNT(*) FROM audit_entries e WHERE e.audit_id = a.id AND e.evidence_level = 'claim')
+            END
      FROM audits a
      JOIN dat_revisions r ON r.id = a.dat_revision_id
      JOIN source_sets s ON s.id = a.source_set_id";
@@ -222,6 +226,7 @@ fn summary_from_row(r: &Row) -> rusqlite::Result<AuditSummary> {
         dat_revision_version: r.get(5)?,
         pruned: r.get(6)?,
         evidence: evidence_from(r, 16)?,
+        claimed: r.get::<_, Option<i64>>(17)?.map(|n| n as usize),
         findings,
         games,
     })
@@ -844,6 +849,30 @@ impl Store {
             let mut stmt = c.prepare(&format!("{SUMMARY_QUERY} WHERE a.source_set_id = ?1 AND a.status = 'finished' ORDER BY a.finish_seq DESC"))?;
             let rows = stmt.query_map([set.id], summary_from_row)?;
             Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
+    /// Every registered Source Set, by name, with its latest finished Audit and its open Repair: what the list of
+    /// Source Sets shows, in one read.
+    pub fn source_set_summaries(&self) -> Result<Vec<SourceSetSummary>> {
+        let sets = self.source_sets()?;
+        self.read(|c| {
+            let mut latest = c.prepare(&format!(
+                "{SUMMARY_QUERY} WHERE s.name = ?1 AND a.status = 'finished' ORDER BY a.finish_seq DESC LIMIT 1"
+            ))?;
+            sets.into_iter()
+                .map(|set| {
+                    let latest = latest
+                        .query_row([&set.name], summary_from_row)
+                        .optional()?;
+                    let repair = open_repair(c, &set.name, latest.as_ref().map(|a| a.id))?;
+                    Ok(SourceSetSummary {
+                        set,
+                        latest,
+                        repair,
+                    })
+                })
+                .collect()
         })
     }
 

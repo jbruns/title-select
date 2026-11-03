@@ -433,7 +433,7 @@ fn said_view(said: RwSignal<Option<Result<String, String>>>) -> impl IntoView {
 }
 
 /// The jobs the live job book holds, so a folder shows Running as soon as a job for it starts, wherever it was started.
-fn live_jobs(live: Live) -> Vec<Job> {
+pub(crate) fn live_jobs(live: Live) -> Vec<Job> {
     live.book
         .with(|b| b.newest_first().into_iter().map(|l| l.job).collect())
 }

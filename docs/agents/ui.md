@@ -43,6 +43,8 @@ pure logic there too.
 | Filter, sort, open/checked rows in URL | `use_list_query()` (`List` uses it already)            | `url_state` |
 | List beside a routed detail            | `SplitView` + `DetailPane` under a `ParentRoute`       | `layout`    |
 | Routed tabs                            | `Tabs { label, tabs: Vec<Tab> }`                       | `layout`    |
+| A plan's items, reviewed in bulk       | `PlanReview { id, label, rows, empty, detail, .. }`    | `plan`      |
+| Current → proposed in a cell           | `Change { current, proposed }`                         | `plan`      |
 | Light/dark override                    | `ThemeToggle` (already in the header)                  | `theme`     |
 
 ### Icons
@@ -72,7 +74,8 @@ Write slow requests as `Action::new_local(|input| async { api::post(..).await })
 dispatch with `dispatch_local`, and wrap the content they refresh in `ActionPending`. While pending it shows a
 spinner, the short status ("Making plan…") and the elapsed time, and keeps the previous content dimmed and inert. An
 `Err` shows as a problem once the action settles. React to `Ok` with an `Effect` on `action.value()`; disable the
-triggering button with `action.pending()`. `screens/repair.rs` (propose repair) is the reference.
+triggering button with `action.pending()`. `screens/repair.rs` (`RepairDesk`, propose and plan again) is the
+reference: its action lives with the page, so the pending status outlives a change of tab.
 
 `Pending` is the general form: give it any busy signal and optional problem. It also wraps its children in
 `Transition` (busy while a resource reloads) and `ErrorBoundary`.
@@ -88,6 +91,17 @@ element gets back its original inert state when the last modal closes; then focu
 overlay registers with `layers::layer` (or `open_layer`/`close_layer` when its cleanup order matters). `Tooltip { shown }`
 shows it while a signal is true, kept within its anchor's width, for an anchor the keyboard reaches without focus.
 A tooltip wraps anywhere, and is placed again for its drawn height, so a tall one that doesn't fit below goes above.
+
+### Plan review
+
+Every plan is reviewed with `parts::plan::PlanReview`, a `List` with a strip of counts by kind above it. Its rows
+implement `PlanRow` (a `ListRow` with `type Kind: Status`): `PlanKind` for repairs, `BuildKind` for builds and
+cleanups. Each kind's count is a filter (`kind` in the URL); pass `apply` to put an "apply to all" control beside each
+count, which must start at "no change" and go back to it. Bulk choices are toolbar `ToolAction::checked` actions over
+the checked rows or every row matching the filter. Count what a bulk choice did with `plan_model::apply_choice` and
+show `BulkOutcome::message` in `message`, so a partial application says how many items don't offer the choice.
+Rows show `Change { current, proposed }`; reasons and evidence go in `detail`. Keep the plan's own choice rules
+pure and tested (`repair_model`). `screens/repair.rs` (`RepairTab`) is the reference.
 
 ### Lists
 

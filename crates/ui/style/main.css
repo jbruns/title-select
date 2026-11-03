@@ -770,6 +770,68 @@ input[type="file"] {
   font-weight: 700;
 }
 
+/* Plan review: counts by kind, and rows reading current → proposed */
+
+.kind-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.kind-count {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-divider);
+  border-radius: var(--radius-control);
+}
+
+.kind-count.active {
+  background: var(--color-selected);
+  border-color: var(--color-selected-edge);
+}
+
+.kind-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: none;
+  background: transparent;
+}
+
+.kind-count .n {
+  font-family: var(--font-data);
+  font-weight: 700;
+}
+
+.kind-count select {
+  max-width: 11rem;
+}
+
+.change {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.change > .clip,
+.change > span:not(.change-to) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.change-to {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-text-secondary);
+}
+
 /* Tables */
 
 .table-scroll {
@@ -1686,4 +1748,64 @@ details.kept > summary {
   .editor-preview {
     position: static;
   }
+}
+
+/* A source set's page: its tabs, game counts and finding badges */
+
+nav.tabs {
+  overflow-x: auto;
+}
+
+.tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.game-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.game-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-data);
+}
+
+.count .what .status {
+  vertical-align: middle;
+}
+
+.finding-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.finding-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-divider);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.finding-badge .n {
+  font-family: var(--font-data);
+  font-weight: 700;
+}
+
+select.choice.changed {
+  border-color: var(--color-selected-edge);
 }

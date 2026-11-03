@@ -85,8 +85,10 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         )
         .route("/path-templates", get(path_templates))
         .route("/source-sets", get(source_sets).post(add_source_set))
+        .route("/source-set-summaries", get(source_set_summaries))
         .route("/source-sets/{name}", get(source_set))
         .route("/source-sets/{name}/history", get(history))
+        .route("/source-sets/{name}/ingests", get(source_set_ingests))
         .route("/audits", post(start_audit))
         .route("/audits/{id}", get(audit))
         .route("/audits/{id}/report", get(report))
@@ -435,6 +437,12 @@ async fn source_sets(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<title_select_api::SourceSetRecord>>> {
     Ok(Json(blocking(&state, Store::source_sets).await?))
+}
+
+async fn source_set_summaries(
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<title_select_api::SourceSetSummary>>> {
+    Ok(Json(blocking(&state, Store::source_set_summaries).await?))
 }
 
 async fn add_source_set(
@@ -1115,6 +1123,18 @@ async fn history(
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.history(&name)).await?,
+    ))
+}
+
+/// The approved ingest plans that changed a Source Set: DAT imports that queued an Audit of it, and additions to its
+/// DAT's Additions Set.
+async fn source_set_ingests(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<Vec<title_select_api::ingest::IngestPlan>>> {
+    let Path(name) = name?;
+    Ok(Json(
+        blocking(&state, move |store| store.source_set_ingests(&name)).await?,
     ))
 }
 

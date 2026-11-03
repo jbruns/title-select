@@ -555,6 +555,7 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
         revisions,
         "nothing until approved"
     );
+    assert!(env.store.source_set_ingests("Alpha").unwrap().is_empty());
     let applied = env
         .store
         .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
@@ -573,6 +574,12 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
         env.listing(),
         [".title-select-retained/1/Alpha System (2).dat.kept"]
     );
+    let changed = |set: &str| -> Vec<i64> {
+        let plans = env.store.source_set_ingests(set).unwrap();
+        plans.iter().map(|p| p.id).collect()
+    };
+    assert_eq!(changed("Alpha"), [plan.id], "the import is in its history");
+    assert!(changed("Beta").is_empty(), "another DAT's set is untouched");
 }
 
 #[test]

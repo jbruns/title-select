@@ -141,8 +141,9 @@ pub fn Additions() -> impl IntoView {
     }
 }
 
+/// One additions set, with its additions, its check and its kept files.
 #[component]
-fn SetView(set: AdditionsSet, refresh: RwSignal<u64>) -> impl IntoView {
+pub fn SetView(set: AdditionsSet, refresh: RwSignal<u64>) -> impl IntoView {
     let check = RwSignal::new(None::<AdditionsCheck>);
     let problem = RwSignal::new(None::<String>);
     let system = set.system.clone();

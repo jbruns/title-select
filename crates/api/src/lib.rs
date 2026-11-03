@@ -161,6 +161,33 @@ pub struct AuditSummary {
     /// How the Audit got its Entries' checksums.
     #[serde(default = "full_evidence")]
     pub evidence: AuditEvidence,
+    /// How many of its Entries rest on Claim Evidence rather than Payload Evidence; unknown once it is pruned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed: Option<usize>,
+}
+
+/// A Source Set with what the list of Source Sets shows of it: its latest finished Audit and its open Repair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceSetSummary {
+    pub set: SourceSetRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<AuditSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair: Option<OpenRepair>,
+}
+
+/// A Source Set's open Repair: one approved and not finished, or else one not yet approved that was proposed from
+/// its latest Audit since its last approved Repair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenRepair {
+    /// The repair plan.
+    pub id: i64,
+    /// The Audit it was proposed from.
+    pub audit: i64,
+    pub approved: bool,
+    /// Its Repair Job, once approved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<i64>,
 }
 
 fn full_evidence() -> AuditEvidence {

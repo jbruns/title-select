@@ -1,10 +1,111 @@
 //! The repair screen's pure logic: which repair to show when it opens, when to fetch a plan again, what to say
-//! about one left unfinished, and what you changed since the plan shown was made.
+//! about one left unfinished, what you changed since the plan shown was made, and setting one choice for many items.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use title_select_api::additions::NewAddition;
-use title_select_api::repair::{RepairChoice, RepairPlan};
+use title_select_api::repair::{RepairChoice, RepairItem, RepairPlan, RepairStep};
+
+use crate::parts::plan_model::{self, BulkOutcome};
+use crate::parts::status::PlanKind;
+use crate::screens::additions::new_addition;
+
+/// The loads of the plan to show, in the order they were asked for. One rule keeps the screen true to the server:
+/// only the last load's answer is shown, and the answer to a change made to a plan (approving it, planning again,
+/// refreshing a running repair) only while no load has been asked for since. A change whose answer is dropped
+/// [reloads](Loads::reload) the plan wanted, so the screen still ends up showing what the server holds.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Loads {
+    /// The plan last asked to be shown, once one has been: `Some(None)` for the open repair.
+    requested: Option<Option<i64>>,
+    /// The source set's open repair, the last time it had one.
+    last_open: Option<i64>,
+    seq: u64,
+}
+
+/// A load asked for, to check its answer against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoadTicket {
+    seq: u64,
+    /// The plan to show: none for whichever approved repair hasn't finished.
+    pub wanted: Option<i64>,
+}
+
+/// When a change to a plan was made, to check its answer against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChangeMark(u64);
+
+impl Loads {
+    /// Asks for the plan the URL `named`, or else the source set's `open` repair, while `shown` (approved or not) is
+    /// shown: a ticket to fetch it with, or none when it was asked for last or is already shown. Asking for another
+    /// plan than last time drops what is under way, loads and changes alike. An approved repair that was the open
+    /// one stays shown once it finishes, with what happened to each item, until another plan is asked for.
+    pub fn ask(
+        &mut self,
+        named: Option<i64>,
+        open: Option<i64>,
+        shown: Option<(i64, bool)>,
+    ) -> Option<LoadTicket> {
+        if open.is_some() {
+            self.last_open = open;
+        }
+        let finished = shown
+            .filter(|&(id, approved)| approved && Some(id) == self.last_open)
+            .map(|(id, _)| id);
+        let wanted = named.or(open).or(finished);
+        if self.requested == Some(wanted) {
+            return None;
+        }
+        self.requested = Some(wanted);
+        self.seq += 1;
+        (wanted.is_none() || wanted != shown.map(|(id, _)| id)).then_some(LoadTicket {
+            seq: self.seq,
+            wanted,
+        })
+    }
+
+    /// Loads the plan last asked for again, even if it is shown, in place of whatever is under way: after the answer
+    /// to a change was dropped. None before any was asked for.
+    pub fn reload(&mut self) -> Option<LoadTicket> {
+        let wanted = self.requested?;
+        self.seq += 1;
+        Some(LoadTicket {
+            seq: self.seq,
+            wanted,
+        })
+    }
+
+    /// Whether the answer to `ticket` is still wanted.
+    pub fn applies(&self, ticket: LoadTicket) -> bool {
+        ticket.seq == self.seq
+    }
+
+    /// Marks a change made now to the plan shown.
+    pub fn mark(&self) -> ChangeMark {
+        ChangeMark(self.seq)
+    }
+
+    /// Whether the answer to the change `mark`ed is still to be shown: when no load was asked for since.
+    pub fn change_applies(&self, mark: ChangeMark) -> bool {
+        mark.0 == self.seq
+    }
+
+    /// The answer to a change is shown, giving back the plan `proposed` when it was a proposal (which the URL then
+    /// names): a load asked for earlier no longer counts, and asking for that plan next fetches nothing.
+    pub fn accepted(&mut self, proposed: Option<i64>) {
+        self.seq += 1;
+        if let Some(id) = proposed {
+            self.requested = Some(Some(id));
+        }
+    }
+}
+
+/// Whether a new repair may be proposed while `shown` (approved, finished) is shown and the source set is or isn't
+/// `running` an approved repair: when none is running, and no plan is shown or the one shown has finished. A plan
+/// still open is planned again instead.
+pub fn may_propose(shown: Option<(bool, bool)>, running: bool) -> bool {
+    !running && shown.is_none_or(|(_, finished)| finished)
+}
 
 /// The repair to show when the repair screen opens, from the source set's plans: the one `wanted` names, if any;
 /// otherwise the latest approved repair that hasn't finished, which is shown instead of proposing a new one.
@@ -73,11 +174,13 @@ pub fn requested(
 }
 
 /// The additions to ask for when planning again from `plan` with `choices`: the fields of each item chosen
-/// to be added as one. An item without a choice takes its default.
+/// to be added as one. An item without a choice takes its default. Fields you haven't opened are what the plan adds
+/// it as, or else its suggested name in `system`, the source set's DAT.
 pub fn to_add(
     plan: &RepairPlan,
     choices: &BTreeMap<String, RepairChoice>,
     adding: &BTreeMap<String, NewAddition>,
+    system: &str,
 ) -> BTreeMap<String, NewAddition> {
     plan.content
         .items
@@ -85,8 +188,21 @@ pub fn to_add(
         .filter(|item| {
             choices.get(&item.key).copied().unwrap_or(item.default) == RepairChoice::AddAddition
         })
-        .filter_map(|item| Some((item.key.clone(), adding.get(&item.key)?.clone())))
+        .map(|item| {
+            let fields = adding
+                .get(&item.key)
+                .or(item.addition.as_ref())
+                .cloned()
+                .unwrap_or_else(|| suggested_addition(item, system));
+            (item.key.clone(), fields)
+        })
         .collect()
+}
+
+/// What `item` is added as until you say otherwise: an addition named from its file, in `system`.
+pub fn suggested_addition(item: &RepairItem, system: &str) -> NewAddition {
+    let path = item.path.as_deref().unwrap_or(&item.key);
+    new_addition(path, Some(system))
 }
 
 /// The items you changed since `plan` was shown, by key: one you picked otherwise than the plan does, or an
@@ -109,6 +225,144 @@ pub fn unplanned(
         })
         .map(|item| item.key.clone())
         .collect()
+}
+
+/// The choice `item` takes now: your pick, or else what the plan shown does.
+pub fn current(item: &RepairItem, picked: &BTreeMap<String, RepairChoice>) -> RepairChoice {
+    picked.get(&item.key).copied().unwrap_or(item.chosen)
+}
+
+/// The choices of `item` you can set for many items at once: adding as an addition needs each item's own name, so
+/// it's set one item at a time.
+pub fn bulk_offers(item: &RepairItem) -> Vec<RepairChoice> {
+    item.choices
+        .iter()
+        .copied()
+        .filter(|c| *c != RepairChoice::AddAddition)
+        .collect()
+}
+
+fn of_kind(plan: &RepairPlan, kind: PlanKind) -> impl Iterator<Item = &RepairItem> {
+    plan.content
+        .items
+        .iter()
+        .filter(move |i| PlanKind::from(i.kind) == kind)
+}
+
+/// The choices "apply to all" offers for `kind`: those any item of that kind offers. One that only some offer sets
+/// only those.
+pub fn kind_choices(plan: &RepairPlan, kind: PlanKind) -> Vec<RepairChoice> {
+    let offers: Vec<Vec<RepairChoice>> = of_kind(plan, kind).map(bulk_offers).collect();
+    plan_model::offered_by_any(offers.iter().map(Vec::as_slice))
+}
+
+/// The choices you can set for the items `keys` names: those any of them offers.
+pub fn choices_for(plan: &RepairPlan, keys: &[String]) -> Vec<RepairChoice> {
+    let keys: BTreeSet<&str> = keys.iter().map(String::as_str).collect();
+    let offers: Vec<Vec<RepairChoice>> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| keys.contains(i.key.as_str()))
+        .map(bulk_offers)
+        .collect();
+    plan_model::offered_by_any(offers.iter().map(Vec::as_slice))
+}
+
+fn apply<'a>(
+    items: impl Iterator<Item = &'a RepairItem>,
+    choice: RepairChoice,
+    picked: &mut BTreeMap<String, RepairChoice>,
+) -> BulkOutcome {
+    let offers: Vec<(&RepairItem, Vec<RepairChoice>)> =
+        items.map(|i| (i, bulk_offers(i))).collect();
+    plan_model::apply_choice(
+        offers
+            .iter()
+            .map(|(i, o)| (i.key.as_str(), i.chosen, o.as_slice())),
+        choice,
+        picked,
+    )
+}
+
+/// Sets `choice` for every item of `kind` that offers it; no choice ("no change") changes nothing.
+pub fn apply_to_kind(
+    plan: &RepairPlan,
+    kind: PlanKind,
+    choice: Option<RepairChoice>,
+    picked: &mut BTreeMap<String, RepairChoice>,
+) -> Option<BulkOutcome> {
+    Some(apply(of_kind(plan, kind), choice?, picked))
+}
+
+/// Sets `choice` for every item `keys` names that offers it: the selected rows, or every row matching a filter.
+pub fn apply_to_keys(
+    plan: &RepairPlan,
+    keys: &[String],
+    choice: RepairChoice,
+    picked: &mut BTreeMap<String, RepairChoice>,
+) -> BulkOutcome {
+    let keys: BTreeSet<&str> = keys.iter().map(String::as_str).collect();
+    apply(
+        plan.content
+            .items
+            .iter()
+            .filter(|i| keys.contains(i.key.as_str())),
+        choice,
+        picked,
+    )
+}
+
+/// Where `item` is now: its file, and the member in it; or, for a game it lacks, the game.
+pub fn place(item: &RepairItem) -> String {
+    match (&item.path, &item.member, &item.game) {
+        (Some(path), Some(member), _) => format!("{path} ({member})"),
+        (Some(path), None, _) => path.clone(),
+        (None, _, Some(game)) => format!("{game} (missing)"),
+        (None, _, None) => item.key.clone(),
+    }
+}
+
+/// The steps of `plan`, in order, by the key of the item each is for: so a row finds its own without reading every
+/// step of the plan.
+pub fn steps_by_item(plan: &RepairPlan) -> HashMap<&str, Vec<&RepairStep>> {
+    let mut by_item: HashMap<&str, Vec<&RepairStep>> = HashMap::new();
+    for s in &plan.content.steps {
+        by_item.entry(s.item.as_str()).or_default().push(&s.step);
+    }
+    by_item
+}
+
+/// What the plan makes of `item`, given its own `steps`: the file it ends up as, the addition it is added as, or
+/// that it is kept aside or left as it is.
+pub fn proposed(item: &RepairItem, steps: &[&RepairStep]) -> String {
+    if item.chosen == RepairChoice::Leave {
+        return "left as it is".to_string();
+    }
+    if item.chosen == RepairChoice::AddAddition
+        && let Some(addition) = &item.addition
+    {
+        return format!("addition {}", addition.name);
+    }
+    let steps = || steps.iter().copied();
+    let written = steps().find_map(|step| match step {
+        RepairStep::Rename { to, .. } => Some(to.clone()),
+        RepairStep::Publish { target, .. } | RepairStep::Fill { target, .. } => {
+            Some(target.clone())
+        }
+        _ => None,
+    });
+    let written = written.or_else(|| {
+        steps().find_map(|step| match step {
+            RepairStep::Build { target, .. } => Some(target.clone()),
+            _ => None,
+        })
+    });
+    match written {
+        Some(target) => target,
+        None if steps().any(|s| matches!(s, RepairStep::Keep { .. })) => "kept files".to_string(),
+        None => "left as it is".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -142,6 +396,147 @@ mod tests {
         assert_eq!(repair_to_show(&plans, None).map(|p| p.id), Some(3));
         assert_eq!(repair_to_show(&plans[..1], None).map(|p| p.id), None);
         assert_eq!(repair_to_show(&plans, Some(2)).map(|p| p.id), Some(2));
+    }
+
+    #[test]
+    fn asking_again_for_the_plan_shown_drops_no_change() {
+        let mut loads = Loads::default();
+        // A proposal shows plan 5, then the source set's summary catches up and asks for it.
+        assert_eq!(loads.ask(None, Some(5), Some((5, false))), None);
+        let approving = loads.mark();
+        assert_eq!(loads.ask(None, Some(5), Some((5, false))), None);
+        assert!(loads.change_applies(approving), "approving 5 still lands");
+    }
+
+    #[test]
+    fn a_dropped_change_reloads_the_plan_wanted() {
+        let mut loads = Loads::default();
+        assert_eq!(loads.reload(), None, "nothing asked for yet");
+        assert_eq!(loads.ask(None, Some(5), Some((5, false))), None);
+        let approving = loads.mark();
+        // The summary moves on to plan 6 before the approval of 5 comes back.
+        let six = loads
+            .ask(None, Some(6), Some((5, false)))
+            .expect("a load of 6");
+        assert!(!loads.change_applies(approving));
+        let again = loads.reload().expect("a reload");
+        assert_eq!(again.wanted, Some(6));
+        assert!(!loads.applies(six), "the reload wins");
+        assert!(loads.applies(again));
+    }
+
+    #[test]
+    fn moving_to_another_plan_drops_what_was_under_way_for_the_last() {
+        let mut loads = Loads::default();
+        let two = loads.ask(Some(2), None, None).expect("a load of 2");
+        let one = loads.ask(Some(1), None, None).expect("a load of 1");
+        assert!(!loads.applies(two), "2 was asked for before 1");
+        assert!(loads.applies(one));
+        assert_eq!(
+            loads.ask(Some(1), None, Some((1, false))),
+            None,
+            "asked for last"
+        );
+        assert!(
+            loads.ask(None, None, Some((1, false))).is_some(),
+            "the open repair is looked up"
+        );
+    }
+
+    #[test]
+    fn a_plan_you_open_wins_over_a_proposal_still_under_way() {
+        let mut loads = Loads::default();
+        assert_eq!(loads.ask(None, Some(1), Some((1, false))), None);
+        let proposing = loads.mark();
+        // You open plan 2 from the history before the proposal comes back.
+        let two = loads
+            .ask(Some(2), Some(1), Some((1, false)))
+            .expect("a load of 2");
+        assert!(!loads.change_applies(proposing), "the proposal is dropped");
+        assert!(loads.applies(two), "so 2 is shown");
+    }
+
+    #[test]
+    fn a_proposal_shown_drops_a_load_asked_for_before_it() {
+        let mut loads = Loads::default();
+        let a = loads.ask(Some(1), None, None).expect("a load of 1");
+        // Proposed while 1 is still loading: plan 2 comes back first.
+        let proposing = loads.mark();
+        assert!(loads.change_applies(proposing));
+        loads.accepted(Some(2));
+        assert!(!loads.applies(a), "1 isn't shown over 2");
+        // The URL now names 2.
+        assert_eq!(loads.ask(Some(2), None, Some((2, false))), None);
+        let b = loads
+            .ask(Some(1), None, Some((2, false)))
+            .expect("opening 1 again loads it");
+        assert!(loads.applies(b), "a load asked for afterwards wins");
+    }
+
+    #[test]
+    fn approving_a_then_opening_b_and_back_shows_a_approved() {
+        let mut loads = Loads::default();
+        assert_eq!(loads.ask(None, Some(1), Some((1, false))), None);
+        let approving = loads.mark();
+        let b = loads
+            .ask(Some(2), Some(1), Some((1, false)))
+            .expect("a load of 2");
+        // Back to 1 before either answer: 1 is still shown, so nothing is fetched.
+        assert_eq!(loads.ask(Some(1), Some(1), Some((1, false))), None);
+        assert!(!loads.applies(b), "2 isn't shown over 1");
+        assert!(!loads.change_applies(approving));
+        // The approval's answer is dropped, so 1 is fetched again, approved.
+        let again = loads.reload().expect("a reload");
+        assert_eq!(again.wanted, Some(1));
+        assert!(loads.applies(again));
+    }
+
+    #[test]
+    fn a_running_repair_left_and_returned_to_still_finishes() {
+        let mut loads = Loads::default();
+        assert_eq!(loads.ask(None, Some(1), Some((1, true))), None);
+        // Its job ends and the plan is fetched to show how it finished.
+        let fetched = Some(7);
+        let refreshing = loads.mark();
+        loads.ask(Some(2), Some(1), Some((1, true)));
+        assert_eq!(loads.ask(Some(1), Some(1), Some((1, true))), None);
+        assert!(!loads.change_applies(refreshing));
+        // The refresh is dropped: it is fetched again, and may be once more when the job's end is seen.
+        assert_eq!(loads.reload().map(|t| t.wanted), Some(Some(1)));
+        assert!(!fetch_after(7, true, true, fetched));
+        assert!(fetch_after(7, true, true, None), "once forgotten");
+    }
+
+    #[test]
+    fn the_open_repair_stays_shown_once_it_finishes() {
+        let mut loads = Loads::default();
+        assert_eq!(loads.ask(None, Some(3), Some((3, true))), None);
+        // It finished, so the source set has no open repair.
+        assert_eq!(
+            loads.ask(None, None, Some((3, true))),
+            None,
+            "its outcomes stay"
+        );
+        // A finished repair opened from its history isn't kept once the link no longer names it.
+        let mut loads = Loads::default();
+        loads.ask(Some(2), None, None);
+        let ticket = loads.ask(None, None, Some((2, true))).expect("a lookup");
+        assert_eq!(ticket.wanted, None);
+    }
+
+    #[test]
+    fn a_repair_is_proposed_only_while_none_runs() {
+        assert!(may_propose(None, false));
+        assert!(
+            !may_propose(Some((false, false)), false),
+            "plan it again instead"
+        );
+        assert!(may_propose(Some((true, true)), false));
+        assert!(
+            !may_propose(Some((true, true)), true),
+            "a finished plan from the history, while another repair runs"
+        );
+        assert!(!may_propose(None, true));
     }
 
     #[test]
@@ -256,11 +651,48 @@ mod tests {
         let adding = BTreeMap::from([("entry:h.zip".to_string(), added.clone())]);
         let asked = chosen(&p);
         assert_eq!(
-            to_add(&p, &requested(&p, &asked, &BTreeMap::new()), &adding),
+            to_add(
+                &p,
+                &requested(&p, &asked, &BTreeMap::new()),
+                &adding,
+                "Atari - 2600"
+            ),
             adding
         );
         let back = BTreeMap::from([("entry:h.zip".to_string(), RepairChoice::KeepAside)]);
-        assert!(to_add(&p, &requested(&p, &asked, &back), &adding).is_empty());
+        assert!(to_add(&p, &requested(&p, &asked, &back), &adding, "Atari - 2600").is_empty());
+    }
+
+    #[test]
+    fn planning_again_adds_what_the_plan_did_or_a_suggestion_for_an_addition_never_opened() {
+        let added = NewAddition {
+            system: "Atari - 2600".into(),
+            name: "Hack".into(),
+            parent: Some("Pong (USA)".into()),
+        };
+        let mut p = plan(1, false, false, None);
+        let mut push = |key: &str, path: &str, chosen: &str, addition: Option<&NewAddition>| {
+            p.content.items.push(
+                serde_json::from_value(serde_json::json!({
+                    "key": key, "kind": "keep_aside", "summary": "s", "path": path,
+                    "choices": ["keep_aside", "add_addition"], "default": "keep_aside", "chosen": chosen,
+                    "addition": addition,
+                }))
+                .unwrap(),
+            );
+        };
+        push("entry:h.zip", "h.zip", "add_addition", Some(&added));
+        push("entry:My Demo.zip", "My Demo.zip", "keep_aside", None);
+        let picked = BTreeMap::from([("entry:My Demo.zip".to_string(), RepairChoice::AddAddition)]);
+        let choices = requested(&p, &chosen(&p), &picked);
+        let asked = to_add(&p, &choices, &BTreeMap::new(), "Atari - 2600");
+        assert_eq!(asked["entry:h.zip"], added, "what the plan adds it as");
+        let suggested = &asked["entry:My Demo.zip"];
+        assert_eq!(
+            (suggested.system.as_str(), suggested.name.as_str()),
+            ("Atari - 2600", "My Demo"),
+            "a suggestion in the source set's DAT"
+        );
     }
 
     #[test]
@@ -290,5 +722,201 @@ mod tests {
             },
         )]);
         assert_eq!(unplanned(&p, &choices, &renamed), ["entry:h.zip"]);
+    }
+
+    fn bulk_plan() -> RepairPlan {
+        let mut p = plan(1, false, false, None);
+        let kept = |key: &str, choices: &[&str]| {
+            let mut i = item(key, choices, "keep_aside", "keep_aside");
+            i.kind = title_select_api::repair::RepairKind::KeepAside;
+            i
+        };
+        p.content.items = vec![
+            kept("entry:a.zip", &["leave", "keep_aside", "add_addition"]),
+            kept("entry:b.zip", &["leave", "keep_aside", "add_addition"]),
+            kept("entry:c.zip", &["keep_aside"]),
+            item("game:g", &["apply", "leave"], "apply", "apply"),
+        ];
+        p
+    }
+
+    #[test]
+    fn apply_to_all_offers_what_any_item_of_the_kind_offers_but_adding() {
+        let p = bulk_plan();
+        assert_eq!(
+            kind_choices(&p, PlanKind::SetAside),
+            [RepairChoice::Leave, RepairChoice::KeepAside]
+        );
+        let ab = ["entry:a.zip".to_string(), "entry:b.zip".to_string()];
+        assert_eq!(
+            choices_for(&p, &ab),
+            [RepairChoice::Leave, RepairChoice::KeepAside]
+        );
+        assert_eq!(
+            kind_choices(&p, PlanKind::Rename),
+            [RepairChoice::Apply, RepairChoice::Leave],
+            "a conflict is shown as a rename"
+        );
+    }
+
+    #[test]
+    fn no_change_leaves_every_pick_as_it_was() {
+        let p = bulk_plan();
+        let mut picked = BTreeMap::from([("entry:a.zip".to_string(), RepairChoice::Leave)]);
+        let before = picked.clone();
+        assert_eq!(
+            apply_to_kind(&p, PlanKind::SetAside, None, &mut picked),
+            None
+        );
+        assert_eq!(picked, before);
+    }
+
+    #[test]
+    fn apply_to_all_sets_every_item_of_the_kind_and_only_that_kind() {
+        let mut p = bulk_plan();
+        p.content.items.truncate(2);
+        p.content
+            .items
+            .push(item("game:g", &["apply", "leave"], "apply", "apply"));
+        let mut picked = BTreeMap::new();
+        let outcome = apply_to_kind(
+            &p,
+            PlanKind::SetAside,
+            Some(RepairChoice::Leave),
+            &mut picked,
+        )
+        .unwrap();
+        assert_eq!(outcome.changed, 2);
+        assert_eq!(
+            picked.keys().collect::<Vec<_>>(),
+            ["entry:a.zip", "entry:b.zip"]
+        );
+        assert_eq!(
+            unplanned(&p, &picked, &BTreeMap::new()).len(),
+            2,
+            "approval waits"
+        );
+        picked.insert("entry:a.zip".into(), RepairChoice::KeepAside);
+        assert_eq!(
+            unplanned(&p, &picked, &BTreeMap::new()),
+            ["entry:b.zip"],
+            "one item can still be changed afterwards"
+        );
+    }
+
+    #[test]
+    fn a_choice_only_some_items_offer_sets_only_those_and_says_so() {
+        let p = bulk_plan();
+        let mut picked = BTreeMap::new();
+        let keys: Vec<String> = p.content.items.iter().map(|i| i.key.clone()).collect();
+        let outcome = apply_to_keys(&p, &keys, RepairChoice::Leave, &mut picked);
+        assert_eq!(
+            outcome,
+            BulkOutcome {
+                asked: 4,
+                offered: 3,
+                changed: 3
+            }
+        );
+        assert!(!picked.contains_key("entry:c.zip"));
+        assert_eq!(
+            current(&p.content.items[2], &picked),
+            RepairChoice::KeepAside
+        );
+        assert!(outcome.message("leave").contains("1 item doesn't offer it"));
+    }
+
+    #[test]
+    fn adding_as_an_addition_is_never_set_in_bulk() {
+        let p = bulk_plan();
+        let mut picked = BTreeMap::new();
+        let keys = ["entry:a.zip".to_string()];
+        let outcome = apply_to_keys(&p, &keys, RepairChoice::AddAddition, &mut picked);
+        assert_eq!(outcome.offered, 0);
+        assert!(picked.is_empty());
+    }
+
+    fn seen() -> title_select_api::repair::SeenFile {
+        use title_select_api::build::{FileIdentity, FileStat};
+        title_select_api::repair::SeenFile {
+            identity: FileIdentity { dev: 1, ino: 2 },
+            file: FileStat {
+                size: 3,
+                mtime_ns: 4,
+            },
+            ctime_ns: 5,
+        }
+    }
+
+    #[test]
+    fn a_row_reads_where_the_item_is_and_what_the_plan_makes_of_it() {
+        use title_select_api::repair::PlannedStep;
+        let mut p = plan(1, false, false, None);
+        let mut renamed = item("entry:a.zip", &["apply", "leave"], "apply", "apply");
+        renamed.path = Some("a.zip".into());
+        let mut repacked = item("entry:b.zip#b.bin", &["apply", "leave"], "apply", "apply");
+        repacked.path = Some("b.zip".into());
+        repacked.member = Some("b.bin".into());
+        let mut kept = item(
+            "entry:c.txt",
+            &["keep_aside", "leave"],
+            "keep_aside",
+            "keep_aside",
+        );
+        kept.path = Some("c.txt".into());
+        let mut left = item("entry:d.zip", &["apply", "leave"], "apply", "leave");
+        left.path = Some("d.zip".into());
+        let mut filled = item("game:Echo", &["apply", "leave"], "apply", "apply");
+        filled.game = Some("Echo".into());
+        p.content.steps = vec![
+            PlannedStep {
+                item: "entry:a.zip".into(),
+                step: RepairStep::Rename {
+                    from: "a.zip".into(),
+                    to: "Alpha.zip".into(),
+                    seen: seen(),
+                    roms: vec![],
+                    loose: false,
+                },
+            },
+            PlannedStep {
+                item: "entry:b.zip#b.bin".into(),
+                step: RepairStep::Build {
+                    target: "Bravo.zip".into(),
+                    roms: vec![],
+                    sources: BTreeMap::new(),
+                    loose: false,
+                },
+            },
+            PlannedStep {
+                item: "entry:c.txt".into(),
+                step: RepairStep::Keep {
+                    path: "c.txt".into(),
+                    kept_name: "c.txt".into(),
+                    reason: "unmatched".into(),
+                    seen: seen(),
+                    needs: vec![],
+                    affects: vec![],
+                },
+            },
+        ];
+        let by_item = steps_by_item(&p);
+        let rows: Vec<(String, String)> = [&renamed, &repacked, &kept, &left, &filled]
+            .into_iter()
+            .map(|i| {
+                let own = by_item.get(i.key.as_str()).map_or(&[][..], Vec::as_slice);
+                (place(i), proposed(i, own))
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("a.zip".into(), "Alpha.zip".into()),
+                ("b.zip (b.bin)".into(), "Bravo.zip".into()),
+                ("c.txt".into(), "kept files".into()),
+                ("d.zip".into(), "left as it is".into()),
+                ("Echo (missing)".into(), "left as it is".into()),
+            ]
+        );
     }
 }

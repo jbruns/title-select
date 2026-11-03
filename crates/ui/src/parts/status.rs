@@ -219,6 +219,8 @@ pub enum SourceSetStatus {
     RepairOpen,
     NeedsReview,
     Stale,
+    /// Audited with nothing to review, but some of it rests on Claim Evidence, which never makes it Verified.
+    OnClaims,
     Verified,
     NeverAudited,
 }
@@ -233,6 +235,8 @@ pub struct SourceSetFacts {
     /// Its latest Audit has Needs Review Entries.
     pub needs_review: bool,
     pub stale: bool,
+    /// Some Entries of its latest Audit rest on Claim Evidence, or it can't be told which.
+    pub claims: bool,
     pub audited: bool,
 }
 
@@ -246,6 +250,7 @@ impl SourceSetStatus {
                 SourceSetStatus::NeedsReview,
             ),
             (facts.audited && facts.stale, SourceSetStatus::Stale),
+            (facts.audited && facts.claims, SourceSetStatus::OnClaims),
             (facts.audited, SourceSetStatus::Verified),
             (true, SourceSetStatus::NeverAudited),
         ];
@@ -260,6 +265,7 @@ impl Status for SourceSetStatus {
         SourceSetStatus::RepairOpen,
         SourceSetStatus::NeedsReview,
         SourceSetStatus::Stale,
+        SourceSetStatus::OnClaims,
         SourceSetStatus::Verified,
         SourceSetStatus::NeverAudited,
     ];
@@ -289,6 +295,13 @@ impl Status for SourceSetStatus {
                 Tone::Review,
                 "Stale",
                 "Its files look changed since its audit, or a newer DAT revision is waiting.",
+            ),
+            SourceSetStatus::OnClaims => look(
+                Glyph::FileQuestionMark,
+                Tone::Review,
+                "On claims",
+                "Its latest audit found nothing to review, but some entries rest on claims taken from archive \
+                 directories, not on payloads read. Audit it incrementally or fully to verify it.",
             ),
             SourceSetStatus::Verified => look(
                 Glyph::ShieldCheck,
@@ -478,6 +491,53 @@ impl Status for PlanKind {
                 Tone::Active,
                 "Convert",
                 "Rewrites the game in the format your storage policy now gives.",
+            ),
+        }
+    }
+}
+
+/// Where a Source Set's repair is: the icon of its Repair tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RepairState {
+    Proposing,
+    Running,
+    Approved,
+    Open,
+}
+
+impl Status for RepairState {
+    const ALL: &'static [Self] = &[
+        RepairState::Proposing,
+        RepairState::Running,
+        RepairState::Approved,
+        RepairState::Open,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            RepairState::Proposing => look(
+                Glyph::Clock,
+                Tone::Active,
+                "Proposing",
+                "A repair plan is being made.",
+            ),
+            RepairState::Running => look(
+                Glyph::LoaderCircle,
+                Tone::Active,
+                "Running",
+                "The approved repair is being carried out.",
+            ),
+            RepairState::Approved => look(
+                Glyph::Check,
+                Tone::Good,
+                "Approved",
+                "You approved the repair; it hasn't finished.",
+            ),
+            RepairState::Open => look(
+                Glyph::ClipboardList,
+                Tone::Review,
+                "Open",
+                "A repair plan waits for your review.",
             ),
         }
     }
@@ -909,6 +969,7 @@ mod tests {
             ("source set rows", vocabulary::<SourceSetStatus>()),
             ("library folder rows", vocabulary::<LibraryStatus>()),
             ("plan kinds", vocabulary::<PlanKind>()),
+            ("repair states", vocabulary::<RepairState>()),
             ("build plan kinds", vocabulary::<BuildKind>()),
             ("ingest items", vocabulary::<IngestStatus>()),
             ("ingest plan kinds", vocabulary::<IngestPlanKind>()),
@@ -1009,9 +1070,14 @@ mod tests {
             SourceSetStatus::NeverAudited
         );
         assert_eq!(SourceSetStatus::of(audited), SourceSetStatus::Verified);
+        let claims = SourceSetFacts {
+            claims: true,
+            ..audited
+        };
+        assert_eq!(SourceSetStatus::of(claims), SourceSetStatus::OnClaims);
         let stale = SourceSetFacts {
             stale: true,
-            ..audited
+            ..claims
         };
         assert_eq!(SourceSetStatus::of(stale), SourceSetStatus::Stale);
         let review = SourceSetFacts {
