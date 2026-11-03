@@ -5912,9 +5912,17 @@ fn a_folder_is_stale_once_its_source_set_or_profile_changes_after_its_build_and_
     assert!(!read().plan_open);
 
     env.audit();
+    assert!(
+        read().stale.is_empty(),
+        "an audit that found what the build's did changes nothing: {:?}",
+        read().stale
+    );
+
+    std::fs::remove_file(env.set_dir().join("breakout.bin")).unwrap();
+    env.audit();
     let built_audit = read().build.unwrap().audit;
     let latest = match read().stale.as_slice() {
-        [Stale::SourceSetAudited { built, latest }] if *built == built_audit => *latest,
+        [Stale::SourceSetChanged { built, latest }] if *built == built_audit => *latest,
         other => panic!("{other:?}"),
     };
     assert!(latest > built_audit);

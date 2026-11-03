@@ -291,7 +291,8 @@ fn PlanView(
     let id = plan.id;
     let selection = plan.content.selection;
     let digest = StoredValue::new(plan.digest.clone());
-    let outcome = RwSignal::new(None::<Result<Job, String>>);
+    let live = use_live();
+    let problem = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
     let approve = move |_| {
         busy.set(true);
@@ -301,8 +302,11 @@ fn PlanView(
         leptos::task::spawn_local(async move {
             let approved = api::post::<_, Job>(&format!("/plans/{id}/approval"), &request).await;
             busy.set(false);
-            outcome.set(Some(approved));
-            refresh.update(|n| *n += 1);
+            match approved {
+                // The plan, loaded again, names its build job, so its progress outlives this view.
+                Ok(_) => refresh.update(|n| *n += 1),
+                Err(message) => problem.set(Some(message)),
+            }
         });
     };
     let approvable = plan.approvable() && plan.approval.is_none();
@@ -603,14 +607,16 @@ fn PlanView(
                         </div>
                     }
                 })}
-            {move || {
-                outcome
-                    .get()
-                    .map(|outcome| match outcome {
-                        Ok(job) => view! { <BuildProgress job=job.id /> }.into_any(),
-                        Err(message) => view! { <Problem message /> }.into_any(),
-                    })
-            }}
+            {plan
+                .job
+                .map(|job| {
+                    move || {
+                        live.book
+                            .with(|b| b.get(job).is_some())
+                            .then(|| view! { <BuildProgress job /> })
+                    }
+                })}
+            {move || problem.get().map(|message| view! { <Problem message /> })}
             {(!plan.changes.is_empty())
                 .then(|| {
                     view! {

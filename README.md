@@ -763,7 +763,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection; `?against=`        |
-| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_audited" \| "profile_saved", "built", "latest"}` |
+| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}` |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
 | `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |
@@ -961,8 +961,9 @@ Its screens:
   texts of Title Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
 - **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete,
-  stale, current or never built, in that precedence. Stale means its source set was audited, or its selection profile
-  saved, since its current build, or the folder was rebound to another; the folder says which. Each row can be
+  stale, current or never built, in that precedence. Stale means its source set's latest audit found something other than the audit
+  its current build used, its selection profile was saved since, or the folder was rebound to another; the folder
+  says which. Each row can be
   checked, or have a build planned of the newest selection of its source set and profile against the source set's
   latest verified DAT revision, made first when there is none. **New library folder** (`/libraries/new`, or
   `/libraries/new?source_set=<name>` or `?selection=<id>` from a source set or a selection) picks a saved selection

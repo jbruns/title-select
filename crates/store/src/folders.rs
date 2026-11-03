@@ -13,6 +13,7 @@ use title_select_api::build::{
 };
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
 
+use super::audits::recorded_content_sha256;
 use super::checks::{latest_check, latest_summary, selected_targets};
 use super::dats::split_dat;
 use super::folder_dir::{FolderDir, Identity};
@@ -206,8 +207,9 @@ fn plan_open(c: &Connection, row: &FolderRow) -> Result<bool> {
     )?)
 }
 
-/// What changed since the folder's current Build: a rebinding to another Source Set or Profile, or else an Audit of
-/// its Source Set that finished after the Build's, or a version of its Profile newer than the Build's Selection's.
+/// What changed since the folder's current Build: a rebinding to another Source Set or Profile, or else a newer
+/// Audit of its Source Set that found something other than the Build's did, or a version of its Profile newer than the
+/// Build's Selection's.
 fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
     let Some(build) = row.current_build else {
         return Ok(Vec::new());
@@ -239,15 +241,16 @@ fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
     } else if let Some(latest) = c
         .query_row(
             "SELECT a.id FROM audits a
-             WHERE a.source_set_id = ?1 AND a.status = 'finished'
+             WHERE a.source_set_id = ?1 AND a.status = 'finished' AND a.pruned_at IS NULL
                AND a.finish_seq > (SELECT finish_seq FROM audits WHERE id = ?2)
              ORDER BY a.finish_seq DESC LIMIT 1",
             params![set_id, audit],
             |r| r.get::<_, i64>(0),
         )
         .optional()?
+        && recorded_content_sha256(c, latest)? != recorded_content_sha256(c, audit)?
     {
-        stale.push(Stale::SourceSetAudited {
+        stale.push(Stale::SourceSetChanged {
             built: audit,
             latest,
         });

@@ -1,8 +1,8 @@
 //! What the Library Folder screens decide without rendering: a folder's status, the selection a new plan builds,
 //! the page's tabs, and the words for why a folder is stale.
 
-use title_select_api::SelectionRecord;
 use title_select_api::build::{LibraryFolder, PlanSummary, Stale};
+use title_select_api::{Job, JobKind, SelectionRecord};
 
 use crate::model::earlier;
 use crate::parts::status::{BuildKind, LibraryFacts, LibraryStatus};
@@ -35,12 +35,38 @@ pub fn status(folder: &LibraryFolder) -> LibraryStatus {
     LibraryStatus::of(facts(folder))
 }
 
+/// The folder's row status, Running too while any of `jobs` not yet ended works on it: the live job book knows of a
+/// job started anywhere before the folder is fetched again.
+pub fn live_status(folder: &LibraryFolder, jobs: &[Job]) -> LibraryStatus {
+    let working = jobs
+        .iter()
+        .any(|j| j.library_folder == Some(folder.id) && !j.state.is_final());
+    LibraryStatus::of(LibraryFacts {
+        running: working || folder.active_job.is_some(),
+        ..facts(folder)
+    })
+}
+
+/// The oldest selection job not yet ended for the folder's source set and profile, which a new plan waits for rather
+/// than starting another.
+pub fn selection_under_way(jobs: &[Job], folder: &LibraryFolder) -> Option<i64> {
+    jobs.iter()
+        .filter(|j| {
+            j.kind == JobKind::Selection
+                && !j.state.is_final()
+                && j.source_set == folder.source_set
+                && j.profile.as_ref().is_some_and(|p| p.name == folder.profile)
+        })
+        .map(|j| j.id)
+        .min()
+}
+
 /// The selection a new build plan of a folder builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pick {
     /// Made with the profile's newest version from the DAT revision the source set was last audited against.
     Fresh(i64),
-    /// Only an older one: make a fresh one, or fall back to this.
+    /// Only an older one: make a fresh one, or offer this as an explicit choice when that fails.
     Older(i64),
     None,
 }
@@ -75,9 +101,8 @@ pub fn stale_label(stale: &Stale) -> String {
         Stale::SourceSetRebound { built } => {
             format!("You bound it to another source set; its build is of {built}.")
         }
-        Stale::SourceSetAudited { built, latest } => format!(
-            "Its source set was audited again (audit #{latest}) since the audit its build used (#{built}). \
-             A new plan shows whether anything changed."
+        Stale::SourceSetChanged { built, latest } => format!(
+            "Its source set changed: audit #{latest} found something other than audit #{built}, which its build used."
         ),
         Stale::ProfileRebound { built } => {
             format!("You bound it to another selection profile; its build used {built}.")
@@ -167,9 +192,9 @@ pub fn kind_counts(s: &PlanSummary) -> Vec<(BuildKind, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use title_select_api::ProfileVersionRef;
     use title_select_api::build::{BuildState, BuildSummary, CheckSummary, PlanSummary, Stale};
     use title_select_api::selection::{SelectionPins, SelectionSummary};
+    use title_select_api::{JobState, ProfileVersionRef, Workers};
 
     fn folder() -> LibraryFolder {
         LibraryFolder {
@@ -372,6 +397,85 @@ mod tests {
                 (BuildKind::NoSource, 2),
                 (BuildKind::SetAside, 1),
             ]
+        );
+    }
+
+    fn job(id: i64, kind: JobKind, state: JobState) -> Job {
+        Job {
+            id,
+            kind,
+            state,
+            source_set: "Atari".into(),
+            dat_revision: "ab".repeat(32),
+            actor: "operator".into(),
+            attempt: 1,
+            requeued_from: None,
+            audit: None,
+            profile: None,
+            selection: None,
+            library_folder: None,
+            ingest_folder: None,
+            repair: None,
+            additions_set: None,
+            cancel_requested_at: None,
+            plan: None,
+            evidence: None,
+            error: None,
+            workers: Workers {
+                readers: 1,
+                hashers: 1,
+            },
+            created_at: "2026-01-01T00:00:00Z".into(),
+            started_at: None,
+            finished_at: None,
+            version: 1,
+        }
+    }
+
+    fn selection_job(id: i64, state: JobState, set: &str, profile: &str) -> Job {
+        Job {
+            source_set: set.into(),
+            profile: Some(ProfileVersionRef {
+                name: profile.into(),
+                version: 2,
+            }),
+            ..job(id, JobKind::Selection, state)
+        }
+    }
+
+    #[test]
+    fn a_folder_follows_a_selection_already_under_way_for_its_source_set_and_profile() {
+        let jobs = [
+            selection_job(9, JobState::Running, "Atari", "Other"),
+            selection_job(8, JobState::Running, "Other", "Mine"),
+            selection_job(7, JobState::Succeeded, "Atari", "Mine"),
+            selection_job(6, JobState::Queued, "Atari", "Mine"),
+            Job {
+                library_folder: Some(1),
+                ..job(5, JobKind::Check, JobState::Running)
+            },
+        ];
+        assert_eq!(selection_under_way(&jobs, &folder()), Some(6));
+        assert_eq!(selection_under_way(&jobs[..3], &folder()), None);
+    }
+
+    #[test]
+    fn a_folder_runs_while_any_unfinished_job_works_on_it_even_before_it_is_fetched_again() {
+        let check = |state| Job {
+            library_folder: Some(1),
+            ..job(5, JobKind::Check, state)
+        };
+        let elsewhere = Job {
+            library_folder: Some(2),
+            ..job(6, JobKind::Check, JobState::Running)
+        };
+        assert_eq!(
+            live_status(&folder(), &[check(JobState::Queued), elsewhere.clone()]),
+            LibraryStatus::Running
+        );
+        assert_eq!(
+            live_status(&folder(), &[check(JobState::Succeeded), elsewhere]),
+            LibraryStatus::NeverBuilt
         );
     }
 }

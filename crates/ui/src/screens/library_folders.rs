@@ -28,8 +28,10 @@ use crate::build_model::{
     folders_for, incomplete_counts, incomplete_reason_label, item_kind_label, item_state_label,
     keep_reason_label, unfinished_label,
 };
-use crate::events::use_live;
-use crate::library_model::{FolderTab, Pick, drifted, pick, stale_label, status};
+use crate::events::{Live, use_live};
+use crate::library_model::{
+    FolderTab, Pick, drifted, live_status, pick, selection_under_way, stale_label,
+};
 use crate::model::{age, earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
 use crate::parts::legend::{Legend, present};
@@ -37,7 +39,7 @@ use crate::parts::list::{
     Clip, Column, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
 };
 use crate::parts::pending::{ActionPending, Pending, action_problem};
-use crate::parts::status::{BuildKind, Status, StatusBadge, StatusIcon};
+use crate::parts::status::{BuildKind, LibraryStatus, Status, StatusBadge, StatusIcon};
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::progress_view;
@@ -181,24 +183,62 @@ pub(crate) struct Planner {
     action: Action<MakePlan, Result<Plan, String>>,
     status: RwSignal<String>,
     folder: RwSignal<Option<i64>>,
+    /// An older selection the last plan could build instead, offered once making a fresh one failed.
+    older: RwSignal<Option<OlderSelection>>,
+}
+
+/// A selection of a folder made before its profile's newest version or its source set's latest DAT revision, which
+/// the Operator may choose to plan from when a fresh one can't be made.
+#[derive(Debug, Clone, PartialEq)]
+struct OlderSelection {
+    folder: i64,
+    selection: i64,
+    label: String,
+}
+
+impl OlderSelection {
+    fn of(folder: i64, s: &SelectionRecord) -> Self {
+        let made = if s.profile.version < s.latest_profile_version {
+            format!(
+                "profile version {} (the profile is at version {})",
+                s.profile.version, s.latest_profile_version
+            )
+        } else {
+            format!(
+                "DAT revision {}, not the latest audited",
+                s.dat_revision_version
+            )
+        };
+        OlderSelection {
+            folder,
+            selection: s.id,
+            label: format!(
+                "Plan from older selection #{} instead, made with {made}",
+                s.id
+            ),
+        }
+    }
 }
 
 impl Planner {
     fn new() -> Self {
         let status = RwSignal::new(String::new());
+        let older = RwSignal::new(None);
         let action = Action::new_local(move |request: &MakePlan| {
             let request = request.clone();
-            async move { make_plan(request, status).await }
+            async move { make_plan(request, status, older).await }
         });
         Planner {
             action,
             status,
             folder: RwSignal::new(None),
+            older,
         }
     }
 
     fn start(self, folder: i64, selection: Option<i64>, choices: PlanChoices) {
         self.folder.set(Some(folder));
+        self.older.set(None);
         self.status.set("Making plan…".into());
         self.action.dispatch(MakePlan {
             folder,
@@ -209,6 +249,15 @@ impl Planner {
 
     fn pending(self, folder: i64) -> Signal<bool> {
         Signal::derive(move || self.action.pending().get() && self.folder.get() == Some(folder))
+    }
+
+    /// The older selection offered for the folder once its plan failed for want of a fresh one.
+    fn older(self, folder: i64) -> Signal<Option<OlderSelection>> {
+        Signal::derive(move || {
+            self.older
+                .get()
+                .filter(|o| o.folder == folder && !self.action.pending().get())
+        })
     }
 
     fn problem(self, folder: i64) -> Signal<Option<String>> {
@@ -232,13 +281,17 @@ fn use_planner() -> Planner {
     expect_context::<Planner>()
 }
 
-async fn make_plan(request: MakePlan, status: RwSignal<String>) -> Result<Plan, String> {
+async fn make_plan(
+    request: MakePlan,
+    status: RwSignal<String>,
+    older: RwSignal<Option<OlderSelection>>,
+) -> Result<Plan, String> {
     let selection = match request.selection {
         Some(selection) => selection,
         None => {
             status.set("Finding a selection…".into());
             let folder: LibraryFolder = api::get(&format!("/libraries/{}", request.folder)).await?;
-            fresh_selection(&folder, status).await?
+            fresh_selection(&folder, status, older).await?
         }
     };
     status.set("Making plan…".into());
@@ -249,8 +302,13 @@ async fn make_plan(request: MakePlan, status: RwSignal<String>) -> Result<Plan, 
     api::post(&format!("/libraries/{}/plans", request.folder), &body).await
 }
 
-/// The folder's newest fresh selection, made now when there is none; the newest older one when making one fails.
-async fn fresh_selection(folder: &LibraryFolder, status: RwSignal<String>) -> Result<i64, String> {
+/// The folder's newest fresh selection, made now when there is none. When making one fails, the newest older one is
+/// offered in `older`, never taken silently.
+async fn fresh_selection(
+    folder: &LibraryFolder,
+    status: RwSignal<String>,
+    older: RwSignal<Option<OlderSelection>>,
+) -> Result<i64, String> {
     let set = api::segment(&folder.source_set);
     let selections: Vec<SelectionRecord> =
         api::get(&format!("/selections?source_set={set}")).await?;
@@ -259,11 +317,37 @@ async fn fresh_selection(folder: &LibraryFolder, status: RwSignal<String>) -> Re
         .last_verified_against
         .as_ref()
         .map(|v| v.sha256.as_str());
-    let older = match pick(&selections, folder, verified) {
+    let fallback = match pick(&selections, folder, verified) {
         Pick::Fresh(id) => return Ok(id),
-        Pick::Older(id) => Some(id),
+        Pick::Older(id) => selections
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| OlderSelection::of(folder.id, s)),
         Pick::None => None,
     };
+    let made = make_selection(folder, status).await;
+    if made.is_err() {
+        older.set(fallback);
+    }
+    made
+}
+
+/// A fresh selection of the folder's source set with its profile's newest version: the one a selection job already
+/// queued or running for them makes, or else a new job's.
+async fn make_selection(folder: &LibraryFolder, status: RwSignal<String>) -> Result<i64, String> {
+    let under_way = || async {
+        api::get::<Vec<Job>>("/jobs")
+            .await
+            .ok()
+            .and_then(|jobs| selection_under_way(&jobs, folder))
+    };
+    let wait = |job: i64| {
+        status.set(format!("Waiting for selection job #{job}…"));
+        follow(job)
+    };
+    if let Some(job) = under_way().await {
+        return wait(job).await;
+    }
     status.set("Making selection…".into());
     let start = StartSelection {
         source_set: folder.source_set.clone(),
@@ -271,13 +355,12 @@ async fn fresh_selection(folder: &LibraryFolder, status: RwSignal<String>) -> Re
         profile: folder.profile.clone(),
         version: None,
     };
-    let made = match api::post::<_, Job>("/selections", &start).await {
-        Ok(job) => follow(job.id).await,
-        Err(message) => Err(message),
-    };
-    match (made, older) {
-        (Ok(id), _) | (Err(_), Some(id)) => Ok(id),
-        (Err(message), None) => Err(message),
+    match api::post::<_, Job>("/selections", &start).await {
+        Ok(job) => wait(job.id).await,
+        Err(message) => match under_way().await {
+            Some(job) => wait(job).await,
+            None => Err(format!("Couldn't make a fresh selection: {message}")),
+        },
     }
 }
 
@@ -326,6 +409,12 @@ fn said_view(said: RwSignal<Option<Result<String, String>>>) -> impl IntoView {
     }
 }
 
+/// The jobs the live job book holds, so a folder shows Running as soon as a job for it starts, wherever it was started.
+fn live_jobs(live: Live) -> Vec<Job> {
+    live.book
+        .with(|b| b.newest_first().into_iter().map(|l| l.job).collect())
+}
+
 /// The Libraries pages share one clock.
 #[component]
 pub fn LibrariesPages() -> impl IntoView {
@@ -344,7 +433,7 @@ enum FolderCol {
 }
 
 #[derive(Clone, PartialEq)]
-struct FolderRow(LibraryFolder);
+struct FolderRow(LibraryFolder, LibraryStatus);
 
 impl ListRow for FolderRow {
     type Col = FolderCol;
@@ -414,9 +503,7 @@ impl ListRow for FolderRow {
     fn cell(&self, col: FolderCol) -> AnyView {
         let f = &self.0;
         match col {
-            FolderCol::Status => {
-                view! { <StatusIcon status=status(f) tab_stop=false /> }.into_any()
-            }
+            FolderCol::Status => view! { <StatusIcon status=self.1 tab_stop=false /> }.into_any(),
             FolderCol::Library => view! { <Clip text=location(f) /> }.into_any(),
             FolderCol::SourceSet => view! { <Clip text=f.source_set.clone() /> }.into_any(),
             FolderCol::Profile => view! { <Clip text=f.profile.clone() /> }.into_any(),
@@ -431,7 +518,7 @@ impl ListRow for FolderRow {
     fn compare(&self, other: &Self, col: FolderCol) -> Ordering {
         let (a, b) = (&self.0, &other.0);
         match col {
-            FolderCol::Status => status(a).rank().cmp(&status(b).rank()),
+            FolderCol::Status => self.1.rank().cmp(&other.1.rank()),
             FolderCol::Library => location(a).cmp(&location(b)),
             FolderCol::SourceSet => a.source_set.cmp(&b.source_set),
             FolderCol::Profile => a.profile.cmp(&b.profile),
@@ -488,10 +575,10 @@ fn folder_facts(f: &LibraryFolder) -> AnyView {
 }
 
 fn folder_detail(row: FolderRow) -> AnyView {
-    let f = row.0;
+    let (f, now) = (row.0, row.1);
     view! {
         <p>
-            <StatusBadge status=status(&f) />
+            <StatusBadge status=now />
         </p>
         {reasons(&f)}
         {folder_facts(&f)}
@@ -509,12 +596,21 @@ pub fn Libraries() -> impl IntoView {
         planner.action.version().track();
         api::get::<Vec<LibraryFolder>>("/libraries")
     });
+    let jobs = Memo::new(move |_| live_jobs(live));
     let rows = last_good_rows(move || {
-        folders
-            .get()
-            .map(|r| r.map(|f| f.into_iter().map(FolderRow).collect::<Vec<_>>()))
+        let jobs = jobs.get();
+        folders.get().map(|r| {
+            r.map(|f| {
+                f.into_iter()
+                    .map(|f| {
+                        let now = live_status(&f, &jobs);
+                        FolderRow(f, now)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
     });
-    let statuses = Signal::derive(move || present(rows.get().iter().map(|r| status(&r.0))));
+    let statuses = Signal::derive(move || present(rows.get().iter().map(|r| r.1)));
     let said = RwSignal::new(None::<Result<String, String>>);
     let go = navigator();
     let actions = vec![
@@ -928,7 +1024,12 @@ fn FolderPage(
     let id = folder.id;
     let planner = use_planner();
     let go = navigator();
-    let busy = folder.active_job.is_some();
+    let live = use_live();
+    let now = {
+        let folder = folder.clone();
+        Memo::new(move |_| live_status(&folder, &live_jobs(live)))
+    };
+    let busy = Signal::derive(move || now.get() == LibraryStatus::Running);
     let title = location(&folder);
     let said = RwSignal::new(None::<Result<String, String>>);
     let what = title.clone();
@@ -943,20 +1044,19 @@ fn FolderPage(
         (set_href(&folder.source_set), folder.source_set.clone()),
     ];
     let latest = folder.latest_plan;
-    let current = status(&folder);
     let folder = StoredValue::new(folder);
     view! {
         <Crumbs trail here=title.clone() />
         <header class="page-head">
             <div class="page-title">
                 <h1>{title}</h1>
-                <StatusBadge status=current />
+                {move || view! { <StatusBadge status=now.get() /> }}
             </div>
             <div class="page-actions">
-                <button type="button" disabled=busy on:click=start_check>
+                <button type="button" disabled=move || busy.get() on:click=start_check>
                     <LabelledIcon glyph=Glyph::FileCheck label="Check" />
                 </button>
-                <button type="button" class="primary" disabled=move || busy || planning.get() on:click=plan>
+                <button type="button" class="primary" disabled=move || busy.get() || planning.get() on:click=plan>
                     <LabelledIcon glyph=Glyph::ClipboardList label="Plan build" />
                 </button>
             </div>
@@ -1036,6 +1136,25 @@ fn PlanTab(folder: i64, latest: Option<i64>, refresh: RwSignal<u64>) -> impl Int
     });
     view! {
         <Pending pending=planner.pending(folder) status=planner.status problem=planner.problem(folder)>
+            {move || {
+                planner
+                    .older(folder)
+                    .get()
+                    .map(|older| {
+                        view! {
+                            <p class="choices">
+                                <button
+                                    type="button"
+                                    on:click=move |_| {
+                                        planner.start(folder, Some(older.selection), PlanChoices::default())
+                                    }
+                                >
+                                    {older.label.clone()}
+                                </button>
+                            </p>
+                        }
+                    })
+            }}
             {match latest {
                 Some(plan) => view! { <PlanReview plan replan refresh /> }.into_any(),
                 None => view! { <p class="note">"No plan yet. Choose Plan build to make one."</p> }.into_any(),
@@ -1091,7 +1210,7 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
 
 /// Starts a read-only check of the folder, and shows the latest one.
 #[component]
-fn CheckPanel(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
+fn CheckPanel(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl IntoView {
     let live = use_live();
     let loaded = LocalResource::new(move || {
         live.settled.track();
@@ -1120,7 +1239,7 @@ fn CheckPanel(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView 
                 only the files whose size or modification time changed, and never changes the folder."
             </p>
             <div class="form">
-                <button type="button" disabled=busy on:click=start>"Check the folder"</button>
+                <button type="button" disabled=move || busy.get() on:click=start>"Check the folder"</button>
             </div>
             {move || problem.get().map(|message| view! { <Problem message /> })}
             {move || loaded.get().flatten().map(check_view)}
@@ -1234,7 +1353,7 @@ fn check_view(check: FolderCheck) -> impl IntoView {
 fn CleanupForm(
     folder: i64,
     source_set: String,
-    busy: bool,
+    busy: Signal<bool>,
     refresh: RwSignal<u64>,
 ) -> impl IntoView {
     let live = use_live();
@@ -1442,7 +1561,7 @@ fn CleanupForm(
                 <div class="form">
                     <button
                         type="button"
-                        disabled=move || busy || planning.pending().get() || request.with(PlanCleanup::is_empty)
+                        disabled=move || busy.get() || planning.pending().get() || request.with(PlanCleanup::is_empty)
                         on:click=plan
                     >
                         "Plan the cleanup"
@@ -2152,7 +2271,7 @@ pub fn PlanABuild(selection: SelectionRecord) -> impl IntoView {
 /// The files builds kept aside in the folder's retention area, by generation, and deleting the ones you pick by
 /// approving a plan that lists them.
 #[component]
-fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
+fn KeptFiles(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl IntoView {
     let live = use_live();
     let files = LocalResource::new(move || {
         live.settled.track();
@@ -2273,12 +2392,12 @@ fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
                 <div class="form">
                     <button
                         type="button"
-                        disabled=move || busy || planning.pending().get() || picked.with(Vec::is_empty)
+                        disabled=move || busy.get() || planning.pending().get() || picked.with(Vec::is_empty)
                         on:click=move |_| request(false)
                     >
                         "Plan deleting the files you picked"
                     </button>
-                    <button type="button" disabled=move || busy || planning.pending().get() on:click=move |_| request(true)>
+                    <button type="button" disabled=move || busy.get() || planning.pending().get() on:click=move |_| request(true)>
                         "Plan deleting every kept file"
                     </button>
                 </div>
@@ -2329,7 +2448,7 @@ fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
                                 <button
                                     type="button"
                                     class="primary"
-                                    disabled=move || busy || working.get()
+                                    disabled=move || busy.get() || working.get()
                                     on:click=approve
                                 >
                                     {format!("Approve and delete {} kept files", p.content.files.len())}

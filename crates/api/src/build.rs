@@ -87,8 +87,9 @@ pub struct LibraryFolder {
 pub enum Stale {
     /// The folder was rebound to another Source Set; `built` is the one its current Build was made from.
     SourceSetRebound { built: String },
-    /// The Source Set was audited since: `latest` is its latest Audit, `built` the one the current Build used.
-    SourceSetAudited { built: i64, latest: i64 },
+    /// The Source Set's latest Audit found something other than the Audit the current Build used: `latest` is that
+    /// Audit, `built` the Build's.
+    SourceSetChanged { built: i64, latest: i64 },
     /// The folder was rebound to another Profile; `built` is the one its current Build's Selection used.
     ProfileRebound { built: String },
     /// The Profile was saved since: `latest` is its newest version, `built` the one the current Build's Selection
