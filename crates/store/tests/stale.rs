@@ -431,3 +431,27 @@ fn the_schedule_checks_only_the_source_sets_whose_last_check_or_else_audit_is_ol
         "alpha was just checked"
     );
 }
+
+#[test]
+fn a_check_that_waited_long_to_run_is_due_again_an_interval_after_it_finished() {
+    use std::time::Duration;
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    let job = env.store.enqueue_stat_walk("Alpha", "Operator").unwrap();
+    std::thread::sleep(Duration::from_millis(1200));
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+    env.store.run_stat_walk_job(&env.config, job.id).unwrap();
+
+    let queued = env
+        .store
+        .enqueue_stat_walks("schedule", Duration::from_millis(600))
+        .unwrap();
+    assert_eq!(
+        queued
+            .iter()
+            .map(|j| j.source_set.as_str())
+            .collect::<Vec<_>>(),
+        Vec::<&str>::new(),
+        "alpha's check was queued long ago but only just finished"
+    );
+}

@@ -354,12 +354,14 @@ impl Store {
     }
 
     /// Queues a stat walk of every audited Source Set that has none Queued or Running and was last checked, or else
-    /// last audited, longer than `every` ago, so a restart doesn't check everything again. Returns the Jobs queued.
+    /// last audited, longer than `every` ago, so a restart doesn't check everything again. A check counts from when
+    /// it finished, however long it waited to run. Returns the Jobs queued.
     pub fn enqueue_stat_walks(&self, actor: &str, every: Duration) -> Result<Vec<Job>> {
         let due: Vec<(String, String)> = self.read(|c| {
             let mut rows = c.prepare(
                 "SELECT s.name, coalesce(
-                     (SELECT max(j.created_at) FROM jobs j WHERE j.source_set_id = s.id AND j.kind = 'stat_walk'),
+                     (SELECT max(j.finished_at) FROM jobs j WHERE j.source_set_id = s.id AND j.kind = 'stat_walk'),
+                     (SELECT max(w.checked_at) FROM stat_walks w WHERE w.source_set_id = s.id),
                      (SELECT max(a.finished_at) FROM audits a WHERE a.source_set_id = s.id AND a.status = 'finished'))
                  FROM source_sets s
                  WHERE EXISTS (SELECT 1 FROM audits a WHERE a.source_set_id = s.id AND a.status = 'finished')
