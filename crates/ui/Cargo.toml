@@ -26,4 +26,8 @@ leptos-struct-table = "0.19.1"
 leptos_router = "0.8.17"
 wasm-bindgen = "0.2.129"
 wasm-bindgen-futures = "0.4.79"
-web-sys = { version = "0.3.106", features = ["EventSource", "MessageEvent", "FormData", "HtmlInputElement", "HtmlFormElement", "File", "FileList", "KeyboardEvent", "Element", "HtmlElement", "Event", "EventTarget", "Window", "Document", "Performance", "DragEvent", "DataTransfer", "AbortController", "AbortSignal"] }
+web-sys = { version = "0.3.106", features = ["EventSource", "MessageEvent", "FormData", "HtmlInputElement", "HtmlFormElement", "File", "FileList", "KeyboardEvent", "Element", "HtmlElement", "Event", "EventTarget", "Window", "Document", "Performance", "DragEvent", "DataTransfer", "AbortController", "AbortSignal", "DomRect", "NodeList"] }
+leptos-use = { version = "0.19.3", default-features = false, features = ["storage", "use_interval_fn"] }
+reactive_stores = "0.4.4"
+codee = "0.3.5"
+send_wrapper = "0.6.0"

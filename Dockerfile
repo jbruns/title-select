@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo leptos build --release --precompress --cargo-locked \
     && cp target/release/title-select /title-select \
     && cp -r target/site /ui \
-    && mkdir /ui/licences && cp LICENSE /ui/licences/title-select.txt
+    && mkdir -p /ui/licences && cp LICENSE /ui/licences/title-select.txt
 RUN mkdir /store
 
 # Retool for Selection (ADR 0001): its runtime files, patched, with the pinned clone lists and a venv from the
