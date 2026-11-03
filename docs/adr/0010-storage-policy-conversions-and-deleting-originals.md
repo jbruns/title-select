@@ -22,7 +22,7 @@ the one a Conversion read.
 
 - **One decision point.** The Storage Policy has two scopes, Source Sets and Play Libraries, each with a global
   default and per-system overrides, as a Selection Profile has. The default is TorrentZip everywhere. Every writer
-  of a Game into a folder, Repairs, fills, Builds and later Operator Additions, asks one function for its scope and
+  of a Game into a folder, Repairs, fills, Builds and later Additions, asks one function for its scope and
   system.
 - **Loose is for single-ROM Games.** A Game with more than one ROM, or whose ROM's name isn't a plain file name,
   stays TorrentZip, and the plan says why. Loose output keeps the DAT's ROM name.

@@ -11,8 +11,8 @@ Accepted
 An Ingest Folder is where new files arrive, from a Downloader or a manual drop. The glossary first said Title Select
 never writes to it. Then filling a Missing Game, discarding junk or importing a DAT found there would leave a copy
 behind for the Operator to delete by hand, forever. Downloaders already move files out of their completed folders.
-Title Select already writes Managed Folders safely: a marker, a no-follow folder handle, renames that never replace,
-identity checks and durable intents (ADR 0007, #37, #38). Unlike a Managed Folder, an Ingest Folder is also written
+Title Select already writes Library Folders safely: a marker, a no-follow folder handle, renames that never replace,
+identity checks and durable intents (ADR 0007, #37, #38). Unlike a Library Folder, an Ingest Folder is also written
 by the Operator and by Downloaders, which may run as another uid with group write. Any of them can append to, overwrite,
 rename, replace or link to an entry at any moment, including while Title Select is moving it.
 
@@ -63,7 +63,7 @@ rename, replace or link to an entry at any moment, including while Title Select 
     files is always such a rename, never a copy;
   - otherwise, a copy to a recorded staged name, checked by hash, published by a rename that never replaces. The
     original is deleted only when the published copy's hashes exactly match a ROM of the DAT the plan names (or, once
-    Operator Additions are moved, the hashes recorded when one was approved). Any other original is moved into the
+    Additions are moved, the hashes recorded when one was approved). Any other original is moved into the
     folder's kept files instead, and never deleted outside an approved cleanup. For an exact match, the original is
     moved into the private `.deleting` area. It is read back there against everything bound at
     approval and the hash of the copy, and deleted only if it still matches and the item has not been seen changing.
@@ -100,6 +100,6 @@ rename, replace or link to an entry at any moment, including while Title Select 
   only to files it has not finished, and those are not settled, so they cannot be planned.
 - After a rename within one filesystem, a writer holding a stale descriptor can still alter the published file. The
   follow-up Audit's change test catches this, since the file's size, modification time or change time changes.
-- A process running as the service's uid is out of scope, as for Managed Folders.
-- Repairs and Operator Additions move items out through the same primitive and plans.
+- A process running as the service's uid is out of scope, as for Library Folders.
+- Repairs and Additions move items out through the same primitive and plans.
 - A DAT found in an Ingest Folder is imported through the same validation as an upload.
