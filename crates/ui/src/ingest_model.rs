@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 
 use title_select_api::additions::NewAddition;
-use title_select_api::ingest::{IngestAction, IngestItem, ItemState, PlanIngest, Proposal};
+use title_select_api::ingest::{
+    IngestAction, IngestItem, IngestOutcome, IngestPlan, ItemState, PlanIngest, Proposal,
+};
 
 use crate::parts::icon::Glyph;
 use crate::parts::status::{IngestStatus, Status};
@@ -354,6 +356,40 @@ pub fn shown(only: Option<IngestStatus>, status: IngestStatus) -> bool {
     }
 }
 
+/// Where one item of a plan stands: waiting for you to approve the plan, being moved, or how its move ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Outcome {
+    Waiting,
+    Moving,
+    Moved,
+    Left,
+    Failed,
+}
+
+impl Outcome {
+    pub fn label(self) -> &'static str {
+        match self {
+            Outcome::Waiting => "Not yet approved",
+            Outcome::Moving => "Moving",
+            Outcome::Moved => "Moved",
+            Outcome::Left => "Left as it is",
+            Outcome::Failed => "Failed",
+        }
+    }
+}
+
+/// Where the item of `plan` whose outcome, if it has one yet, is `ended` stands.
+pub fn outcome(plan: &IngestPlan, ended: Option<&IngestOutcome>) -> Outcome {
+    match ended {
+        Some(o) if o.error.is_some() => Outcome::Failed,
+        Some(o) if o.moved => Outcome::Moved,
+        Some(_) => Outcome::Left,
+        None if plan.approval.is_none() => Outcome::Waiting,
+        None if plan.finished_at.is_none() => Outcome::Moving,
+        None => Outcome::Left,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,5 +678,35 @@ mod tests {
         assert_eq!(size(1_000), "1.0 KB");
         assert_eq!(size(999_960), "1.0 MB");
         assert_eq!(size(4_700_000_000), "4.7 GB");
+    }
+    #[test]
+    fn a_plan_item_waits_for_approval_then_moves_then_ends_as_its_outcome_says() {
+        let mut plan: IngestPlan = serde_json::from_value(serde_json::json!({
+            "id": 3, "digest": "d", "created_at": "2026-01-01T00:00:00Z",
+            "content": {"ingest_folder": 1, "root": "in", "action": "discard", "generation": 1,
+                        "items": [], "fingerprint": []},
+        }))
+        .unwrap();
+        let ended = |moved: bool, error: Option<&str>| IngestOutcome {
+            item: 1,
+            name: "x".into(),
+            moved,
+            detail: None,
+            error: error.map(Into::into),
+        };
+        assert_eq!(outcome(&plan, None), Outcome::Waiting);
+        plan.approval = serde_json::from_value(
+            serde_json::json!({"digest": "d", "actor": "Operator", "at": "t"}),
+        )
+        .unwrap();
+        assert_eq!(outcome(&plan, None), Outcome::Moving);
+        assert_eq!(outcome(&plan, Some(&ended(true, None))), Outcome::Moved);
+        assert_eq!(outcome(&plan, Some(&ended(false, None))), Outcome::Left);
+        assert_eq!(
+            outcome(&plan, Some(&ended(false, Some("gone")))),
+            Outcome::Failed
+        );
+        plan.finished_at = Some("t".into());
+        assert_eq!(outcome(&plan, None), Outcome::Left, "never reached");
     }
 }

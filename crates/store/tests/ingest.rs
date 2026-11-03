@@ -576,6 +576,57 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
 }
 
 #[test]
+fn a_dat_import_of_many_uses_each_dats_own_provider_and_the_one_you_chose_only_for_the_rest() {
+    let env = Env::new();
+    write_named_dat(
+        &env.dir("in"),
+        "Alpha System (2).dat",
+        "Alpha System",
+        "2",
+        &alpha_games(),
+    );
+    write_named_dat(
+        &env.dir("in"),
+        "Homebrew.dat",
+        "Homebrew",
+        "1",
+        &beta_games(),
+    );
+    env.scan();
+    env.scan();
+    let ids = ["Alpha System (2).dat", "Homebrew.dat"].map(|n| env.item(n).id);
+
+    let plan = env
+        .store
+        .plan_ingest(
+            &env.config,
+            "in",
+            &PlanIngest {
+                action: IngestAction::DatImport,
+                items: ids.to_vec(),
+                provider: Some("Mine".into()),
+                additions: Default::default(),
+            },
+        )
+        .unwrap();
+
+    let mut providers: Vec<(&str, Option<&str>)> = plan
+        .content
+        .items
+        .iter()
+        .map(|i| (i.name.as_str(), i.provider.as_deref()))
+        .collect();
+    providers.sort();
+    assert_eq!(
+        providers,
+        [
+            ("Alpha System (2).dat", Some("Test")),
+            ("Homebrew.dat", Some("Mine")),
+        ]
+    );
+}
+
+#[test]
 fn a_dat_import_of_a_file_that_is_not_a_dat_is_refused() {
     let env = Env::new();
     env.put("mystery.a26", b"homebrew");

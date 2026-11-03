@@ -981,16 +981,17 @@ Its screens:
   added as an addition asks for its system, name and parent game. Each build shows every file it wrote or failed to
   write.
 - **Ingest** (`/ingest`) lists each ingest root with how many of its items wait on your decision and when it was
-  last scanned, and registers one. Opening one shows its items in a list, each with a status: arriving (with when the
-  next scan looks at it), matches a source set, duplicate, no DAT match, DAT file, unreadable, dismissed, moving or
+  last scanned, and registers one. Opening one shows its items in a list, each with a status: arriving (with how often
+  the folder is scanned), matches a source set, duplicate, no DAT match, DAT file, unreadable, dismissed, moving or
   done. A strip above the list counts the items of each status and offers what you can decide for all of them at
   once, such as **Add 2 as additions**, **Discard 3** or **Dismiss 3**; clicking a count shows only that status. You
   can also check items, or select every item matching the filter, and decide for those from the toolbar, or decide
   for one item from its row; an item a decision doesn't apply to is left out, and the page says how many. Opening an
   item shows the evidence its assessment found, what is proposed, and its last move; for a candidate addition, the
-  system, name and parent game to add it as; for a DAT no source set uses yet, the provider to import it under.
-  Adding, discarding or importing makes a plan, which you review and approve before anything moves; dismissing
-  moves nothing. While a plan you approved is moving items, the page says so and links to its job, and each item
+  system, name and parent game to add it as; for a DAT no source set uses yet, the provider to import it under (a
+  DAT whose provider is known is imported under its own). Adding, discarding or importing makes a plan, which shows
+  in place of the items as a list of each item and where it goes, with its reason and outcome when you open it; you
+  approve it before anything moves. Dismissing moves nothing. While a plan you approved is moving items, the page says so and links to its job, and each item
   being moved shows as moving, then as done or with what went wrong, without reloading. The folder's kept files
   are under the list.
 - **Repair**, opened from a source set or an audit, proposes a repair of the source set, lists each item with what is

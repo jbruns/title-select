@@ -1590,9 +1590,10 @@ impl Store {
                             item.name
                         )));
                     };
+                    // A DAT's own provider wins: the request's is for DATs no one registered DAT names.
                     let provider = match (&request.provider, dat.providers.as_slice()) {
+                        (_, [only]) => only.clone(),
                         (Some(provider), _) => provider.clone(),
-                        (None, [only]) => only.clone(),
                         (None, []) => {
                             return Err(Error::Refused(format!(
                                 "no registered DAT is named {}; choose the provider to import it under",

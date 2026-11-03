@@ -5,6 +5,7 @@ pub mod audit;
 mod bench;
 mod dats;
 mod ingest_folders;
+mod ingest_plan;
 mod jobs;
 mod library_folders;
 mod library_plan;

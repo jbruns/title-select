@@ -320,7 +320,8 @@ impl IngestAction {
 pub struct PlanIngest {
     pub action: IngestAction,
     pub items: Vec<i64>,
-    /// For a DAT import: the provider to import under, when no registered DAT names one.
+    /// For a DAT import: the provider to import a DAT under when no one registered DAT names its provider; a DAT
+    /// whose provider is known is imported under that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     /// For an Addition: its system, name and parent Game, by item.
