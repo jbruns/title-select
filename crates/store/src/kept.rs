@@ -1,4 +1,4 @@
-//! Kept files: files a Build moved out of a Managed Folder into the folder's retention area,
+//! Kept files: files a Build moved out of a Library Folder into the folder's retention area,
 //! `.title-select-retained/<generation>/`, rather than deleting them. The retention area and each folder in it are
 //! created under a temporary name recorded by identity, made durable, renamed into place without replacing anything,
 //! and recorded by identity before anything is moved into them; one found with another identity, or not recorded at
@@ -35,12 +35,12 @@ fn cited_by(kept: i64) -> String {
     format!("kept-file:{kept}")
 }
 
-/// Whose bookkeeping a directory Title Select creates is recorded in: a Managed Folder's (`folder_dirs`,
+/// Whose bookkeeping a directory Title Select creates is recorded in: a Library Folder's (`folder_dirs`,
 /// `folder_temps`, `folder_temp_names`), an Ingest Folder's (`ingest_dirs`, `ingest_temps`, `ingest_temp_names`) or a
 /// Source Set's (`source_dirs`, `source_temps`, `source_temp_names`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Scope {
-    Managed(i64),
+    Library(i64),
     Ingest(i64),
     Source(i64),
     Additions(i64),
@@ -48,21 +48,21 @@ pub(super) enum Scope {
 
 impl From<i64> for Scope {
     fn from(folder: i64) -> Scope {
-        Scope::Managed(folder)
+        Scope::Library(folder)
     }
 }
 
 impl Scope {
     pub fn id(self) -> i64 {
         match self {
-            Scope::Managed(id) | Scope::Ingest(id) | Scope::Source(id) | Scope::Additions(id) => id,
+            Scope::Library(id) | Scope::Ingest(id) | Scope::Source(id) | Scope::Additions(id) => id,
         }
     }
 
     /// `sql` with `{dirs}`, `{temps}` and `{temp_names}` replaced by this scope's tables.
     fn sql(self, sql: &str) -> String {
         let prefix = match self {
-            Scope::Managed(_) => "folder_",
+            Scope::Library(_) => "folder_",
             Scope::Ingest(_) => "ingest_",
             Scope::Source(_) => "source_",
             Scope::Additions(_) => "additions_",
@@ -76,7 +76,7 @@ impl Scope {
 /// The temporary entries recorded by identity in `folder`'s scope, by name.
 fn scoped_temps(c: &Connection, folder: Scope) -> Result<HashMap<String, Identity>> {
     match folder {
-        Scope::Managed(id) => temps(c, id),
+        Scope::Library(id) => temps(c, id),
         Scope::Ingest(id) | Scope::Source(id) | Scope::Additions(id) => {
             let mut stmt =
                 c.prepare(&folder.sql("SELECT name, dev, ino FROM {temps} WHERE folder_id = ?1"))?;
@@ -88,7 +88,7 @@ fn scoped_temps(c: &Connection, folder: Scope) -> Result<HashMap<String, Identit
     }
 }
 
-/// The directories Builds created in Managed Folder `folder` that outlive them, by name.
+/// The directories Builds created in Library Folder `folder` that outlive them, by name.
 pub(super) fn folder_dirs(
     c: &Connection,
     folder: impl Into<Scope>,
@@ -102,7 +102,7 @@ pub(super) fn folder_dirs(
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// Why nothing else is done to Managed Folder `folder` now, when an approved deletion of its kept files is being
+/// Why nothing else is done to Library Folder `folder` now, when an approved deletion of its kept files is being
 /// carried out, or waits for recovery.
 pub(super) fn deletion_active(c: &Connection, folder: i64) -> Result<Option<String>> {
     let found: Option<(i64, Option<String>)> = c
@@ -114,9 +114,9 @@ pub(super) fn deletion_active(c: &Connection, folder: i64) -> Result<Option<Stri
         )
         .optional()?;
     Ok(found.map(|(id, error)| match error {
-        None => format!("kept files of managed folder {folder} are being deleted: deletion {id}"),
+        None => format!("kept files of library folder {folder} are being deleted: deletion {id}"),
         Some(error) => format!(
-            "deletion {id} of kept files of managed folder {folder} is not finished: {error}. The service \
+            "deletion {id} of kept files of library folder {folder} is not finished: {error}. The service \
              finishes it when it next starts, once the folder can be shown to be this store's"
         ),
     }))
@@ -136,7 +136,7 @@ fn not_ours(dir: &FolderDir, name: &str) -> String {
     )
 }
 
-/// A Managed Folder's retention area and one generation's folder in it, each opened without following a symlink
+/// A Library Folder's retention area and one generation's folder in it, each opened without following a symlink
 /// and found to be the directory a Build recorded creating.
 pub(super) struct Retention {
     pub area: FolderDir,
@@ -150,7 +150,7 @@ const DIR_TEMP: &str = ".new-";
 /// to be deleted there once it is found to be the file that was kept.
 pub(super) const DELETING: &str = ".deleting";
 
-/// Whether `name`, in a Managed Folder, is the temporary name its retention area or a Build's staging directory is
+/// Whether `name`, in a Library Folder, is the temporary name its retention area or a Build's staging directory is
 /// created under.
 pub(super) fn is_dir_temp(name: &str) -> bool {
     [RETENTION, STAGING].into_iter().any(|dir| {
@@ -297,7 +297,7 @@ pub(super) fn create_dir(
     Ok(Ok(dir))
 }
 
-/// Records the directory `key` of Managed Folder `folder`, made as `id` and renamed into place: a Build's staging
+/// Records the directory `key` of Library Folder `folder`, made as `id` and renamed into place: a Build's staging
 /// directory among its temporary entries, which go with it, and any other among the directories that outlive it.
 fn record_made(tx: &Transaction, folder: impl Into<Scope>, key: &str, id: Identity) -> Result<()> {
     let folder: Scope = folder.into();
@@ -312,7 +312,7 @@ fn record_made(tx: &Transaction, folder: impl Into<Scope>, key: &str, id: Identi
     Ok(())
 }
 
-/// The identity the directory `key` of Managed Folder `folder` is recorded as made with, as [`record_made`]
+/// The identity the directory `key` of Library Folder `folder` is recorded as made with, as [`record_made`]
 /// records it: perhaps a directory it replaces, which was gone.
 fn made_as(c: &Connection, folder: impl Into<Scope>, key: &str) -> Result<Option<Identity>> {
     let folder: Scope = folder.into();
@@ -406,7 +406,7 @@ fn own_dir(
     }
 }
 
-/// Opens the private folder kept files are deleted from, in the retention area `area` of Managed Folder `folder`.
+/// Opens the private folder kept files are deleted from, in the retention area `area` of Library Folder `folder`.
 fn open_deleting(
     store: &Store,
     folder: impl Into<Scope>,
@@ -439,7 +439,7 @@ pub(super) fn open_area_deleting(
     }
 }
 
-/// Settles each directory Title Select was creating in Managed Folder `folder`, opened as `dir`, when it stopped:
+/// Settles each directory Title Select was creating in Library Folder `folder`, opened as `dir`, when it stopped:
 /// one still under its temporary name, committed by name before it was made or by identity once it was checked, is
 /// recorded as this store's leftover and left, and one already renamed into place, still the directory made, is
 /// recorded. Anything else at either name is left as it is and forgotten, and nothing is removed. Run only once the
@@ -547,7 +547,7 @@ pub(super) fn settle_dir_temps(
     Ok(Ok(()))
 }
 
-/// Opens the retention area of Managed Folder `folder`, through its handle `dir`, and the folder of `generation` in
+/// Opens the retention area of Library Folder `folder`, through its handle `dir`, and the folder of `generation` in
 /// it; with `create`, creating either that is absent. `None` when one is absent and `create` is not set.
 pub(super) fn open_retention(
     store: &Store,
@@ -633,7 +633,7 @@ pub(super) enum Unlinked {
     Failed(String),
 }
 
-/// The one way a kept file, of a Managed Folder, a Source Set or an Additions Set, moved aside to `slot` in `deleting`
+/// The one way a kept file, of a Library Folder, a Source Set or an Additions Set, moved aside to `slot` in `deleting`
 /// is deleted: only once it is verified through `held`,
 /// a descriptor on it, still to be the regular file `identity` with `file`'s size and mtime that hashes as
 /// `reviewed` while its ctime, size and mtime hold still at `ctime`, the ctime read through the descriptor held
@@ -779,7 +779,7 @@ pub(super) fn settle_kept(tx: &Transaction, id: i64) -> Result<()> {
                                json_each(p.content, '$.cleanup.repacks') r
                           WHERE b.id = k.build_id AND json_extract(r.value, '$.target') = k.name), ''),
                 k.game, k.name, ?2
-         FROM kept_files k JOIN managed_folders m ON m.id = k.folder_id
+         FROM kept_files k JOIN library_folders m ON m.id = k.folder_id
          WHERE k.id = ?1 AND k.reason = 'repack' AND k.game IS NOT NULL AND m.current_build_id IS NOT NULL
            AND EXISTS (SELECT 1 FROM builds c JOIN selection_releases r ON r.selection_id = c.selection_id
                        WHERE c.id = m.current_build_id AND r.role = 'winner'
@@ -1204,7 +1204,7 @@ impl Store {
         Ok(Ok(()))
     }
 
-    /// The kept files of Managed Folder `folder`, by generation, newest first.
+    /// The kept files of Library Folder `folder`, by generation, newest first.
     pub fn kept_files(&self, folder: i64) -> Result<Vec<KeptFile>> {
         self.read(|c| {
             folder_by_id(c, folder)?;
@@ -1212,7 +1212,7 @@ impl Store {
         })
     }
 
-    /// Plans deleting the kept files of Managed Folder `folder` that `request` picks, each read through a descriptor so
+    /// Plans deleting the kept files of Library Folder `folder` that `request` picks, each read through a descriptor so
     /// the plan binds its ctime and SHA-256, and stores the plan for review. Nothing is deleted until you approve it. A
     /// kept file that is no longer the file kept is left out of "all", and refuses a plan that picks it.
     pub fn plan_kept_deletion(
@@ -1242,14 +1242,14 @@ impl Store {
                         Some(k) => files.push(k.clone()),
                         None => {
                             return Err(Error::Refused(format!(
-                                "managed folder {folder} has no kept file {id}"
+                                "library folder {folder} has no kept file {id}"
                             )));
                         }
                     }
                 }
                 files
             };
-            // A kept file an Operator Addition is still being added from is reserved until its Additions Job ends.
+            // A kept file an Addition is still being added from is reserved until its Additions Job ends.
             let mut free = Vec::new();
             for file in files {
                 match crate::additions::managed_kept_reserved(c, file.id)? {
@@ -1314,7 +1314,7 @@ impl Store {
         })
     }
 
-    /// Reads kept file `file` of the Managed Folder opened as `dir` through a descriptor, for you to review its
+    /// Reads kept file `file` of the Library Folder opened as `dir` through a descriptor, for you to review its
     /// deletion ([`review_kept`]); `Err` too when it no longer hashes as it was kept.
     fn review_kept_file(
         &self,
@@ -1378,7 +1378,7 @@ impl Store {
         self.write(|tx| {
             let active: Option<i64> = tx
                 .query_row(
-                    "SELECT id FROM jobs WHERE managed_folder_id = ?1 AND kind = 'build'
+                    "SELECT id FROM jobs WHERE library_folder_id = ?1 AND kind = 'build'
                      AND state IN ('queued', 'running')",
                     [folder],
                     |r| r.get(0),
@@ -1386,7 +1386,7 @@ impl Store {
                 .optional()?;
             if let Some(job) = active {
                 return Err(Error::Conflict(format!(
-                    "managed folder {folder} has a build queued or running: job {job}"
+                    "library folder {folder} has a build queued or running: job {job}"
                 )));
             }
             if let Some(busy) = deletion_active(tx, folder)? {

@@ -84,7 +84,7 @@ fn Repair(name: String) -> impl IntoView {
     let working = RwSignal::new(false);
     // The job the plan was last fetched for as it ended; kept here, as the progress shown is made again each time.
     let fetched = RwSignal::new(None::<i64>);
-    // What each item you choose to add as an operator addition is added as, by key; its system defaults to the
+    // What each item you choose to add as an addition is added as, by key; its system defaults to the
     // source set's DAT.
     let adding = RwSignal::new(BTreeMap::<String, RwSignal<NewAddition>>::new());
     // The fields kept in `adding` outlive each showing of the plan, so they belong to the screen, not to the view.
@@ -212,7 +212,7 @@ fn Repair(name: String) -> impl IntoView {
                         .collect_view();
                     let offered = item.choices.clone();
                     let default = item.default;
-                    // An item that can be added as an operator addition shows what it would be added as.
+                    // An item that can be added as an addition shows what it would be added as.
                     let addable = item.choices.contains(&RepairChoice::AddAddition).then(|| {
                         adding.with_untracked(|a| a.get(&key).copied()).unwrap_or_else(|| {
                             let path = item.path.clone().unwrap_or_else(|| key.clone());
@@ -267,7 +267,7 @@ fn Repair(name: String) -> impl IntoView {
                                 }
                             })}
                             {item.addition.clone().filter(|_| !open).map(|a| view! {
-                                <p>{format!("Added as the operator addition {} of {}", a.name, a.system)}
+                                <p>{format!("Added as the addition {} of {}", a.name, a.system)}
                                 {a.parent.map(|p| format!(", a version of {p}"))}</p>
                             })}
                             {item.note.clone().map(|n| view! { <p class="note">{n}</p> })}

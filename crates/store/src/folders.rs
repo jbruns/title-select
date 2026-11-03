@@ -1,4 +1,4 @@
-//! Managed Folders: folders in writable Roots that Builds write a Source Set's Selections into, each holding one
+//! Library Folders: folders in writable Roots that Builds write a Source Set's Selections into, each holding one
 //! marker that ties it to this store.
 
 use std::cmp::Ordering;
@@ -7,8 +7,8 @@ use std::path::{Component, Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use title_select_api::build::{
-    AddManagedFolder, BuildState, BuildSummary, ChangeManagedFolder, FileOutcome, Incomplete,
-    IncompleteItem, IncompleteReason, MARKER, ManagedFolder, Marker, PlanContent, RETENTION,
+    AddLibraryFolder, BuildState, BuildSummary, ChangeLibraryFolder, FileOutcome, Incomplete,
+    IncompleteItem, IncompleteReason, LibraryFolder, MARKER, Marker, PlanContent, RETENTION,
     STAGING, UnfinishedBuild,
 };
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
@@ -23,7 +23,7 @@ use super::{Error, Result, Store, io_error, now};
 use crate::config::Config;
 use rustix::fs::FileType;
 
-/// A Managed Folder's row and what its bindings name.
+/// A Library Folder's row and what its bindings name.
 #[derive(Debug, Clone)]
 pub(super) struct FolderRow {
     pub id: i64,
@@ -48,10 +48,10 @@ const FOLDER_QUERY: &str =
             p.name, f.generation, f.current_build_id, f.created_at,
             (SELECT count(*) FROM built_files b WHERE b.folder_id = f.id),
             (SELECT max(j.id) FROM jobs j
-             WHERE j.managed_folder_id = f.id AND j.kind IN ('build', 'check')
+             WHERE j.library_folder_id = f.id AND j.kind IN ('build', 'check')
                AND j.state IN ('queued', 'running')),
             (SELECT max(pl.id) FROM plans pl WHERE pl.folder_id = f.id)
-     FROM managed_folders f
+     FROM library_folders f
      JOIN source_sets s ON s.id = f.source_set_id
      JOIN dats d ON d.id = s.dat_id
      JOIN profiles p ON p.id = f.profile_id";
@@ -83,7 +83,7 @@ pub(super) fn folder_by_id(c: &Connection, id: i64) -> Result<FolderRow> {
         folder_from_row,
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("no managed folder {id}")))
+    .ok_or_else(|| Error::NotFound(format!("no library folder {id}")))
 }
 
 /// This store's id, which every marker it writes records.
@@ -161,14 +161,14 @@ pub(super) fn builds_where(
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-fn record(c: &Connection, config: &Config, row: FolderRow) -> Result<ManagedFolder> {
+fn record(c: &Connection, config: &Config, row: FolderRow) -> Result<LibraryFolder> {
     let build = match row.current_build {
         Some(id) => Some(build_by_id(c, id)?),
         None => None,
     };
     let incomplete = Some(incomplete(c, &row)?.counts).filter(|counts| counts.total() > 0);
     let unfinished = unfinished(c, &row)?;
-    Ok(ManagedFolder {
+    Ok(LibraryFolder {
         id: row.id,
         writable: config.root(&row.root).is_some_and(|r| r.writable),
         root: row.root,
@@ -322,7 +322,7 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
     Ok(out)
 }
 
-/// Opens the Managed Folder `rel` in the Root `root`, no component of `rel` followed if it is a symlink. The error
+/// Opens the Library Folder `rel` in the Root `root`, no component of `rel` followed if it is a symlink. The error
 /// is a sentence for a plan's blocker.
 pub(super) fn open_folder(
     config: &Config,
@@ -333,11 +333,11 @@ pub(super) fn open_folder(
         .root(root)
         .ok_or_else(|| format!("no root named {root} is configured any more"))?;
     FolderDir::open(&root_config.path, rel).map_err(|e| {
-        format!("{e} (no part of a managed folder's path inside its root may be a symlink)")
+        format!("{e} (no part of a library folder's path inside its root may be a symlink)")
     })
 }
 
-/// Opens the Managed Folder `rel` in the Root `root` as [`open_folder`] does, for a change: refused unless the
+/// Opens the Library Folder `rel` in the Root `root` as [`open_folder`] does, for a change: refused unless the
 /// Root is configured `writable = true` now.
 pub(super) fn open_writable_folder(
     config: &Config,
@@ -359,7 +359,7 @@ pub(super) const MARKER_NEW: &str = ".title-select.new";
 /// The largest marker read.
 pub(super) const MARKER_LIMIT: u64 = 64 << 10;
 
-/// Whether `name` is one of the files Title Select keeps in a Managed Folder for itself.
+/// Whether `name` is one of the files Title Select keeps in a Library Folder for itself.
 pub(super) fn is_own(name: &str) -> bool {
     name == MARKER
         || name == STAGING
@@ -408,7 +408,7 @@ pub(super) fn write_marker(
     is_ours(MARKER)
 }
 
-/// What a Managed Folder's marker says.
+/// What a Library Folder's marker says.
 pub(super) enum MarkerState {
     Absent,
     Unreadable(String),
@@ -426,7 +426,7 @@ pub(super) fn read_marker(dir: &FolderDir) -> MarkerState {
     }
 }
 
-/// Why the folder's marker, read through `dir`, does not show it is Managed Folder `folder` of store `store` at
+/// Why the folder's marker, read through `dir`, does not show it is Library Folder `folder` of store `store` at
 /// `generation`, as a sentence; `None` when it does. `empty` is whether the folder holds nothing but Title Select's
 /// own entries.
 pub(super) fn marker_problem(
@@ -451,7 +451,7 @@ pub(super) fn marker_problem(
                 .to_owned(),
         ),
         MarkerState::Present(marker) if marker.folder != folder => Some(format!(
-            "its .title-select marker is for managed folder {}, not {folder}; is this the right mount?",
+            "its .title-select marker is for library folder {}, not {folder}; is this the right mount?",
             marker.folder
         )),
         MarkerState::Present(marker) => match marker.generation.cmp(&generation) {
@@ -475,8 +475,8 @@ pub(super) fn check_marker(dir: &FolderDir, expected: &Marker) -> std::result::R
     match read_marker(dir) {
         MarkerState::Present(marker) if marker == *expected => Ok(()),
         MarkerState::Present(marker) => Err(format!(
-            "{}: the marker is for store {}, managed folder {}, generation {}, where this build expected store {}, \
-             managed folder {}, generation {}; the folder was left as it is",
+            "{}: the marker is for store {}, library folder {}, generation {}, where this build expected store {}, \
+             library folder {}, generation {}; the folder was left as it is",
             dir.path().display(),
             marker.store,
             marker.folder,
@@ -510,7 +510,7 @@ fn create_or_check_empty(root_path: &Path, rel: &str) -> Result<FolderDir> {
             }
             Err(e) => {
                 return Err(Error::Refused(format!(
-                    "{e} (no part of a managed folder's path inside its root may be a symlink)"
+                    "{e} (no part of a library folder's path inside its root may be a symlink)"
                 )));
             }
         };
@@ -518,7 +518,7 @@ fn create_or_check_empty(root_path: &Path, rel: &str) -> Result<FolderDir> {
     let entries = dir.entries().map_err(refused)?;
     if let Some((name, _)) = entries.first() {
         return Err(Error::Refused(format!(
-            "{} is not empty (it holds {name}); a managed folder starts empty, and adopting a folder's files comes \
+            "{} is not empty (it holds {name}); a library folder starts empty, and adopting a folder's files comes \
              later",
             dir.path().display(),
         )));
@@ -532,9 +532,9 @@ fn overlaps(a: &Path, b: &Path) -> bool {
 }
 
 impl Store {
-    /// The path a Path Template proposes for a Managed Folder of the Source Set `source_set`'s system: `template` if
+    /// The path a Path Template proposes for a Library Folder of the Source Set `source_set`'s system: `template` if
     /// given, else the configured default.
-    pub fn propose_managed_folder_path(
+    pub fn propose_library_folder_path(
         &self,
         config: &Config,
         source_set: &str,
@@ -542,7 +542,7 @@ impl Store {
     ) -> Result<String> {
         let template = match template {
             Some(text) => PathTemplate::parse(text).map_err(|e| Error::Refused(e.to_string()))?,
-            None => config.path_templates.managed_folder.clone(),
+            None => config.path_templates.library_folder.clone(),
         };
         let set = self.read(|c| set_by_name(c, source_set))?;
         let (provider, dat_name) = split_dat(&set.record.dat)?;
@@ -551,21 +551,21 @@ impl Store {
             .map_err(|e| Error::Refused(e.to_string()))
     }
 
-    /// Registers a Managed Folder: `add.path` (or the path its template proposes) in the writable Root `add.root`,
+    /// Registers a Library Folder: `add.path` (or the path its template proposes) in the writable Root `add.root`,
     /// bound to a Source Set and a Selection Profile. The folder is created if absent and must be empty if present;
     /// its marker is written before the registration commits.
-    pub fn add_managed_folder(
+    pub fn add_library_folder(
         &self,
         config: &Config,
-        add: &AddManagedFolder,
-    ) -> Result<ManagedFolder> {
+        add: &AddLibraryFolder,
+    ) -> Result<LibraryFolder> {
         let rel = match (&add.path, &add.template) {
             (Some(_), Some(_)) => {
                 return Err(Error::Refused("give a path or a template, not both".into()));
             }
             (Some(path), None) => path.clone(),
             (None, template) => {
-                self.propose_managed_folder_path(config, &add.source_set, template.as_deref())?
+                self.propose_library_folder_path(config, &add.source_set, template.as_deref())?
             }
         };
         let root = config
@@ -573,24 +573,24 @@ impl Store {
             .ok_or_else(|| Error::Refused(format!("no root named {} is configured", add.root)))?;
         if !root.writable {
             return Err(Error::Refused(format!(
-                "root {} is read-only; a managed folder needs a root with writable = true",
+                "root {} is read-only; a library folder needs a root with writable = true",
                 add.root
             )));
         }
         if root.is_ingest() {
             return Err(Error::Refused(format!(
-                "root {} is an ingest folder; a managed folder needs another writable root",
+                "root {} is an ingest folder; a library folder needs another writable root",
                 add.root
             )));
         }
         let rel = relative_path(&rel)
-            .map_err(|e| Error::Refused(format!("{rel}: a managed folder's path {e}")))?;
+            .map_err(|e| Error::Refused(format!("{rel}: a library folder's path {e}")))?;
         if !Path::new(&rel)
             .components()
             .all(|c| matches!(c, Component::Normal(_)))
         {
             return Err(Error::Refused(format!(
-                "{rel}: a managed folder's path must be relative to its root"
+                "{rel}: a library folder's path must be relative to its root"
             )));
         }
         let canonical_root = root.path.canonicalize().map_err(|e| {
@@ -601,20 +601,20 @@ impl Store {
             let profile = profile_id(c, &add.profile)?;
             let clash: Option<i64> = c
                 .query_row(
-                    "SELECT id FROM managed_folders WHERE root = ?1 AND path = ?2",
+                    "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2",
                     params![add.root, rel],
                     |r| r.get(0),
                 )
                 .optional()?;
             if let Some(clash) = clash {
                 return Err(Error::Refused(format!(
-                    "managed folder {clash} already uses {rel} in root {}",
+                    "library folder {clash} already uses {rel} in root {}",
                     add.root
                 )));
             }
             let mut stmt = c.prepare(
                 "SELECT root, path, 'a source set' FROM source_sets
-                 UNION ALL SELECT root, path, 'another managed folder' FROM managed_folders",
+                 UNION ALL SELECT root, path, 'another library folder' FROM library_folders",
             )?;
             let others = stmt
                 .query_map([], |r| {
@@ -659,7 +659,7 @@ impl Store {
         self.write(|tx| {
             let store = store_id(tx)?;
             tx.execute(
-                "INSERT INTO managed_folders (root, path, source_set_id, profile_id, created_at)
+                "INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![add.root, rel, set.id, profile, now()],
             )?;
@@ -678,38 +678,38 @@ impl Store {
         })
     }
 
-    /// Rebinds a Managed Folder to another Source Set of the same system, or to another Profile. Refused while a
+    /// Rebinds a Library Folder to another Source Set of the same system, or to another Profile. Refused while a
     /// Build Job is Queued or Running for it.
-    pub fn change_managed_folder(
+    pub fn change_library_folder(
         &self,
         config: &Config,
         id: i64,
-        change: &ChangeManagedFolder,
-    ) -> Result<ManagedFolder> {
+        change: &ChangeLibraryFolder,
+    ) -> Result<LibraryFolder> {
         self.write(|tx| {
             let folder = folder_by_id(tx, id)?;
             if let Some(job) = folder.active_job {
                 return Err(Error::Conflict(format!(
-                    "managed folder {id} has a build or check queued or running: job {job}"
+                    "library folder {id} has a build or check queued or running: job {job}"
                 )));
             }
             if let Some(name) = &change.source_set {
                 let set = set_by_name(tx, name)?;
                 if set.dat_id != folder.dat_id {
                     return Err(Error::Refused(format!(
-                        "source set {name} is for {}, but managed folder {id} is for {}",
+                        "source set {name} is for {}, but library folder {id} is for {}",
                         set.record.dat, folder.system
                     )));
                 }
                 tx.execute(
-                    "UPDATE managed_folders SET source_set_id = ?2 WHERE id = ?1",
+                    "UPDATE library_folders SET source_set_id = ?2 WHERE id = ?1",
                     params![id, set.id],
                 )?;
             }
             if let Some(name) = &change.profile {
                 let profile = profile_id(tx, name)?;
                 tx.execute(
-                    "UPDATE managed_folders SET profile_id = ?2 WHERE id = ?1",
+                    "UPDATE library_folders SET profile_id = ?2 WHERE id = ?1",
                     params![id, profile],
                 )?;
             }
@@ -717,8 +717,8 @@ impl Store {
         })
     }
 
-    /// Every Managed Folder, by root and path.
-    pub fn managed_folders(&self, config: &Config) -> Result<Vec<ManagedFolder>> {
+    /// Every Library Folder, by root and path.
+    pub fn library_folders(&self, config: &Config) -> Result<Vec<LibraryFolder>> {
         self.read(|c| {
             let mut stmt = c.prepare(&format!("{FOLDER_QUERY} ORDER BY f.root, f.path"))?;
             let rows = stmt
@@ -728,11 +728,11 @@ impl Store {
         })
     }
 
-    pub fn managed_folder(&self, config: &Config, id: i64) -> Result<ManagedFolder> {
+    pub fn library_folder(&self, config: &Config, id: i64) -> Result<LibraryFolder> {
         self.read(|c| record(c, config, folder_by_id(c, id)?))
     }
 
-    /// What Managed Folder `id` lacks of its current Build's Selection, item by item.
+    /// What Library Folder `id` lacks of its current Build's Selection, item by item.
     pub fn incomplete(&self, id: i64) -> Result<Incomplete> {
         self.read(|c| {
             let tx = c.unchecked_transaction()?;
@@ -740,7 +740,7 @@ impl Store {
         })
     }
 
-    /// Every Build of the Managed Folder, newest first.
+    /// Every Build of the Library Folder, newest first.
     pub fn builds(&self, folder: i64) -> Result<Vec<BuildSummary>> {
         self.read(|c| {
             folder_by_id(c, folder)?;

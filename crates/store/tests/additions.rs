@@ -1,5 +1,5 @@
-//! Operator Additions and Additions Sets: each way an addition is added (an Ingest Folder item, a Source Set Entry, a
-//! Managed Folder's Drift), the Selection Profile opting a system in to its Additions Set for builds, checks of an
+//! Additions and Additions Sets: each way an addition is added (an Ingest Folder item, a Source Set Entry, a
+//! Library Folder's Drift), the Selection Profile opting a system in to its Additions Set for builds, checks of an
 //! Additions Set for Drift, and recovery from a stop at each step of publishing one; from synthetic DATs and files.
 
 #[path = "../../engine/tests/common/mod.rs"]
@@ -14,7 +14,7 @@ use title_select_api::additions::{
     Addition, AdditionSource, AdditionState, AdditionsFinding, EditAddition, NewAddition,
 };
 use title_select_api::build::{
-    AddManagedFolder, CleanupAction, DriftKind, ItemKind, ManagedFolder, Plan, PlanCleanup,
+    AddLibraryFolder, CleanupAction, DriftKind, ItemKind, LibraryFolder, Plan, PlanCleanup,
 };
 use title_select_api::build::{PlanKeptDeletion, RETENTION};
 use title_select_api::ingest::{IngestAction, IngestPlan, PlanIngest, Proposal};
@@ -44,7 +44,7 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
 }
 
 /// A store with the Source Set `Test - System` in the Root `sets`, which repairs may write, holding Pong; the Ingest
-/// Folder `in`, which settles at once; the writable Root `play` for Managed Folders; and the Root `additions`.
+/// Folder `in`, which settles at once; the writable Root `play` for Library Folders; and the Root `additions`.
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
@@ -276,11 +276,11 @@ impl Env {
             .unwrap();
     }
 
-    fn folder(&self) -> ManagedFolder {
+    fn folder(&self) -> LibraryFolder {
         self.store
-            .add_managed_folder(
+            .add_library_folder(
                 &self.config,
-                &AddManagedFolder {
+                &AddLibraryFolder {
                     root: "play".into(),
                     path: Some("atari".into()),
                     template: None,
@@ -437,7 +437,7 @@ fn a_loose_ingest_item_is_added_and_its_original_deleted_once_the_copy_is_exactl
     let item = item.iter().find(|i| i.id == id).unwrap();
     assert_eq!(
         item.assessment.proposal,
-        Some(Proposal::OperatorAddition {
+        Some(Proposal::Addition {
             system: Some(SYSTEM.into())
         })
     );
@@ -634,7 +634,7 @@ fn an_unmatched_source_set_entry_is_kept_aside_by_a_repair_and_added_from_the_ke
 }
 
 #[test]
-fn drift_in_a_managed_folder_is_kept_aside_by_a_cleanup_and_added_from_the_kept_file() {
+fn drift_in_a_library_folder_is_kept_aside_by_a_cleanup_and_added_from_the_kept_file() {
     let env = Env::new();
     env.audit();
     let selection = env.record(&pong(&env.sha256));
@@ -826,7 +826,7 @@ fn an_addition_named_as_a_selected_game_blocks_only_itself() {
     };
     let (blocked, why) = kind("pong (usa).zip");
     assert_eq!(blocked, ItemKind::Blocked);
-    assert!(why.unwrap().contains("rename the operator addition"));
+    assert!(why.unwrap().contains("rename the addition"));
     assert_eq!(
         kind("Pong (USA).zip").0,
         ItemKind::Repack,

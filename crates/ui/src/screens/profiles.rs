@@ -1028,7 +1028,7 @@ fn SystemSettingsForm(
                         update_own(profile, &s.get_value(), |o| o.additions = on)
                     }
                 />
-                " Builds of this system also read its additions set: the operator additions you added for it, \
+                " Builds of this system also read its additions set: the additions you added for it, \
                 each built under its own name alongside the selected games"
             </label>
             <SystemSetting

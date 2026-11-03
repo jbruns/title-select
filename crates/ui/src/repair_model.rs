@@ -72,7 +72,7 @@ pub fn requested(
     choices
 }
 
-/// The operator additions to ask for when planning again from `plan` with `choices`: the fields of each item chosen
+/// The additions to ask for when planning again from `plan` with `choices`: the fields of each item chosen
 /// to be added as one. An item without a choice takes its default.
 pub fn to_add(
     plan: &RepairPlan,
@@ -89,7 +89,7 @@ pub fn to_add(
         .collect()
 }
 
-/// The items you changed since `plan` was shown, by key: one you picked otherwise than the plan does, or an operator
+/// The items you changed since `plan` was shown, by key: one you picked otherwise than the plan does, or an
 /// addition it adds, edited. Approving approves the plan as it was made, so it waits until you plan again with them.
 pub fn unplanned(
     plan: &RepairPlan,

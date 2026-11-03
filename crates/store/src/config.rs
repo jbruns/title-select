@@ -7,7 +7,7 @@ use ipnet::IpNet;
 use serde::Deserialize;
 use title_select_api::Workers;
 use title_select_api::paths::{
-    DEFAULT_MANAGED_FOLDER_TEMPLATE, DEFAULT_SOURCE_SET_TEMPLATE, PathTemplate, relative_path,
+    DEFAULT_LIBRARY_FOLDER_TEMPLATE, DEFAULT_SOURCE_SET_TEMPLATE, PathTemplate, relative_path,
 };
 
 /// How many full Audits a Source Set keeps when the configuration does not say.
@@ -37,7 +37,7 @@ pub struct Config {
 #[serde(deny_unknown_fields)]
 pub struct Root {
     pub path: PathBuf,
-    /// Whether Title Select may write to this Root: Builds to its Managed Folders, and repairs to any Source Set
+    /// Whether Title Select may write to this Root: Builds to its Library Folders, and repairs to any Source Set
     /// in it. A Source Set is registered only in a read-only Root.
     #[serde(default)]
     pub writable: bool,
@@ -45,7 +45,7 @@ pub struct Root {
     #[serde(default)]
     pub writable_paths: Vec<String>,
     /// What the Root is for: `ingest` makes it an Ingest Folder, which must be writable and holds no Source Set or
-    /// Managed Folder.
+    /// Library Folder.
     #[serde(default)]
     pub kind: RootKind,
     /// For an Ingest Folder: how long, in seconds, an item's size and times must stay unchanged before it is
@@ -139,24 +139,24 @@ pub struct PathTemplates {
     /// For a Source Set, relative to its Root.
     #[serde(default = "default_source_set_template")]
     pub source_set: PathTemplate,
-    /// For a Managed Folder, relative to its Play Library Root.
-    #[serde(default = "default_managed_folder_template")]
-    pub managed_folder: PathTemplate,
+    /// For a Library Folder, relative to its Play Library Root. `managed_folder`, its name before #73, is still read.
+    #[serde(default = "default_library_folder_template", alias = "managed_folder")]
+    pub library_folder: PathTemplate,
 }
 
 fn default_source_set_template() -> PathTemplate {
     PathTemplate::parse(DEFAULT_SOURCE_SET_TEMPLATE).expect("the default template parses")
 }
 
-fn default_managed_folder_template() -> PathTemplate {
-    PathTemplate::parse(DEFAULT_MANAGED_FOLDER_TEMPLATE).expect("the default template parses")
+fn default_library_folder_template() -> PathTemplate {
+    PathTemplate::parse(DEFAULT_LIBRARY_FOLDER_TEMPLATE).expect("the default template parses")
 }
 
 impl Default for PathTemplates {
     fn default() -> Self {
         PathTemplates {
             source_set: default_source_set_template(),
-            managed_folder: default_managed_folder_template(),
+            library_folder: default_library_folder_template(),
         }
     }
 }
@@ -439,7 +439,7 @@ mod tests {
     fn path_templates_default_when_absent_and_are_checked_when_given() {
         let defaults = Config::parse("").unwrap().path_templates;
         assert_eq!(defaults.source_set.as_str(), "{provider}/{dat}");
-        assert_eq!(defaults.managed_folder.as_str(), "{platform}");
+        assert_eq!(defaults.library_folder.as_str(), "{platform}");
 
         let config =
             Config::parse("[path_templates]\nsource_set = \"Sets/{platform}/{dat}\"").unwrap();
@@ -447,11 +447,11 @@ mod tests {
             config.path_templates.source_set.as_str(),
             "Sets/{platform}/{dat}"
         );
-        assert_eq!(config.path_templates.managed_folder.as_str(), "{platform}");
+        assert_eq!(config.path_templates.library_folder.as_str(), "{platform}");
 
         for text in [
             "[path_templates]\nsource_set = \"{system}\"",
-            "[path_templates]\nmanaged_folder = \"{platform\"",
+            "[path_templates]\nlibrary_folder = \"{platform\"",
             "[path_templates]\nother = \"{dat}\"",
         ] {
             assert!(Config::parse(text).is_err(), "{text}");
@@ -467,7 +467,7 @@ mod tests {
                 "the template must separate folders with /",
             ),
         ] {
-            for key in ["source_set", "managed_folder"] {
+            for key in ["source_set", "library_folder"] {
                 let text = format!("[path_templates]\n{key} = {template:?}");
                 let error = Config::parse(&text).unwrap_err().to_string();
                 assert!(
@@ -476,6 +476,19 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_library_folder_template_is_still_read_under_its_old_key() {
+        let config =
+            Config::parse("[path_templates]\nmanaged_folder = \"Games/{platform}\"").unwrap();
+        assert_eq!(
+            config.path_templates.library_folder.as_str(),
+            "Games/{platform}"
+        );
+
+        let both = "[path_templates]\nlibrary_folder = \"{platform}\"\nmanaged_folder = \"{dat}\"";
+        assert!(Config::parse(both).is_err());
     }
 
     #[test]

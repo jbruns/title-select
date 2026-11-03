@@ -313,7 +313,7 @@ fn an_item_is_matched_against_every_source_set_and_proposed_for_the_one_that_nee
 }
 
 #[test]
-fn an_unmatched_item_is_a_candidate_operator_addition_with_the_system_its_extension_suggests() {
+fn an_unmatched_item_is_a_candidate_addition_with_the_system_its_extension_suggests() {
     let env = Env::new();
     env.put("mystery.a26", b"homebrew");
     env.put("mystery.bin", b"homebrew");
@@ -324,19 +324,19 @@ fn an_unmatched_item_is_a_candidate_operator_addition_with_the_system_its_extens
     let proposal = |name| env.item(name).assessment.proposal;
     assert_eq!(
         proposal("mystery.a26"),
-        Some(Proposal::OperatorAddition {
+        Some(Proposal::Addition {
             system: Some("Test/Alpha System".into())
         })
     );
     assert_eq!(
         proposal("mystery.bin"),
-        Some(Proposal::OperatorAddition {
+        Some(Proposal::Addition {
             system: Some("Test/Beta System".into())
         })
     );
     assert_eq!(
         proposal("mystery.xyz"),
-        Some(Proposal::OperatorAddition { system: None })
+        Some(Proposal::Addition { system: None })
     );
 }
 
@@ -577,7 +577,7 @@ fn without_its_marker_an_ingest_folder_is_never_written_or_scanned() {
 }
 
 #[test]
-fn only_an_ingest_root_is_registered_and_it_holds_no_managed_folder() {
+fn only_an_ingest_root_is_registered_and_it_holds_no_library_folder() {
     let env = Env::new();
     let refused = env.store.register_ingest_folder(&env.config, "sets");
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");

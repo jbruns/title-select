@@ -1,4 +1,4 @@
-//! Directory handles for Managed Folders. A folder is opened once, from its Root's configured path through each
+//! Directory handles for Library Folders. A folder is opened once, from its Root's configured path through each
 //! component of its relative path without following a symlink, and every read or change in it is then made relative
 //! to that handle with the `*at` calls: a folder or staging directory swapped for a symlink after it was checked
 //! cannot redirect a write. Files are created exclusively and opened without following a symlink, and a file is
@@ -176,7 +176,7 @@ impl FolderDir {
     /// owned by this process's effective user, with permission bits exactly `rwx------`, and, with `empty`, holding
     /// nothing. Returns its identity, or why it is not.
     ///
-    /// The Managed Folder lets only the service's own user rename entries in it, and a process running as that user
+    /// The Library Folder lets only the service's own user rename entries in it, and a process running as that user
     /// can rewrite the store as well, so it is not defended against. What this rejects is a directory another user, or
     /// an earlier leftover, put at a name Title Select is about to trust.
     pub fn private(&self, empty: bool) -> io::Result<std::result::Result<Identity, String>> {

@@ -138,7 +138,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     }
     for job in store.recover_additions()? {
         eprintln!(
-            "title-select: the operator additions of {} were not all settled; job {} was queued to settle them",
+            "title-select: the additions of {} were not all settled; job {} was queued to settle them",
             job.additions_set.as_deref().unwrap_or_default(),
             job.id
         );

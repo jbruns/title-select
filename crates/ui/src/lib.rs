@@ -1,4 +1,4 @@
-//! Title Select's workbench: DAT Revisions, Source Sets, Audits, Selection Profiles, Selections, Managed Folders,
+//! Title Select's workbench: DAT Revisions, Source Sets, Audits, Selection Profiles, Selections, Library Folders,
 //! Change Plans, Builds and Jobs over the `/api/v1` JSON API (ADR 0005).
 //!
 //! `model`, `selection_model`, `build_model`, `registration` and `jobs` are pure and tested on the host; the rest

@@ -32,7 +32,7 @@ pub(super) struct Inputs<'a> {
     pub choices: &'a BTreeMap<String, RepairChoice>,
     /// What the Storage Policy says for the Source Set's system.
     pub storage: Storage,
-    /// What to add each file chosen to be added as an Operator Addition as, by its item's key.
+    /// What to add each file chosen to be added as an Addition as, by its item's key.
     pub additions: &'a BTreeMap<String, NewAddition>,
 }
 
@@ -700,7 +700,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         let key = format!("file:{path}");
         let default = RepairChoice::KeepAside;
         let chosen = i.choices.get(&key).copied().unwrap_or(default);
-        // A file holding one ROM no DAT knows can be added as an Operator Addition, from where it is kept.
+        // A file holding one ROM no DAT knows can be added as an Addition, from where it is kept.
         let addable =
             matches!(file.entries.as_slice(), [only] if only.finding == Finding::Unmatched);
         let choices = match addable {
@@ -721,12 +721,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             (RepairChoice::AddAddition, Some(new)) => Some(new.clone()),
             (RepairChoice::AddAddition, None) => {
                 return Err(Error::Refused(format!(
-                    "{key}: choose the system and name to add it as an operator addition under"
+                    "{key}: choose the system and name to add it as an addition under"
                 )));
             }
             (_, Some(_)) => {
                 return Err(Error::Refused(format!(
-                    "{key} is not chosen to be added as an operator addition"
+                    "{key} is not chosen to be added as an addition"
                 )));
             }
             (_, None) => None,

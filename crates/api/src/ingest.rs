@@ -9,7 +9,7 @@ use crate::additions::NewAddition;
 use crate::build::{Approval, FileIdentity, FileStat};
 
 /// What an Ingest Folder's marker says: that it is this store's Ingest Folder `ingest_folder`. Its fields differ from
-/// a Managed Folder's marker, so neither is ever read as the other.
+/// a Library Folder's marker, so neither is ever read as the other.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IngestMarker {
     pub store: String,
@@ -203,8 +203,8 @@ pub enum Proposal {
         game: String,
         need: Need,
     },
-    /// No Source Set's DAT knows it: a candidate Operator Addition, with the system its extension suggests.
-    OperatorAddition {
+    /// No Source Set's DAT knows it: a candidate Addition, with the system its extension suggests.
+    Addition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         system: Option<String>,
     },
@@ -256,7 +256,7 @@ pub enum IngestAction {
     Discard,
     /// Import it as a DAT Revision, then keep it aside.
     DatImport,
-    /// Add it as an Operator Addition: written into its system's Additions Set, the original deleted only once the
+    /// Add it as an Addition: written into its system's Additions Set, the original deleted only once the
     /// copy is found to be exactly it.
     Addition,
 }
@@ -289,7 +289,7 @@ pub struct PlanIngest {
     /// For a DAT import: the provider to import under, when no registered DAT names one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
-    /// For an Operator Addition: its system, name and parent Game, by item.
+    /// For an Addition: its system, name and parent Game, by item.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub additions: BTreeMap<i64, NewAddition>,
 }
@@ -323,10 +323,10 @@ pub struct IngestPlanItem {
     /// For a DAT import: the provider it is imported under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
-    /// For an Operator Addition: its system, name and parent Game.
+    /// For an Addition: its system, name and parent Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<NewAddition>,
-    /// For an Operator Addition: where it is published.
+    /// For an Addition: where it is published.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition_target: Option<crate::additions::AdditionTarget>,
 }

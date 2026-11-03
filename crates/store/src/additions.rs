@@ -1,4 +1,4 @@
-//! Operator Additions (#19): files no DAT knows that the Operator chose to keep, each identified by its own hashes, in
+//! Additions (#19): files no DAT knows that the Operator chose to keep, each identified by its own hashes, in
 //! an Additions Set per system: the folder `<DAT name>` of the Root named `additions`, created by the first addition
 //! of its system.
 //!
@@ -117,7 +117,7 @@ pub(crate) fn set_of_system(c: &Connection, system: &str) -> Result<SetRow> {
         set_from_row,
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("{system} has no operator additions yet")))
+    .ok_or_else(|| Error::NotFound(format!("{system} has no additions yet")))
 }
 
 /// The DAT `system` names, as `<provider>/<name>`: its id and name.
@@ -245,7 +245,7 @@ fn addition_by_id(c: &Connection, id: i64) -> Result<AdditionRow> {
         addition_from_row,
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("no operator addition {id}")))
+    .ok_or_else(|| Error::NotFound(format!("no addition {id}")))
 }
 
 fn additions_where(
@@ -282,7 +282,7 @@ fn bad_name(name: &str) -> Option<String> {
     invalid_name(name).or_else(|| invalid_name(&format!("{name}.zip")))
 }
 
-/// The one place an Operator Addition's file name and format are decided, from the storage policy `storage` of the
+/// The one place an Addition's file name and format are decided, from the storage policy `storage` of the
 /// folder it is written into: its Additions Set, or a play library a build writes it into. A TorrentZip is
 /// `<name>.zip`; a loose file is `<name>` with its ROM's extension, so that renaming it renames what a build writes.
 /// A ROM whose name ends in `.zip`, or that gives no plain file name, stays TorrentZip. Returns the name and whether
@@ -416,7 +416,7 @@ pub(crate) fn check_new_except(
     })
 }
 
-/// The addition an approved cleanup of Managed Folder `folder` recorded for its drift entry `origin`, while it is
+/// The addition an approved cleanup of Library Folder `folder` recorded for its drift entry `origin`, while it is
 /// still to be published: a cleanup planned again as its Build starts checks its addition against the others only.
 pub(crate) fn pending_drift_addition(
     c: &Connection,
@@ -568,7 +568,7 @@ fn queue_additions(tx: &Transaction, only: Option<&BTreeSet<i64>>) -> Result<Vec
     Ok(queued)
 }
 
-/// Finishes each approved ingest plan that adds Operator Additions once every addition it records has settled,
+/// Finishes each approved ingest plan that adds Additions once every addition it records has settled,
 /// with what each item came to.
 fn finish_addition_plans(tx: &Transaction) -> Result<()> {
     // What each plan recorded and what became of its additions are read as they are finished, in one transaction:
@@ -614,7 +614,7 @@ fn finish_addition_plans(tx: &Transaction) -> Result<()> {
                 moved: active,
                 detail: active.then(|| {
                     std::iter::once(format!(
-                        "added as the operator addition {} of {}, published as {}",
+                        "added as the addition {} of {}, published as {}",
                         a.name, a.system, a.file_name
                     ))
                     .chain(note)
@@ -715,7 +715,7 @@ fn cancel_member(tx: &Transaction, id: i64) -> Result<bool> {
     )? == 1)
 }
 
-/// Why kept file `kept` of a Source Set may be neither deleted nor restored now, if it may not: an Operator Addition
+/// Why kept file `kept` of a Source Set may be neither deleted nor restored now, if it may not: an Addition
 /// is still to be published from it.
 pub(crate) fn source_kept_reserved(c: &Connection, kept: i64) -> Result<Option<String>> {
     let found: Option<(i64, String)> = c
@@ -730,7 +730,7 @@ pub(crate) fn source_kept_reserved(c: &Connection, kept: i64) -> Result<Option<S
     Ok(found.map(reserved_for))
 }
 
-/// Why kept file `kept` of a Managed Folder may be neither deleted nor restored now, if it may not: an Operator
+/// Why kept file `kept` of a Library Folder may be neither deleted nor restored now, if it may not: an
 /// Addition is still to be published from it.
 pub(crate) fn managed_kept_reserved(c: &Connection, kept: i64) -> Result<Option<String>> {
     let found: Option<(i64, String)> = c
@@ -748,7 +748,7 @@ pub(crate) fn managed_kept_reserved(c: &Connection, kept: i64) -> Result<Option<
 
 fn reserved_for((id, name): (i64, String)) -> String {
     format!(
-        "the operator addition {name} ({id}) is still being added from it; wait until its additions job has ended"
+        "the addition {name} ({id}) is still being added from it; wait until its additions job has ended"
     )
 }
 
@@ -765,7 +765,7 @@ pub(crate) fn additions_kept_reserved(c: &Connection, kept: i64) -> Result<Optio
         .optional()?;
     Ok(found.map(|(id, name)| {
         format!(
-            "the operator addition {name} ({id}) is being retired or restored; wait until its additions job has \
+            "the addition {name} ({id}) is being retired or restored; wait until its additions job has \
              ended"
         )
     }))
@@ -776,7 +776,7 @@ pub(crate) fn additions_kept_reserved(c: &Connection, kept: i64) -> Result<Optio
 fn build_reading(c: &Connection, set: i64) -> Result<Option<String>> {
     let job: Option<i64> = c
         .query_row(
-            "SELECT j.id FROM jobs j JOIN managed_folders f ON f.id = j.managed_folder_id
+            "SELECT j.id FROM jobs j JOIN library_folders f ON f.id = j.library_folder_id
              JOIN source_sets ss ON ss.id = f.source_set_id
              WHERE j.kind = 'build' AND j.state IN ('queued', 'running')
                AND ss.dat_id = (SELECT dat_id FROM additions_sets WHERE id = ?1)
@@ -1048,9 +1048,7 @@ impl Store {
                     set_from_row,
                 )
                 .optional()?
-                .ok_or_else(|| {
-                    Error::NotFound(format!("{system} has no operator additions yet"))
-                })?;
+                .ok_or_else(|| Error::NotFound(format!("{system} has no additions yet")))?;
             let rows = additions_where(c, "a.set_id = ?1", [set.id])?;
             Ok((set, rows))
         })?;
@@ -1193,7 +1191,7 @@ impl Store {
         Ok(Ok(dir))
     }
 
-    /// Opens the folder of Additions Set `id`, which a build reads its Operator Additions from.
+    /// Opens the folder of Additions Set `id`, which a build reads its Additions from.
     pub(crate) fn open_additions(
         &self,
         config: &Config,
@@ -1487,7 +1485,7 @@ impl Store {
                 _ => self.settle(config, &row)?,
             };
             if let Settled::Blocked(why) = &settled {
-                blocked.push(format!("operator addition {}: {why}", row.addition.id));
+                blocked.push(format!("addition {}: {why}", row.addition.id));
             }
             visits.insert(row.addition.id, (requests, settled));
         }
@@ -2133,7 +2131,7 @@ impl Store {
             Err(why) => return Ok(Kept::Failed(why)),
         };
         let area =
-            match open_retention(self, Scope::Managed(folder), &dir, generation as u64, false)? {
+            match open_retention(self, Scope::Library(folder), &dir, generation as u64, false)? {
                 Ok(Some(area)) => area,
                 Ok(None) => {
                     return Ok(Kept::Failed(

@@ -42,13 +42,13 @@ fn proposal_label(proposal: &Proposal) -> String {
             game,
             need,
         } => format!("{}: {game} in {source_set}", capitalised(need.label())),
-        Proposal::OperatorAddition {
+        Proposal::Addition {
             system: Some(system),
         } => {
-            format!("A candidate operator addition for {system}")
+            format!("A candidate addition for {system}")
         }
-        Proposal::OperatorAddition { system: None } => {
-            "A candidate operator addition; no registered system uses its extension".into()
+        Proposal::Addition { system: None } => {
+            "A candidate addition; no registered system uses its extension".into()
         }
         Proposal::DatImport => "A DAT you may import".into(),
     }
@@ -276,7 +276,7 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
     let provider = RwSignal::new(String::new());
-    // What each item that can be added as an operator addition would be added as, by id.
+    // What each item that can be added as an addition would be added as, by id.
     let adding = RwSignal::new(BTreeMap::<i64, RwSignal<NewAddition>>::new());
     let request = {
         let base = base.clone();
@@ -369,9 +369,9 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                         ItemState::Assessed | ItemState::AlreadyHeld | ItemState::Unreadable | ItemState::Unsupported
                     );
                     let state = item.state.label();
-                    // Only an item holding one ROM no DAT knows can be added as an operator addition.
+                    // Only an item holding one ROM no DAT knows can be added as an addition.
                     let addable = match &item.assessment.proposal {
-                        Some(Proposal::OperatorAddition { system }) if item.assessment.payloads.len() == 1 => {
+                        Some(Proposal::Addition { system }) if item.assessment.payloads.len() == 1 => {
                             Some(adding.with_untracked(|a| a.get(&id).copied()).unwrap_or_else(|| {
                                 let fields = RwSignal::new(new_addition(&item.name, system.as_deref()));
                                 adding.update_untracked(|a| {
@@ -409,7 +409,7 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                             {proposal.map(|p| view! { <p>{p}</p> })}
                             {assessed.then(|| evidence(&item.assessment))}
                             {addable.map(|value| view! {
-                                <p>"To add it as an operator addition: " <AdditionFields value /></p>
+                                <p>"To add it as an addition: " <AdditionFields value /></p>
                             })}
                             {dismissible.then(|| view! {
                                 <button type="button" on:click=move |_| dismiss(id)>"Dismiss until it changes"</button>
@@ -429,7 +429,7 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
             let action = match p.content.action {
                 IngestAction::Discard => "Discarding",
                 IngestAction::DatImport => "Importing DATs",
-                IngestAction::Addition => "Adding operator additions",
+                IngestAction::Addition => "Adding additions",
             };
             view! {
                 <h3>{format!("{action}, plan #{}", p.id)}</h3>
@@ -492,7 +492,7 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
             <p class="lede">
                 "Each item is assessed once its size and times stop changing. Pick items to plan a discard, which \
                 keeps them aside in the folder's kept files, to import a DAT, or to add an item no DAT knows as an \
-                operator addition: repacked into its system's additions set, its original deleted only once the copy \
+                addition: repacked into its system's additions set, its original deleted only once the copy \
                 reads back exactly. Nothing moves until you approve."
             </p>
             <ul class="plain">{list}</ul>
@@ -524,7 +524,7 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                     disabled=move || working.get() || picked.with(Vec::is_empty)
                     on:click=move |_| add(IngestAction::Addition)
                 >
-                    "Plan adding the items you picked as operator additions"
+                    "Plan adding the items you picked as additions"
                 </button>
             </div>
             {review}

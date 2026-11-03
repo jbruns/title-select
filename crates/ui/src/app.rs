@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos_router::components::{A, Redirect, Route, Router, Routes};
-use leptos_router::hooks::use_navigate;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use leptos_router::path;
 
 use crate::events::{Stream, provide_live, use_live};
@@ -8,7 +8,7 @@ use crate::events::{Stream, provide_live, use_live};
 use crate::screens::Bench;
 use crate::screens::{
     About, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen, IngestFolders,
-    Jobs, ManagedFolderScreen, ManagedFolders, NewProfile, ProfileScreen, Profiles, RepairScreen,
+    Jobs, Libraries, LibraryFolderScreen, NewProfile, ProfileScreen, Profiles, RepairScreen,
     SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen,
 };
 
@@ -32,10 +32,10 @@ pub fn App() -> impl IntoView {
                     <A href="/source-sets">"Source sets"</A>
                     <A href="/dat-revisions">"DAT revisions"</A>
                     <A href="/profiles">"Selection profiles"</A>
-                    <A href="/managed-folders">"Managed folders"</A>
+                    <A href="/libraries">"Libraries"</A>
                     <A href="/storage-policy">"Storage policy"</A>
                     <A href="/ingest-folders">"Ingest folders"</A>
-                    <A href="/additions">"Operator additions"</A>
+                    <A href="/additions">"Additions"</A>
                     <A href="/jobs">"Jobs"</A>
                 </nav>
                 <StreamStatus />
@@ -52,8 +52,11 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/new-profile") view=NewProfile />
                     <Route path=path!("/profiles/:name") view=ProfileScreen />
                     <Route path=path!("/selections/:id") view=SelectionScreen />
-                    <Route path=path!("/managed-folders") view=ManagedFolders />
-                    <Route path=path!("/managed-folders/:id") view=ManagedFolderScreen />
+                    <Route path=path!("/libraries") view=Libraries />
+                    <Route path=path!("/libraries/:id") view=LibraryFolderScreen />
+                    // Library folders' pages before #73, kept so that old bookmarks still open them.
+                    <Route path=path!("/managed-folders") view=|| view! { <Redirect path="/libraries" /> } />
+                    <Route path=path!("/managed-folders/:id") view=OldLibraryFolder />
                     <Route path=path!("/builds/:id") view=BuildScreen />
                     <Route path=path!("/ingest-folders") view=IngestFolders />
                     <Route path=path!("/ingest-folders/:root") view=IngestFolderScreen />
@@ -69,6 +72,14 @@ pub fn App() -> impl IntoView {
             </footer>
         </Router>
     }
+}
+
+/// Sends a library folder's page from before #73 to the page it moved to.
+#[component]
+fn OldLibraryFolder() -> impl IntoView {
+    let params = use_params_map();
+    let id = params.with_untracked(|p| p.get("id").unwrap_or_default());
+    view! { <Redirect path=format!("/libraries/{id}") /> }
 }
 
 #[component]

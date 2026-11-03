@@ -308,7 +308,7 @@ fn stale_targets(tx: &Transaction, content: &IngestPlanContent) -> Result<()> {
     Ok(())
 }
 
-/// Records, in `tx`, the intent to add the item `item` of plan `plan` as the Operator Addition it plans, with the one
+/// Records, in `tx`, the intent to add the item `item` of plan `plan` as the Addition it plans, with the one
 /// move out of the folder every ingest makes: its Additions Job then moves it into its Additions Set, repacked as
 /// TorrentZip, and the original is deleted only once the copy reads back as exactly the ROM the item was assessed to
 /// hold. `Err(Refused | Conflict)` says why it was not recorded, leaving the item as it is.
@@ -812,7 +812,7 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
                 1 => exts.first().and_then(|ext| matcher.system_for(ext)),
                 _ => None,
             };
-            assessment.proposal = Some(Proposal::OperatorAddition { system });
+            assessment.proposal = Some(Proposal::Addition { system });
             ItemState::Assessed
         }
     };
@@ -1455,26 +1455,23 @@ impl Store {
             let (reason, provider) = match request.action {
                 IngestAction::Discard => ("you discarded it".to_owned(), None),
                 IngestAction::Addition => {
-                    if !matches!(
-                        item.assessment.proposal,
-                        Some(Proposal::OperatorAddition { .. })
-                    ) {
+                    if !matches!(item.assessment.proposal, Some(Proposal::Addition { .. })) {
                         return Err(Error::Refused(format!(
                             "{} is not something no source set's DAT knows; only such an item can be added as an \
-                             operator addition",
+                             addition",
                             item.name
                         )));
                     }
                     if item.assessment.payloads.len() != 1 {
                         return Err(Error::Refused(format!(
-                            "{} holds {} payloads; an operator addition holds exactly one ROM",
+                            "{} holds {} payloads; an addition holds exactly one ROM",
                             item.name,
                             item.assessment.payloads.len()
                         )));
                     }
                     let Some(new) = request.additions.get(&item.id) else {
                         return Err(Error::Refused(format!(
-                            "choose the system and name to add {} as an operator addition under",
+                            "choose the system and name to add {} as an addition under",
                             item.name
                         )));
                     };
@@ -1490,17 +1487,14 @@ impl Store {
                         .is_some()
                     {
                         return Err(Error::Refused(format!(
-                            "two items would be added as the operator addition {} of {}; choose another name for one",
+                            "two items would be added as the addition {} of {}; choose another name for one",
                             new.name, new.system
                         )));
                     }
                     destination = format!("the additions set of {}: {file_name}", new.system);
                     addition = Some(new.clone());
                     (
-                        format!(
-                            "added as the operator addition {} of {}",
-                            new.name, new.system
-                        ),
+                        format!("added as the addition {} of {}", new.name, new.system),
                         None,
                     )
                 }
@@ -2043,7 +2037,7 @@ impl Store {
             }
         }
         let unfinished = self.read(|c| {
-            // A move that adds an Operator Addition is its Additions Job's to drive.
+            // A move that adds an Addition is its Additions Job's to drive.
             let mut stmt = c.prepare(
                 "SELECT id FROM ingest_moves m WHERE state NOT IN ('done', 'failed')
                  AND NOT EXISTS (SELECT 1 FROM additions a WHERE a.move_id = m.id)

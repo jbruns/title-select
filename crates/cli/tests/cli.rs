@@ -355,7 +355,7 @@ fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     run_ok(ts().args(["ingest", "scan", "in"]));
     let assessed = run_ok(ts().args(["ingest", "items", "in"]));
     assert!(
-        assessed.contains("\tassessed\tmystery.bin\toperator addition"),
+        assessed.contains("\tassessed\tmystery.bin\taddition"),
         "{assessed}"
     );
 }

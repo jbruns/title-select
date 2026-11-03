@@ -149,7 +149,7 @@ fn kind_label(kind: JobKind) -> &'static str {
     }
 }
 
-/// A link to the Audit or Selection a Job recorded, the Managed Folder a Build or Check Job is for, or the repair a
+/// A link to the Audit or Selection a Job recorded, the Library Folder a Build or Check Job is for, or the repair a
 /// Repair Job carries out.
 fn result_link(job: &Job) -> AnyView {
     if let Some(plan) = job.repair {
@@ -162,9 +162,9 @@ fn result_link(job: &Job) -> AnyView {
     if let Some(system) = &job.additions_set {
         return view! { <A href="/additions">{format!("Additions of {system}")}</A> }.into_any();
     }
-    if let Some(folder) = job.managed_folder {
+    if let Some(folder) = job.library_folder {
         return view! {
-            <A href=format!("/managed-folders/{folder}")>{format!("Managed folder #{folder}")}</A>
+            <A href=format!("/libraries/{folder}")>{format!("Library folder #{folder}")}</A>
         }
         .into_any();
     }

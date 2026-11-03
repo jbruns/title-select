@@ -1,4 +1,4 @@
-//! Planning a cleanup: what to do with the drift a check finds in a Managed Folder, each action one you chose for one
+//! Planning a cleanup: what to do with the drift a check finds in a Library Folder, each action one you chose for one
 //! entry, kept file or built file. A cleanup is planned against the folder's current Build, its Selection and DAT
 //! Revision, and lists every entry Title Select did not build as the plan's check found it, chosen or not, so that
 //! its digest binds the folder as it was planned against: approving it, and carrying it out, compute it again and
@@ -91,7 +91,7 @@ fn selected_game(
     Ok((game.to_owned(), roms, target))
 }
 
-/// The fingerprint of what Managed Folder `inputs.folder` holds, as `found` found it, for [`Cleanup::fingerprint`]:
+/// The fingerprint of what Library Folder `inputs.folder` holds, as `found` found it, for [`Cleanup::fingerprint`]:
 /// each entry in it, each built file's record with what is at its name, each entry acknowledged as found, and each
 /// kept file's record, by identity, size and modification time. Nothing is read: only what was found by `lstat`.
 fn fingerprint(c: &Connection, inputs: &Inputs, found: Option<&Folder>) -> Result<String> {
@@ -186,7 +186,7 @@ type KeptProbe = Option<(i64, Probe)>;
 type Restore = (CleanupRestore, Option<(Seen, Probe)>);
 
 impl Store {
-    /// Computes the cleanup of Managed Folder `folder` that `choices` asks for, against its current Build.
+    /// Computes the cleanup of Library Folder `folder` that `choices` asks for, against its current Build.
     pub(crate) fn compute_cleanup(
         &self,
         config: &Config,
@@ -200,7 +200,7 @@ impl Store {
             let row = folder_by_id(&tx, folder)?;
             let Some(build) = row.current_build else {
                 return Err(Error::Refused(format!(
-                    "managed folder {folder} has no build yet; build into it first, then clean up what a check \
+                    "library folder {folder} has no build yet; build into it first, then clean up what a check \
                      finds"
                 )));
             };
@@ -314,7 +314,7 @@ impl Store {
                     if choices.entries.get(name) != Some(&CleanupAction::AddAddition) {
                         blockers.push(refuse(
                             name,
-                            format!("{name} is not chosen to be added as an operator addition"),
+                            format!("{name} is not chosen to be added as an addition"),
                         ));
                     }
                 }
@@ -405,7 +405,7 @@ impl Store {
                                 }
                             };
                             checked.err().map(|why| {
-                                format!("{} cannot be added as an operator addition: {why}", d.name)
+                                format!("{} cannot be added as an addition: {why}", d.name)
                             })
                         }
                         Some(CleanupAction::Acknowledge) => d.conflict.then(|| {
@@ -455,7 +455,7 @@ impl Store {
                     let Some(kept) = kept else {
                         blockers.push(refuse(
                             &id.to_string(),
-                            format!("managed folder {folder} has no kept file {id}"),
+                            format!("library folder {folder} has no kept file {id}"),
                         ));
                         continue;
                     };
@@ -674,7 +674,7 @@ impl Store {
             })
         };
         let Some(dir) = dir else {
-            return Ok(Err("the managed folder cannot be opened".into()));
+            return Ok(Err("the library folder cannot be opened".into()));
         };
         if let Some(why) = self.read(|c| crate::additions::managed_kept_reserved(c, kept.id))? {
             return Ok(Err(why));
@@ -754,7 +754,7 @@ impl Store {
         Ok(restore.map(|r| (r, fresh)))
     }
 
-    /// Plans the cleanup of Managed Folder `folder` that `request` asks for, and stores it for review with the check
+    /// Plans the cleanup of Library Folder `folder` that `request` asks for, and stores it for review with the check
     /// of the folder it was made with. Nothing is changed until you approve it.
     pub fn plan_cleanup(
         &self,
