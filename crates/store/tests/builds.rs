@@ -1,4 +1,4 @@
-//! Managed Folders, Change Plans and Builds, from synthetic DATs, Source Sets and hand-made Selections.
+//! Library Folders, Change Plans and Builds, from synthetic DATs, Source Sets and hand-made Selections.
 
 #[path = "../../engine/tests/common/mod.rs"]
 mod common;
@@ -9,8 +9,8 @@ use std::time::{Duration, SystemTime};
 
 use common::*;
 use title_select_api::build::{
-    AddManagedFolder, BlockerKind, BuildState, Cause, CleanupAction, DriftKind, FileOutcome,
-    FolderCheck, IncompleteReason, ItemKind, ItemState, KeepReason, ManagedFolder, Plan, PlanBuild,
+    AddLibraryFolder, BlockerKind, BuildState, Cause, CleanupAction, DriftKind, FileOutcome,
+    FolderCheck, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder, Plan, PlanBuild,
     PlanChoices, PlanCleanup, PlanKeptDeletion, RemovalKind, RestoreKind,
 };
 use title_select_api::selection::{
@@ -58,7 +58,7 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
     ]
 }
 
-/// The Games whose names cannot be written into a Managed Folder: a ROM name with a path separator, a parent
+/// The Games whose names cannot be written into a Library Folder: a ROM name with a path separator, a parent
 /// component, an absolute path, a device name or a drive, and Game names that are device names.
 const UNSAFE: [&str; 8] = [
     "Sub (USA)",
@@ -71,7 +71,7 @@ const UNSAFE: [&str; 8] = [
     "aux",
 ];
 
-/// A store, a read-only Root `sets` holding the Source Set, and a writable Root `play` for Managed Folders.
+/// A store, a read-only Root `sets` holding the Source Set, and a writable Root `play` for Library Folders.
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
@@ -173,9 +173,9 @@ impl Env {
             .unwrap()
     }
 
-    fn folder(&self, path: &str) -> ManagedFolder {
+    fn folder(&self, path: &str) -> LibraryFolder {
         self.store
-            .add_managed_folder(&self.config, &add(path))
+            .add_library_folder(&self.config, &add(path))
             .unwrap()
     }
 
@@ -264,7 +264,7 @@ impl Env {
         )
     }
 
-    fn plan(&self, folder: &ManagedFolder, selection: i64) -> Plan {
+    fn plan(&self, folder: &LibraryFolder, selection: i64) -> Plan {
         self.store
             .plan_build(&self.config, folder.id, selection)
             .unwrap()
@@ -294,8 +294,8 @@ fn config(sets: &Path, play: &Path, writable: bool) -> Config {
     .unwrap()
 }
 
-fn add(path: &str) -> AddManagedFolder {
-    AddManagedFolder {
+fn add(path: &str) -> AddLibraryFolder {
+    AddLibraryFolder {
         root: "play".into(),
         path: Some(path.into()),
         template: None,
@@ -483,7 +483,7 @@ fn a_selection_is_built_from_matched_misnamed_and_conflicting_entries_as_torrent
     assert!(!combat[0].utf8);
     assert_eq!(marker(&dir)["generation"], 1);
 
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.generation, 1);
     assert_eq!(folder.files, 5);
     let build = folder.build.as_ref().unwrap();
@@ -666,7 +666,7 @@ const RETAINED: &str = ".title-select-retained";
 
 /// Builds every game into a new folder, then plans the selection of Pong alone: every other built file is no
 /// longer selected.
-fn built_then_deselected(env: &Env) -> (ManagedFolder, Plan) {
+fn built_then_deselected(env: &Env) -> (LibraryFolder, Plan) {
     env.audit();
     let id = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");
@@ -747,7 +747,7 @@ fn a_deselected_group_is_removed_by_keeping_its_file_aside() {
     }
     let after = env.store.built_files(folder.id).unwrap();
     assert_eq!(after.len(), 1);
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!((folder.generation, folder.incomplete.clone()), (2, None));
     // The retention area is never drift, and its files are not built files.
     let checked = check(&env, &folder);
@@ -832,7 +832,7 @@ fn a_kept_file_is_deleted_only_once_you_approve_its_deletion() {
     assert!(names(&dir.join(RETAINED).join("2")).is_empty());
     let checked = check(
         &env,
-        &env.store.managed_folder(&env.config, folder.id).unwrap(),
+        &env.store.library_folder(&env.config, folder.id).unwrap(),
     );
     assert!(checked.drift.is_empty(), "{:?}", checked.drift);
     assert_eq!(checked.files.len(), 1);
@@ -1012,7 +1012,7 @@ fn a_replacement_keeps_the_old_file_and_writes_the_new_one_in_one_plan() {
         (kept[0].reason, kept[0].generation),
         (KeepReason::Replacement, 2)
     );
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.incomplete, None);
     assert_eq!(
         kinds(&env.plan(&folder, id))["Pong (USA)"],
@@ -1091,7 +1091,7 @@ fn a_conflict_is_kept_aside_and_rebuilt_only_when_you_choose_it() {
         (kept.len(), kept[0].reason, kept[0].built_by),
         (1, KeepReason::Conflict, None)
     );
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.incomplete, None);
 
     // Choosing to adopt and to keep aside the same file is refused.
@@ -1122,7 +1122,7 @@ fn a_crash_mid_removal_leaves_the_file_in_place_or_kept_and_recovery_reports_it(
         let (env, blocked) = env.restart();
         assert!(blocked.is_empty(), "{fault:?}: {blocked:?}");
 
-        let badged = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let badged = env.store.library_folder(&env.config, folder.id).unwrap();
         let unfinished = badged.unfinished.clone().unwrap();
         let detail = env.store.build(unfinished.build).unwrap();
         let item = detail.items.iter().find(|i| i.target == first).unwrap();
@@ -1175,13 +1175,13 @@ fn a_crash_mid_removal_leaves_the_file_in_place_or_kept_and_recovery_reports_it(
         let kept = env.store.kept_files(folder.id).unwrap();
         assert_eq!(kept.len(), plan.content.removals.len(), "{fault:?}");
         assert!(kept.iter().any(|k| k.name == first));
-        let done = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let done = env.store.library_folder(&env.config, folder.id).unwrap();
         assert_eq!((done.unfinished, done.incomplete), (None, None));
     }
 }
 
 /// Plans deleting every kept file of `folder`.
-fn plan_delete_all(env: &Env, folder: &ManagedFolder) -> title_select_api::build::KeptDeletion {
+fn plan_delete_all(env: &Env, folder: &LibraryFolder) -> title_select_api::build::KeptDeletion {
     env.store
         .plan_kept_deletion(
             &env.config,
@@ -2007,7 +2007,7 @@ fn a_retention_area_left_mid_creation_is_recorded_or_adopted_by_recovery_and_an_
         assert!(
             check(
                 &env,
-                &env.store.managed_folder(&env.config, folder.id).unwrap()
+                &env.store.library_folder(&env.config, folder.id).unwrap()
             )
             .drift
             .is_empty()
@@ -2293,18 +2293,18 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
 
     let mut read_only = add("x");
     read_only.root = "sets".into();
-    let refused = env.store.add_managed_folder(&env.config, &read_only);
+    let refused = env.store.add_library_folder(&env.config, &read_only);
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     std::fs::create_dir_all(env.play().join("full")).unwrap();
     std::fs::write(env.play().join("full/game.zip"), b"x").unwrap();
-    let full = env.store.add_managed_folder(&env.config, &add("full"));
+    let full = env.store.add_library_folder(&env.config, &add("full"));
     assert!(matches!(full, Err(Error::Refused(_))), "{full:?}");
 
-    // Two Managed Folders for one system.
+    // Two Library Folders for one system.
     let first = env.folder("atari2600");
     let second = env.folder("atari2600-b");
     assert_ne!(first.id, second.id);
-    let again = env.store.add_managed_folder(&env.config, &add("atari2600"));
+    let again = env.store.add_library_folder(&env.config, &add("atari2600"));
     assert!(again.is_err());
 
     // Another folder's marker, as a wrong mount would show.
@@ -2716,7 +2716,7 @@ fn a_marker_that_did_not_follow_the_committed_generation_is_moved_forward() {
     let build = env.store.build_of_job(job).unwrap().unwrap();
     assert_eq!(build.state, BuildState::Interrupted);
     assert_eq!(build.applied, written(&plan).len() as u64);
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.generation, 1);
     let next = env.plan(&folder, id);
     assert!(next.approvable(), "{:?}", next.content.blockers);
@@ -2986,7 +2986,7 @@ fn a_folder_swapped_for_a_symlink_mid_build_never_redirects_a_write() {
         assert!(moved.join(target).is_file(), "{target}");
     }
     assert_eq!(marker(&moved)["generation"], 1);
-    // The path is now a symlink, which a managed folder's path never is.
+    // The path is now a symlink, which a library folder's path never is.
     let next = env.plan(&folder, id);
     assert_eq!(
         blockers(&next),
@@ -2994,7 +2994,7 @@ fn a_folder_swapped_for_a_symlink_mid_build_never_redirects_a_write() {
     );
     assert!(
         env.store
-            .add_managed_folder(&env.config, &add("atari2600/sub"))
+            .add_library_folder(&env.config, &add("atari2600/sub"))
             .is_err()
     );
 }
@@ -3276,13 +3276,13 @@ fn titles(env: &Env, games: &[&str]) -> i64 {
     ))
 }
 
-fn plan_with(env: &Env, folder: &ManagedFolder, selection: i64, choices: PlanChoices) -> Plan {
+fn plan_with(env: &Env, folder: &LibraryFolder, selection: i64, choices: PlanChoices) -> Plan {
     env.store
         .plan_build_with(&env.config, folder.id, &PlanBuild { selection, choices })
         .unwrap()
 }
 
-fn check(env: &Env, folder: &ManagedFolder) -> FolderCheck {
+fn check(env: &Env, folder: &LibraryFolder) -> FolderCheck {
     let job = env.store.enqueue_check(folder.id, "Operator").unwrap();
     assert_eq!(job.kind, JobKind::Check);
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
@@ -3420,7 +3420,7 @@ fn a_check_reads_only_changed_files_reports_drift_and_never_writes_to_the_folder
     );
 
     // Drift is a warning: only the conflicts at selected games' files make the folder incomplete.
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     let counts = folder.incomplete.clone().unwrap();
     assert_eq!(
         (counts.conflict, counts.no_source, counts.total()),
@@ -3496,7 +3496,7 @@ fn building_resolved_groups_only_is_a_choice_the_digest_binds_and_leaves_the_res
         b"theirs"
     );
     assert!(names(&dir).contains("Pong (USA).zip"));
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     let counts = folder.incomplete.clone().unwrap();
     assert_eq!(
         (
@@ -3579,7 +3579,7 @@ fn a_conflict_is_adopted_only_when_its_roms_match_the_dat_and_nothing_is_written
         (built[0].kind, built[0].torrentzip),
         (ItemKind::Adopt, false)
     );
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.incomplete.as_ref().unwrap().conflict, 1);
     // Adopted, it is the folder's own: planned again, it is unchanged.
     assert_eq!(
@@ -3601,7 +3601,7 @@ fn an_interrupted_build_is_badged_from_the_store_and_a_new_plan_completes_the_fo
     env.crash(&plan, Fault::AfterPublish(2));
     let (env, _) = env.restart();
 
-    let badged = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let badged = env.store.library_folder(&env.config, folder.id).unwrap();
     let unfinished = badged.unfinished.clone().unwrap();
     assert_eq!(unfinished.state, BuildState::Interrupted);
     let detail = env.store.build(unfinished.build).unwrap();
@@ -3616,7 +3616,7 @@ fn an_interrupted_build_is_badged_from_the_store_and_a_new_plan_completes_the_fo
     assert!(next.approvable(), "{:?}", next.content.blockers);
     assert_eq!(env.build(&next).state, JobState::Succeeded);
 
-    let done = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let done = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(done.unfinished, None);
     assert_eq!(done.incomplete, None);
     assert_eq!(done.files, 4);
@@ -3645,7 +3645,7 @@ fn a_file_replaced_with_the_same_size_and_mtime_is_read_again() {
     assert_eq!(edited.files[0].outcome, FileOutcome::Conflict);
     let counts = |env: &Env| {
         env.store
-            .managed_folder(&env.config, folder.id)
+            .library_folder(&env.config, folder.id)
             .unwrap()
             .incomplete
             .map(|c| c.conflict)
@@ -3680,7 +3680,7 @@ fn planning_another_selection_keeps_the_current_builds_incomplete_badge() {
     let plan = env.plan(&folder, without);
     assert!(plan.check.is_some());
 
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.incomplete.map(|c| c.missing), Some(1));
     let incomplete = env.store.incomplete(folder.id).unwrap();
     assert_eq!(incomplete.items[0].target, "Pong (USA).zip");
@@ -3798,7 +3798,7 @@ fn an_unresolved_group_whose_roms_the_newer_dat_revision_changed_is_incomplete()
         vec![("Pong (USA).zip", IncompleteReason::Unresolved)],
         "Pong's built file holds the ROM of the earlier revision, not the one the selection expects"
     );
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.incomplete.map(|c| c.unresolved), Some(1));
 }
 
@@ -3814,7 +3814,7 @@ fn a_build_stopped_after_it_advanced_the_generation_is_still_badged() {
         let (env, blocked) = env.restart();
         assert!(blocked.is_empty(), "{fault:?}: {blocked:?}");
 
-        let badged = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let badged = env.store.library_folder(&env.config, folder.id).unwrap();
         assert_eq!(badged.generation, 1, "{fault:?}");
         let unfinished = badged.unfinished.clone().unwrap();
         assert_eq!(
@@ -3827,25 +3827,25 @@ fn a_build_stopped_after_it_advanced_the_generation_is_still_badged() {
         let next = env.plan(&badged, id);
         assert!(next.approvable(), "{fault:?}: {:?}", next.content.blockers);
         assert_eq!(env.build(&next).state, JobState::Succeeded);
-        let done = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let done = env.store.library_folder(&env.config, folder.id).unwrap();
         assert_eq!(done.unfinished, None, "{fault:?}");
     }
 }
 
 /// Pong and Combat built from their sources; Missing selected, with no source, so the folder is incomplete.
-fn cleaned() -> (Env, ManagedFolder, PathBuf) {
+fn cleaned() -> (Env, LibraryFolder, PathBuf) {
     let env = Env::new();
     env.audit();
     let id = titles(&env, &["Pong (USA)", "Combat (USA)", "Missing (USA)"]);
     let folder = env.folder("atari2600");
     assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.incomplete.as_ref().map(|i| i.no_source), Some(1));
     let dir = env.play().join("atari2600");
     (env, folder, dir)
 }
 
-fn cleanup(env: &Env, folder: &ManagedFolder, request: PlanCleanup) -> Plan {
+fn cleanup(env: &Env, folder: &LibraryFolder, request: PlanCleanup) -> Plan {
     env.store
         .plan_cleanup(&env.config, folder.id, &request)
         .unwrap()
@@ -3876,7 +3876,7 @@ fn refused(plan: &Plan) -> BTreeSet<String> {
         .collect()
 }
 
-fn kept_named(env: &Env, folder: &ManagedFolder, name: &str) -> title_select_api::build::KeptFile {
+fn kept_named(env: &Env, folder: &LibraryFolder, name: &str) -> title_select_api::build::KeptFile {
     env.store
         .kept_files(folder.id)
         .unwrap()
@@ -3898,7 +3898,7 @@ fn substitute(path: &Path, bytes: &[u8]) {
     std::fs::rename(&new, path).unwrap();
 }
 
-fn items(env: &Env, folder: &ManagedFolder) -> Vec<title_select_api::build::BuildItem> {
+fn items(env: &Env, folder: &LibraryFolder) -> Vec<title_select_api::build::BuildItem> {
     let latest = env.store.builds(folder.id).unwrap()[0].id;
     env.store.build(latest).unwrap().items
 }
@@ -3972,7 +3972,7 @@ fn drift_is_kept_aside_whole_or_acknowledged_until_it_changes() {
         std::fs::read(kept_path(&dir, &disc).join("disc2.bin")).unwrap(),
         b"two"
     );
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.generation, 2);
     assert_eq!(marker(&dir)["generation"], 2);
 
@@ -4019,7 +4019,7 @@ fn acknowledging_alone_writes_nothing_to_the_folder() {
     assert_eq!(plan.summary.acknowledge, 1);
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     assert_eq!(snapshot(&dir), before);
-    let after = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let after = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(after.generation, folder.generation);
     assert_eq!(after.incomplete, folder.incomplete);
     assert_eq!(items(&env, &folder)[0].state, ItemState::Applied);
@@ -4078,7 +4078,7 @@ fn a_file_holding_a_selected_game_is_adopted_under_its_name_and_never_over_anyth
             (ItemKind::Adopt, true),
             "{name}"
         );
-        let after = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let after = env.store.library_folder(&env.config, folder.id).unwrap();
         assert_eq!(
             (after.generation, after.incomplete.clone()),
             (2, None),
@@ -4126,7 +4126,7 @@ fn a_file_holding_a_selected_game_is_adopted_under_its_name_and_never_over_anyth
     validate(&dir.join("Missing (USA).zip"));
     assert!(
         env.store
-            .managed_folder(&env.config, folder.id)
+            .library_folder(&env.config, folder.id)
             .unwrap()
             .incomplete
             .is_none()
@@ -4196,7 +4196,7 @@ fn a_kept_file_is_put_back_or_adopted_and_refused_when_its_name_is_taken() {
     assert!(!kept_path(&dir, &copy).exists());
     let built = env.store.built_files(folder.id).unwrap();
     assert!(built.iter().any(|f| f.target == "Missing (USA).zip"));
-    let after = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let after = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!((after.generation, after.incomplete.clone()), (3, None));
     let still: Vec<i64> = env
         .store
@@ -4473,7 +4473,7 @@ fn a_crash_at_each_step_of_a_move_recovers_without_losing_or_untracking_anything
 
 /// Pong and Combat built from their sources, so the folder is complete; then Combat rewritten as a stored ZIP, which
 /// is not TorrentZip. Returns Combat's old bytes too.
-fn complete_with_a_stored_zip() -> (Env, ManagedFolder, PathBuf, Vec<u8>) {
+fn complete_with_a_stored_zip() -> (Env, LibraryFolder, PathBuf, Vec<u8>) {
     let env = Env::new();
     env.audit();
     let id = titles(&env, &["Pong (USA)", "Combat (USA)"]);
@@ -4485,7 +4485,7 @@ fn complete_with_a_stored_zip() -> (Env, ManagedFolder, PathBuf, Vec<u8>) {
         &[("Combat (USA).a26", b"combat")],
     );
     let old = std::fs::read(dir.join("Combat (USA).zip")).unwrap();
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.incomplete, None);
     (env, folder, dir, old)
 }
@@ -4553,11 +4553,11 @@ fn a_crash_at_each_step_of_a_repack_recovers_and_a_missing_copy_leaves_the_folde
         // Kept aside with no repacked copy in its place, Combat is missing: the folder says so, before and after a
         // check.
         let missing = u64::from(kept_aside && !published);
-        let after = env.store.managed_folder(&env.config, folder.id).unwrap();
-        let failed = |f: &ManagedFolder| f.incomplete.as_ref().map_or(0, |i| i.failed);
+        let after = env.store.library_folder(&env.config, folder.id).unwrap();
+        let failed = |f: &LibraryFolder| f.incomplete.as_ref().map_or(0, |i| i.failed);
         assert_eq!(failed(&after), missing, "{fault:?}");
         check(&env, &after);
-        let after = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let after = env.store.library_folder(&env.config, folder.id).unwrap();
         assert_eq!(failed(&after), missing, "{fault:?}");
         assert_eq!(
             after.incomplete.as_ref().map_or(0, |i| i.missing),
@@ -4575,7 +4575,7 @@ fn a_crash_at_each_step_of_a_repack_recovers_and_a_missing_copy_leaves_the_folde
         };
         assert!(next.approvable(), "{fault:?}: {:?}", next.content.blockers);
         assert_eq!(env.build(&next).state, JobState::Succeeded, "{fault:?}");
-        let done = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let done = env.store.library_folder(&env.config, folder.id).unwrap();
         assert_eq!(done.incomplete, None, "{fault:?}");
     }
 }
@@ -4650,7 +4650,7 @@ fn a_staging_folder_left_mid_creation_is_recorded_by_recovery_and_never_blocks()
             assert!(blocked.is_empty(), "{fault:?} {renamed}: {blocked:?}");
             assert!(!dir.join(".title-select-staging").exists());
 
-            let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+            let folder = env.store.library_folder(&env.config, folder.id).unwrap();
             assert!(check(&env, &folder).drift.is_empty(), "{fault:?} {renamed}");
             let next = env.plan(&folder, id);
             assert!(
@@ -4673,7 +4673,7 @@ fn acknowledging_drift_never_settles_a_build_that_stopped() {
     env.crash(&env.plan(&folder, id), Fault::AfterMarker);
     let (env, blocked) = env.restart();
     assert!(blocked.is_empty(), "{blocked:?}");
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     let stopped = folder.unfinished.clone().unwrap();
 
     write_file(&env.play().join("atari2600/notes.txt"), b"mine");
@@ -4684,7 +4684,7 @@ fn acknowledging_drift_never_settles_a_build_that_stopped() {
     );
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
-    let after = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let after = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(after.unfinished, Some(stopped));
     assert_eq!(
         after.build.as_ref().map(|b| b.selection),
@@ -4694,7 +4694,7 @@ fn acknowledging_drift_never_settles_a_build_that_stopped() {
     // A build that succeeds does settle it.
     let next = env.plan(&after, id);
     assert_eq!(env.build(&next).state, JobState::Succeeded);
-    let done = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let done = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(done.unfinished, None);
 }
 
@@ -4780,7 +4780,7 @@ fn a_cleanup_is_refused_at_approval_once_anything_in_the_folder_changed() {
             .state,
             JobState::Succeeded
         );
-        let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let folder = env.store.library_folder(&env.config, folder.id).unwrap();
         let plan = cleanup(
             &env,
             &folder,
@@ -4892,13 +4892,13 @@ fn an_interrupted_repack_of_a_file_no_longer_selected_leaves_the_folder_lacking_
     let combat = dir.join("Combat (USA).zip");
     assert_eq!(std::fs::read(&combat).unwrap(), old);
     let lacking = |env: &Env| {
-        let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let folder = env.store.library_folder(&env.config, folder.id).unwrap();
         let counts = folder.incomplete.clone().unwrap();
         (counts.unresolved, counts.failed, counts.missing)
     };
     assert_eq!(lacking(&env), (1, 0, 0), "only Yars, unresolved");
 
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     let plan = cleanup(&env, &folder, repack("Combat (USA).zip"));
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     env.crash(&plan, Fault::BeforePublish(0));
@@ -4994,7 +4994,7 @@ fn set_play_policy(env: &Env, default: StorageFormat, own: Option<StorageFormat>
 }
 
 /// Builds Pong, Combat and Breakout into a new folder as TorrentZips. Returns the folder and the selection.
-fn built_as_zips(env: &Env) -> (ManagedFolder, i64) {
+fn built_as_zips(env: &Env) -> (LibraryFolder, i64) {
     env.audit();
     let id = titles(env, &["Pong (USA)", "Combat (USA)", "Breakout (USA)"]);
     let folder = env.folder("atari2600");
@@ -5201,7 +5201,7 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
             (KeepReason::Replacement, "Pong (USA).zip")
         ])
     );
-    let folder = env.store.managed_folder(&env.config, folder.id).unwrap();
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
     assert_eq!(folder.incomplete, None);
 
     // A check finds the loose files as they were built, and planning again changes nothing.
@@ -5549,7 +5549,7 @@ fn a_build_you_cancel_stops_between_two_files_and_a_new_plan_finishes_the_folder
             let kept = env.store.kept_files(folder.id).unwrap();
             assert_eq!(kept.len(), 1, "{kept:?}");
         }
-        let after = env.store.managed_folder(&env.config, folder.id).unwrap();
+        let after = env.store.library_folder(&env.config, folder.id).unwrap();
         assert_eq!(
             after.generation,
             folder.generation + u64::from(convert),

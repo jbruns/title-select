@@ -1,10 +1,10 @@
-//! The managed folder and build screens' pure logic: labels, the plan's items by what they do, and which managed
+//! The library folder and build screens' pure logic: labels, the plan's items by what they do, and which library
 //! folders a selection can be built into.
 
 use title_select_api::SelectionRecord;
 use title_select_api::build::{
     BlockerKind, BuildState, Cause, CleanupAction, DriftEntry, DriftKind, FileOutcome,
-    IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason, ManagedFolder,
+    IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder,
     PlanChoices, PlanItem, RemovalKind, RestoreKind, UnfinishedBuild,
 };
 
@@ -117,7 +117,7 @@ pub fn cleanup_action_label(action: CleanupAction) -> &'static str {
         CleanupAction::KeepAside => "Keep aside",
         CleanupAction::Adopt => "Adopt",
         CleanupAction::Acknowledge => "Acknowledge",
-        CleanupAction::AddAddition => "Add as operator addition",
+        CleanupAction::AddAddition => "Add to additions",
     }
 }
 
@@ -130,7 +130,7 @@ pub fn restore_kind_label(kind: RestoreKind) -> &'static str {
 }
 
 /// What a cleanup can do with drift entry `d`: keep it aside, always; adopt it, only a file that names a selected
-/// title or holds a known one under another name; add it as an operator addition, only a file no DAT knows;
+/// title or holds a known one under another name; add it as an addition, only a file no DAT knows;
 /// acknowledge it, unless it is at a selected game's file name.
 pub fn cleanup_actions(d: &DriftEntry) -> Vec<CleanupAction> {
     let mut actions = vec![CleanupAction::KeepAside];
@@ -239,11 +239,11 @@ pub fn by_kind(items: &[PlanItem]) -> Vec<(ItemKind, Vec<&PlanItem>)> {
         .collect()
 }
 
-/// The managed folders `selection` can be built into: those bound to its source set and selection profile.
+/// The library folders `selection` can be built into: those bound to its source set and selection profile.
 pub fn folders_for<'a>(
-    folders: &'a [ManagedFolder],
+    folders: &'a [LibraryFolder],
     selection: &SelectionRecord,
-) -> Vec<&'a ManagedFolder> {
+) -> Vec<&'a LibraryFolder> {
     folders
         .iter()
         .filter(|f| f.source_set == selection.source_set && f.profile == selection.profile.name)
@@ -326,8 +326,8 @@ mod tests {
         }
     }
 
-    fn folder(id: i64, source_set: &str, profile: &str) -> ManagedFolder {
-        ManagedFolder {
+    fn folder(id: i64, source_set: &str, profile: &str) -> LibraryFolder {
+        LibraryFolder {
             id,
             root: "play".into(),
             path: "atari2600".into(),

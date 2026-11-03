@@ -361,7 +361,7 @@ mod tests {
             audit: None,
             profile: None,
             selection: None,
-            managed_folder: None,
+            library_folder: None,
             ingest_folder: None,
             repair: None,
             additions_set: None,

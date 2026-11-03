@@ -8,9 +8,9 @@ use leptos_router::hooks::use_params_map;
 use leptos_struct_table::ColumnSort;
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{
-    AddManagedFolder, ApprovePlan, BlockerKind, BuildDetail, BuildItem, BuildSummary, BuiltFile,
-    ChangeManagedFolder, Cleanup, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemKind,
-    KeepReason, KeptDeletion, KeptFile, ManagedFolder, Plan, PlanBuild, PlanChoices, PlanCleanup,
+    AddLibraryFolder, ApprovePlan, BlockerKind, BuildDetail, BuildItem, BuildSummary, BuiltFile,
+    ChangeLibraryFolder, Cleanup, CleanupAction, FileOutcome, FolderCheck, Incomplete, ItemKind,
+    KeepReason, KeptDeletion, KeptFile, LibraryFolder, Plan, PlanBuild, PlanChoices, PlanCleanup,
     PlanItem, PlanKeptDeletion, PlanSummary, RETENTION,
 };
 use title_select_api::{
@@ -33,10 +33,10 @@ use crate::screens::jobs::progress_view;
 use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
 
 fn folder_href(id: i64) -> String {
-    format!("/managed-folders/{id}")
+    format!("/libraries/{id}")
 }
 
-fn location(folder: &ManagedFolder) -> String {
+fn location(folder: &LibraryFolder) -> String {
     format!("{}: {}", folder.root, folder.path)
 }
 
@@ -68,7 +68,7 @@ fn provide_now() {
 
 /// When the folder was last checked, how long ago, and whether a build has changed it since. `full` shows the time
 /// as well as the age.
-fn last_checked(folder: &ManagedFolder, full: bool) -> AnyView {
+fn last_checked(folder: &LibraryFolder, full: bool) -> AnyView {
     let Some(check) = &folder.check else {
         return "Never checked".into_any();
     };
@@ -97,7 +97,7 @@ fn last_checked(folder: &ManagedFolder, full: bool) -> AnyView {
 }
 
 /// The folder's badges: incomplete, with its counts by reason, and a build that stopped before it finished.
-fn badges(folder: &ManagedFolder) -> AnyView {
+fn badges(folder: &LibraryFolder) -> AnyView {
     let incomplete = folder.incomplete.as_ref().map(|counts| {
         let text = format!("Incomplete: {}", incomplete_counts(counts));
         view! { <span class="state review">{text}</span> " " }
@@ -122,7 +122,7 @@ enum FolderCol {
 }
 
 #[derive(Clone, PartialEq)]
-struct FolderItem(ManagedFolder);
+struct FolderItem(LibraryFolder);
 
 impl Grid for FolderItem {
     type Col = FolderCol;
@@ -183,14 +183,14 @@ impl Grid for FolderItem {
     }
 }
 
-/// The managed folders, and the form to register another.
+/// The library folders, and the form to register another.
 #[component]
-pub fn ManagedFolders() -> impl IntoView {
+pub fn Libraries() -> impl IntoView {
     provide_now();
     let live = use_live();
     let folders = LocalResource::new(move || {
         live.settled.track();
-        api::get::<Vec<ManagedFolder>>("/managed-folders")
+        api::get::<Vec<LibraryFolder>>("/libraries")
     });
     let sorting = RwSignal::new(VecDeque::<(FolderCol, ColumnSort)>::new());
     let selected = RwSignal::new(None::<usize>);
@@ -218,24 +218,24 @@ pub fn ManagedFolders() -> impl IntoView {
     let go = navigator();
 
     view! {
-        <h1>"Managed folders"</h1>
+        <h1>"Libraries"</h1>
         <p class="lede">
-            "A managed folder is a folder in a writable root that you build a source set's selections into, \
+            "A library folder is a folder in a writable root that you build a source set's selections into, \
             for your front end to play from. Open one to plan a build, review it and approve it."
         </p>
         {move || match folders.get() {
-            None => view! { <Loading what="the managed folders" /> }.into_any(),
+            None => view! { <Loading what="the library folders" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
         <DataTable
-            id="managed-folders"
-            label="Managed folders".to_string()
+            id="libraries"
+            label="Libraries".to_string()
             rows
             sorting
             selected
             on_open=Callback::new(move |item: FolderItem| go.run(folder_href(item.0.id)))
-            empty="No managed folders yet. Register one in a writable root below.".to_string()
+            empty="No library folders yet. Register one in a writable root below.".to_string()
         />
         <RegisterFolder on_added=Callback::new(move |id: i64| go.run(folder_href(id))) />
     }
@@ -330,7 +330,7 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
         if let Some(Ok(defaults)) = defaults.get()
             && template.get_untracked().is_none()
         {
-            template.set(Some(defaults.managed_folder));
+            template.set(Some(defaults.library_folder));
         }
     });
 
@@ -343,7 +343,7 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
             ));
             return;
         }
-        let request = AddManagedFolder {
+        let request = AddLibraryFolder {
             root: root.get_untracked(),
             path: Some(chosen),
             template: None,
@@ -352,7 +352,7 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
         };
         busy.set(true);
         leptos::task::spawn_local(async move {
-            let added = api::post::<_, ManagedFolder>("/managed-folders", &request).await;
+            let added = api::post::<_, LibraryFolder>("/libraries", &request).await;
             busy.set(false);
             match added {
                 Ok(folder) => on_added.run(folder.id),
@@ -363,7 +363,7 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
 
     view! {
         <section aria-labelledby="register-title">
-            <h2 id="register-title">"Register a managed folder"</h2>
+            <h2 id="register-title">"Register a library folder"</h2>
             {move || match roots.get() {
                 Some(Ok(_)) if writable().is_empty() => view! {
                     <p class="note">
@@ -462,7 +462,7 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
             </p>
             <p class="note small">
                 "The folder must be empty or missing; registering it creates it with a marker file that ties it \
-                to this store. {platform} is the front end's folder name for the system. Several managed folders \
+                to this store. {platform} is the front end's folder name for the system. Several library folders \
                 may hold the same system, each with its own selection profile."
             </p>
             {move || problem.get().map(|message| view! { <Problem message /> })}
@@ -470,9 +470,9 @@ fn RegisterFolder(on_added: Callback<i64>) -> impl IntoView {
     }
 }
 
-/// One managed folder: what it is bound to, its latest plan, its builds and its files.
+/// One library folder: what it is bound to, its latest plan, its builds and its files.
 #[component]
-pub fn ManagedFolderScreen() -> impl IntoView {
+pub fn LibraryFolderScreen() -> impl IntoView {
     provide_now();
     let params = use_params_map();
     let id = move || {
@@ -489,15 +489,15 @@ pub fn ManagedFolderScreen() -> impl IntoView {
         let id = id();
         async move {
             match id {
-                Some(id) => api::get::<ManagedFolder>(&format!("/managed-folders/{id}")).await,
-                None => Err("That is not a managed folder number.".into()),
+                Some(id) => api::get::<LibraryFolder>(&format!("/libraries/{id}")).await,
+                None => Err("That is not a library folder number.".into()),
             }
         }
     });
     move || match folder.get() {
-        None => view! { <Loading what="the managed folder" /> }.into_any(),
+        None => view! { <Loading what="the library folder" /> }.into_any(),
         Some(Err(message)) => view! {
-            <h1>"Managed folder"</h1>
+            <h1>"Library folder"</h1>
             <Problem message />
         }
         .into_any(),
@@ -506,13 +506,13 @@ pub fn ManagedFolderScreen() -> impl IntoView {
 }
 
 #[component]
-fn FolderView(folder: ManagedFolder, refresh: RwSignal<u64>) -> impl IntoView {
+fn FolderView(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
     let id = folder.id;
     let set_href = format!("/source-sets/{}", api::segment(&folder.source_set));
     let profile_href = format!("/profiles/{}", api::segment(&folder.profile));
     let active_job = folder.active_job;
     let (title, system, source_set, profile) = (
-        format!("Managed folder {}", location(&folder)),
+        format!("Library folder {}", location(&folder)),
         folder.system.clone(),
         folder.source_set.clone(),
         folder.profile.clone(),
@@ -566,7 +566,7 @@ fn IncompleteItems(folder: i64) -> impl IntoView {
     let live = use_live();
     let loaded = LocalResource::new(move || {
         live.settled.track();
-        async move { api::get::<Incomplete>(&format!("/managed-folders/{folder}/incomplete")).await }
+        async move { api::get::<Incomplete>(&format!("/libraries/{folder}/incomplete")).await }
     });
     view! {
         <section aria-labelledby="incomplete-title">
@@ -614,7 +614,7 @@ fn CheckPanel(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView 
         live.settled.track();
         refresh.track();
         async move {
-            api::get::<FolderCheck>(&format!("/managed-folders/{folder}/check"))
+            api::get::<FolderCheck>(&format!("/libraries/{folder}/check"))
                 .await
                 .ok()
         }
@@ -623,7 +623,7 @@ fn CheckPanel(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView 
     let start = move |_| {
         problem.set(None);
         leptos::task::spawn_local(async move {
-            match api::post::<_, Job>(&format!("/managed-folders/{folder}/checks"), &()).await {
+            match api::post::<_, Job>(&format!("/libraries/{folder}/checks"), &()).await {
                 Ok(_) => refresh.update(|n| *n += 1),
                 Err(message) => problem.set(Some(message)),
             }
@@ -755,7 +755,7 @@ fn CleanupForm(
     refresh: RwSignal<u64>,
 ) -> impl IntoView {
     let live = use_live();
-    // An entry added as an operator addition is suggested its source set's DAT as its system.
+    // An entry added as an addition is suggested its source set's DAT as its system.
     let system = LocalResource::new(move || {
         let path = format!("/source-sets/{}", api::segment(&source_set));
         async move { api::get::<SourceSetRecord>(&path).await.ok().map(|s| s.dat) }
@@ -764,17 +764,17 @@ fn CleanupForm(
         live.settled.track();
         refresh.track();
         async move {
-            let check = api::get::<FolderCheck>(&format!("/managed-folders/{folder}/check"))
+            let check = api::get::<FolderCheck>(&format!("/libraries/{folder}/check"))
                 .await
                 .ok();
-            let kept = api::get::<Vec<KeptFile>>(&format!("/managed-folders/{folder}/kept-files"))
+            let kept = api::get::<Vec<KeptFile>>(&format!("/libraries/{folder}/kept-files"))
                 .await
                 .unwrap_or_default();
             (check, kept)
         }
     });
     let request = RwSignal::new(PlanCleanup::default());
-    // What each entry you choose to add as an operator addition is added as, by name.
+    // What each entry you choose to add as an addition is added as, by name.
     let adding = RwSignal::new(BTreeMap::<String, RwSignal<NewAddition>>::new());
     let problem = RwSignal::new(None::<String>);
     let working = RwSignal::new(false);
@@ -790,7 +790,7 @@ fn CleanupForm(
         });
         leptos::task::spawn_local(async move {
             let planned =
-                api::post::<_, Plan>(&format!("/managed-folders/{folder}/cleanups"), &body).await;
+                api::post::<_, Plan>(&format!("/libraries/{folder}/cleanups"), &body).await;
             working.set(false);
             match planned {
                 Ok(_) => {
@@ -980,7 +980,7 @@ fn CleanupForm(
                     "Choose what to do with what the latest check found. Keep an entry aside, and it is moved, whole, \
                      into {RETENTION}; adopt a file that holds a selected game, and it is recorded as built under that \
                      game's file name; acknowledge an entry, and it is no longer reported until it changes; add a file \
-                     no DAT knows as an operator addition, and it is kept aside and copied into its system's \
+                     no DAT knows as an addition, and it is kept aside and copied into its system's \
                      additions set. Anything \
                      you do not choose is left as it is, and nothing changes until you approve the plan."
                 )}
@@ -1133,7 +1133,7 @@ fn BuildProgress(job: i64) -> impl IntoView {
 
 /// Plans building one of the bound selection profile's selections of the source set.
 #[component]
-fn PlanForm(folder: ManagedFolder, refresh: RwSignal<u64>) -> impl IntoView {
+fn PlanForm(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
     let id = folder.id;
     let set = folder.source_set.clone();
     let selections = LocalResource::new(move || {
@@ -1169,7 +1169,7 @@ fn PlanForm(folder: ManagedFolder, refresh: RwSignal<u64>) -> impl IntoView {
         problem.set(None);
         leptos::task::spawn_local(async move {
             let planned = api::post::<_, Plan>(
-                &format!("/managed-folders/{id}/plans"),
+                &format!("/libraries/{id}/plans"),
                 &PlanBuild::new(selection),
             )
             .await;
@@ -1415,7 +1415,7 @@ fn PlanView(plan: Plan, refresh: RwSignal<u64>) -> impl IntoView {
         let request = PlanBuild { selection, choices };
         leptos::task::spawn_local(async move {
             let planned =
-                api::post::<_, Plan>(&format!("/managed-folders/{folder}/plans"), &request).await;
+                api::post::<_, Plan>(&format!("/libraries/{folder}/plans"), &request).await;
             busy.set(false);
             match planned {
                 Ok(_) => refresh.update(|n| *n += 1),
@@ -1739,7 +1739,7 @@ fn PlanView(plan: Plan, refresh: RwSignal<u64>) -> impl IntoView {
 
 /// Rebinds the folder to another source set of the same DAT, or to another selection profile.
 #[component]
-fn ChangeBinding(folder: ManagedFolder, refresh: RwSignal<u64>) -> impl IntoView {
+fn ChangeBinding(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
     let id = folder.id;
     let system = folder.system.clone();
     let sets = LocalResource::new(|| api::get::<Vec<SourceSetRecord>>("/source-sets"));
@@ -1751,13 +1751,12 @@ fn ChangeBinding(folder: ManagedFolder, refresh: RwSignal<u64>) -> impl IntoView
     let submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let (s, p) = (set.get_untracked(), profile.get_untracked());
-        let request = ChangeManagedFolder {
+        let request = ChangeLibraryFolder {
             source_set: (s != was_set).then_some(s),
             profile: (p != was_profile).then_some(p),
         };
         leptos::task::spawn_local(async move {
-            match api::patch::<_, ManagedFolder>(&format!("/managed-folders/{id}"), &request).await
-            {
+            match api::patch::<_, LibraryFolder>(&format!("/libraries/{id}"), &request).await {
                 Ok(_) => refresh.update(|n| *n += 1),
                 Err(message) => problem.set(Some(message)),
             }
@@ -1830,7 +1829,7 @@ fn Builds(folder: i64) -> impl IntoView {
     let live = use_live();
     let builds = LocalResource::new(move || {
         live.settled.track();
-        async move { api::get::<Vec<BuildSummary>>(&format!("/managed-folders/{folder}/builds")).await }
+        async move { api::get::<Vec<BuildSummary>>(&format!("/libraries/{folder}/builds")).await }
     });
     view! {
         <section aria-labelledby="builds-title">
@@ -1916,7 +1915,7 @@ fn BuiltFiles(folder: i64) -> impl IntoView {
     let live = use_live();
     let files = LocalResource::new(move || {
         live.settled.track();
-        async move { api::get::<Vec<BuiltFile>>(&format!("/managed-folders/{folder}/files")).await }
+        async move { api::get::<Vec<BuiltFile>>(&format!("/libraries/{folder}/files")).await }
     });
     let sorting = RwSignal::new(VecDeque::<(FileCol, ColumnSort)>::new());
     let selected = RwSignal::new(None::<usize>);
@@ -2013,7 +2012,7 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
     view! {
         <h1>{format!("Build #{}", b.id)}</h1>
         <dl class="facts">
-            <dt>"Managed folder"</dt>
+            <dt>"Library folder"</dt>
             <dd>
                 <A href=folder_href(b.folder)>{format!("#{}", b.folder)}</A>
             </dd>
@@ -2066,21 +2065,19 @@ fn build_view(detail: BuildDetail) -> impl IntoView {
     }
 }
 
-/// On a selection's screen: plans building it into a managed folder bound to its source set and profile.
+/// On a selection's screen: plans building it into a library folder bound to its source set and profile.
 #[component]
 pub fn PlanABuild(selection: SelectionRecord) -> impl IntoView {
-    let folders = LocalResource::new(|| api::get::<Vec<ManagedFolder>>("/managed-folders"));
+    let folders = LocalResource::new(|| api::get::<Vec<LibraryFolder>>("/libraries"));
     let selection = StoredValue::new(selection);
     let problem = RwSignal::new(None::<String>);
     let go = navigator();
     let plan = move |folder: i64| {
         let id = selection.with_value(|s| s.id);
         leptos::task::spawn_local(async move {
-            let planned = api::post::<_, Plan>(
-                &format!("/managed-folders/{folder}/plans"),
-                &PlanBuild::new(id),
-            )
-            .await;
+            let planned =
+                api::post::<_, Plan>(&format!("/libraries/{folder}/plans"), &PlanBuild::new(id))
+                    .await;
             match planned {
                 Ok(_) => go.run(folder_href(folder)),
                 Err(message) => problem.set(Some(message)),
@@ -2090,13 +2087,13 @@ pub fn PlanABuild(selection: SelectionRecord) -> impl IntoView {
     view! {
         {move || {
             let all = folders.get().and_then(Result::ok).unwrap_or_default();
-            let matching: Vec<ManagedFolder> = selection
+            let matching: Vec<LibraryFolder> = selection
                 .with_value(|s| folders_for(&all, s).into_iter().cloned().collect());
             if matching.is_empty() {
                 return view! {
                     <p class="note">
                         "To build this selection for your front end, "
-                        <A href="/managed-folders">"register a managed folder"</A>
+                        <A href="/libraries">"register a library folder"</A>
                         " with its source set and selection profile."
                     </p>
                 }
@@ -2132,7 +2129,7 @@ fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
     let files = LocalResource::new(move || {
         live.settled.track();
         refresh.track();
-        async move { api::get::<Vec<KeptFile>>(&format!("/managed-folders/{folder}/kept-files")).await }
+        async move { api::get::<Vec<KeptFile>>(&format!("/libraries/{folder}/kept-files")).await }
     });
     let picked = RwSignal::new(Vec::<i64>::new());
     let plan = RwSignal::new(None::<KeptDeletion>);
@@ -2149,11 +2146,9 @@ fn KeptFiles(folder: i64, busy: bool, refresh: RwSignal<u64>) -> impl IntoView {
             all,
         };
         leptos::task::spawn_local(async move {
-            let planned = api::post::<_, KeptDeletion>(
-                &format!("/managed-folders/{folder}/kept-deletions"),
-                &body,
-            )
-            .await;
+            let planned =
+                api::post::<_, KeptDeletion>(&format!("/libraries/{folder}/kept-deletions"), &body)
+                    .await;
             working.set(false);
             match planned {
                 Ok(p) => {

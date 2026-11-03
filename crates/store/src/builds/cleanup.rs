@@ -1,9 +1,9 @@
-//! Carrying out an approved cleanup in its Managed Folder, as a Build. Each action is one you chose for one entry,
+//! Carrying out an approved cleanup in its Library Folder, as a Build. Each action is one you chose for one entry,
 //! kept file or built file, and acts only on what the plan found: an entry is moved only while it is, by `lstat`
 //! through the folder's handle, the identity, size, modification and status change times the plan's check read,
 //! and is recorded only once what is at its new name is that identity again.
 //!
-//! The threat model: the Host keeps a Managed Folder mode 2750, so only the service's own user can create, rename
+//! The threat model: the Host keeps a Library Folder mode 2750, so only the service's own user can create, rename
 //! or remove entries in it, and the folders Title Select creates inside it are private to that user. A process
 //! running as that user is out of scope (it can rewrite the store). What another user, or something left over from
 //! before, could have put at a name is never acted on: a cleanup moves an entry only by one rename that never
@@ -682,7 +682,7 @@ impl Run<'_> {
     }
 }
 
-/// Stores the check a cleanup of Managed Folder `folder` made of it as it left it, if it made one.
+/// Stores the check a cleanup of Library Folder `folder` made of it as it left it, if it made one.
 fn store_refreshed(tx: &Transaction, folder: i64, refreshed: Option<Planned>) -> Result<()> {
     if let Some(Planned {
         check: Some(check),
@@ -928,12 +928,12 @@ impl Store {
         let key = cited_by(folder);
         self.write(|tx| {
             let advanced = tx.execute(
-                "UPDATE managed_folders SET generation = ?2, current_build_id = ?3 WHERE id = ?1 AND generation = ?4",
+                "UPDATE library_folders SET generation = ?2, current_build_id = ?3 WHERE id = ?1 AND generation = ?4",
                 params![folder, generation as i64, id, content.generation as i64],
             )?;
             if advanced != 1 {
                 return Err(Error::Io(format!(
-                    "managed folder {folder} is no longer at generation {}",
+                    "library folder {folder} is no longer at generation {}",
                     content.generation
                 )));
             }
@@ -986,7 +986,7 @@ impl Store {
         })
     }
 
-    /// Checks Managed Folder `folder` again once a cleanup changed what a check finds in it, so that what it reports
+    /// Checks Library Folder `folder` again once a cleanup changed what a check finds in it, so that what it reports
     /// is the folder as the cleanup left it, to be stored with [`store_refreshed`] before the cleanup's job ends,
     /// while nothing else acts on the folder. Only read; if it cannot be made, the last check stands.
     fn refresh_check(&self, config: &Config, folder: i64) -> Option<Planned> {

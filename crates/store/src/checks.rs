@@ -1,4 +1,4 @@
-//! Checks of Managed Folders: what is in a folder now against the store's record of what Builds put there. A check
+//! Checks of Library Folders: what is in a folder now against the store's record of what Builds put there. A check
 //! only reads the folder, through the handle it was opened by and without following a symlink; what it finds is
 //! written to the store alone. A built file is read only when its size or modification time differ from its record,
 //! and every entry Title Select did not build is classified as Drift, read once and then only when it changes.
@@ -63,7 +63,7 @@ pub(super) struct Ack {
     pub file: FileStat,
 }
 
-/// The acknowledged entries of Managed Folder `folder`, by name.
+/// The acknowledged entries of Library Folder `folder`, by name.
 pub(super) fn read_acks(c: &Connection, folder: i64) -> Result<HashMap<String, Ack>> {
     let mut stmt =
         c.prepare("SELECT name, dev, ino, size, mtime_ns FROM drift_acks WHERE folder_id = ?1")?;
@@ -472,7 +472,7 @@ pub(super) fn read_probes(c: &Connection, folder: i64) -> Result<HashMap<String,
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// Stores a check of Managed Folder `folder`: brings up to date each built file's record that is still as the check
+/// Stores a check of Library Folder `folder`: brings up to date each built file's record that is still as the check
 /// read it, keeps what it read for the next check, and records the report. Returns the stored check.
 pub(super) fn store_check(
     tx: &Transaction,
@@ -558,7 +558,7 @@ pub(super) fn store_check(
     Ok(check)
 }
 
-/// The latest check of Managed Folder `folder`.
+/// The latest check of Library Folder `folder`.
 pub(super) fn latest_check(c: &Connection, folder: i64) -> Result<Option<FolderCheck>> {
     Ok(c.query_row(
         "SELECT report FROM folder_checks WHERE folder_id = ?1 ORDER BY id DESC LIMIT 1",
@@ -568,7 +568,7 @@ pub(super) fn latest_check(c: &Connection, folder: i64) -> Result<Option<FolderC
     .optional()?)
 }
 
-/// The summary of the latest check of Managed Folder `folder`.
+/// The summary of the latest check of Library Folder `folder`.
 pub(super) fn latest_summary(c: &Connection, folder: i64) -> Result<Option<CheckSummary>> {
     Ok(c.query_row(
         "SELECT summary FROM folder_checks WHERE folder_id = ?1 ORDER BY id DESC LIMIT 1",
@@ -592,14 +592,14 @@ struct CheckInputs {
 }
 
 impl Store {
-    /// Queues a read-only Check of Managed Folder `folder`, started by `actor`. Refused while the folder has a Build
+    /// Queues a read-only Check of Library Folder `folder`, started by `actor`. Refused while the folder has a Build
     /// or a Check queued or running.
     pub fn enqueue_check(&self, folder: i64, actor: &str) -> Result<Job> {
         self.write(|tx| {
             let row = folder_by_id(tx, folder)?;
             if let Some(job) = row.active_job {
                 return Err(Error::Conflict(format!(
-                    "managed folder {folder} already has a build or check queued or running: job {job}"
+                    "library folder {folder} already has a build or check queued or running: job {job}"
                 )));
             }
             let revision: i64 = match row.current_build {
@@ -612,7 +612,7 @@ impl Store {
             };
             tx.execute(
                 "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, actor, readers, hashers, created_at,
-                                   managed_folder_id)
+                                   library_folder_id)
                  VALUES ('queued', 'check', ?1, ?2, ?3, 1, 1, ?4, ?5)",
                 params![row.source_set_id, revision, actor, now(), folder],
             )?;
@@ -640,8 +640,8 @@ impl Store {
             )));
         }
         let folder = job
-            .managed_folder
-            .ok_or_else(|| Error::Io(format!("check job {id} has no managed folder")))?;
+            .library_folder
+            .ok_or_else(|| Error::Io(format!("check job {id} has no library folder")))?;
         let outcome = self.check_folder(config, id, folder, progress);
         if let Err(err) = outcome {
             let message = err.to_string();
@@ -702,7 +702,7 @@ impl Store {
             })
         })?;
         let dir = open_folder(config, &inputs.folder.root, &inputs.folder.path)
-            .map_err(|e| Error::Refused(format!("the managed folder cannot be opened: {e}")))?;
+            .map_err(|e| Error::Refused(format!("the library folder cannot be opened: {e}")))?;
         let entries = listing(&dir).map_err(|e| Error::Io(e.to_string()))?;
         let dat = match inputs.revision.1 {
             true => Some(Dat::read(&self.blob_path(&inputs.revision.0))?),
@@ -757,7 +757,7 @@ impl Store {
         })
     }
 
-    /// The latest check of Managed Folder `folder`.
+    /// The latest check of Library Folder `folder`.
     pub fn latest_check(&self, folder: i64) -> Result<Option<FolderCheck>> {
         self.read(|c| {
             folder_by_id(c, folder)?;

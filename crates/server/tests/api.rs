@@ -559,7 +559,7 @@ fn a_source_set_registered_without_a_path_takes_the_one_its_template_proposes() 
     assert_eq!(
         (
             defaults.source_set.as_str(),
-            defaults.managed_folder.as_str()
+            defaults.library_folder.as_str()
         ),
         ("{provider}/{dat}", "{platform}")
     );
@@ -814,7 +814,7 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     let mystery = named("mystery.bin");
     assert!(matches!(
         mystery.assessment.proposal,
-        Some(Proposal::OperatorAddition { .. })
+        Some(Proposal::Addition { .. })
     ));
 
     let mut response = client
@@ -853,7 +853,7 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
 }
 
 #[test]
-fn the_api_adds_an_ingest_item_as_an_operator_addition_lists_edits_checks_and_retires_it() {
+fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it() {
     use title_select_api::JobKind;
     use title_select_api::additions::{Addition, AdditionState, AdditionsCheck, AdditionsSet};
     use title_select_api::build::PlanKeptDeletion;
@@ -896,7 +896,7 @@ fn the_api_adds_an_ingest_item_as_an_operator_addition_lists_edits_checks_and_re
     let system = "No-Intro/Test - System";
     assert_eq!(
         item.assessment.proposal,
-        Some(Proposal::OperatorAddition {
+        Some(Proposal::Addition {
             system: Some(system.into())
         })
     );
@@ -1706,12 +1706,12 @@ mod selections {
         assert_eq!(client.start_audit().status(), 202);
     }
 
-    /// A managed folder in a writable root: a plan of the selection, an approval bound to its digest, and the build
+    /// A library folder in a writable root: a plan of the selection, an approval bound to its digest, and the build
     /// job that writes TorrentZips under the DAT's names.
     #[test]
-    fn a_selection_is_planned_approved_by_digest_and_built_into_a_managed_folder() {
+    fn a_selection_is_planned_approved_by_digest_and_built_into_a_library_folder() {
         use title_select_api::JobKind;
-        use title_select_api::build::{ItemKind, ManagedFolder, Plan};
+        use title_select_api::build::{ItemKind, LibraryFolder, Plan};
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
@@ -1727,20 +1727,20 @@ mod selections {
         assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
         let (_, selection) = save(&client, json!({"region_order": ["USA", "Europe"]}));
         let (status, body) = send(
-            client.post("/managed-folders"),
+            client.post("/libraries"),
             json!({"root": "sets", "path": "Play", "source_set": SET, "profile": "Everyday"}),
         );
         assert_eq!(status, 400, "a read-only root is refused: {body}");
 
         let (status, folder) = send(
-            client.post("/managed-folders"),
+            client.post("/libraries"),
             json!({"root": "play", "path": "test", "source_set": SET, "profile": "Everyday"}),
         );
         assert_eq!(status, 201, "{folder}");
-        let folder: ManagedFolder = serde_json::from_value(folder).unwrap();
+        let folder: LibraryFolder = serde_json::from_value(folder).unwrap();
         assert!(play.join("test/.title-select").is_file());
         let (status, plan) = send(
-            client.post(&format!("/managed-folders/{}/plans", folder.id)),
+            client.post(&format!("/libraries/{}/plans", folder.id)),
             json!({"selection": selection.id}),
         );
         assert_eq!(status, 201, "{plan}");
@@ -1770,7 +1770,7 @@ mod selections {
         assert_eq!(status, 202, "{job}");
         let job: Job = serde_json::from_value(job).unwrap();
         assert_eq!(
-            (job.kind, job.managed_folder, job.plan),
+            (job.kind, job.library_folder, job.plan),
             (JobKind::Build, Some(folder.id), Some(plan.id))
         );
         let (_, job) = client.follow(job.id);
@@ -1781,11 +1781,11 @@ mod selections {
             title_select_engine::torrentzip::validate(&mut file).unwrap();
         }
         assert!(!play.join("test/.title-select-staging").exists());
-        let folder: ManagedFolder = client.json(&format!("/managed-folders/{}", folder.id));
+        let folder: LibraryFolder = client.json(&format!("/libraries/{}", folder.id));
         let build = folder.build.unwrap();
         assert_eq!((folder.generation, build.applied, build.failed), (1, 2, 0));
         let files: Vec<title_select_api::build::BuiltFile> =
-            client.json(&format!("/managed-folders/{}/files", folder.id));
+            client.json(&format!("/libraries/{}/files", folder.id));
         assert_eq!(files.len(), 2);
         let (status, _) = send(
             client.post(&format!("/plans/{}/approval", plan.id)),
@@ -1796,27 +1796,27 @@ mod selections {
         // A check job reads the folder and records what it found; the folder is left as it is.
         std::fs::write(play.join("test/notes.txt"), b"mine").unwrap();
         let planned: title_select_api::build::FolderCheck =
-            client.json(&format!("/managed-folders/{}/check", folder.id));
+            client.json(&format!("/libraries/{}/check", folder.id));
         assert_eq!(planned.summary.job, None, "planning checked the folder");
         let (status, job) = send(
-            client.post(&format!("/managed-folders/{}/checks", folder.id)),
+            client.post(&format!("/libraries/{}/checks", folder.id)),
             json!(null),
         );
         assert_eq!(status, 202, "{job}");
         let job: Job = serde_json::from_value(job).unwrap();
         assert_eq!(
-            (job.kind, job.managed_folder),
+            (job.kind, job.library_folder),
             (JobKind::Check, Some(folder.id))
         );
         let (_, job) = client.follow(job.id);
         assert_eq!(job.state, JobState::Succeeded, "{job:?}");
         let check: title_select_api::build::FolderCheck =
-            client.json(&format!("/managed-folders/{}/check", folder.id));
+            client.json(&format!("/libraries/{}/check", folder.id));
         assert_eq!(check.summary.job, Some(job.id));
         assert_eq!((check.files.len(), check.drift.len()), (2, 1));
         assert_eq!(std::fs::read(play.join("test/notes.txt")).unwrap(), b"mine");
         let incomplete: title_select_api::build::Incomplete =
-            client.json(&format!("/managed-folders/{}/incomplete", folder.id));
+            client.json(&format!("/libraries/{}/incomplete", folder.id));
         let reasons: Vec<_> = incomplete.items.iter().map(|i| i.reason).collect();
         assert_eq!(
             reasons,
@@ -1826,12 +1826,12 @@ mod selections {
 
         // A cleanup keeps the drift aside once you approve it.
         let (status, body) = send(
-            client.post(&format!("/managed-folders/{}/cleanups", folder.id)),
+            client.post(&format!("/libraries/{}/cleanups", folder.id)),
             json!({}),
         );
         assert_eq!(status, 400, "a cleanup that chooses nothing: {body}");
         let (status, plan) = send(
-            client.post(&format!("/managed-folders/{}/cleanups", folder.id)),
+            client.post(&format!("/libraries/{}/cleanups", folder.id)),
             json!({"entries": {"notes.txt": "keep_aside"}}),
         );
         assert_eq!(status, 201, "{plan}");
@@ -1850,7 +1850,7 @@ mod selections {
         assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
         assert!(!play.join("test/notes.txt").exists());
         let kept: Vec<title_select_api::build::KeptFile> =
-            client.json(&format!("/managed-folders/{}/kept-files", folder.id));
+            client.json(&format!("/libraries/{}/kept-files", folder.id));
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].name, "notes.txt");
     }

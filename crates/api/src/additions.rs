@@ -1,4 +1,4 @@
-//! Operator Additions: files no DAT knows that the Operator chose to keep, each identified by its own hashes, in an
+//! Additions: files no DAT knows that the Operator chose to keep, each identified by its own hashes, in an
 //! Additions Set per system.
 
 use serde::{Deserialize, Serialize};
@@ -13,13 +13,13 @@ pub struct AdditionsMarker {
     pub additions_set: i64,
 }
 
-/// Where an Operator Addition came from.
+/// Where an Addition came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdditionSource {
     /// An item of an Ingest Folder that matched nothing.
     Ingest,
-    /// Drift in a Managed Folder.
+    /// Drift in a Library Folder.
     Drift,
     /// A Source Set Entry no DAT knows.
     SourceSet,
@@ -47,13 +47,13 @@ impl AdditionSource {
     pub fn label(self) -> &'static str {
         match self {
             AdditionSource::Ingest => "ingest folder",
-            AdditionSource::Drift => "managed folder drift",
+            AdditionSource::Drift => "library folder drift",
             AdditionSource::SourceSet => "source set",
         }
     }
 }
 
-/// Where an Operator Addition is in its life.
+/// Where an Addition is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdditionState {
@@ -98,7 +98,7 @@ impl AdditionState {
     }
 }
 
-/// An Operator Addition: a file identified by its own hashes, never labelled a match of any DAT.
+/// An Addition: a file identified by its own hashes, never labelled a match of any DAT.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Addition {
     pub id: i64,
@@ -115,7 +115,7 @@ pub struct Addition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
     pub source: AdditionSource,
-    /// Where it came from: the ingest item, Source Set Entry or Managed Folder entry, by name.
+    /// Where it came from: the ingest item, Source Set Entry or Library Folder entry, by name.
     pub origin: String,
     pub state: AdditionState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -132,7 +132,7 @@ pub struct Addition {
     pub loose: bool,
 }
 
-/// An Additions Set: the folder of one system's Operator Additions.
+/// An Additions Set: the folder of one system's Additions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdditionsSet {
     pub id: i64,
@@ -160,7 +160,7 @@ pub struct AdditionsLeftover {
     pub found_at: String,
 }
 
-/// What to make an Operator Addition as.
+/// What to make an Addition as.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NewAddition {
     /// The system, as `<provider>/<name>` of a registered DAT.
@@ -171,7 +171,7 @@ pub struct NewAddition {
     pub parent: Option<String>,
 }
 
-/// Where a planned Operator Addition is published in its Additions Set, as the plan was reviewed: its file name, and
+/// Where a planned Addition is published in its Additions Set, as the plan was reviewed: its file name, and
 /// whether it is stored loose. An approval refuses a plan whose addition would now be published otherwise.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdditionTarget {
@@ -179,7 +179,7 @@ pub struct AdditionTarget {
     pub loose: bool,
 }
 
-/// A change to an Operator Addition's name or parent Game. The name is applied at the next build.
+/// A change to an Addition's name or parent Game. The name is applied at the next build.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditAddition {
     #[serde(default, skip_serializing_if = "Option::is_none")]

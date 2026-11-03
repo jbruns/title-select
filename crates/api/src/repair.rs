@@ -11,7 +11,7 @@ use crate::ingest::FolderEntry;
 use crate::storage::Storage;
 
 /// What a Source Set's marker says: that it is this store's Source Set `source_set`. Its fields differ from those of
-/// a Managed Folder's or an Ingest Folder's marker, so none is ever read as another.
+/// a Library Folder's or an Ingest Folder's marker, so none is ever read as another.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceSetMarker {
     pub store: String,
@@ -63,7 +63,7 @@ pub enum RepairChoice {
     Leave,
     /// Keep the file aside in the Source Set's kept files.
     KeepAside,
-    /// Keep the file aside, then add its one ROM as an Operator Addition.
+    /// Keep the file aside, then add its one ROM as an Addition.
     AddAddition,
 }
 
@@ -73,7 +73,7 @@ impl RepairChoice {
             RepairChoice::Apply => "apply",
             RepairChoice::Leave => "leave",
             RepairChoice::KeepAside => "keep aside",
-            RepairChoice::AddAddition => "add as operator addition",
+            RepairChoice::AddAddition => "add to additions",
         }
     }
 }
@@ -99,14 +99,14 @@ pub struct RepairItem {
     /// Why the chosen repair cannot be carried out, or anything else to know about it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// When it is added as an Operator Addition: its system, name and parent Game.
+    /// When it is added as an Addition: its system, name and parent Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<NewAddition>,
-    /// When it is added as an Operator Addition: the one ROM its file held, with its hashes, read through a
+    /// When it is added as an Addition: the one ROM its file held, with its hashes, read through a
     /// descriptor while the file held still when the plan was made. It is published only while it still holds it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition_rom: Option<crate::build::ExpectedRom>,
-    /// When it is added as an Operator Addition: where it is published.
+    /// When it is added as an Addition: where it is published.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition_target: Option<crate::additions::AdditionTarget>,
 }
@@ -307,7 +307,7 @@ pub struct RepairPlan {
 pub struct PlanRepair {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub choices: BTreeMap<String, RepairChoice>,
-    /// For each item you add as an Operator Addition: its system, name and parent Game, by its key.
+    /// For each item you add as an Addition: its system, name and parent Game, by its key.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub additions: BTreeMap<String, NewAddition>,
 }
@@ -318,7 +318,7 @@ pub struct SourceKeptFile {
     pub id: i64,
     /// The Source Set it was kept in; for a kept file of an Additions Set, that Additions Set.
     pub source_set: i64,
-    /// The repair that kept it; for a kept file of an Additions Set, the Operator Addition retired.
+    /// The repair that kept it; for a kept file of an Additions Set, the Addition retired.
     pub plan: i64,
     pub generation: u64,
     /// Where it was, relative to the Source Set's folder.

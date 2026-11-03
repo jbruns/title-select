@@ -1,4 +1,4 @@
-//! Path Templates: the tokens that propose the path of a Source Set or Managed Folder at registration, and the
+//! Path Templates: the tokens that propose the path of a Source Set or Library Folder at registration, and the
 //! platform table that gives the `{platform}` token its value.
 //!
 //! A template only proposes a path; a registered path never moves when a template changes. Shared by the Service,
@@ -12,8 +12,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The template a Source Set's path is proposed from when the configuration names none.
 pub const DEFAULT_SOURCE_SET_TEMPLATE: &str = "{provider}/{dat}";
-/// The template a Managed Folder's path is proposed from when the configuration names none.
-pub const DEFAULT_MANAGED_FOLDER_TEMPLATE: &str = "{platform}";
+/// The template a Library Folder's path is proposed from when the configuration names none.
+pub const DEFAULT_LIBRARY_FOLDER_TEMPLATE: &str = "{platform}";
 
 /// The platform table, as committed: see the file's header for its sources.
 pub const PLATFORMS_TSV: &str = include_str!("../data/platforms.tsv");
@@ -390,7 +390,7 @@ mod tests {
                 set
             );
             assert_eq!(
-                render(DEFAULT_MANAGED_FOLDER_TEMPLATE, provider, dat).unwrap(),
+                render(DEFAULT_LIBRARY_FOLDER_TEMPLATE, provider, dat).unwrap(),
                 folder
             );
         }

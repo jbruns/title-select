@@ -481,14 +481,12 @@ fn run(cli: Cli) -> Result<(), String> {
                         game,
                         need,
                     }) => format!("{source_set}: {game} ({})", need.label()),
-                    Some(Proposal::OperatorAddition {
+                    Some(Proposal::Addition {
                         system: Some(system),
                     }) => {
-                        format!("operator addition for {system}")
+                        format!("addition for {system}")
                     }
-                    Some(Proposal::OperatorAddition { system: None }) => {
-                        "operator addition".to_owned()
-                    }
+                    Some(Proposal::Addition { system: None }) => "addition".to_owned(),
                     Some(Proposal::DatImport) => "DAT import".to_owned(),
                     None => item.reason.clone().unwrap_or_default(),
                 };

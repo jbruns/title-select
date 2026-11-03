@@ -44,7 +44,7 @@ pub(super) struct JobRow {
 pub(super) const JOB_QUERY: &str =
     "SELECT j.id, j.state, coalesce(s.name, ''), coalesce(r.sha256, ''), j.actor, j.attempt, j.requeued_from,
             j.audit_id, j.error, j.readers, j.hashers, j.created_at, j.started_at, j.finished_at, j.version,
-            j.kind, p.name, v.version, j.selection_id, j.managed_folder_id, j.plan_id, i.root, j.evidence,
+            j.kind, p.name, v.version, j.selection_id, j.library_folder_id, j.plan_id, i.root, j.evidence,
             j.repair_plan_id, j.cancel_requested_at, ad.provider || '/' || ad.name
      FROM jobs j
      LEFT JOIN source_sets s ON s.id = j.source_set_id
@@ -84,7 +84,7 @@ pub(super) fn job_from_row(row: &Row) -> rusqlite::Result<Job> {
         kind,
         profile,
         selection: row.get(18)?,
-        managed_folder: row.get(19)?,
+        library_folder: row.get(19)?,
         plan: row.get(20)?,
         ingest_folder: row.get(21)?,
         evidence: match row.get::<_, Option<String>>(22)? {

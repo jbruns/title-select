@@ -143,7 +143,7 @@ pub struct AddSourceSet {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathTemplateDefaults {
     pub source_set: String,
-    pub managed_folder: String,
+    pub library_folder: String,
 }
 
 /// One Audit in a Source Set's history. A pruned Audit keeps only this summary.
@@ -401,15 +401,15 @@ pub enum JobKind {
     #[default]
     Audit,
     Selection,
-    /// Carries out an approved Change Plan into a Managed Folder.
+    /// Carries out an approved Change Plan into a Library Folder.
     Build,
-    /// Checks a Managed Folder against the store's record of it, read-only.
+    /// Checks a Library Folder against the store's record of it, read-only.
     Check,
     /// Scans an Ingest Folder and assesses what settled in it, read-only.
     IngestScan,
     /// Carries out an approved repair of a Source Set.
     Repair,
-    /// Publishes, retires and restores the Operator Additions of one Additions Set.
+    /// Publishes, retires and restores the Additions of one Additions Set.
     Additions,
 }
 
@@ -472,9 +472,9 @@ pub struct Job {
     /// The Selection a Succeeded Selection Job recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection: Option<i64>,
-    /// The Managed Folder a Build Job builds into, or a Check Job checks.
+    /// The Library Folder a Build Job builds into, or a Check Job checks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub managed_folder: Option<i64>,
+    pub library_folder: Option<i64>,
     /// The approved plan a Build Job carries out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<i64>,

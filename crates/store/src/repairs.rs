@@ -569,7 +569,7 @@ impl Store {
             additions: &request.additions,
         })?;
         let mut planned = planned;
-        // Each file added as an Operator Addition is read now, through a descriptor held on it while it is the file
+        // Each file added as an Addition is read now, through a descriptor held on it while it is the file
         // walked and its ctime, size and mtime stay still: the plan binds the one ROM it holds, and the addition is
         // published only while its kept file still holds exactly that.
         for item in planned.items.iter_mut() {
@@ -602,7 +602,7 @@ impl Store {
                 None => {
                     return Err(Error::Refused(format!(
                         "{path} changed while it was read, or does not hold exactly one ROM that can be read whole, \
-                         so it cannot be added as an operator addition; plan the repair again"
+                         so it cannot be added as an addition; plan the repair again"
                     )));
                 }
             }
@@ -616,7 +616,7 @@ impl Store {
             item.addition_target = Some(target.reviewed());
             if !names.insert((new.system.clone(), new.name.to_lowercase())) {
                 return Err(Error::Refused(format!(
-                    "two files would be added as the operator addition {} of {}; choose another name for one",
+                    "two files would be added as the addition {} of {}; choose another name for one",
                     new.name, new.system
                 )));
             }
@@ -806,7 +806,7 @@ impl Store {
                     params![id, seq as i64, item, to_json(step)],
                 )?;
             }
-            // Each Operator Addition is published from the file its item keeps aside, once the repair has kept it.
+            // Each Addition is published from the file its item keeps aside, once the repair has kept it.
             for item in &content.items {
                 if let (RepairChoice::AddAddition, Some(new), Some(path)) = (item.chosen, &item.addition, &item.path) {
                     let rom = item.addition_rom.as_ref().ok_or_else(|| {
@@ -894,7 +894,7 @@ impl Store {
             })?;
         }
         drop(ran);
-        // Operator Additions whose files the repair kept aside are published from there by their Additions Jobs.
+        // Additions whose files the repair kept aside are published from there by their Additions Jobs.
         self.write(|tx| crate::additions::queue_additions_jobs(tx).map(drop))?;
         self.job(id)
     }

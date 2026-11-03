@@ -174,7 +174,7 @@ mod tests {
             audit: (state == JobState::Succeeded).then_some(7),
             profile: None,
             selection: None,
-            managed_folder: None,
+            library_folder: None,
             ingest_folder: None,
             repair: None,
             additions_set: None,

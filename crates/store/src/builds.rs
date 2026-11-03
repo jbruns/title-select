@@ -1,4 +1,4 @@
-//! Builds: carrying out an approved Change Plan in its Managed Folder. The folder is opened once without following a
+//! Builds: carrying out an approved Change Plan in its Library Folder. The folder is opened once without following a
 //! symlink, and every change is made through that handle (see [`FolderDir`]). The staging directory, each staged
 //! file and each marker temp file are recorded by device and inode before they are relied on, and only an entry with
 //! a recorded identity is ever removed. Each file is written and verified in the staging directory, its SHA-256 and
@@ -44,9 +44,9 @@ use rustix::fs::Stat;
 
 mod cleanup;
 
-/// What a Managed Folder's current Build cites, in `audit_citations` and `selection_citations`.
+/// What a Library Folder's current Build cites, in `audit_citations` and `selection_citations`.
 fn cited_by(folder: i64) -> String {
-    format!("managed-folder:{folder}")
+    format!("library-folder:{folder}")
 }
 
 /// One file to write, as the approved plan lists it.
@@ -244,7 +244,7 @@ fn stage(
 ) -> std::result::Result<Staged, Failure> {
     let (set_dir, set_root, set_fd) = set;
     if let Some(addition) = &item.addition {
-        // An Operator Addition is read from its Additions Set, through a descriptor on the file published there, while
+        // An Addition is read from its Additions Set, through a descriptor on the file published there, while
         // it is still that file: copied whole when the play library stores it in the format its Additions Set does,
         // else written from its one ROM in the play library's.
         let source = &item.sources[0];
@@ -268,9 +268,7 @@ fn stage(
             return Err(changed());
         }
         let [rom] = item.roms.as_slice() else {
-            return Err(Failure::Item(
-                "an operator addition holds exactly one ROM".into(),
-            ));
+            return Err(Failure::Item("an addition holds exactly one ROM".into()));
         };
         let whole = addition.loose == item.loose;
         if whole {
@@ -470,7 +468,7 @@ fn staged_temp(name: &str) -> String {
     format!("{STAGING}/{name}")
 }
 
-/// The entries Builds and recovery created in Managed Folder `folder`, by name.
+/// The entries Builds and recovery created in Library Folder `folder`, by name.
 pub(super) fn temps(c: &Connection, folder: i64) -> Result<HashMap<String, Identity>> {
     let mut stmt = c.prepare("SELECT name, dev, ino FROM folder_temps WHERE folder_id = ?1")?;
     let rows = stmt.query_map([folder], |r| {
@@ -479,7 +477,7 @@ pub(super) fn temps(c: &Connection, folder: i64) -> Result<HashMap<String, Ident
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// Records, and commits, that the entry `name` in Managed Folder `folder` was created as `id`.
+/// Records, and commits, that the entry `name` in Library Folder `folder` was created as `id`.
 pub(super) fn record_temp(store: &Store, folder: i64, name: &str, id: Identity) -> Result<()> {
     let (dev, ino) = id.to_sql();
     store.write(|tx| {
@@ -560,7 +558,7 @@ fn record_applied(
     // A file kept aside to be repacked is no longer missing once a file is built at its name.
     tx.execute(
         "DELETE FROM build_incomplete
-         WHERE build_id = (SELECT current_build_id FROM managed_folders WHERE id = ?1)
+         WHERE build_id = (SELECT current_build_id FROM library_folders WHERE id = ?1)
            AND lower(target) = lower(?2) AND reason = 'failed' AND detail = ?3",
         params![folder, item.target, super::kept::REPACK_UNPUBLISHED],
     )?;
@@ -707,7 +705,7 @@ fn adopt(dir: &FolderDir, item: &PlanItem) -> std::result::Result<(String, Stat,
     }
 }
 
-/// Records what the Build `build` left its Managed Folder lacking of its Selection: each item of its plan that was
+/// Records what the Build `build` left its Library Folder lacking of its Selection: each item of its plan that was
 /// skipped, other than an unresolved one whose target is `retained` (its earlier built file still holds the ROMs the
 /// item now expects), and each item that failed.
 fn record_incomplete(
@@ -835,7 +833,7 @@ impl Store {
                 self.recover_build(config, build)?;
             }
         }
-        // Operator Additions a cleanup kept aside drift entries for are published from their kept files by their
+        // Additions a cleanup kept aside drift entries for are published from their kept files by their
         // Additions Jobs.
         self.write(|tx| crate::additions::queue_additions_jobs(tx).map(drop))?;
         let job = self.job(id)?;
@@ -899,7 +897,7 @@ impl Store {
         }
         let (set_dir, set_root) = self.set_folder(config, folder_row.source_set_id)?;
         let set_fd = self.set_folder_dir(config, folder_row.source_set_id)?;
-        // The Additions Set the plan's Operator Additions are copied from: one, the folder's system's.
+        // The Additions Set the plan's Additions are copied from: one, the folder's system's.
         let additions = match content.items.iter().find_map(|i| i.addition.as_ref()) {
             Some(a) => Some(
                 self.open_additions(config, a.additions_set)?
@@ -1353,12 +1351,12 @@ impl Store {
         let key = cited_by(folder);
         self.write(|tx| {
             let advanced = tx.execute(
-                "UPDATE managed_folders SET generation = ?2, current_build_id = ?3 WHERE id = ?1 AND generation = ?4",
+                "UPDATE library_folders SET generation = ?2, current_build_id = ?3 WHERE id = ?1 AND generation = ?4",
                 params![folder, generation as i64, id, content.generation as i64],
             )?;
             if advanced != 1 {
                 return Err(Error::Io(format!(
-                    "managed folder {folder} is no longer at generation {}",
+                    "library folder {folder} is no longer at generation {}",
                     content.generation
                 )));
             }
@@ -1752,7 +1750,7 @@ impl Store {
         self.read(|c| Ok(builds_where(c, "b.job_id = ?1", [job])?.into_iter().next()))
     }
 
-    /// The files Builds wrote into Managed Folder `folder`, by name.
+    /// The files Builds wrote into Library Folder `folder`, by name.
     pub fn built_files(&self, folder: i64) -> Result<Vec<BuiltFile>> {
         self.read(|c| {
             folder_by_id(c, folder)?;

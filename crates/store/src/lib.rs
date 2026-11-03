@@ -97,7 +97,7 @@ pub struct Store {
     /// Holds the exclusive lock on `lock` until the store is dropped.
     _lock: File,
     fault: Mutex<Option<FaultHook>>,
-    /// Held while Operator Additions are published, so that only one caller settles them at a time.
+    /// Held while Additions are published, so that only one caller settles them at a time.
     publishing: Mutex<()>,
     /// Held while an Additions Set's folder is created.
     set_dirs: Mutex<()>,
@@ -138,15 +138,15 @@ pub enum Fault {
     /// After the entry of a cleanup's item with this sequence number is renamed and both folders are synced, before
     /// the store records it moved.
     MoveSynced(i64),
-    /// After a folder Title Select is creating in a Managed Folder is made under its temporary name, before it is
+    /// After a folder Title Select is creating in a Library Folder is made under its temporary name, before it is
     /// opened and checked.
     MadeDir,
-    /// After a folder Title Select is creating in a Managed Folder is made and recorded under its temporary name,
+    /// After a folder Title Select is creating in a Library Folder is made and recorded under its temporary name,
     /// before it is renamed into place.
     BeforePublishDir,
     /// As [`Fault::MadeDir`], for a Build's staging directory.
     MadeStaging,
-    /// After a folder Title Select is creating in a Managed Folder is renamed into place, before its parent is
+    /// After a folder Title Select is creating in a Library Folder is renamed into place, before its parent is
     /// synced and its identity recorded under its name.
     PublishedDir,
     /// As [`Fault::BeforePublishDir`], for a Build's staging directory.
@@ -248,20 +248,20 @@ pub enum Fault {
     AdditionSetMade,
     /// After an Additions Set's folder is renamed into place, before the Root is synced and the folder recorded.
     AdditionSetPublished,
-    /// After an Operator Addition's file is written and checked under its staged name, before it is renamed into place.
+    /// After an Addition's file is written and checked under its staged name, before it is renamed into place.
     AdditionStaged,
-    /// After an Operator Addition's file is renamed into place, before its folder is synced and it is recorded active.
+    /// After an Addition's file is renamed into place, before its folder is synced and it is recorded active.
     AdditionRenamed,
-    /// After a retiring Operator Addition's file is renamed into its Additions Set's kept files, before either folder
+    /// After a retiring Addition's file is renamed into its Additions Set's kept files, before either folder
     /// is synced or anything is recorded.
     AdditionRetireMoved,
-    /// After a restoring Operator Addition's file is renamed back from its Additions Set's kept files, before either
+    /// After a restoring Addition's file is renamed back from its Additions Set's kept files, before either
     /// folder is synced or anything is recorded.
     AdditionRestoreMoved,
-    /// After approving an ingest plan records the intent to add one of its items as an Operator Addition, before the
+    /// After approving an ingest plan records the intent to add one of its items as an Addition, before the
     /// rest of its items, what became of them and its Additions Job are recorded.
     IngestAdditionRecorded,
-    /// After a restoring Operator Addition's file, found replaced once renamed back into its Additions Set, has what
+    /// After a restoring Addition's file, found replaced once renamed back into its Additions Set, has what
     /// replaced it renamed back into the kept files, before either folder is synced or anything is recorded.
     AdditionRestoreReturned,
 }
@@ -592,7 +592,7 @@ mod tests {
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].kind, title_select_api::JobKind::Selection);
         assert_eq!(jobs[0].selection, Some(1));
-        assert_eq!((jobs[0].managed_folder, jobs[0].plan), (None, None));
+        assert_eq!((jobs[0].library_folder, jobs[0].plan), (None, None));
         let id = store.read(folders::store_id).unwrap();
         assert_eq!(id.len(), 32);
         let build_without_a_folder = store.write(|tx| {
@@ -664,6 +664,11 @@ mod tests {
 
         let store = Store::open(dir.path()).unwrap();
 
+        // A later migration renamed managed_folder_id.
+        let columns: Vec<String> = columns
+            .iter()
+            .map(|c| c.replace("managed_folder_id", "library_folder_id"))
+            .collect();
         assert_eq!(store.read(|c| rows(c, &columns)).unwrap(), before);
         let jobs = store.jobs(10).unwrap();
         assert_eq!(
@@ -672,6 +677,158 @@ mod tests {
                 Some(title_select_api::AuditEvidence::Incremental),
                 Some(title_select_api::AuditEvidence::Full)
             ]
+        );
+        let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
+        assert_eq!(foreign_keys, "Integer(1)");
+    }
+
+    #[test]
+    fn the_library_folders_migration_renames_managed_folders_and_operator_additions_keeping_every_row()
+     {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..12]).unwrap();
+        // A Managed Folder with a Build Job, a Check Job, the citation of its current Build and an ingest item
+        // assessed as a candidate Operator Addition, as schema 12's code wrote them.
+        store
+            .write(|tx| {
+                tx.execute_batch(
+                    r#"INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
+                     INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at)
+                         SELECT id, 'abc', '1', 'Test.dat', 'then' FROM dats;
+                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
+                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
+                     INSERT INTO profiles (name, created_at) VALUES ('Mine', 'then');
+                     INSERT INTO profile_versions (profile_id, version, json, sha256, saved_at, saved_by)
+                         SELECT id, 1, '{}', 'def', 'then', 'Operator' FROM profiles;
+                     INSERT INTO jobs (state, kind, profile_version_id, source_set_id, dat_revision_id, actor,
+                                       readers, hashers, created_at)
+                         SELECT 'succeeded', 'selection', v.id, s.id, r.id, 'Operator', 1, 1, 'then'
+                         FROM profile_versions v, source_sets s, dat_revisions r;
+                     INSERT INTO selections (source_set_id, dat_revision_id, profile_version_id, job_id, system,
+                                             system_settings, pins, summary, coverage_drift, stale_choices,
+                                             created_at)
+                         SELECT source_set_id, dat_revision_id, profile_version_id, id, 'Test', 0, '{}', '{}',
+                                '{}', '{}', 'then' FROM jobs;
+                     INSERT INTO managed_folders (root, path, source_set_id, profile_id, generation, created_at)
+                         SELECT 'play', 'atari2600', s.id, p.id, 3, 'then' FROM source_sets s, profiles p;
+                     INSERT INTO managed_folders (root, path, source_set_id, profile_id, created_at)
+                         SELECT 'play', 'nes', s.id, p.id, 'later' FROM source_sets s, profiles p;
+                     INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, managed_folder_id, actor,
+                                       readers, hashers, created_at)
+                         SELECT 'queued', 'check', s.id, r.id, 2, 'Operator', 1, 1, 'now'
+                         FROM source_sets s, dat_revisions r;
+                     INSERT INTO selection_citations (selection_id, cited_by)
+                         SELECT id, 'managed-folder:1' FROM selections;
+                     INSERT INTO selection_citations (selection_id, cited_by)
+                         SELECT id, 'build-job:7' FROM selections;
+                     INSERT INTO ingest_folders (root, created_at) VALUES ('ingest', 'then');
+                     INSERT INTO ingest_items (folder_id, name, state, dev, ino, size, mtime_ns, ctime_ns,
+                                               stable_since, assessment, first_seen_at, changed_at)
+                         SELECT id, 'mystery.bin', 'assessed', 1, 2, 3, '4', '5', 'then',
+                                '{"proposal":{"kind":"operator_addition","system":"Atari 2600"},"matches":[]}',
+                                'then', 'then'
+                         FROM ingest_folders;
+                     INSERT INTO ingest_items (folder_id, name, state, dev, ino, size, mtime_ns, ctime_ns,
+                                               stable_since, assessment, first_seen_at, changed_at)
+                         SELECT id, 'game.dat', 'assessed', 1, 3, 3, '4', '5', 'then',
+                                '{"proposal":{"kind":"dat_import"}}', 'then', 'then'
+                         FROM ingest_folders;"#,
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+
+        let rows = |sql: &str| -> Vec<Vec<rusqlite::types::Value>> {
+            store
+                .read(|c| {
+                    let mut stmt = c.prepare(sql)?;
+                    let n = stmt.column_count();
+                    Ok(stmt
+                        .query_map([], |r| (0..n).map(|i| r.get(i)).collect())?
+                        .collect::<rusqlite::Result<Vec<_>>>()?)
+                })
+                .unwrap()
+        };
+        use rusqlite::types::Value::{Integer, Null, Text};
+        let text = |s: &str| Text(s.to_owned());
+        assert_eq!(
+            rows("SELECT id, root, path, source_set_id, profile_id, generation, current_build_id, created_at
+                  FROM library_folders ORDER BY id"),
+            [
+                vec![
+                    Integer(1),
+                    text("play"),
+                    text("atari2600"),
+                    Integer(1),
+                    Integer(1),
+                    Integer(3),
+                    Null,
+                    text("then")
+                ],
+                vec![
+                    Integer(2),
+                    text("play"),
+                    text("nes"),
+                    Integer(1),
+                    Integer(1),
+                    Integer(0),
+                    Null,
+                    text("later")
+                ],
+            ]
+        );
+        assert_eq!(
+            rows("SELECT id, kind, library_folder_id FROM jobs ORDER BY id"),
+            [
+                vec![Integer(1), text("selection"), Null],
+                vec![Integer(2), text("check"), Integer(2)],
+            ]
+        );
+        assert_eq!(
+            rows("SELECT cited_by FROM selection_citations ORDER BY cited_by"),
+            [vec![text("build-job:7")], vec![text("library-folder:1")]]
+        );
+        assert_eq!(
+            rows(
+                "SELECT json_extract(assessment, '$.proposal.kind'),
+                        json_extract(assessment, '$.proposal.system'),
+                        json_extract(assessment, '$.matches')
+                 FROM ingest_items ORDER BY id"
+            ),
+            [
+                vec![text("addition"), text("Atari 2600"), text("[]")],
+                vec![text("dat_import"), Null, Null],
+            ]
+        );
+        assert_eq!(
+            rows(
+                "SELECT name FROM sqlite_schema
+                 WHERE sql LIKE '%managed%folder%' OR sql LIKE '%operator%addition%'"
+            ),
+            Vec::<Vec<rusqlite::types::Value>>::new()
+        );
+        // The one active Build or Check per folder, and a Check needing its folder, still hold.
+        let check = |folder: &str| {
+            store.write(|tx| {
+                tx.execute_batch(&format!(
+                    "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, library_folder_id, actor,
+                                       readers, hashers, created_at)
+                         SELECT 'queued', 'check', source_set_id, dat_revision_id, {folder}, 'Operator', 1, 1, 'now'
+                         FROM jobs LIMIT 1;"
+                ))?;
+                Ok(())
+            })
+        };
+        assert!(check("2").is_err());
+        assert!(check("NULL").is_err());
+        check("1").unwrap();
+        assert!(
+            store
+                .read(|c| Ok(c.prepare("SELECT 1 FROM managed_folders").is_err()))
+                .unwrap()
         );
         let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
         assert_eq!(foreign_keys, "Integer(1)");

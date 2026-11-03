@@ -1,4 +1,4 @@
-//! Operator additions: each system's additions set, the additions in it, and the fields every plan that adds one
+//! Additions: each system's additions set, the additions in it, and the fields every plan that adds one
 //! asks for.
 
 use leptos::prelude::*;
@@ -54,7 +54,7 @@ pub fn finding_label(finding: AdditionsFinding) -> &'static str {
     }
 }
 
-/// The system, name and parent game to add a file as an operator addition under, edited in place.
+/// The system, name and parent game to add a file as an addition under, edited in place.
 #[component]
 pub fn AdditionFields(value: RwSignal<NewAddition>) -> impl IntoView {
     let dats = LocalResource::new(|| async { api::get::<Vec<Dat>>("/dats").await });
@@ -118,11 +118,11 @@ pub fn Additions() -> impl IntoView {
         async { api::get::<Vec<AdditionsSet>>("/additions-sets").await }
     });
     view! {
-        <h1>"Operator additions"</h1>
+        <h1>"Additions"</h1>
         <p class="lede">
             "Files no DAT knows that you chose to keep, each known by its own hashes and a name you give it, in an \
             additions set per system. A selection profile that opts in for a system builds them alongside the \
-            source set. Add one from an ingest folder, a repair of a source set or a cleanup of a managed folder. \
+            source set. Add one from an ingest folder, a repair of a source set or a cleanup of a library folder. \
             An additions job publishes each one after you approve it, and moves the file of one you retire into \
             the additions set's kept files."
         </p>
@@ -130,7 +130,7 @@ pub fn Additions() -> impl IntoView {
             None => view! { <Loading what="the additions sets" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(sets)) if sets.is_empty() => {
-                view! { <p class="note">"You have added no operator additions yet."</p> }.into_any()
+                view! { <p class="note">"You have no additions yet."</p> }.into_any()
             }
             Some(Ok(sets)) => sets
                 .into_iter()

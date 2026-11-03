@@ -18,8 +18,8 @@ use title_select_api::additions::{
     Addition, AdditionsCheck, AdditionsSet, EditAddition, SystemQuery,
 };
 use title_select_api::build::{
-    AddManagedFolder, ApprovePlan, BuildDetail, BuildSummary, BuiltFile, ChangeManagedFolder,
-    FolderCheck, Incomplete, KeptDeletion, KeptFile, ManagedFolder, Plan, PlanBuild, PlanCleanup,
+    AddLibraryFolder, ApprovePlan, BuildDetail, BuildSummary, BuiltFile, ChangeLibraryFolder,
+    FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder, Plan, PlanBuild, PlanCleanup,
     PlanKeptDeletion,
 };
 use title_select_api::ingest::{
@@ -112,26 +112,20 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/selections/{id}/releases", get(selection_releases))
         .route("/selections/{id}/availability", get(availability))
         .route("/selections/{id}/diff", get(selection_diff))
+        .route("/libraries", get(library_folders).post(add_library_folder))
         .route(
-            "/managed-folders",
-            get(managed_folders).post(add_managed_folder),
+            "/libraries/{id}",
+            get(library_folder).patch(change_library_folder),
         )
-        .route(
-            "/managed-folders/{id}",
-            get(managed_folder).patch(change_managed_folder),
-        )
-        .route("/managed-folders/{id}/builds", get(folder_builds))
-        .route("/managed-folders/{id}/files", get(built_files))
-        .route("/managed-folders/{id}/plans", post(plan_build))
-        .route("/managed-folders/{id}/cleanups", post(plan_cleanup))
-        .route("/managed-folders/{id}/checks", post(start_check))
-        .route("/managed-folders/{id}/check", get(latest_check))
-        .route("/managed-folders/{id}/incomplete", get(incomplete))
-        .route("/managed-folders/{id}/kept-files", get(kept_files))
-        .route(
-            "/managed-folders/{id}/kept-deletions",
-            post(plan_kept_deletion),
-        )
+        .route("/libraries/{id}/builds", get(folder_builds))
+        .route("/libraries/{id}/files", get(built_files))
+        .route("/libraries/{id}/plans", post(plan_build))
+        .route("/libraries/{id}/cleanups", post(plan_cleanup))
+        .route("/libraries/{id}/checks", post(start_check))
+        .route("/libraries/{id}/check", get(latest_check))
+        .route("/libraries/{id}/incomplete", get(incomplete))
+        .route("/libraries/{id}/kept-files", get(kept_files))
+        .route("/libraries/{id}/kept-deletions", post(plan_kept_deletion))
         .route("/kept-deletions/{id}", get(kept_deletion))
         .route("/kept-deletions/{id}/approval", post(approve_kept_deletion))
         .route(
@@ -426,7 +420,7 @@ async fn path_templates(State(state): State<AppState>) -> Json<PathTemplateDefau
     let templates = &state.config.path_templates;
     Json(PathTemplateDefaults {
         source_set: templates.source_set.to_string(),
-        managed_folder: templates.managed_folder.to_string(),
+        library_folder: templates.library_folder.to_string(),
     })
 }
 
@@ -458,45 +452,45 @@ async fn add_source_set(
     Ok((StatusCode::CREATED, Json(record)))
 }
 
-async fn managed_folders(State(state): State<AppState>) -> ApiResult<Json<Vec<ManagedFolder>>> {
+async fn library_folders(State(state): State<AppState>) -> ApiResult<Json<Vec<LibraryFolder>>> {
     let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| store.managed_folders(&config)).await?,
+        blocking(&state, move |store| store.library_folders(&config)).await?,
     ))
 }
 
-async fn add_managed_folder(
+async fn add_library_folder(
     State(state): State<AppState>,
-    body: Result<Json<AddManagedFolder>, JsonRejection>,
-) -> ApiResult<(StatusCode, Json<ManagedFolder>)> {
+    body: Result<Json<AddLibraryFolder>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<LibraryFolder>)> {
     let Json(add) = body?;
     let config = state.config.clone();
-    let folder = blocking(&state, move |store| store.add_managed_folder(&config, &add)).await?;
+    let folder = blocking(&state, move |store| store.add_library_folder(&config, &add)).await?;
     Ok((StatusCode::CREATED, Json(folder)))
 }
 
-async fn managed_folder(
+async fn library_folder(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
-) -> ApiResult<Json<ManagedFolder>> {
+) -> ApiResult<Json<LibraryFolder>> {
     let Path(id) = id?;
     let config = state.config.clone();
     Ok(Json(
-        blocking(&state, move |store| store.managed_folder(&config, id)).await?,
+        blocking(&state, move |store| store.library_folder(&config, id)).await?,
     ))
 }
 
-async fn change_managed_folder(
+async fn change_library_folder(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
-    body: Result<Json<ChangeManagedFolder>, JsonRejection>,
-) -> ApiResult<Json<ManagedFolder>> {
+    body: Result<Json<ChangeLibraryFolder>, JsonRejection>,
+) -> ApiResult<Json<LibraryFolder>> {
     let Path(id) = id?;
     let Json(change) = body?;
     let config = state.config.clone();
     Ok(Json(
         blocking(&state, move |store| {
-            store.change_managed_folder(&config, id, &change)
+            store.change_library_folder(&config, id, &change)
         })
         .await?,
     ))
@@ -541,7 +535,7 @@ async fn latest_check(
     let check = blocking(&state, move |store| store.latest_check(id)).await?;
     check
         .map(Json)
-        .ok_or_else(|| Error::NotFound(format!("managed folder {id} was never checked")).into())
+        .ok_or_else(|| Error::NotFound(format!("library folder {id} was never checked")).into())
 }
 
 async fn incomplete(
@@ -783,7 +777,7 @@ async fn ingest_plan(
 }
 
 /// Approves an ingest plan with the digest you reviewed, and carries it out before it answers. Audits a DAT import
-/// queues, and Additions Jobs that publish the Operator Additions it adds, start at once.
+/// queues, and Additions Jobs that publish the Additions it adds, start at once.
 async fn approve_ingest_plan(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
@@ -861,7 +855,7 @@ async fn addition(
     ))
 }
 
-/// Renames an Operator Addition, or sets or clears its parent Game.
+/// Renames an Addition, or sets or clears its parent Game.
 async fn edit_addition(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
@@ -874,7 +868,7 @@ async fn edit_addition(
     ))
 }
 
-/// Retires an Operator Addition: builds stop reading it, and its Additions Job moves its file into the Additions Set's
+/// Retires an Addition: builds stop reading it, and its Additions Job moves its file into the Additions Set's
 /// kept files.
 async fn retire_addition(
     State(state): State<AppState>,
@@ -889,7 +883,7 @@ async fn retire_addition(
     Ok(Json(addition))
 }
 
-/// Restores a retired Operator Addition: its Additions Job moves its file back from the kept files, and builds that
+/// Restores a retired Addition: its Additions Job moves its file back from the kept files, and builds that
 /// opt in read it again.
 async fn restore_addition(
     State(state): State<AppState>,

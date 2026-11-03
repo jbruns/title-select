@@ -160,7 +160,7 @@ impl Store {
     ) -> Result<SourceSetRecord> {
         if config.root(root).is_some_and(|r| r.writable) {
             return Err(Error::Refused(format!(
-                "root {root} is writable, and only managed folders go in a writable root; add the source set from a \
+                "root {root} is writable, and only library folders go in a writable root; add the source set from a \
                  read-only root"
             )));
         }

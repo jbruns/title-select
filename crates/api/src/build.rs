@@ -1,4 +1,4 @@
-//! Managed Folders, the Change Plans that build a Selection into one, and the Builds that carry them out.
+//! Library Folders, the Change Plans that build a Selection into one, and the Builds that carry them out.
 
 use std::collections::BTreeMap;
 
@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use crate::report::{EvidenceLevel, Finding};
 use crate::selection::Role;
 
-/// The marker file every Managed Folder holds: its [`Marker`] as JSON.
+/// The marker file every Library Folder holds: its [`Marker`] as JSON.
 pub const MARKER: &str = ".title-select";
-/// The folder, inside a Managed Folder, that a Build stages its files in, so that renames never cross mounts.
+/// The folder, inside a Library Folder, that a Build stages its files in, so that renames never cross mounts.
 pub const STAGING: &str = ".title-select-staging";
-/// The directory, inside a Managed Folder, where Kept Files are set aside under `<generation>/`, each renamed with
+/// The directory, inside a Library Folder, where Kept Files are set aside under `<generation>/`, each renamed with
 /// [`kept_name`]. A check never reports it, or what is in it, as Drift.
 pub const RETENTION: &str = ".title-select-retained";
 /// The suffix every Kept File's name ends with: no tool that scans a folder for games matches it.
@@ -27,13 +27,13 @@ pub fn kept_name(name: &str, nth: u32) -> String {
     }
 }
 
-/// What a Managed Folder's marker records. The store stays the source of truth; the marker lets a plan tell its
+/// What a Library Folder's marker records. The store stays the source of truth; the marker lets a plan tell its
 /// folder from a folder another store manages, a folder restored from a backup, or a wrong mount.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Marker {
     /// The id of the store that manages the folder.
     pub store: String,
-    /// The Managed Folder's id in that store.
+    /// The Library Folder's id in that store.
     pub folder: i64,
     /// The folder's build generation: 0 when registered, and one more after each successful Build.
     pub generation: u64,
@@ -41,7 +41,7 @@ pub struct Marker {
 
 /// A folder in a writable Root that Title Select builds a Source Set's Selections into.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManagedFolder {
+pub struct LibraryFolder {
     pub id: i64,
     pub root: String,
     /// Relative to the Root, with `/` separators.
@@ -92,9 +92,9 @@ pub struct UnfinishedBuild {
     pub kept: u64,
 }
 
-/// The request to register a Managed Folder.
+/// The request to register a Library Folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddManagedFolder {
+pub struct AddLibraryFolder {
     /// A writable Root.
     pub root: String,
     /// Relative to the Root. When absent, the path `template` proposes for the Source Set's DAT is used.
@@ -108,16 +108,16 @@ pub struct AddManagedFolder {
     pub profile: String,
 }
 
-/// The request to rebind a Managed Folder to another Source Set of the same DAT, or to another Profile.
+/// The request to rebind a Library Folder to another Source Set of the same DAT, or to another Profile.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChangeManagedFolder {
+pub struct ChangeLibraryFolder {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_set: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
 }
 
-/// The request to plan building a Selection into a Managed Folder, with your choices.
+/// The request to plan building a Selection into a Library Folder, with your choices.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanBuild {
     pub selection: i64,
@@ -358,7 +358,7 @@ pub struct PlanSource {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member: Option<String>,
-    /// What the Audit found the Entry to be; none for an Operator Addition, which is never a match.
+    /// What the Audit found the Entry to be; none for an Addition, which is never a match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finding: Option<Finding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -374,7 +374,7 @@ pub struct PlanSource {
     pub ctime_ns: Option<i128>,
 }
 
-/// The Operator Addition a plan item builds, from its system's Additions Set rather than the Source Set.
+/// The Addition a plan item builds, from its system's Additions Set rather than the Source Set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanAddition {
     pub id: i64,
@@ -395,7 +395,7 @@ pub struct PlanItem {
     pub group: String,
     /// The DAT's Game name.
     pub game: String,
-    /// The file name in the Managed Folder: `<game>.zip`, or, stored loose, its one ROM's name.
+    /// The file name in the Library Folder: `<game>.zip`, or, stored loose, its one ROM's name.
     pub target: String,
     pub kind: ItemKind,
     /// Whether it is written as a loose file, its one ROM, rather than a TorrentZip, as the storage policy says.
@@ -425,7 +425,7 @@ pub struct PlanItem {
     /// this one is in place, and, when the storage policy says so, deleted once this one is verified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub converts: Option<KeepAside>,
-    /// For an Operator Addition: which, read from its Additions Set. Its `game` is the addition's name.
+    /// For an Addition: which, read from its Additions Set. Its `game` is the addition's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<PlanAddition>,
 }
@@ -562,7 +562,7 @@ pub struct Approval {
     pub at: String,
 }
 
-/// A Change Plan that builds a Selection into a Managed Folder.
+/// A Change Plan that builds a Selection into a Library Folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
     pub id: i64,
@@ -752,7 +752,7 @@ pub struct BuildDetail {
     pub items: Vec<BuildItem>,
 }
 
-/// A file in a Managed Folder and its provenance.
+/// A file in a Library Folder and its provenance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuiltFile {
     pub target: String,
@@ -779,7 +779,7 @@ fn yes() -> bool {
     true
 }
 
-/// Why a Managed Folder is Incomplete: why its current build lacks a selected game.
+/// Why a Library Folder is Incomplete: why its current build lacks a selected game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IncompleteReason {
@@ -823,7 +823,7 @@ impl IncompleteReason {
     }
 }
 
-/// How many selected games a Managed Folder lacks, by reason.
+/// How many selected games a Library Folder lacks, by reason.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IncompleteCounts {
     pub unresolved: u64,
@@ -862,7 +862,7 @@ impl IncompleteCounts {
     }
 }
 
-/// One selected game a Managed Folder lacks, and why.
+/// One selected game a Library Folder lacks, and why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IncompleteItem {
     pub reason: IncompleteReason,
@@ -874,7 +874,7 @@ pub struct IncompleteItem {
     pub detail: Option<String>,
 }
 
-/// What a Managed Folder lacks: what its current build recorded, and the conflicts and missing files its latest
+/// What a Library Folder lacks: what its current build recorded, and the conflicts and missing files its latest
 /// check found since. Never written to the marker.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Incomplete {
@@ -968,7 +968,7 @@ impl DriftKind {
     }
 }
 
-/// One entry in a Managed Folder that Title Select did not build.
+/// One entry in a Library Folder that Title Select did not build.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DriftEntry {
     pub name: String,
@@ -1013,7 +1013,7 @@ pub struct CheckSummary {
     pub acknowledged: u64,
 }
 
-/// A read-only check of a Managed Folder against the store's record of it.
+/// A read-only check of a Library Folder against the store's record of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FolderCheck {
     pub folder: i64,
@@ -1033,7 +1033,7 @@ pub struct FolderCheck {
     pub acknowledged: Vec<DriftEntry>,
 }
 
-/// A kept file: a file a Build moved out of its Managed Folder into the folder's retention area.
+/// A kept file: a file a Build moved out of its Library Folder into the folder's retention area.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeptFile {
     pub id: i64,
@@ -1075,7 +1075,7 @@ pub enum CleanupAction {
     Adopt,
     /// Leave it, and stop reporting it as drift until it changes.
     Acknowledge,
-    /// Keep it aside, then add it as an Operator Addition from there: only a file that holds one ROM.
+    /// Keep it aside, then add it as an Addition from there: only a file that holds one ROM.
     AddAddition,
 }
 
@@ -1090,7 +1090,7 @@ impl CleanupAction {
     }
 }
 
-/// The request to plan a cleanup of a Managed Folder's drift: an action for each entry you chose, the kept files to
+/// The request to plan a cleanup of a Library Folder's drift: an action for each entry you chose, the kept files to
 /// put back, and the built files to repack as TorrentZip. Anything not named is left as it is.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanCleanup {
@@ -1103,7 +1103,7 @@ pub struct PlanCleanup {
     /// Built files that are not TorrentZip to repack, by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repack: Vec<String>,
-    /// For each entry added as an Operator Addition, by name: what to add it as.
+    /// For each entry added as an Addition, by name: what to add it as.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub additions: BTreeMap<String, crate::additions::NewAddition>,
 }
@@ -1141,10 +1141,10 @@ pub struct CleanupEntry {
     /// Whether the check found it was not TorrentZip, for an adoption.
     #[serde(default = "yes")]
     pub torrentzip: bool,
-    /// For an Operator Addition: what it is added as. Its one ROM, as the check read it, is in `roms`.
+    /// For an Addition: what it is added as. Its one ROM, as the check read it, is in `roms`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<crate::additions::NewAddition>,
-    /// For an Operator Addition: where it is published.
+    /// For an Addition: where it is published.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition_target: Option<crate::additions::AdditionTarget>,
 }
@@ -1197,7 +1197,7 @@ pub struct CleanupRepack {
     pub sha256: String,
 }
 
-/// What a cleanup of a Managed Folder's drift does, against the folder's current Build `build`.
+/// What a cleanup of a Library Folder's drift does, against the folder's current Build `build`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cleanup {
     pub build: i64,
@@ -1232,7 +1232,7 @@ impl Cleanup {
     }
 }
 
-/// The request to plan deleting kept files of a Managed Folder.
+/// The request to plan deleting kept files of a Library Folder.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanKeptDeletion {
     /// The kept files to delete, by id; every kept file of the folder when `all` is set.

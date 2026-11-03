@@ -456,7 +456,7 @@ impl Payload {
     }
 }
 
-/// What reading a file in a Managed Folder found: the SHA-256 of the whole file, and the payloads it holds.
+/// What reading a file in a Library Folder found: the SHA-256 of the whole file, and the payloads it holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Probe {
     pub sha256: String,

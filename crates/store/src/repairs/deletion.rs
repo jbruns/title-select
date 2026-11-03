@@ -1,4 +1,4 @@
-//! Deleting kept files of a Source Set or of an Additions Set, once you approve it: as for a Managed Folder, each file
+//! Deleting kept files of a Source Set or of an Additions Set, once you approve it: as for a Library Folder, each file
 //! is moved, by one rename that never replaces anything, into the private folder kept files are deleted from, and
 //! deleted there only once it is found to be the file that was kept. Anything else moved there is moved back.
 
@@ -286,7 +286,7 @@ impl Store {
     /// Plans deleting the kept files of Source Set `name` that `request` picks, each read through a descriptor so
     /// the plan binds what it holds, and stores the plan for review. Nothing is deleted until you approve it. A kept
     /// file that is no longer the file kept is left out of "all", and refuses a plan that picks it; so does one an
-    /// Operator Addition is still being added from.
+    /// Addition is still being added from.
     pub fn plan_source_kept_deletion(
         &self,
         config: &Config,
@@ -303,7 +303,7 @@ impl Store {
 
     /// Approves deleting kept files of a Source Set as reviewed with `digest`, and carries it out. Each file is
     /// deleted only while its kept entry is the file that was kept; anything else is left, and its outcome says why.
-    /// Refused while a repair or another deletion of the Source Set is unfinished, while an Operator Addition is
+    /// Refused while a repair or another deletion of the Source Set is unfinished, while an Addition is
     /// still being added from a file it picks, and when its kept files changed since the plan.
     pub fn approve_source_kept_deletion(
         &self,

@@ -561,7 +561,7 @@ impl Store {
     }
 
     /// Prunes the Source Set's Selections beyond the latest `keep` to their records, except any cited as
-    /// provenance, such as by a Managed Folder's current Build. The latest is always kept.
+    /// provenance, such as by a Library Folder's current Build. The latest is always kept.
     fn prune_selections(&self, set_id: i64, keep: usize) -> Result<Vec<i64>> {
         self.write(|tx| {
             let mut stmt = tx.prepare(

@@ -1,4 +1,4 @@
-//! Change Plans: what building a Selection into a Managed Folder would do, computed from the store and a stat of the
+//! Change Plans: what building a Selection into a Library Folder would do, computed from the store and a stat of the
 //! folder and of the sources, and stored with the SHA-256 of its canonical JSON, which an approval binds to.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -37,7 +37,7 @@ use super::{Error, Result, Store, now};
 mod cleanup;
 use crate::config::Config;
 
-/// A file a Build wrote into a Managed Folder, as the store recorded it.
+/// A file a Build wrote into a Library Folder, as the store recorded it.
 #[derive(Debug, Clone)]
 pub(super) struct Built {
     pub game: String,
@@ -181,7 +181,7 @@ struct Inputs {
     /// The originals conversions recorded before they put their converted files in place: by name, the name each
     /// was converted to, and the original's identity.
     originals: HashSet<(String, String, Identity)>,
-    /// The active Operator Additions of the folder's system, when its Selection Profile opts in to them.
+    /// The active Additions of the folder's system, when its Selection Profile opts in to them.
     additions: Vec<crate::additions::AdditionRow>,
 }
 
@@ -206,7 +206,7 @@ fn load(
     if set_id != folder.source_set_id || profile_id != folder.profile_id {
         let record = record_by_id(c, selection_id)?;
         return Err(Error::Refused(format!(
-            "selection {selection_id} was made for source set {} with profile {}, but managed folder {} builds \
+            "selection {selection_id} was made for source set {} with profile {}, but library folder {} builds \
              source set {} with profile {}",
             record.source_set, record.profile.name, folder.id, folder.source_set, folder.profile
         )));
@@ -350,7 +350,7 @@ fn blocker(kind: BlockerKind, message: impl Into<String>) -> Blocker {
     }
 }
 
-/// An entry in a Managed Folder, as `lstat` found it.
+/// An entry in a Library Folder, as `lstat` found it.
 struct Found {
     /// Its name as it is.
     name: String,
@@ -359,7 +359,7 @@ struct Found {
     regular: bool,
 }
 
-/// The entries in a Managed Folder, other than its own, by lowercased name.
+/// The entries in a Library Folder, other than its own, by lowercased name.
 type Files = HashMap<String, Found>;
 
 /// The folder as a plan found it.
@@ -394,7 +394,7 @@ fn check_folder(
         Err(reason) => {
             blockers.push(blocker(
                 BlockerKind::FolderMissing,
-                format!("the managed folder cannot be opened: {reason}. Is its share mounted?"),
+                format!("the library folder cannot be opened: {reason}. Is its share mounted?"),
             ));
             return None;
         }
@@ -1108,7 +1108,7 @@ fn plan_items(
             .entry(target_of(title).0.to_lowercase())
             .or_default() += 1;
     }
-    // An Operator Addition is built under its own name, after every selected Game: one whose file name a Game's
+    // An Addition is built under its own name, after every selected Game: one whose file name a Game's
     // differs from only in case is blocked, never the Game.
     let mut added: HashMap<String, usize> = HashMap::new();
     for a in &inputs.additions {
@@ -1181,16 +1181,15 @@ fn plan_items(
             let lower = target.to_lowercase();
             if lowered.contains_key(&lower) {
                 Some(format!(
-                    "a selected game's file is {target}, or differs from it only in case; rename the operator \
-                     addition"
+                    "a selected game's file is {target}, or differs from it only in case; rename the addition"
                 ))
             } else if added[&lower] > 1 {
                 Some(format!(
-                    "another operator addition's file differs from {target} only in case, which Windows and SMB \
+                    "another addition's file differs from {target} only in case, which Windows and SMB \
                      cannot tell apart"
                 ))
             } else if a.published().is_none() || item.roms.len() != 1 {
-                Some("the operator addition is not published".into())
+                Some("the addition is not published".into())
             } else {
                 invalid_name(&target)
             }
@@ -1572,7 +1571,7 @@ pub(super) fn insert_plan(tx: &Transaction, planned: &Planned, check: Option<i64
 }
 
 impl Store {
-    /// Computes what building `selection` into the Managed Folder would do, with your `choices`.
+    /// Computes what building `selection` into the Library Folder would do, with your `choices`.
     pub(super) fn compute_plan(
         &self,
         config: &Config,
@@ -1612,12 +1611,12 @@ impl Store {
         }
     }
 
-    /// Plans building `selection` into Managed Folder `folder`, and stores the plan for review.
+    /// Plans building `selection` into Library Folder `folder`, and stores the plan for review.
     pub fn plan_build(&self, config: &Config, folder: i64, selection: i64) -> Result<Plan> {
         self.plan_build_with(config, folder, &PlanBuild::new(selection))
     }
 
-    /// Plans building `request.selection` into Managed Folder `folder` with your choices, and stores the plan for
+    /// Plans building `request.selection` into Library Folder `folder` with your choices, and stores the plan for
     /// review with the check of the folder it was made with. While a Build or Check of the folder is queued or
     /// running, the check is not stored and nothing it found is recorded.
     pub fn plan_build_with(
@@ -1696,7 +1695,7 @@ impl Store {
         self.write(|tx| {
             let active: Option<i64> = tx
                 .query_row(
-                    "SELECT id FROM jobs WHERE managed_folder_id = ?1 AND kind IN ('build', 'check')
+                    "SELECT id FROM jobs WHERE library_folder_id = ?1 AND kind IN ('build', 'check')
                      AND state IN ('queued', 'running')",
                     [content.folder],
                     |r| r.get(0),
@@ -1704,14 +1703,14 @@ impl Store {
                 .optional()?;
             if let Some(job) = active {
                 return Err(Error::Conflict(format!(
-                    "managed folder {} already has a build or check queued or running: job {job}",
+                    "library folder {} already has a build or check queued or running: job {job}",
                     content.folder
                 )));
             }
             if let Some(busy) = deletion_active(tx, content.folder)? {
                 return Err(Error::Conflict(busy));
             }
-            // A kept file an Operator Addition is still being added from is not put back until its Additions Job ends.
+            // A kept file an Addition is still being added from is not put back until its Additions Job ends.
             for restore in content.cleanup.iter().flat_map(|c| &c.restores) {
                 if let Some(why) = crate::additions::managed_kept_reserved(tx, restore.kept.id)? {
                     return Err(Error::Conflict(why));
@@ -1731,7 +1730,7 @@ impl Store {
             )?;
             tx.execute(
                 "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, actor, readers, hashers, created_at,
-                                   managed_folder_id, plan_id)
+                                   library_folder_id, plan_id)
                  VALUES ('queued', 'build', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     folder.source_set_id,
@@ -1745,7 +1744,7 @@ impl Store {
                 ],
             )?;
             let job = tx.last_insert_rowid();
-            // Each entry added as an Operator Addition is published from the kept file the cleanup makes of it.
+            // Each entry added as an Addition is published from the kept file the cleanup makes of it.
             for entry in content.cleanup.iter().flat_map(|c| &c.entries) {
                 if let (Some(CleanupAction::AddAddition), Some(new)) = (entry.action, &entry.addition) {
                     let rom = entry.roms.first().ok_or_else(|| {
