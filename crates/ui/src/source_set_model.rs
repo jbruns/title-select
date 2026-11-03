@@ -2,6 +2,7 @@
 //! tabs, and one timeline of what happened to it.
 
 use title_select_api::build::{BuildState, BuildSummary, LibraryFolder};
+use title_select_api::ingest::{IngestAction, IngestPlan};
 use title_select_api::repair::{RepairPlan, RepairStep};
 use title_select_api::{AuditSummary, DatRevisionRecord, OpenRepair, SourceSetSummary};
 
@@ -156,6 +157,14 @@ pub enum Happened {
     },
     /// Games a repair moved in from ingest folders.
     Ingest { repair: i64, games: usize },
+    /// An approved ingest plan that changed the source set: a DAT import, or additions to its DAT's additions set.
+    Ingested {
+        id: i64,
+        root: String,
+        addition: bool,
+        items: usize,
+        finished: bool,
+    },
     Build {
         id: i64,
         folder: i64,
@@ -178,16 +187,18 @@ impl Moment {
             Happened::Audit { id, .. } => format!("audit-{id}"),
             Happened::Repair { id, .. } => format!("repair-{id}"),
             Happened::Ingest { repair, .. } => format!("ingest-{repair}"),
+            Happened::Ingested { id, .. } => format!("ingested-{id}"),
             Happened::Build { id, .. } => format!("build-{id}"),
         }
     }
 }
 
 /// One timeline, newest first, of a source set's audits, its repairs and the games they moved in from ingest folders,
-/// and the builds of its library folders, each given with its folder's path.
+/// the ingest plans that changed it, and the builds of its library folders, each given with its folder's path.
 pub fn timeline(
     audits: &[AuditSummary],
     repairs: &[RepairPlan],
+    ingests: &[IngestPlan],
     builds: &[(String, BuildSummary)],
 ) -> Vec<Moment> {
     let mut moments: Vec<Moment> = audits
@@ -233,6 +244,22 @@ pub fn timeline(
             },
         });
     }
+    moments.extend(ingests.iter().map(|p| {
+        Moment {
+            at: p
+                .finished_at
+                .clone()
+                .or_else(|| p.approval.as_ref().map(|a| a.at.clone()))
+                .unwrap_or_else(|| p.created_at.clone()),
+            what: Happened::Ingested {
+                id: p.id,
+                root: p.content.root.clone(),
+                addition: p.content.action == IngestAction::Addition,
+                items: p.content.items.len(),
+                finished: p.finished_at.is_some(),
+            },
+        }
+    }));
     moments.extend(builds.iter().map(|(path, b)| {
         Moment {
             at: b
@@ -385,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn the_timeline_puts_audits_repairs_fills_and_builds_newest_first() {
+    fn the_timeline_puts_audits_repairs_ingests_and_builds_newest_first() {
         let repair: RepairPlan = serde_json::from_value(serde_json::json!({
             "id": 4, "digest": "d", "created_at": "2026-01-02T00:00:00Z",
             "content": {
@@ -404,13 +431,27 @@ mod tests {
             "planned": {"copy": 1, "repack": 0, "unchanged": 0, "no_source": 0, "conflict": 0, "blocked": 0}
         }))
         .unwrap();
+        let ingest: IngestPlan = serde_json::from_value(serde_json::json!({
+            "id": 9, "digest": "d", "created_at": "2026-01-02T12:00:00Z",
+            "content": {
+                "ingest_folder": 1, "root": "drop", "action": "dat_import", "generation": 1,
+                "items": [], "fingerprint": []
+            },
+            "approval": {"digest": "d", "actor": "Operator", "at": "2026-01-02T13:00:00Z"},
+        }))
+        .unwrap();
         let moments = timeline(
             &[audit(1, "2026-01-01T00:00:00Z", "a", 0)],
             &[repair],
+            &[ingest],
             &[("GB".into(), build)],
         );
         let keys: Vec<String> = moments.iter().map(Moment::key).collect();
-        assert_eq!(keys, ["build-7", "repair-4", "audit-1"]);
+        assert_eq!(keys, ["build-7", "repair-4", "ingested-9", "audit-1"]);
+        assert_eq!(
+            moments[2].at, "2026-01-02T13:00:00Z",
+            "an unfinished ingest plan is when it was approved"
+        );
         assert_eq!(
             moments[1].at, "2026-01-04T00:00:00Z",
             "a finished repair is when it finished"

@@ -1,179 +1,495 @@
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
-use leptos_struct_table::ColumnSort;
+use title_select_api::repair::{PlanRepair, RepairPlan};
 use title_select_api::{
-    AddSourceSet, AuditEvidence, AuditSummary, Dat, DatRevisionRecord, Finding, GameStatus, Job,
-    PathTemplateDefaults, ProfileRecord, Root, SelectionRecord, SourceSetRecord, StartAudit,
-    StartSelection,
+    AddSourceSet, AuditEvidence, Dat, DatRevisionRecord, GameStatus, Job, PathTemplateDefaults,
+    Root, SourceSetRecord, SourceSetSummary, StartAudit,
 };
 
 use crate::api;
 use crate::app::{Loading, Problem, navigator};
 use crate::events::use_live;
-use crate::model::{
-    audit_choices, audit_evidence_label, finding_label, game_status_label,
-    needs_review_from_counts, short_sha, when,
+use crate::model::{needs_review_from_counts, short_sha, when};
+use crate::parts::icon::Glyph;
+use crate::parts::legend::{Legend, present};
+use crate::parts::list::{
+    Clip, Column, List, ListRow, RowAction, ToolAction, Width, last_good_rows,
 };
-use crate::parts::icon::{Glyph, LabelledIcon};
+use crate::parts::overlay::Drawer;
+use crate::parts::pending::PendingStatus;
+use crate::parts::status::{SourceSetStatus, Status, StatusBadge, StatusIcon};
+use crate::parts::url_state::encode;
 use crate::registration;
-use crate::screens::audit::{ReAudit, queued};
-use crate::screens::selection::SelectionQueued;
-use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
+use crate::source_set_model::{self as model, PageTab};
 
-#[derive(Clone, PartialEq)]
-struct SetItem {
-    set: SourceSetRecord,
-    latest: Option<AuditSummary>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum SetCol {
-    Name,
-    Dat,
-    Location,
-    Latest,
-    LastVerified,
-}
-
-fn set_href(name: &str) -> String {
+/// A source set's page.
+pub fn set_href(name: &str) -> String {
     format!("/source-sets/{}", api::segment(name))
 }
 
-fn latest_view(latest: &Option<AuditSummary>) -> AnyView {
-    match latest {
-        Some(audit) => view! {
-            <A href=format!("/audits/{}", audit.id)>{format!("#{}", audit.id)}</A>
-            {format!(" · {}", when(&audit.finished_at))}
-        }
-        .into_any(),
-        None => "Never audited".into_any(),
+/// A tab of a source set's page.
+pub fn tab_href(name: &str, tab: PageTab) -> String {
+    format!("{}?tab={}", set_href(name), tab.slug())
+}
+
+/// Where you preview a selection of the source set.
+pub fn preview_href(name: &str) -> String {
+    format!("/selections/new?source_set={}", encode(name))
+}
+
+/// Where you make a library folder for the source set.
+pub fn new_library_href(name: &str) -> String {
+    format!("/libraries/new?source_set={}", encode(name))
+}
+
+/// Queues an incremental audit of `name` against its default DAT revision, and says how that went in `said`.
+pub fn start_audit(name: String, said: RwSignal<Option<String>>) {
+    let request = StartAudit {
+        source_set: name.clone(),
+        revision: None,
+        evidence: AuditEvidence::Incremental,
+    };
+    leptos::task::spawn_local(async move {
+        let message = match api::post::<_, Job>("/audits", &request).await {
+            Ok(job) => format!("Queued audit job #{} for {name}.", job.id),
+            Err(problem) => format!("Couldn't audit {name}: {problem}"),
+        };
+        said.set(Some(message));
+    });
+}
+
+/// The status line while repairs are proposed for `names`.
+pub fn proposing_status(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => format!("Making the repair plan for {one}… a large source set can take a while."),
+        _ => format!(
+            "Making repair plans for {}… a large source set can take a while.",
+            names.join(", ")
+        ),
     }
 }
 
-impl Grid for SetItem {
+#[derive(Clone, PartialEq)]
+struct SetRow {
+    summary: SourceSetSummary,
+    status: SourceSetStatus,
+}
+
+impl SetRow {
+    fn name(&self) -> &str {
+        &self.summary.set.name
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SetCol {
+    Status,
+    Name,
+    Games,
+    Dat,
+    Audited,
+}
+
+/// The source set's game counts by status, each an icon and its number.
+fn game_counts(games: &BTreeMap<GameStatus, usize>) -> AnyView {
+    view! {
+        <span class="game-counts">
+            {GameStatus::ALL
+                .into_iter()
+                .map(|s| {
+                    view! {
+                        <span class="game-count">
+                            <StatusIcon status=s tab_stop=false />
+                            <span class="n">{games.get(&s).copied().unwrap_or(0)}</span>
+                        </span>
+                    }
+                })
+                .collect_view()}
+        </span>
+    }
+    .into_any()
+}
+
+impl ListRow for SetRow {
     type Col = SetCol;
     const COLUMNS: &'static [SetCol] = &[
+        SetCol::Status,
         SetCol::Name,
+        SetCol::Games,
         SetCol::Dat,
-        SetCol::Location,
-        SetCol::Latest,
-        SetCol::LastVerified,
+        SetCol::Audited,
     ];
 
-    fn header(col: SetCol) -> &'static str {
+    fn column(col: SetCol) -> Column {
         match col {
-            SetCol::Name => "Source set",
-            SetCol::Dat => "DAT",
-            SetCol::Location => "Root and path",
-            SetCol::Latest => "Latest audit",
-            SetCol::LastVerified => "Last verified against",
+            SetCol::Status => Column::new("status", "Status", Width::Fixed(4.5))
+                .sortable()
+                .hint("Running, repair open, needs review, stale, verified or never audited"),
+            SetCol::Name => Column::new(
+                "name",
+                "Source set",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            SetCol::Games => Column::new("games", "Games", Width::Fixed(15.0))
+                .hint("Complete, incomplete and missing games in its latest audit"),
+            SetCol::Dat => Column::new(
+                "dat",
+                "DAT",
+                Width::Flex {
+                    min: 10.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            SetCol::Audited => {
+                Column::new("audited", "Latest audit", Width::Fixed(13.0)).sortable()
+            }
         }
     }
 
-    fn class(col: SetCol) -> &'static str {
-        match col {
-            SetCol::Location => "c-wide data",
-            _ => "c-wide",
-        }
+    fn key(&self) -> String {
+        self.summary.set.name.clone()
     }
 
-    fn sortable(col: SetCol) -> bool {
-        matches!(col, SetCol::Name | SetCol::Dat | SetCol::Latest)
+    fn title(&self) -> String {
+        self.summary.set.name.clone()
+    }
+
+    fn search(&self) -> String {
+        let set = &self.summary.set;
+        format!(
+            "{} {} {} {} {}",
+            set.name,
+            set.dat,
+            set.root,
+            set.path,
+            self.status.look().label
+        )
     }
 
     fn cell(&self, col: SetCol) -> AnyView {
-        let set = &self.set;
+        let s = &self.summary;
         match col {
-            SetCol::Name => {
-                let name = set.name.clone();
-                view! { <A href=set_href(&name)>{name}</A> }.into_any()
-            }
-            SetCol::Dat => set.dat.clone().into_any(),
-            SetCol::Location => format!("{}: {}", set.root, set.path).into_any(),
-            SetCol::Latest => latest_view(&self.latest),
-            SetCol::LastVerified => match &set.last_verified_against {
-                Some(last) => format!("{} ({})", last.version, short_sha(&last.sha256)).into_any(),
-                None => ().into_any(),
+            SetCol::Status => view! { <StatusIcon status=self.status tab_stop=false /> }.into_any(),
+            SetCol::Name => view! { <Clip text=s.set.name.clone() /> }.into_any(),
+            SetCol::Games => match &s.latest {
+                Some(audit) => game_counts(&audit.games),
+                None => "—".into_any(),
+            },
+            SetCol::Dat => view! { <Clip text=s.set.dat.clone() /> }.into_any(),
+            SetCol::Audited => match &s.latest {
+                Some(audit) => view! { <Clip text=when(&audit.finished_at) /> }.into_any(),
+                None => "Never".into_any(),
             },
         }
     }
+
+    fn compare(&self, other: &Self, col: SetCol) -> Ordering {
+        let (a, b) = (&self.summary, &other.summary);
+        match col {
+            SetCol::Status => self.status.rank().cmp(&other.status.rank()),
+            SetCol::Name | SetCol::Games => a.set.name.cmp(&b.set.name),
+            SetCol::Dat => a.set.dat.cmp(&b.set.dat),
+            SetCol::Audited => a
+                .latest
+                .as_ref()
+                .map(|l| &l.finished_at)
+                .cmp(&b.latest.as_ref().map(|l| &l.finished_at)),
+        }
+    }
+
+    fn href(&self) -> Option<String> {
+        Some(set_href(self.name()))
+    }
 }
 
-async fn sets_with_latest() -> Result<Vec<SetItem>, String> {
-    let sets: Vec<SourceSetRecord> = api::get("/source-sets").await?;
-    let mut items = Vec::with_capacity(sets.len());
-    for set in sets {
-        let history: Vec<AuditSummary> =
-            api::get(&format!("/source-sets/{}/history", api::segment(&set.name))).await?;
-        items.push(SetItem {
-            set,
-            latest: history.into_iter().next(),
+/// What a list action reports to, and what it changes.
+#[derive(Clone, Copy)]
+struct Ctx {
+    said: RwSignal<Option<String>>,
+    proposing: RwSignal<Vec<String>>,
+    refresh: RwSignal<u64>,
+}
+
+impl Ctx {
+    /// Proposes a repair of each of `names` in turn, saying how each went.
+    fn propose(self, names: Vec<String>) {
+        let names: Vec<String> = names
+            .into_iter()
+            .filter(|n| !self.proposing.with_untracked(|p| p.contains(n)))
+            .collect();
+        if names.is_empty() {
+            return;
+        }
+        self.proposing.update(|p| p.extend(names.iter().cloned()));
+        leptos::task::spawn_local(async move {
+            let mut said = Vec::new();
+            for name in names {
+                let path = format!("{}/repairs", set_href(&name));
+                let made = api::post::<_, RepairPlan>(&path, &PlanRepair::default()).await;
+                said.push(match made {
+                    Ok(plan) => format!(
+                        "Proposed repair #{} of {name}: {} items to review on its Repair tab.",
+                        plan.id,
+                        plan.content.items.len()
+                    ),
+                    Err(problem) => format!("Couldn't propose a repair of {name}: {problem}"),
+                });
+                self.proposing.update(|p| p.retain(|n| *n != name));
+            }
+            self.said.set(Some(said.join(" ")));
+            self.refresh.update(|n| *n += 1);
         });
     }
-    Ok(items)
 }
 
-/// The registered Source Sets, and the form to register another.
+fn set_actions(row: &SetRow, ctx: Ctx) -> Vec<RowAction> {
+    let name = row.name().to_string();
+    let mut actions = vec![{
+        let name = name.clone();
+        RowAction::run(Glyph::ShieldCheck, format!("Audit {name}"), move || {
+            start_audit(name.clone(), ctx.said)
+        })
+    }];
+    actions.push(match &row.summary.repair {
+        Some(open) => RowAction::go(
+            Glyph::Wrench,
+            format!("Review its repair #{}", open.id),
+            tab_href(&name, PageTab::Repair),
+        ),
+        None => {
+            let name = name.clone();
+            RowAction::run(Glyph::Wrench, "Propose a repair", move || {
+                ctx.propose(vec![name.clone()])
+            })
+        }
+    });
+    actions.extend([
+        RowAction::go(Glyph::Eye, "Preview a selection", preview_href(&name)),
+        RowAction::go(
+            Glyph::Library,
+            "New library folder",
+            new_library_href(&name),
+        ),
+        RowAction::go(
+            Glyph::FolderTree,
+            "Its library folders",
+            tab_href(&name, PageTab::Libraries),
+        ),
+        RowAction::go(
+            Glyph::CirclePlus,
+            "Its additions",
+            tab_href(&name, PageTab::Additions),
+        ),
+        RowAction::go(
+            Glyph::History,
+            "Its history",
+            tab_href(&name, PageTab::History),
+        ),
+        RowAction::go(
+            Glyph::Archive,
+            "Its kept files",
+            tab_href(&name, PageTab::Kept),
+        ),
+    ]);
+    actions
+}
+
+fn set_detail(row: SetRow) -> AnyView {
+    let s = row.summary;
+    let name = s.set.name.clone();
+    view! {
+        <p>
+            <StatusBadge status=row.status />
+        </p>
+        <dl class="facts">
+            <dt>"DAT"</dt>
+            <dd>{s.set.dat.clone()}</dd>
+            <dt>"Root and path"</dt>
+            <dd>
+                <code class="path">{format!("{}: {}", s.set.root, s.set.path)}</code>
+            </dd>
+            <dt>"Registered"</dt>
+            <dd>{when(&s.set.added_at)}</dd>
+            <dt>"Latest audit"</dt>
+            <dd>
+                {match &s.latest {
+                    Some(audit) => {
+                        let review = needs_review_from_counts(&audit.findings);
+                        view! {
+                            <A href=format!("/audits/{}", audit.id)>{format!("#{}", audit.id)}</A>
+                            {format!(
+                                ", {}, against {}; {review} need review",
+                                when(&audit.finished_at),
+                                audit.dat_revision_version,
+                            )}
+                        }
+                            .into_any()
+                    }
+                    None => "Never audited".into_any(),
+                }}
+            </dd>
+            {s.latest.as_ref().map(|a| view! {
+                <dt>"Games"</dt>
+                <dd>{game_counts(&a.games)}</dd>
+            })}
+            <dt>"Last verified against"</dt>
+            <dd>
+                {s.set
+                    .last_verified_against
+                    .as_ref()
+                    .map_or("Never".to_string(), |l| format!("{} ({})", l.version, short_sha(&l.sha256)))}
+            </dd>
+            <dt>"Repair"</dt>
+            <dd>
+                {match &s.repair {
+                    Some(open) => view! {
+                        <A href=tab_href(&name, PageTab::Repair)>
+                            {format!(
+                                "Repair #{} {}",
+                                open.id,
+                                if open.approved { "approved, not finished" } else { "waits for your review" },
+                            )}
+                        </A>
+                    }
+                        .into_any(),
+                    None => "None open".into_any(),
+                }}
+            </dd>
+        </dl>
+    }
+    .into_any()
+}
+
+async fn summaries() -> Result<
+    (
+        Vec<SourceSetSummary>,
+        BTreeMap<String, Vec<DatRevisionRecord>>,
+    ),
+    String,
+> {
+    let sets: Vec<SourceSetSummary> = api::get("/source-set-summaries").await?;
+    let dats: Vec<Dat> = api::get("/dats").await?;
+    Ok((
+        sets,
+        dats.into_iter().map(|d| (d.dat, d.revisions)).collect(),
+    ))
+}
+
+/// The registered source sets with their status, every action on them, and the form to register another.
 #[component]
 pub fn SourceSets() -> impl IntoView {
     let live = use_live();
-    let sets = LocalResource::new(move || {
+    let refresh = RwSignal::new(0u64);
+    let loaded = LocalResource::new(move || {
         live.settled.track();
-        sets_with_latest()
+        refresh.track();
+        summaries()
     });
-    let sorting = RwSignal::new(VecDeque::<(SetCol, ColumnSort)>::new());
-    let selected = RwSignal::new(None::<usize>);
-    let shown = Memo::new(move |_| {
-        let mut items = sets.get().and_then(Result::ok).unwrap_or_default();
-        if let Some(sort) = sorting.with(sort_of) {
-            items.sort_by(|a, b| {
-                let ord = match sort.column {
-                    SetCol::Dat => a.set.dat.cmp(&b.set.dat),
-                    SetCol::Latest => a
-                        .latest
-                        .as_ref()
-                        .map(|l| &l.finished_at)
-                        .cmp(&b.latest.as_ref().map(|l| &l.finished_at)),
-                    _ => a.set.name.cmp(&b.set.name),
-                };
-                if sort.descending { ord.reverse() } else { ord }
-            });
-        }
-        Arc::new(items)
+    let latest = last_good_rows(move || loaded.get().map(|r| r.map(|data| vec![data])));
+    let rows = Memo::new(move |_| {
+        let running = live
+            .book
+            .with(|b| model::running(b.newest_first().iter().map(|l| &l.job)));
+        let rows: Vec<SetRow> = latest.with(|l| {
+            l.first()
+                .map(|(sets, revisions)| {
+                    sets.iter()
+                        .map(|s| SetRow {
+                            status: model::status(
+                                s,
+                                running.contains(&s.set.name),
+                                revisions.get(&s.set.dat).map_or(&[][..], Vec::as_slice),
+                            ),
+                            summary: s.clone(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        std::sync::Arc::new(rows)
     });
-    let rows = Signal::derive(move || rows_of(shown.get().as_ref().clone()) as Rows<SetItem>);
+    let statuses = Signal::derive(move || present(rows.get().iter().map(|r| r.status)));
+    let ctx = Ctx {
+        said: RwSignal::new(None),
+        proposing: RwSignal::new(Vec::new()),
+        refresh,
+    };
+    let registering = RwSignal::new(false);
     let go = navigator();
+    // Previewing a selection or making a library folder is about one source set: the first checked.
+    let one = move |chosen: Vec<SetRow>, href: fn(&str) -> String| match chosen.as_slice() {
+        [row] => go.run(href(row.name())),
+        [row, ..] => {
+            ctx.said.set(Some(format!(
+                "That works on one source set at a time: going on with {}.",
+                row.name()
+            )));
+            go.run(href(row.name()));
+        }
+        [] => {}
+    };
+    let actions: Vec<ToolAction<SetRow>> = vec![
+        ToolAction::page(Glyph::Plus, "Register", move || registering.set(true)),
+        ToolAction::<SetRow>::checked(Glyph::ShieldCheck, "Audit", move |chosen| {
+            for row in chosen.rows {
+                start_audit(row.name().to_string(), ctx.said);
+            }
+        }),
+        ToolAction::<SetRow>::checked(Glyph::Wrench, "Propose repair", move |chosen| {
+            ctx.propose(chosen.rows.iter().map(|r| r.name().to_string()).collect())
+        }),
+        ToolAction::<SetRow>::checked(Glyph::Eye, "Preview selection", move |chosen| {
+            one(chosen.rows, preview_href)
+        }),
+        ToolAction::<SetRow>::checked(Glyph::Library, "New library folder", move |chosen| {
+            one(chosen.rows, new_library_href)
+        }),
+    ];
 
     view! {
         <h1>"Source sets"</h1>
         <p class="lede">
-            "A source set is a folder in a root, audited against its DAT. Open one to start an audit or see its history."
+            "A source set is a folder in a root, audited against its DAT. Open one for its games, entries, library \
+            folders, history and repair."
         </p>
-        <p class="page-links">
-            <A href="/additions">
-                <LabelledIcon glyph=Glyph::CirclePlus label="Additions" />
-            </A>
-        </p>
-        {move || match sets.get() {
+        {move || match loaded.get() {
             None => view! { <Loading what="the source sets" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
-        <DataTable
+        <Show when=move || ctx.proposing.with(|p| !p.is_empty())>
+            <PendingStatus status=Signal::derive(move || ctx.proposing.with(|p| proposing_status(p))) />
+        </Show>
+        <p class="done" role="status">
+            {move || ctx.said.get()}
+        </p>
+        <List
             id="source-sets"
-            label="Source sets".to_string()
+            label="Source sets"
             rows
-            sorting
-            selected
-            on_open=Callback::new(move |item: SetItem| go.run(set_href(&item.set.name)))
-            empty="No source sets yet. Register a folder in a root below.".to_string()
+            empty="No source sets yet. Choose Register to add a folder in a root."
+            placeholder="Filter by name, DAT, root, path or status"
+            actions
+            row_actions=Callback::new(move |row: SetRow| set_actions(&row, ctx))
+            detail=Callback::new(set_detail)
+            legend=move || view! { <Legend statuses list="source-sets" /> }
         />
-        <Register on_added=Callback::new(move |name: String| go.run(set_href(&name))) />
+        <Drawer open=registering title="Register a source set">
+            <Register on_added=Callback::new(move |name: String| {
+                registering.set(false);
+                go.run(set_href(&name))
+            }) />
+        </Drawer>
     }
 }
 
@@ -271,8 +587,7 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
     });
 
     view! {
-        <section aria-labelledby="register-title">
-            <h2 id="register-title">"Register a source set"</h2>
+        <section aria-label="Register a source set">
             <form class="form" on:submit=submit>
                 <label>
                     "Root"
@@ -351,498 +666,5 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
             </p>
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
-    }
-}
-
-#[derive(Clone)]
-struct HistoryItem {
-    audit: AuditSummary,
-    reaudit: ReAudit,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum HistoryCol {
-    Audit,
-    Finished,
-    Revision,
-    Findings,
-    Games,
-    Action,
-}
-
-fn findings_text(audit: &AuditSummary) -> String {
-    Finding::ALL
-        .iter()
-        .filter_map(|f| {
-            audit
-                .findings
-                .get(f)
-                .filter(|n| **n > 0)
-                .map(|n| format!("{n} {}", finding_label(*f)))
-        })
-        .collect::<Vec<_>>()
-        .join(" · ")
-}
-
-fn games_text(audit: &AuditSummary) -> String {
-    GameStatus::ALL
-        .iter()
-        .filter_map(|s| {
-            audit
-                .games
-                .get(s)
-                .map(|n| format!("{n} {}", game_status_label(*s)))
-        })
-        .collect::<Vec<_>>()
-        .join(" · ")
-}
-
-impl Grid for HistoryItem {
-    type Col = HistoryCol;
-    const COLUMNS: &'static [HistoryCol] = &[
-        HistoryCol::Audit,
-        HistoryCol::Finished,
-        HistoryCol::Revision,
-        HistoryCol::Findings,
-        HistoryCol::Games,
-        HistoryCol::Action,
-    ];
-
-    fn header(col: HistoryCol) -> &'static str {
-        match col {
-            HistoryCol::Audit => "Audit",
-            HistoryCol::Finished => "Finished",
-            HistoryCol::Revision => "DAT revision",
-            HistoryCol::Findings => "Findings",
-            HistoryCol::Games => "Game statuses",
-            HistoryCol::Action => "Action",
-        }
-    }
-
-    fn class(col: HistoryCol) -> &'static str {
-        match col {
-            HistoryCol::Audit => "c-id",
-            HistoryCol::Finished => "c-time data",
-            HistoryCol::Revision => "c-revision",
-            HistoryCol::Findings => "c-wide",
-            HistoryCol::Games => "c-wide",
-            HistoryCol::Action => "c-action",
-        }
-    }
-
-    fn cell(&self, col: HistoryCol) -> AnyView {
-        let audit = &self.audit;
-        match col {
-            HistoryCol::Audit => view! {
-                <A href=format!("/audits/{}", audit.id)>{format!("#{}", audit.id)}</A>
-                {audit.pruned.then_some(view! { " " <span class="tag">"Pruned"</span> })}
-            }
-            .into_any(),
-            HistoryCol::Finished => when(&audit.finished_at).into_any(),
-            HistoryCol::Revision => format!(
-                "{} ({})",
-                audit.dat_revision_version,
-                short_sha(&audit.dat_revision_sha256)
-            )
-            .into_any(),
-            HistoryCol::Findings => {
-                let review = needs_review_from_counts(&audit.findings);
-                let verb = if review == 1 { "needs" } else { "need" };
-                format!("{review} {verb} review · {}", findings_text(audit)).into_any()
-            }
-            HistoryCol::Games => games_text(audit).into_any(),
-            HistoryCol::Action => {
-                let reaudit = self.reaudit;
-                let label = format!(
-                    "Re-audit against DAT revision {}",
-                    audit.dat_revision_version
-                );
-                view! {
-                    <button type="button" class="small" aria-label=label.clone() title=label on:click=move |_| reaudit.start()>
-                        "Re-audit"
-                    </button>
-                }
-                .into_any()
-            }
-        }
-    }
-}
-
-/// One Source Set: its latest Audit, starting an Audit, and its history.
-#[component]
-pub fn SourceSet() -> impl IntoView {
-    let params = use_params_map();
-    let name = Memo::new(move |_| params.read().get("name").unwrap_or_default());
-    let set = LocalResource::new(move || {
-        let name = name.get();
-        async move {
-            api::get::<SourceSetRecord>(&format!("/source-sets/{}", api::segment(&name))).await
-        }
-    });
-    move || match set.get() {
-        None => view! { <Loading what="the source set" /> }.into_any(),
-        Some(Err(message)) => view! {
-            <h1>"Source set"</h1>
-            <Problem message />
-        }
-        .into_any(),
-        Some(Ok(set)) => view! { <SourceSetView set /> }.into_any(),
-    }
-}
-
-#[component]
-fn SourceSetView(set: SourceSetRecord) -> impl IntoView {
-    let live = use_live();
-    let name = StoredValue::new(set.name.clone());
-    let history = LocalResource::new(move || {
-        live.settled.track();
-        let path = format!("/source-sets/{}/history", api::segment(&name.get_value()));
-        async move { api::get::<Vec<AuditSummary>>(&path).await }
-    });
-    // The record's "last verified against" changes when an Audit of this Source Set settles.
-    let record = LocalResource::new(move || {
-        live.settled.track();
-        let path = format!("/source-sets/{}", api::segment(&name.get_value()));
-        async move { api::get::<SourceSetRecord>(&path).await }
-    });
-    let first_verified = set.last_verified_against.clone();
-    let last_verified = Memo::new(move |_| match record.get() {
-        Some(Ok(fresh)) => fresh.last_verified_against,
-        _ => first_verified.clone(),
-    });
-    let dats = LocalResource::new(|| api::get::<Vec<Dat>>("/dats"));
-    let outcome = RwSignal::new(None::<Result<Job, String>>);
-    let sorting = RwSignal::new(VecDeque::<(HistoryCol, ColumnSort)>::new());
-    let selected = RwSignal::new(None::<usize>);
-    let items = Memo::new(move |_| {
-        let audits = history.get().and_then(Result::ok).unwrap_or_default();
-        let items: Vec<HistoryItem> = audits
-            .into_iter()
-            .map(|audit| HistoryItem {
-                reaudit: ReAudit::new(
-                    audit.source_set.clone(),
-                    audit.dat_revision_sha256.clone(),
-                    outcome,
-                ),
-                audit,
-            })
-            .collect();
-        Arc::new(ItemsById(items))
-    });
-    let rows = Signal::derive(move || rows_of(items.get().0.clone()) as Rows<HistoryItem>);
-    let go = navigator();
-
-    let bound = set.dat.clone();
-    let choices = Memo::new(move |_| {
-        let audits = history.get().and_then(Result::ok).unwrap_or_default();
-        let revisions = dats
-            .get()
-            .and_then(Result::ok)
-            .and_then(|dats| dats.into_iter().find(|d| d.dat == bound))
-            .map(|d| d.revisions)
-            .unwrap_or_default();
-        let (default, newer) = audit_choices(&audits, &revisions);
-        (
-            default.cloned(),
-            newer.into_iter().cloned().collect::<Vec<_>>(),
-        )
-    });
-    let revision = RwSignal::new(String::new());
-    let evidence = RwSignal::new(AuditEvidence::Incremental);
-    let start = move |ev: leptos::ev::SubmitEvent| {
-        ev.prevent_default();
-        let chosen = revision.get_untracked();
-        let request = StartAudit {
-            source_set: name.get_value(),
-            revision: (!chosen.is_empty()).then_some(chosen),
-            evidence: evidence.get_untracked(),
-        };
-        leptos::task::spawn_local(async move {
-            outcome.set(Some(api::post::<_, Job>("/audits", &request).await));
-        });
-    };
-
-    view! {
-        <h1>{set.name.clone()}</h1>
-        <dl class="facts">
-            <dt>"DAT"</dt>
-            <dd>{set.dat.clone()}</dd>
-            <dt>"Root and path"</dt>
-            <dd>
-                <code class="path">{format!("{}: {}", set.root, set.path)}</code>
-            </dd>
-            <dt>"Registered"</dt>
-            <dd>{when(&set.added_at)}</dd>
-            <dt>"Repair and kept files"</dt>
-            <dd>
-                <A href=format!("/source-sets/{}/repair", api::segment(&set.name))>"Repair this source set"</A>
-            </dd>
-            <dt>"Latest audit"</dt>
-            <dd>
-                {move || {
-                    let latest = history.get().and_then(Result::ok).and_then(|h| h.into_iter().next());
-                    latest_view(&latest)
-                }}
-            </dd>
-            <dt>"Last verified against"</dt>
-            <dd>
-                {move || {
-                    last_verified
-                        .get()
-                        .map_or("Never".to_string(), |last| format!("{} ({})", last.version, when(&last.finished_at)))
-                }}
-                " "
-                {move || last_verified.get().map(|last| view! { <code class="hash">{last.sha256}</code> })}
-            </dd>
-        </dl>
-
-        <section aria-labelledby="start-title">
-            <h2 id="start-title">"Start an audit"</h2>
-            <form class="form" on:submit=start>
-                <label>
-                    "DAT revision"
-                    <select prop:value=revision on:change=move |ev| revision.set(event_target_value(&ev))>
-                        {move || {
-                            let (default, newer) = choices.get();
-                            let default = match default {
-                                Some(r) => {
-                                    format!("{} ({}), the default", r.version, short_sha(&r.sha256))
-                                }
-                                None => "The default".to_string(),
-                            };
-                            view! {
-                                <option value="">{default}</option>
-                                {newer
-                                    .into_iter()
-                                    .map(|r| {
-                                        let label = format!("{} ({}), newer", r.version, short_sha(&r.sha256));
-                                        view! { <option value=r.sha256>{label}</option> }
-                                    })
-                                    .collect_view()}
-                            }
-                        }}
-                    </select>
-                </label>
-                <label>
-                    "Evidence"
-                    <select
-                        prop:value=move || evidence.get().as_str()
-                        on:change=move |ev| {
-                            if let Some(chosen) = AuditEvidence::parse(&event_target_value(&ev)) {
-                                evidence.set(chosen);
-                            }
-                        }
-                    >
-                        {AuditEvidence::ALL
-                            .into_iter()
-                            .map(|e| view! { <option value=e.as_str()>{audit_evidence_label(e)}</option> })
-                            .collect_view()}
-                    </select>
-                </label>
-                <button type="submit" class="primary">
-                    "Start audit"
-                </button>
-            </form>
-            {move || {
-                outcome
-                    .get()
-                    .map(|outcome| match outcome {
-                        Ok(job) => queued(&job).into_any(),
-                        Err(message) => view! { <Problem message /> }.into_any(),
-                    })
-            }}
-        </section>
-
-        <Selections name choices />
-
-        <section aria-labelledby="history-title">
-            <h2 id="history-title">"History"</h2>
-            <p class="lede">"Latest first. A pruned audit keeps only its summary."</p>
-            {move || match history.get() {
-                None => view! { <Loading what="the history" /> }.into_any(),
-                Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(_)) => ().into_any(),
-            }}
-            <DataTable
-                id="history"
-                label="History".to_string()
-                rows
-                sorting
-                selected
-                on_open=Callback::new(move |item: HistoryItem| go.run(format!("/audits/{}", item.audit.id)))
-                empty="Not audited yet.".to_string()
-            />
-        </section>
-    }
-}
-
-/// The Selections made for a Source Set, and the form to make another.
-#[component]
-fn Selections(
-    name: StoredValue<String>,
-    /// The DAT Revisions to offer: the default, and newer ones.
-    choices: Memo<(Option<DatRevisionRecord>, Vec<DatRevisionRecord>)>,
-) -> impl IntoView {
-    let live = use_live();
-    let selections = LocalResource::new(move || {
-        live.settled.track();
-        let path = format!("/selections?source_set={}", api::segment(&name.get_value()));
-        async move { api::get::<Vec<SelectionRecord>>(&path).await }
-    });
-    let profiles = LocalResource::new(|| api::get::<Vec<ProfileRecord>>("/profiles"));
-    let saved = move || {
-        profiles
-            .get()
-            .and_then(Result::ok)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|p| p.latest.is_some())
-            .collect::<Vec<_>>()
-    };
-    let profile = RwSignal::new(String::new());
-    Effect::new(move || {
-        if profile.get_untracked().is_empty()
-            && let Some(first) = saved().into_iter().next()
-        {
-            profile.set(first.name);
-        }
-    });
-    let revision = RwSignal::new(String::new());
-    let outcome = RwSignal::new(None::<Result<Job, String>>);
-    let start = move |ev: leptos::ev::SubmitEvent| {
-        ev.prevent_default();
-        let chosen = revision.get_untracked();
-        let request = StartSelection {
-            source_set: name.get_value(),
-            revision: (!chosen.is_empty()).then_some(chosen),
-            profile: profile.get_untracked(),
-            version: None,
-        };
-        leptos::task::spawn_local(async move {
-            outcome.set(Some(api::post::<_, Job>("/selections", &request).await));
-        });
-    };
-    view! {
-        <section aria-labelledby="selections-title">
-            <h2 id="selections-title">"Selections"</h2>
-            <p class="lede">"Latest first. Each records the selection profile version it used."</p>
-            {move || match profiles.get() {
-                Some(Ok(_)) if saved().is_empty() => {
-                    view! {
-                        <p class="note">
-                            "To make a selection, first "
-                            <A href="/new-profile">"create a selection profile"</A>
-                            "."
-                        </p>
-                    }
-                        .into_any()
-                }
-                _ => {
-                    view! {
-                        <form class="form" on:submit=start>
-                            <label>
-                                "Selection profile"
-                                <select prop:value=profile on:change=move |ev| profile.set(event_target_value(&ev))>
-                                    {move || {
-                                        saved()
-                                            .into_iter()
-                                            .map(|p| {
-                                                let label = format!(
-                                                    "{}, version {}",
-                                                    p.name,
-                                                    p.latest.as_ref().map_or(0, |v| v.version),
-                                                );
-                                                view! { <option value=p.name>{label}</option> }
-                                            })
-                                            .collect_view()
-                                    }}
-                                </select>
-                            </label>
-                            <label>
-                                "DAT revision"
-                                <select prop:value=revision on:change=move |ev| revision.set(event_target_value(&ev))>
-                                    {move || {
-                                        let (default, newer) = choices.get();
-                                        let default = match default {
-                                            Some(r) => format!("{} ({}), the default", r.version, short_sha(&r.sha256)),
-                                            None => "The default".to_string(),
-                                        };
-                                        view! {
-                                            <option value="">{default}</option>
-                                            {newer
-                                                .into_iter()
-                                                .map(|r| {
-                                                    let label = format!("{} ({}), newer", r.version, short_sha(&r.sha256));
-                                                    view! { <option value=r.sha256>{label}</option> }
-                                                })
-                                                .collect_view()}
-                                        }
-                                    }}
-                                </select>
-                            </label>
-                            <button type="submit" class="primary" disabled=move || profile.with(String::is_empty)>
-                                "Make selection"
-                            </button>
-                        </form>
-                    }
-                        .into_any()
-                }
-            }}
-            {move || {
-                outcome
-                    .get()
-                    .map(|outcome| match outcome {
-                        Ok(job) => view! { <SelectionQueued job=job.id /> }.into_any(),
-                        Err(message) => view! { <Problem message /> }.into_any(),
-                    })
-            }}
-            {move || match selections.get() {
-                None => view! { <Loading what="the selections" /> }.into_any(),
-                Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(list)) if list.is_empty() => {
-                    view! { <p class="note">"No selections yet."</p> }.into_any()
-                }
-                Some(Ok(list)) => {
-                    view! {
-                        <ul class="plain selections">
-                            {list.into_iter().map(selection_line).collect_view()}
-                        </ul>
-                    }
-                        .into_any()
-                }
-            }}
-        </section>
-    }
-}
-
-fn selection_line(s: SelectionRecord) -> impl IntoView {
-    let summary = s.summary;
-    let review = summary.needs_review();
-    view! {
-        <li>
-            <A href=format!("/selections/{}", s.id)>{format!("Selection #{}", s.id)}</A>
-            {format!(
-                ", {} version {}, DAT revision {} ({}), {}: {} selected, {} excluded",
-                s.profile.name,
-                s.profile.version,
-                s.dat_revision_version,
-                short_sha(&s.dat_revision_sha256),
-                when(&s.created_at),
-                summary.winners,
-                summary.exclusions,
-            )}
-            {(review > 0).then(|| view! { <span class="review">{format!(", {review} to review")}</span> })}
-            {s.pruned.then_some(" (pruned: only the summary is kept)")}
-        </li>
-    }
-}
-
-/// History items compare by Audit, so a refetch that changes nothing does not reload the table.
-struct ItemsById(Vec<HistoryItem>);
-
-impl PartialEq for ItemsById {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.len() == other.0.len()
-            && self.0.iter().zip(&other.0).all(|(a, b)| a.audit == b.audit)
     }
 }

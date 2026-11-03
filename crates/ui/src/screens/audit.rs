@@ -23,13 +23,15 @@ use crate::model::{
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
+/// An audit's entries and game statuses, as its panels show them.
 #[derive(Clone)]
-struct Loaded {
-    entries: Arc<AuditEntries>,
-    games: Arc<AuditGames>,
+pub struct Loaded {
+    pub entries: Arc<AuditEntries>,
+    pub games: Arc<AuditGames>,
 }
 
-async fn load(id: i64) -> Result<Loaded, String> {
+/// Fetches the entries and game statuses of the audit `id`.
+pub async fn load(id: i64) -> Result<Loaded, String> {
     let text = api::text(&format!("/audits/{id}/entries.ndjson")).await?;
     let rows = parse_ndjson(&text)?;
     let games = api::games(id).await?;
@@ -95,7 +97,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
     );
     let tab = RwSignal::new(Tab::Entries);
     let set_href = format!("/source-sets/{}", api::segment(&audit.source_set));
-    let repair_href = format!("{set_href}/repair");
+    let repair_href = format!("{set_href}?tab=repair");
     let findings = audit.findings.clone();
     let games = audit.games.clone();
     let needs_review = needs_review_from_counts(&findings);
@@ -459,10 +461,16 @@ impl Grid for EntryItem {
 /// An Audit's Entries with their filters, table and the selected Entry's details. Filtering and sorting run in the
 /// browser on every keystroke.
 #[component]
-pub fn EntriesPanel(entries: Arc<AuditEntries>) -> impl IntoView {
+pub fn EntriesPanel(
+    entries: Arc<AuditEntries>,
+    /// What the entries are narrowed to at first, such as a finding a badge links to.
+    #[prop(optional)]
+    initial: EntryFilter,
+) -> impl IntoView {
     let total = entries.len();
     let sorting = RwSignal::new(VecDeque::<(EntryCol, ColumnSort)>::new());
-    let filter = RwSignal::new(EntryFilter::default());
+    let filter = RwSignal::new(initial.clone());
+    let first = initial;
     let selected = RwSignal::new(None::<usize>);
     let panel = NodeRef::<Div>::new();
 
@@ -519,6 +527,7 @@ pub fn EntriesPanel(entries: Arc<AuditEntries>) -> impl IntoView {
                         class="filter-text"
                         placeholder="Entry or game name"
                         autocomplete="off"
+                        prop:value=first.text.clone()
                         on:input=move |ev| {
                             let text = event_target_value(&ev);
                             refilter(Box::new(move |f| f.text = text));
@@ -534,7 +543,10 @@ pub fn EntriesPanel(entries: Arc<AuditEntries>) -> impl IntoView {
                         <option value="">"Any"</option>
                         {Finding::ALL
                             .iter()
-                            .map(|f| view! { <option value=f.as_str()>{finding_label(*f)}</option> })
+                            .map(|f| {
+                                let chosen = first.finding == Some(*f);
+                                view! { <option value=f.as_str() selected=chosen>{finding_label(*f)}</option> }
+                            })
                             .collect_view()}
                     </select>
                 </label>
@@ -766,7 +778,7 @@ impl Grid for GameItem {
 }
 
 #[component]
-fn GamesPanel(games: Arc<AuditGames>) -> impl IntoView {
+pub fn GamesPanel(games: Arc<AuditGames>) -> impl IntoView {
     let total = games.len();
     let sorting = RwSignal::new(VecDeque::<(GameCol, ColumnSort)>::new());
     let filter = RwSignal::new(GameFilter::default());
