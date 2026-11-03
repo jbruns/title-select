@@ -7,7 +7,9 @@ use title_select_api::repair::SourceKeptFile;
 use title_select_api::{Job, JobState};
 
 use crate::build_model::keep_reason_label;
+use crate::jobs::{JobBook, LiveJob};
 use crate::parts::url_state::encode;
+use crate::shell::with_failures;
 
 /// How many of the listed Jobs are Running, Queued and Failed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -68,17 +70,19 @@ impl Subject {
 pub enum Outcome {
     Audit(i64),
     Selection(i64),
-    /// The repair a Repair Job carries out, on its Source Set's repair tab.
+    /// The repair a Repair Job carries out, by its plan's ID, on its Source Set's repair screen.
     Repair {
         source_set: String,
+        plan: i64,
     },
 }
 
 impl Outcome {
     pub fn of(job: &Job) -> Option<Outcome> {
-        if job.repair.is_some() {
+        if let Some(plan) = job.repair {
             return Some(Outcome::Repair {
                 source_set: job.source_set.clone(),
+                plan,
             });
         }
         match (job.audit, job.selection) {
@@ -92,11 +96,21 @@ impl Outcome {
         match self {
             Outcome::Audit(id) => format!("/audits/{id}"),
             Outcome::Selection(id) => format!("/selections/{id}"),
-            Outcome::Repair { source_set } => {
-                format!("/source-sets/{}?tab=repair", encode(source_set))
+            Outcome::Repair { source_set, plan } => {
+                format!("/source-sets/{}/repair?plan={plan}", encode(source_set))
             }
         }
     }
+}
+
+/// The Jobs Activity lists: the last good fetch of `/jobs` and of `/failed-jobs` (either absent until one
+/// succeeds), merged, with the live book's Jobs over them, so that a failed fetch never hides what streams in.
+pub fn listed(recent: Option<&[Job]>, failed: Option<&[Job]>, book: &JobBook) -> Vec<LiveJob> {
+    let fetched = with_failures(
+        recent.map(<[Job]>::to_vec).unwrap_or_default(),
+        failed.map(<[Job]>::to_vec).unwrap_or_default(),
+    );
+    book.overlay(&fetched)
 }
 
 /// The Failed Job the open row (`?row=<job id>`) shows, if it shows one: opening it marks it seen.
@@ -148,7 +162,7 @@ impl KeptPlace {
         match self {
             KeptPlace::LibraryFolder { id, .. } => format!("/libraries/{id}?tab=kept"),
             KeptPlace::IngestFolder(root) => format!("/ingest/{}", encode(root)),
-            KeptPlace::SourceSet(name) => format!("/source-sets/{}?tab=kept", encode(name)),
+            KeptPlace::SourceSet(name) => format!("/source-sets/{}/repair", encode(name)),
             KeptPlace::AdditionsSet(_) => "/additions".to_string(),
         }
     }
@@ -263,6 +277,36 @@ mod tests {
     }
 
     #[test]
+    fn listed_jobs_overlay_the_live_book_on_whatever_history_last_loaded() {
+        let mut book = JobBook::default();
+        let mut streamed = job(5, JobState::Running);
+        streamed.version = 2;
+        book.replace(vec![streamed]);
+        let ids = |jobs: Vec<LiveJob>| {
+            jobs.iter()
+                .map(|l| (l.job.id, l.job.state))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(ids(listed(None, None, &book)), [(5, JobState::Running)]);
+
+        let recent = [job(5, JobState::Queued), job(1, JobState::Succeeded)];
+        let failed = [job(2, JobState::Failed)];
+        assert_eq!(
+            ids(listed(Some(&recent), Some(&failed), &book)),
+            [
+                (5, JobState::Running),
+                (2, JobState::Failed),
+                (1, JobState::Succeeded)
+            ]
+        );
+        assert_eq!(
+            ids(listed(None, Some(&failed), &book)),
+            [(5, JobState::Running), (2, JobState::Failed)]
+        );
+    }
+
+    #[test]
     fn counters_count_running_queued_and_failed_jobs() {
         let jobs = [
             job(1, JobState::Running),
@@ -316,7 +360,7 @@ mod tests {
         repair.repair = Some(9);
         assert_eq!(
             Outcome::of(&repair).unwrap().href(),
-            "/source-sets/Atari%202600?tab=repair"
+            "/source-sets/Atari%202600/repair?plan=9"
         );
 
         assert_eq!(Outcome::of(&job(4, JobState::Queued)), None);
@@ -378,7 +422,7 @@ mod tests {
             [
                 (
                     "source-set-1".to_string(),
-                    "/source-sets/Atari%202600?tab=kept".to_string()
+                    "/source-sets/Atari%202600/repair".to_string()
                 ),
                 ("additions-set-1".to_string(), "/additions".to_string()),
                 (

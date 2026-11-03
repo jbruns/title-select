@@ -14,7 +14,7 @@ use title_select_api::repair::SourceKeptFile;
 use title_select_api::{Job, JobKind, JobState, SourceSetRecord};
 
 use crate::activity_model::{
-    Counts, KeptPlace, KeptRow, Outcome, Subject, counts, newest_first, opened_failure,
+    Counts, KeptPlace, KeptRow, Outcome, Subject, counts, listed, newest_first, opened_failure,
 };
 use crate::api;
 use crate::app::{Loading, Problem, use_seen_jobs};
@@ -30,7 +30,7 @@ use crate::parts::list::{
 use crate::parts::overlay::Tooltip;
 use crate::parts::status::{Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::{query_string, use_list_query};
-use crate::shell::{unseen_failures, with_failures};
+use crate::shell::unseen_failures;
 
 pub(crate) fn progress_view(live: &LiveJob) -> AnyView {
     match (live.job.state, live.progress) {
@@ -234,6 +234,26 @@ fn job_actions(row: &JobRow) -> Vec<RowAction> {
     actions
 }
 
+/// The last list a fetch returned, or `None` until one succeeds; a failed or pending refetch keeps it.
+fn last_good<T, E>(
+    load: impl Fn() -> Option<Result<Vec<T>, E>> + Send + Sync + 'static,
+) -> Memo<Option<Arc<Vec<T>>>>
+where
+    T: Send + Sync + 'static,
+{
+    Memo::new_with_compare(
+        move |prev: Option<&Option<Arc<Vec<T>>>>| match load() {
+            Some(Ok(list)) => Some(Arc::new(list)),
+            _ => prev.cloned().flatten(),
+        },
+        |prev, next| match (prev, next) {
+            (Some(Some(a)), Some(Some(b))) => !Arc::ptr_eq(a, b),
+            (Some(None), Some(None)) => false,
+            _ => true,
+        },
+    )
+}
+
 /// The `state` query parameter: the Job State the counters narrow the list to.
 const STATE: &str = "state";
 
@@ -258,25 +278,39 @@ pub fn Jobs() -> impl IntoView {
         live.settled.track();
         async { api::get::<Vec<LibraryFolder>>("/libraries").await }
     });
-    let rows = last_good_rows(move || {
-        let recent = history.get()?;
-        let failed = failed.get()?;
-        let names: BTreeMap<i64, String> = libraries
-            .get()
-            .and_then(Result::ok)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|f| (f.id, f.path))
-            .collect();
-        Some(recent.and_then(|recent| {
-            let fetched = with_failures(recent, failed?);
-            let jobs = live.book.with(|book| book.overlay(&fetched));
-            Ok(jobs
+    // Each fetch keeps its last success, and the live book always goes over them: a failed fetch shows its
+    // problem but never stops the Jobs that stream in.
+    let recent = last_good(move || history.get());
+    let failures = last_good(move || failed.get());
+    let rows: Signal<Arc<Vec<JobRow>>> = Memo::new_with_compare(
+        move |_| {
+            let names: BTreeMap<i64, String> = libraries
+                .get()
+                .and_then(Result::ok)
+                .unwrap_or_default()
                 .into_iter()
-                .map(|l| JobRow::new(l, &names))
-                .collect::<Vec<_>>())
-        }))
-    });
+                .map(|f| (f.id, f.path))
+                .collect();
+            let jobs = recent.with(|recent| {
+                failures.with(|failed| {
+                    live.book.with(|book| {
+                        listed(
+                            recent.as_deref().map(Vec::as_slice),
+                            failed.as_deref().map(Vec::as_slice),
+                            book,
+                        )
+                    })
+                })
+            });
+            Arc::new(
+                jobs.into_iter()
+                    .map(|l| JobRow::new(l, &names))
+                    .collect::<Vec<_>>(),
+            )
+        },
+        |_, _| true,
+    )
+    .into();
     let counted = Memo::new(move |_| rows.with(|r| counts(r.iter().map(JobRow::job))));
     let statuses = Signal::derive(move || {
         present(rows.with(|r| r.iter().map(|r| r.job().state).collect::<Vec<_>>()))
