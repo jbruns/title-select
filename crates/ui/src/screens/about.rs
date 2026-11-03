@@ -35,6 +35,11 @@ const LICENCES: &[Licence] = &[
             "https://github.com/unexpectedpanda/retool-clonelists-metadata/blob/main/LICENSE",
         ),
     },
+    Licence {
+        title: "Lucide icons: ISC License",
+        file: "/licences/lucide.txt",
+        upstream: Some("https://github.com/lucide-icons/lucide/blob/main/LICENSE"),
+    },
 ];
 
 /// The text at `file`, or `None` when the bundle does not have it: the Service then answers with the workbench's

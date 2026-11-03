@@ -1443,6 +1443,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f46f177638302858755e7f10b36f440ab4f49101fdf0c53d37e79582ca090840"
 dependencies = [
  "cfg-if",
+ "codee",
  "default-struct-builder",
  "js-sys",
  "lazy_static",
@@ -2762,11 +2763,15 @@ dependencies = [
 name = "title-select-ui"
 version = "0.4.2"
 dependencies = [
+ "codee",
  "gloo-net",
  "js-sys",
  "leptos",
  "leptos-struct-table",
+ "leptos-use",
  "leptos_router",
+ "reactive_stores",
+ "send_wrapper",
  "serde",
  "serde_json",
  "title-select-api",
