@@ -1671,6 +1671,25 @@ impl Store {
         })
     }
 
+    /// The approved ingest plans that changed the Source Set `name`, newest first: a DAT import that queued an Audit
+    /// of it, or additions to its DAT's Additions Set. Fills from an Ingest Folder are steps of its repairs.
+    pub fn source_set_ingests(&self, name: &str) -> Result<Vec<IngestPlan>> {
+        self.read(|c| {
+            let set = crate::sets::set_by_name(c, name)?;
+            let mut stmt = c.prepare(&format!(
+                "{PLAN_QUERY} p WHERE p.approved_at IS NOT NULL AND (
+                     EXISTS (SELECT 1 FROM ingest_reaudits a WHERE a.plan_id = p.id AND a.source_set_id = ?1)
+                     OR (json_extract(p.content, '$.action') = 'addition'
+                         AND EXISTS (SELECT 1 FROM json_each(p.content, '$.items') i
+                                     WHERE json_extract(i.value, '$.addition.system') = ?2)))
+                 ORDER BY p.id DESC"
+            ))?;
+            Ok(stmt
+                .query_map(params![set.id, set.record.dat], ingest_plan_from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
     /// Approves plan `id`, reviewed as `digest`, as `actor`, and carries it out: each item is moved only while the
     /// folder's marker is this store's and every entry of the folder is still as the plan saw it. A DAT import
     /// imports the file, queues an Audit with the new revision of each Source Set bound to its DAT, then keeps the

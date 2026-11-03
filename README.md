@@ -739,6 +739,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-set-summaries`                 | each source set with its latest audit and its open repair, if any: what the list of source sets shows |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
+| `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
 | `GET /api/v1/audits/{id}/report`                   | the full `schema: 3` report                                  |

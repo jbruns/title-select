@@ -997,6 +997,12 @@ fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it(
         "it links to its additions job"
     );
     assert!(!moved.under_way);
+    let ingests: Vec<IngestPlan> = client.json("/source-sets/Test%20-%20System/ingests");
+    assert_eq!(
+        ingests.iter().map(|p| p.id).collect::<Vec<_>>(),
+        [plan.id],
+        "an addition to its DAT's additions set is in the source set's ingest history"
+    );
     assert!(!drop.join("My Hack.a26").exists());
     assert!(additions.join(SET).join("My Hack.zip").exists());
 
