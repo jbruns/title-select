@@ -21,6 +21,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::build_model::build_state_label;
 use crate::events::use_live;
+use crate::library_model::live_status;
 use crate::model::{
     EntryFilter, audit_choices, audit_evidence_label, needs_review_from_counts, short_sha, when,
 };
@@ -32,6 +33,7 @@ use crate::parts::status::{FindingStatus, LibraryStatus, Status, StatusBadge, St
 use crate::parts::url_state::encode;
 use crate::screens::additions::SetView;
 use crate::screens::audit::{EntriesPanel, GamesPanel, load, queued};
+use crate::screens::library_folders::live_jobs;
 use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab, SourceKept};
 use crate::screens::source_sets::{new_library_href, preview_href, start_audit, tab_href};
 use crate::source_set_model::{self as model, Happened, Moment, PageTab};
@@ -212,7 +214,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 PageTab::Games => view! { <LatestAudit latest games=true /> }.into_any(),
                 PageTab::Entries => view! { <LatestAudit latest games=false /> }.into_any(),
                 PageTab::Libraries => {
-                    view! { <Libraries name=name.get_value() latest=latest.map(|a| a.id) /> }.into_any()
+                    view! { <Libraries name=name.get_value() /> }.into_any()
                 }
                 PageTab::Additions => view! { <Additions system=summary.set.dat.clone() /> }.into_any(),
                 PageTab::History => view! { <History name=name.get_value() /> }.into_any(),
@@ -548,22 +550,24 @@ fn built(folder: &LibraryFolder) -> String {
 
 /// The source set's library folders, with their status.
 #[component]
-fn Libraries(name: String, latest: Option<i64>) -> impl IntoView {
+fn Libraries(name: String) -> impl IntoView {
     let live = use_live();
     let name = StoredValue::new(name);
     let folders = LocalResource::new(move || {
         live.settled.track();
         async move { api::get::<Vec<LibraryFolder>>("/libraries").await }
     });
+    let jobs = Memo::new(move |_| live_jobs(live));
     // A failed refresh keeps the rows last shown; the problem shows above them.
     let rows = last_good_rows(move || {
+        let jobs = jobs.get();
         folders.get().map(|loaded| {
             loaded.map(|folders| {
                 folders
                     .into_iter()
                     .filter(|f| f.source_set == name.get_value())
                     .map(|folder| FolderRow {
-                        status: model::library_status(&folder, latest),
+                        status: live_status(&folder, &jobs),
                         folder,
                     })
                     .collect::<Vec<_>>()

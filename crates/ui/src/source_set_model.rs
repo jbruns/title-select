@@ -1,7 +1,7 @@
 //! What the source set screens decide without rendering: a source set's row status, where its repair is, its page's
 //! tabs, and one timeline of what happened to it.
 
-use title_select_api::build::{BuildState, BuildSummary, LibraryFolder};
+use title_select_api::build::{BuildState, BuildSummary};
 use title_select_api::ingest::{IngestAction, IngestPlan};
 use title_select_api::repair::{RepairPlan, RepairStep};
 use title_select_api::{
@@ -9,9 +9,7 @@ use title_select_api::{
 };
 
 use crate::model::{audit_choices, needs_review_from_counts};
-use crate::parts::status::{
-    LibraryFacts, LibraryStatus, RepairState, SourceSetFacts, SourceSetStatus,
-};
+use crate::parts::status::{RepairState, SourceSetFacts, SourceSetStatus};
 
 /// What is true of a source set: `running` when a job is queued or running for it, and `revisions` its DAT's
 /// revisions, oldest first.
@@ -162,21 +160,6 @@ pub fn tabs(repair: Option<RepairState>, open: PageTab) -> Vec<PageTab> {
         .into_iter()
         .filter(|t| *t != PageTab::Repair || repair.is_some() || open == PageTab::Repair)
         .collect()
-}
-
-/// A library folder's status, from what its record says: `latest_audit` is the source set's latest audit, which a
-/// build made from another is behind. It never reads "Plan open", as the record doesn't say so.
-pub fn library_status(folder: &LibraryFolder, latest_audit: Option<i64>) -> LibraryStatus {
-    let build = folder.build.as_ref();
-    LibraryStatus::of(LibraryFacts {
-        running: folder.active_job.is_some(),
-        // The record doesn't say whether a plan is open: a plan newer than the last build may have failed.
-        plan_open: false,
-        drift: folder.check.as_ref().is_some_and(|c| c.drift > 0),
-        incomplete: folder.incomplete.is_some() || folder.unfinished.is_some(),
-        stale: build.zip(latest_audit).is_some_and(|(b, a)| b.audit != a),
-        built: build.is_some(),
-    })
 }
 
 /// What happened to a source set.
