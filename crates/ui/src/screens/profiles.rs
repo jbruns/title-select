@@ -817,7 +817,7 @@ fn DefaultOrder(order: Vec<String>) -> impl IntoView {
 }
 
 /// Where the About page explains the default orders.
-const DEFAULT_ORDERS_HREF: &str = "/about#default-orders";
+const DEFAULT_ORDERS_HREF: &str = "/settings/about#default-orders";
 
 fn order_text(list: &[String], empty: &str) -> String {
     if list.is_empty() {

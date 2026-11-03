@@ -8,10 +8,12 @@ use leptos_struct_table::ColumnSort;
 use title_select_api::{Job, JobKind, JobState};
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::{Loading, Problem, use_seen_jobs};
 use crate::events::{Stream, use_live};
 use crate::jobs::{LiveJob, state_label};
 use crate::model::{audit_evidence_label, short_sha, when};
+use crate::parts::icon::{Glyph, IconButton};
+use crate::shell::{unseen_failures, with_failures};
 use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -206,21 +208,61 @@ pub fn Jobs() -> impl IntoView {
         live.settled.track();
         async { api::get::<Vec<Job>>("/jobs").await }
     });
+    // Every failure, however old, so that each one the Activity badge counts has a row to open.
+    let failed = LocalResource::new(move || {
+        live.settled.track();
+        async { api::get::<Vec<Job>>("/failed-jobs").await }
+    });
     let sorting = RwSignal::new(VecDeque::<(JobCol, ColumnSort)>::new());
     let selected = RwSignal::new(None::<usize>);
     let shown = Memo::new(move |_| {
-        let fetched = history.get().and_then(Result::ok).unwrap_or_default();
+        let recent = history.get().and_then(Result::ok).unwrap_or_default();
+        let failed = failed.get().and_then(Result::ok).unwrap_or_default();
+        let fetched = with_failures(recent, failed);
         let jobs = live.book.with(|book| book.overlay(&fetched));
         Arc::new(sorting.with(|s| sorted(jobs, s)))
     });
     let rows = Signal::derive(move || rows_of(shown.get().as_ref().clone()) as Rows<JobItem>);
+    // Opening a failed Job marks it seen, so the Activity badge stops counting it.
+    let seen = use_seen_jobs();
+    Effect::new(move || {
+        let opened = shown.with(|s| s.get(selected.get()?).map(|item| item.0.job.clone()));
+        if let Some(job) = opened
+            && job.state == JobState::Failed
+        {
+            seen.mark(job.id);
+        }
+    });
+    let unseen = Memo::new(move |_| {
+        let failed = shown.with(|s| {
+            s.iter()
+                .filter(|item| item.0.job.state == JobState::Failed)
+                .map(|item| item.0.job.id)
+                .collect::<Vec<_>>()
+        });
+        seen.get()
+            .with(|seen| unseen_failures(std::iter::empty(), failed, seen))
+    });
     let detail = move || {
         let item = shown.with(|s| s.get(selected.get()?).cloned())?;
         Some(job_detail(&item.0))
     };
 
     view! {
-        <h1>"Jobs"</h1>
+        <div class="page-head">
+            <h1>"Activity"</h1>
+            // Shown only when there is something to mark, since a disabled button can't take focus for its tooltip.
+            <Show when=move || unseen.with(|u| !u.is_empty())>
+                <IconButton
+                    glyph=Glyph::Eye
+                    label=Signal::derive(move || match unseen.with(|u| u.len()) {
+                        1 => "Mark the failed job seen".to_string(),
+                        n => format!("Mark all {n} failed jobs seen"),
+                    })
+                    on_click=move |()| seen.mark_all(unseen.get_untracked())
+                />
+            </Show>
+        </div>
         <p class="lede">
             {move || match live.stream.get() {
                 Stream::Live => "Live: state and progress arrive as they happen.".to_string(),

@@ -873,6 +873,43 @@ fn a_restart_interrupts_a_running_job_and_queues_it_once_more_then_fails_it() {
 }
 
 #[test]
+fn every_failed_job_is_listed_however_old() {
+    use title_select_store::JobState;
+    let env = Env::new(20);
+    env.add_dat_and_set();
+    let run = |fail: bool| {
+        let job = env
+            .store
+            .enqueue_audit(
+                "Test - System",
+                None,
+                "Operator",
+                WORKERS,
+                AuditEvidence::Incremental,
+            )
+            .unwrap();
+        env.store.claim_job().unwrap();
+        if fail {
+            env.store.fail_job(job.id, "it broke").unwrap()
+        } else {
+            env.store.run_audit_job(&env.config, job.id, None).unwrap()
+        }
+    };
+    let first = run(true);
+    let done = run(false);
+    let second = run(true);
+    assert_eq!(
+        (first.state, done.state),
+        (JobState::Failed, JobState::Succeeded)
+    );
+
+    let failed = env.store.failed_jobs().unwrap();
+    let ids: Vec<i64> = failed.iter().map(|j| j.id).collect();
+    assert_eq!(ids, vec![second.id, first.id]);
+    assert_eq!(failed[1], first);
+}
+
+#[test]
 fn an_audit_job_that_cannot_read_its_source_set_fails() {
     use title_select_store::JobState;
     let env = Env::new(20);

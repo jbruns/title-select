@@ -15,6 +15,7 @@ pub mod registration;
 pub mod repair_model;
 pub mod screens;
 pub mod selection_model;
+pub mod shell;
 pub mod table;
 
 #[cfg(target_arch = "wasm32")]

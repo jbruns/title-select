@@ -19,6 +19,7 @@ use crate::model::{
     audit_choices, audit_evidence_label, finding_label, game_status_label,
     needs_review_from_counts, short_sha, when,
 };
+use crate::parts::icon::{Glyph, LabelledIcon};
 use crate::registration;
 use crate::screens::audit::{ReAudit, queued};
 use crate::screens::selection::SelectionQueued;
@@ -152,6 +153,11 @@ pub fn SourceSets() -> impl IntoView {
         <h1>"Source sets"</h1>
         <p class="lede">
             "A source set is a folder in a root, audited against its DAT. Open one to start an audit or see its history."
+        </p>
+        <p class="page-links">
+            <A href="/additions">
+                <LabelledIcon glyph=Glyph::CirclePlus label="Additions" />
+            </A>
         </p>
         {move || match sets.get() {
             None => view! { <Loading what="the source sets" /> }.into_any(),

@@ -324,7 +324,7 @@ pub fn queued(job: &Job) -> impl IntoView + use<> {
                 job.source_set,
                 short_sha(&job.dat_revision),
             )}
-            <A href="/jobs">"Follow it on the Jobs screen"</A>
+            <A href="/activity">"Follow it in Activity"</A>
         </p>
     }
 }

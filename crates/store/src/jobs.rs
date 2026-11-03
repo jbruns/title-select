@@ -446,6 +446,17 @@ impl Store {
         })
     }
 
+    /// Every Failed Job, newest first, however long ago it failed.
+    pub fn failed_jobs(&self) -> Result<Vec<Job>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "{JOB_QUERY} WHERE j.state = 'failed' ORDER BY j.id DESC"
+            ))?;
+            let rows = stmt.query_map([], job_from_row)?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
     /// The latest `limit` Jobs, newest first.
     pub fn jobs(&self, limit: usize) -> Result<Vec<Job>> {
         self.read(|c| {

@@ -1168,3 +1168,73 @@ a.icon-button {
     scroll-behavior: auto !important;
   }
 }
+
+/* Top navigation badges and page links */
+
+.bar nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.nav-badge {
+  min-width: 1.25rem;
+  padding: 0 var(--space-1);
+  border-radius: 999px;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: var(--type-meta);
+  line-height: 1.25rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* A page heading with its page-level actions beside it */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.page-links {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.bar nav a,
+.stream {
+  white-space: nowrap;
+}
+
+/* On a narrower screen the bar keeps every screen in one row: the brand and the stream show only their marks,
+   and below that the screens only their icons. Their words stay for assistive technology. */
+@media (max-width: 72rem) {
+  .bar {
+    gap: var(--space-3);
+    padding: 0 var(--space-4);
+  }
+
+  .bar nav a {
+    padding: var(--space-2);
+  }
+
+  .brand-name,
+  .stream-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+
+@media (max-width: 48rem) {
+  .bar nav .labelled-icon > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}

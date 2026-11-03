@@ -183,6 +183,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/plans/{id}/approval", post(approve_plan))
         .route("/builds/{id}", get(build))
         .route("/jobs", get(jobs))
+        .route("/failed-jobs", get(failed_jobs))
         .route("/jobs/{id}", get(job))
         .route("/jobs/{id}/events", get(job_events))
         .route("/jobs/{id}/cancellation", post(cancel_job))
@@ -1553,6 +1554,11 @@ async fn selection_diff(
 
 async fn jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<title_select_api::Job>>> {
     Ok(Json(blocking(&state, |store| store.jobs(100)).await?))
+}
+
+/// Every Failed Job, however old, so a client can show each failure the Operator hasn't seen.
+async fn failed_jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<title_select_api::Job>>> {
+    Ok(Json(blocking(&state, |store| store.failed_jobs()).await?))
 }
 
 async fn job(
