@@ -514,6 +514,21 @@ impl Store {
     ) -> Result<RepairPlan> {
         let set = self.read(|c| set_by_name(c, name))?;
         let record = &set.record;
+        let running: Option<i64> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT id FROM repair_plans
+                 WHERE source_set_id = ?1 AND approved_digest IS NOT NULL AND finished_at IS NULL
+                 ORDER BY id DESC LIMIT 1",
+                [set.id],
+                |r| r.get(0),
+            )
+            .optional()?)
+        })?;
+        if let Some(id) = running {
+            return Err(Error::Conflict(format!(
+                "repair plan {id} of source set {name} is approved and hasn't finished; propose a repair once it has"
+            )));
+        }
         let root = config.root(&record.root).ok_or_else(|| {
             Error::Refused(format!(
                 "there is no root {} in the configuration",

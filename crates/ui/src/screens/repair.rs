@@ -28,9 +28,9 @@ use crate::parts::pending::Pending;
 use crate::parts::plan::{Change, PlanReview, PlanRow};
 use crate::parts::status::{PlanKind, Status, StatusIcon};
 use crate::repair_model::{
-    ChangeMark, Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current, fetch_after,
-    kind_choices, may_propose, place, proposed, repair_to_show, requested, steps_by_item,
-    suggested_addition, to_add, unfinished_note, unplanned,
+    ChangeMark, LoadTicket, Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current,
+    fetch_after, kind_choices, may_propose, place, proposed, repair_to_show, requested,
+    steps_by_item, suggested_addition, to_add, unfinished_note, unplanned,
 };
 use crate::screens::additions::AdditionFields;
 use crate::screens::jobs::{progress_view, state_view};
@@ -98,7 +98,7 @@ pub struct RepairDesk {
     loads: StoredValue<Loads>,
     /// The choices asked for and picked on each plan shown before, by plan, so coming back to one keeps them.
     staged: StoredValue<BTreeMap<i64, Staged>>,
-    /// The plan shown when the last proposal was asked for.
+    /// When the last proposal was asked for.
     proposed_from: StoredValue<Option<ChangeMark>>,
     proposal: Action<PlanRepair, Result<Proposed, String>>,
 }
@@ -132,12 +132,15 @@ impl RepairDesk {
             proposal,
         };
         Effect::new(move || {
-            if let Some(Ok((p, chosen))) = proposal.value().get()
-                && desk
-                    .proposed_from
-                    .get_value()
-                    .is_some_and(|mark| desk.change_applies(mark, p.id))
-            {
+            let Some(answer) = proposal.value().get() else {
+                return;
+            };
+            let Some(mark) = desk.proposed_from.get_value() else {
+                return;
+            };
+            if !desk.change_applies(mark) {
+                desk.reload();
+            } else if let Ok((p, chosen)) = answer {
                 desk.show(p, chosen);
             }
         });
@@ -178,20 +181,32 @@ impl RepairDesk {
         self.proposal.pending().into()
     }
 
-    /// Shows the plan `wanted` names, or else the approved repair that hasn't finished, each time what's wanted
-    /// changes. The plan already shown stays as it is, with your picks.
+    /// Shows the plan the URL `named`, or else the source set's `open` repair, each time what's wanted changes. The
+    /// plan already shown stays as it is, with your picks.
     pub fn load(self, named: Option<i64>, open: Option<i64>) {
-        let before = self.shown_id();
         let shown = self
             .plan
             .with_untracked(|p| p.as_ref().map(|p| (p.id, p.approval.is_some())));
-        let Some(ticket) = self
+        if let Some(ticket) = self
             .loads
             .try_update_value(|l| l.ask(named, open, shown))
             .flatten()
-        else {
-            return;
-        };
+        {
+            self.fetch(ticket, false);
+        }
+    }
+
+    /// Fetches the plan wanted again, as the server holds it, after the answer to a change was dropped.
+    fn reload(self) {
+        if let Some(ticket) = self.loads.try_update_value(|l| l.reload()).flatten() {
+            self.fetch(ticket, true);
+        }
+    }
+
+    /// Fetches the plan `ticket` wants and shows it, unless another load was asked for meanwhile. The plan shown is
+    /// shown again only when `fresh`.
+    fn fetch(self, ticket: LoadTicket, fresh: bool) {
+        let before = self.shown_id();
         let wanted = ticket.wanted;
         let path = format!(
             "/source-sets/{}/repairs",
@@ -199,16 +214,13 @@ impl RepairDesk {
         );
         leptos::task::spawn_local(async move {
             let plans = api::get::<Vec<RepairPlan>>(&path).await;
-            // Another plan was asked for, or one was proposed or shown, meanwhile: that one wins.
-            if !self
-                .loads
-                .with_value(|l| l.applies(ticket, self.shown_id()))
-            {
+            // Another load was asked for meanwhile: that one wins.
+            if !self.loads.with_value(|l| l.applies(ticket)) {
                 return;
             }
             match plans {
                 Ok(plans) => match repair_to_show(&plans, wanted) {
-                    Some(p) if Some(p.id) == before => {}
+                    Some(p) if !fresh && Some(p.id) == before => {}
                     Some(p) => self.show(p.clone(), chosen(p)),
                     None => {
                         self.stash();
@@ -226,13 +238,12 @@ impl RepairDesk {
 
     /// Marks a change made now to the plan shown.
     fn mark(self) -> ChangeMark {
-        self.loads.with_value(|l| l.mark(self.shown_id()))
+        self.loads.with_value(Loads::mark)
     }
 
-    /// Whether the answer to the change `mark`ed, which gave back the plan `result`, is still to be shown.
-    fn change_applies(self, mark: ChangeMark, result: i64) -> bool {
-        self.loads
-            .with_value(|l| l.change_applies(mark, self.shown_id(), result))
+    /// Whether the answer to the change `mark`ed is still to be shown.
+    fn change_applies(self, mark: ChangeMark) -> bool {
+        self.loads.with_value(|l| l.change_applies(mark))
     }
 
     /// Proposes a plan; planning again from a plan still open carries its choices and additions.
@@ -277,8 +288,9 @@ impl RepairDesk {
                     s.remove(&p.id);
                 });
             }
-            // You moved to another plan meanwhile: it stays shown.
-            if !self.change_applies(mark, p.id) {
+            // Another plan was asked for meanwhile: show the one wanted, as the server holds it.
+            if !self.change_applies(mark) {
+                self.reload();
                 return;
             }
             match done {
@@ -596,6 +608,9 @@ pub fn RepairTab(
     desk: RepairDesk,
     #[prop(into)] named: Signal<Option<i64>>,
     #[prop(into)] current: Signal<Option<i64>>,
+    /// Whether the source set is running an approved repair, whichever plan is shown.
+    #[prop(into)]
+    running: Signal<bool>,
 ) -> impl IntoView {
     Effect::new(move || desk.load(named.get(), current.get()));
     let wanted = move || named.get().or(current.get());
@@ -624,7 +639,7 @@ pub fn RepairTab(
                 let shown = desk
                     .plan
                     .with(|p| p.as_ref().map(|p| (p.approval.is_some(), p.finished_at.is_some())));
-                may_propose(shown).then(|| view! {
+                may_propose(shown, running.get()).then(|| view! {
                     <div class="actions">
                         <button
                             type="button"
@@ -857,7 +872,11 @@ fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
             leptos::task::spawn_local(async move {
                 let done = api::get::<RepairPlan>(&format!("/repairs/{plan}")).await;
                 // Another plan is shown now.
-                if desk.shown_id() != Some(plan) || !desk.change_applies(mark, plan) {
+                // Another plan was asked for meanwhile: show the one wanted, and fetch this one again when its job's
+                // end is next seen.
+                if !desk.change_applies(mark) {
+                    fetched.set(None);
+                    desk.reload();
                     return;
                 }
                 match done {

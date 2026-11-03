@@ -541,6 +541,28 @@ fn a_plan_is_refused_once_its_digest_its_audit_or_the_source_set_changed() {
 }
 
 #[test]
+fn no_repair_is_proposed_while_an_approved_one_runs() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let request = PlanRepair::default();
+    let refused = env.store.plan_repair(&env.config, "Alpha", &request);
+    assert!(
+        matches!(&refused, Err(Error::Conflict(why)) if why.contains("hasn't finished")),
+        "{refused:?}"
+    );
+    let ended = env.run_repair_job(&approved);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    env.store.fulfil_repair_audits().unwrap();
+    env.plan();
+}
+
+#[test]
 fn an_approval_is_refused_when_an_audit_finishes_while_it_is_being_checked() {
     let env = Env::new();
     env.put("readme.txt", b"hello");
