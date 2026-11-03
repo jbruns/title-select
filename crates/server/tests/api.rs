@@ -1968,3 +1968,150 @@ mod selections {
         );
     }
 }
+
+#[test]
+fn the_api_checks_a_source_set_for_changes_and_a_followed_one_goes_stale_on_a_newer_revision() {
+    use title_select_api::{SourceSetStale, StatWalk};
+    const ESCAPED: &str = "Test%20-%20System";
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System.dat", &env.dat());
+    client.add_set();
+    let refused = client
+        .post(&format!("/source-sets/{ESCAPED}/stat-walks"))
+        .send_empty();
+    assert_eq!(
+        status_of(refused),
+        400,
+        "nothing to compare with before an audit"
+    );
+    let audit: Job = client.start_audit().body_mut().read_json().unwrap();
+    client.follow(audit.id);
+    let check = || -> Job {
+        let mut response = client
+            .post(&format!("/source-sets/{ESCAPED}/stat-walks"))
+            .send_empty()
+            .unwrap();
+        assert_eq!(response.status(), 202);
+        let job: Job = response.body_mut().read_json().unwrap();
+        client.follow(job.id).1
+    };
+
+    assert_eq!(check().state, JobState::Succeeded);
+    let set: SourceSetRecord = client.json(&format!("/source-sets/{ESCAPED}"));
+    assert_eq!(set.stale, []);
+    write_file(
+        &env.tmp.path().join("roots/sets").join(SET).join("new.bin"),
+        b"new",
+    );
+    assert_eq!(check().state, JobState::Succeeded);
+    let set: SourceSetRecord = client.json(&format!("/source-sets/{ESCAPED}"));
+    assert!(
+        matches!(
+            &set.stale[..],
+            [SourceSetStale::FilesChanged { added: 1, .. }]
+        ),
+        "{:?}",
+        set.stale
+    );
+    let walks: Vec<StatWalk> = client.json(&format!("/source-sets/{ESCAPED}/stat-walks"));
+    assert_eq!(walks.len(), 1);
+
+    let follow = |follow: bool| -> SourceSetRecord {
+        let mut request = agent().put(format!("{}/source-sets/{ESCAPED}/follow", client.base));
+        if let Some((name, value)) = &client.auth {
+            request = request.header(name, value);
+        }
+        let mut response = request
+            .send_json(serde_json::json!({ "follow": follow }))
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        response.body_mut().read_json().unwrap()
+    };
+    assert!(follow(true).follow);
+    let newer = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (20260201).dat",
+        "20260201-000000",
+        &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
+    );
+    client.upload(
+        "Test - System (20260201).dat",
+        &std::fs::read(newer).unwrap(),
+    );
+    let set: SourceSetRecord = client.json(&format!("/source-sets/{ESCAPED}"));
+    assert!(set.follow);
+    assert!(
+        set.stale
+            .iter()
+            .any(|s| matches!(s, SourceSetStale::NewerRevision { version, .. } if version == "20260201-000000")),
+        "{:?}",
+        set.stale
+    );
+    assert_eq!(
+        follow(false).stale.len(),
+        1,
+        "only the changed files remain"
+    );
+    let followed: Vec<title_select_api::FollowedRevision> =
+        client.json(&format!("/source-sets/{ESCAPED}/followed-revisions"));
+    assert_eq!(
+        followed
+            .iter()
+            .map(|r| r.version.as_str())
+            .collect::<Vec<_>>(),
+        ["20260201-000000"],
+        "its history keeps what made it stale"
+    );
+}
+
+/// With a free job slot, a check for changes queued behind a repair of its source set waits for it, and the runner
+/// claims it as soon as the repair ends.
+#[test]
+fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
+    const ESCAPED: &str = "Test%20-%20System";
+    let env = Env::new();
+    let service = title_select_server::spawn(env.settings(&format!(
+        "writable_paths = [{SET:?}]\n[jobs]\nconcurrent = 2\n"
+    )))
+    .unwrap();
+    let client = Client::new(&service);
+    client.upload("Test - System (20260101).dat", &env.dat());
+    client.add_set();
+    let audit: Job = client.start_audit().body_mut().read_json().unwrap();
+    assert_eq!(client.follow(audit.id).1.state, JobState::Succeeded);
+    let plan: title_select_api::repair::RepairPlan = client
+        .post(&format!("/source-sets/{ESCAPED}/repairs"))
+        .send_json(serde_json::json!({}))
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+
+    let approved: title_select_api::repair::RepairPlan = client
+        .post(&format!("/repairs/{}/approval", plan.id))
+        .send_json(serde_json::json!({"digest": plan.digest}))
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    let walk: Job = client
+        .post(&format!("/source-sets/{ESCAPED}/stat-walks"))
+        .send_empty()
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    let repair = approved.job.expect("approval queues a repair job");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let ended = |id: i64| client.json::<Job>(&format!("/jobs/{id}")).state.is_final();
+    while !(ended(repair) && ended(walk.id)) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the check never ran: {:?}",
+            client.json::<Job>(&format!("/jobs/{}", walk.id))
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}

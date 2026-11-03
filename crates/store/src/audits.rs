@@ -203,6 +203,28 @@ impl PayloadReads for StoredReads<'_> {
             self.keep(err);
         }
     }
+
+    fn claimed(&self, path: &str, stamp: &FileStamp) {
+        let recorded = self.store.write(|tx| {
+            tx.execute(
+                "INSERT OR REPLACE INTO audit_claim_stamps (audit_id, path, dev, ino, size, mtime_ns, ctime_ns)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    self.audit,
+                    path,
+                    stamp.dev as i64,
+                    stamp.ino as i64,
+                    stamp.size as i64,
+                    stamp.mtime_ns as i64,
+                    stamp.ctime_ns as i64,
+                ],
+            )?;
+            Ok(())
+        });
+        if let Err(err) = recorded {
+            self.keep(err);
+        }
+    }
 }
 
 const SUMMARY_QUERY: &str = "SELECT a.id, s.name, a.started_at, a.finished_at, r.sha256, r.version,
@@ -374,6 +396,7 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
     if updated != 1 {
         return Err(Error::Io(format!("audit {id} is no longer running")));
     }
+    crate::stale::note_followed_revisions(tx)?;
     // The Audit now holds its revision, so a restored blob needs no other hold.
     tx.execute(
         "UPDATE dat_revisions SET restored_at = NULL
@@ -515,6 +538,7 @@ pub(super) fn delete_audits(
     condition: &str,
     params: impl rusqlite::Params + Copy,
 ) -> Result<usize> {
+    // Claim stamps go with their audit by `ON DELETE CASCADE`.
     for table in ["audit_entries", "audit_games", "audit_citations"] {
         tx.execute(
             &format!(
@@ -1005,6 +1029,7 @@ impl Store {
                 tx.execute("DELETE FROM audit_entries WHERE audit_id = ?1", [id])?;
                 tx.execute("DELETE FROM audit_games WHERE audit_id = ?1", [id])?;
                 tx.execute("DELETE FROM audit_stamps WHERE audit_id = ?1", [id])?;
+                tx.execute("DELETE FROM audit_claim_stamps WHERE audit_id = ?1", [id])?;
                 tx.execute(
                     "UPDATE audits SET pruned_at = ?1 WHERE id = ?2",
                     params![at, id],

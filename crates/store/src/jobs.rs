@@ -241,12 +241,18 @@ impl Store {
         })
     }
 
-    /// Moves the oldest Queued Job to Running and returns it, or returns `None` when none is Queued.
+    /// Moves the oldest Queued Job to Running and returns it, or returns `None` when none is Queued. A stat walk is
+    /// low priority: it is claimed only when no other Job is Queued, and never while a Repair or Build of its Source
+    /// Set is Queued or Running.
     pub fn claim_job(&self) -> Result<Option<Job>> {
         self.write(|tx| {
             let id: Option<i64> = tx
                 .query_row(
-                    "SELECT id FROM jobs WHERE state = 'queued' ORDER BY id LIMIT 1",
+                    "SELECT id FROM jobs j WHERE state = 'queued'
+                       AND NOT (kind = 'stat_walk' AND EXISTS (
+                           SELECT 1 FROM jobs o WHERE o.source_set_id = j.source_set_id
+                           AND o.kind IN ('build', 'repair') AND o.state IN ('queued', 'running')))
+                     ORDER BY kind = 'stat_walk', id LIMIT 1",
                     [],
                     |r| r.get(0),
                 )
@@ -365,9 +371,14 @@ impl Store {
                             requeued: None,
                         });
                     }
-                    if kind == JobKind::Check.as_str() || kind == JobKind::IngestScan.as_str() {
+                    if kind == JobKind::Check.as_str()
+                        || kind == JobKind::IngestScan.as_str()
+                        || kind == JobKind::StatWalk.as_str()
+                    {
                         let why = if kind == JobKind::Check.as_str() {
                             CHECK_INTERRUPTED
+                        } else if kind == JobKind::StatWalk.as_str() {
+                            crate::stale::WALK_INTERRUPTED
                         } else {
                             SCAN_INTERRUPTED
                         };

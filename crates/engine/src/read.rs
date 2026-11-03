@@ -146,7 +146,12 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
         }
     }
     if how.evidence == AuditEvidence::Quick && file.is_zip {
-        return claim_file(&file.path);
+        let stamp = FileStamp::of(&file.path);
+        let claimed = claim_file(&file.path);
+        if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
+            reads.claimed(&file.rel, &stamp);
+        }
+        return claimed;
     }
     let read_at = jiff::Timestamp::now();
     let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at);

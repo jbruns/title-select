@@ -122,6 +122,75 @@ pub struct SourceSetRecord {
     pub dat: String,
     pub added_at: String,
     pub last_verified_against: Option<LastVerified>,
+    /// Whether it Follows its DAT: a newer DAT Revision then makes it Stale.
+    #[serde(default)]
+    pub follow: bool,
+    /// Why it is Stale, if it is: each cause, files first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stale: Vec<SourceSetStale>,
+}
+
+/// One reason a Source Set is Stale. Looking changed is a heuristic, never a claim of damage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SourceSetStale {
+    /// The latest stat walk since its latest Audit found files changed, added or removed.
+    FilesChanged {
+        walk: i64,
+        /// When a stat walk first found these changes.
+        found_at: String,
+        changed: u64,
+        added: u64,
+        removed: u64,
+    },
+    /// It Follows its DAT, and a DAT Revision newer than its latest Audit's was imported: the newest.
+    NewerRevision {
+        sha256: String,
+        version: String,
+        imported_at: String,
+    },
+}
+
+/// What a stat walk of a Source Set found, compared with the Audit it names: files whose stamp changed, files the
+/// Audit did not see, and files it saw that are gone. Walks that keep finding the same are one record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatWalk {
+    pub id: i64,
+    pub source_set: String,
+    /// The Audit it compared with: the latest when it ran.
+    pub audit: i64,
+    /// When a walk first found this.
+    pub found_at: String,
+    /// When a walk last found this.
+    pub checked_at: String,
+    pub changed: u64,
+    pub added: u64,
+    pub removed: u64,
+}
+
+impl StatWalk {
+    /// Whether it found anything changed, added or removed.
+    pub fn looks_changed(&self) -> bool {
+        self.changed + self.added + self.removed > 0
+    }
+}
+
+/// A DAT Revision that made a Source Set Stale because it Follows its DAT: newer than its latest Audit's when it was
+/// imported, or when you started following. Kept in its history after an Audit, or after you stop following.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FollowedRevision {
+    pub source_set: String,
+    pub sha256: String,
+    pub version: String,
+    pub imported_at: String,
+    /// When it made the Source Set Stale.
+    pub found_at: String,
+}
+
+/// The request to Follow a Source Set's DAT, or stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetFollow {
+    pub follow: bool,
 }
 
 /// The request to register a folder in a Root as a Source Set.
@@ -450,6 +519,8 @@ pub enum JobKind {
     Repair,
     /// Publishes, retires and restores the Additions of one Additions Set.
     Additions,
+    /// Stats a Source Set's files against its latest Audit, read-only and at low priority.
+    StatWalk,
 }
 
 impl JobKind {
@@ -462,6 +533,7 @@ impl JobKind {
             JobKind::IngestScan => "ingest_scan",
             JobKind::Repair => "repair",
             JobKind::Additions => "additions",
+            JobKind::StatWalk => "stat_walk",
         }
     }
 
@@ -474,6 +546,7 @@ impl JobKind {
             JobKind::IngestScan,
             JobKind::Repair,
             JobKind::Additions,
+            JobKind::StatWalk,
         ]
         .into_iter()
         .find(|k| k.as_str() == s)

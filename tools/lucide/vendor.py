@@ -87,6 +87,9 @@ ICONS = [
     "file-x",
     # The plan review: current → proposed.
     "arrow-right",
+    # Stale source sets: checking for changes, and a newer DAT revision of a followed DAT.
+    "scan-search",
+    "file-clock",
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]

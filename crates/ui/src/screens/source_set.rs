@@ -13,8 +13,8 @@ use title_select_api::build::{BuildSummary, LibraryFolder};
 use title_select_api::ingest::IngestPlan;
 use title_select_api::repair::RepairPlan;
 use title_select_api::{
-    AuditEvidence, AuditSummary, Dat, Finding, GameStatus, Job, SourceSetRecord, SourceSetSummary,
-    StartAudit,
+    AuditEvidence, AuditSummary, Dat, Finding, FollowedRevision, GameStatus, Job, SetFollow,
+    SourceSetRecord, SourceSetSummary, StartAudit, StatWalk,
 };
 
 use crate::api;
@@ -29,14 +29,22 @@ use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
 use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::pending::PendingStatus;
-use crate::parts::status::{FindingStatus, LibraryStatus, Status, StatusBadge, StatusIcon};
+use crate::parts::status::{
+    FindingStatus, LibraryStatus, StaleCause, Status, StatusBadge, StatusIcon,
+};
 use crate::parts::url_state::encode;
 use crate::screens::additions::SetView;
 use crate::screens::audit::{EntriesPanel, GamesPanel, load, queued};
 use crate::screens::library_folders::live_jobs;
 use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab, SourceKept};
-use crate::screens::source_sets::{new_library_href, preview_href, start_audit, tab_href};
+use crate::screens::source_sets::{
+    new_library_href, preview_href, stale_icons, stale_lines, start_audit, start_check, tab_href,
+};
 use crate::source_set_model::{self as model, Happened, Moment, PageTab};
+
+/// What following a DAT does, for the toggle's tooltip.
+const FOLLOW_HINT: &str =
+    "A newer revision of its DAT then makes it stale; following never starts an audit";
 
 /// One source set's page.
 #[component]
@@ -96,9 +104,11 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
     let query = use_query_map();
     let name = StoredValue::new(set.name.clone());
     let desk = RepairDesk::new(set.name.clone(), set.dat.clone());
+    let refresh = RwSignal::new(0u64);
     let summary = LocalResource::new(move || {
         live.settled.track();
         desk.track();
+        refresh.track();
         // Owned, as the page may be gone by the time the answers come.
         let name = name.get_value();
         async move {
@@ -125,8 +135,11 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             .with(|b| model::running(b.newest_first().iter().map(|l| &l.job)))
     };
     let status = Memo::new(move |_| {
-        good.get().map(|(s, revisions)| {
-            model::status(&s, jobs_running().contains(&name.get_value()), &revisions)
+        good.get().map(|(s, _)| {
+            (
+                model::status(&s, jobs_running().contains(&name.get_value())),
+                s.set.stale,
+            )
         })
     });
     let repair_state = Memo::new(move |_| {
@@ -155,16 +168,56 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
     let ready = Memo::new(move |_| good.with(Option::is_some));
     let said = RwSignal::new(None::<String>);
     let audit_now = move |_| start_audit(name.get_value(), said);
+    let check_now = move |_| start_check(name.get_value(), said);
+    let audited =
+        Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.latest.is_some())));
+    let follows = Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.set.follow)));
+    let follow = move |ev: leptos::ev::Event| {
+        let request = SetFollow {
+            follow: event_target_checked(&ev),
+        };
+        leptos::task::spawn_local(async move {
+            let path = format!("/source-sets/{}/follow", api::segment(&name.get_value()));
+            if let Err(problem) = api::put::<_, SourceSetRecord>(&path, &request).await {
+                said.set(Some(format!(
+                    "Couldn't change whether it follows its DAT: {problem}"
+                )));
+            }
+            refresh.update(|n| *n += 1);
+        });
+    };
 
     view! {
         <header class="page-head">
             <h1>{set.name.clone()}</h1>
-            {move || status.get().map(|s| view! { <StatusBadge status=s /> })}
+            {move || {
+                status
+                    .get()
+                    .map(|(s, stale)| {
+                        let causes = (s == model::STALE).then(|| stale_icons(&stale));
+                        view! {
+                            <StatusBadge status=s />
+                            {causes}
+                        }
+                    })
+            }}
         </header>
         <div class="actions">
             <button type="button" on:click=audit_now>
                 "Audit"
             </button>
+            <button
+                type="button"
+                on:click=check_now
+                disabled=move || !audited.get()
+                title="Compares sizes and times with its latest audit, reading no file"
+            >
+                "Check for changes"
+            </button>
+            <label class="inline" title=FOLLOW_HINT>
+                <input type="checkbox" prop:checked=follows on:change=follow />
+                " Follow its DAT"
+            </label>
             <A href=preview_href(&set.name) attr:class="button">
                 "Preview a selection"
             </A>
@@ -323,6 +376,7 @@ fn Overview(
         }
     });
     view! {
+        {stale_lines(&set)}
         {headline}
         <section aria-labelledby="about-title">
             <h2 id="about-title">"About it"</h2>
@@ -676,6 +730,17 @@ impl MomentRow {
             Happened::Ingest { repair, .. } => format!("Ingest by repair #{repair}"),
             Happened::Ingested { id, .. } => format!("Ingest plan #{id}"),
             Happened::Build { id, .. } => format!("Build #{id}"),
+            Happened::FilesChanged { .. } => StaleCause::FilesChanged.look().label.to_string(),
+            Happened::NewerRevision { .. } => StaleCause::NewerRevision.look().label.to_string(),
+        }
+    }
+
+    /// The icon of a moment that made the source set stale.
+    fn cause(&self) -> Option<StaleCause> {
+        match &self.moment.what {
+            Happened::FilesChanged { .. } => Some(StaleCause::FilesChanged),
+            Happened::NewerRevision { .. } => Some(StaleCause::NewerRevision),
+            _ => None,
         }
     }
 
@@ -733,6 +798,19 @@ impl MomentRow {
             Happened::Build { path, state, .. } => {
                 format!("{} into {path}", build_state_label(*state))
             }
+            Happened::FilesChanged {
+                audit,
+                changed,
+                added,
+                removed,
+                ..
+            } => format!(
+                "{} since audit #{audit}",
+                model::change_counts(*changed, *added, *removed)
+            ),
+            Happened::NewerRevision { version, .. } => {
+                format!("Revision {version} of its DAT made it stale")
+            }
         }
     }
 
@@ -744,6 +822,8 @@ impl MomentRow {
             }
             Happened::Ingested { root, .. } => format!("/ingest/{}", api::segment(root)),
             Happened::Build { id, .. } => format!("/builds/{id}"),
+            Happened::FilesChanged { audit, .. } => format!("/audits/{audit}"),
+            Happened::NewerRevision { .. } => "/dats".to_string(),
         }
     }
 }
@@ -786,7 +866,15 @@ impl ListRow for MomentRow {
     fn cell(&self, col: MomentCol) -> AnyView {
         match col {
             MomentCol::When => when(&self.moment.at).into_any(),
-            MomentCol::What => self.what().into_any(),
+            MomentCol::What => match self.cause() {
+                Some(cause) => view! {
+                    <StatusIcon status=cause tab_stop=false />
+                    " "
+                    {self.what()}
+                }
+                .into_any(),
+                None => self.what().into_any(),
+            },
             MomentCol::Detail => self.detail().into_any(),
         }
     }
@@ -805,6 +893,8 @@ async fn history(name: String) -> Result<Vec<Moment>, String> {
     let audits: Vec<AuditSummary> = api::get(&format!("{base}/history")).await?;
     let repairs: Vec<RepairPlan> = api::get(&format!("{base}/repairs")).await?;
     let ingests: Vec<IngestPlan> = api::get(&format!("{base}/ingests")).await?;
+    let walks: Vec<StatWalk> = api::get(&format!("{base}/stat-walks")).await?;
+    let followed: Vec<FollowedRevision> = api::get(&format!("{base}/followed-revisions")).await?;
     let folders: Vec<LibraryFolder> = api::get("/libraries").await?;
     let mut builds = Vec::new();
     for f in folders.into_iter().filter(|f| f.source_set == name) {
@@ -812,10 +902,12 @@ async fn history(name: String) -> Result<Vec<Moment>, String> {
         let made: Vec<BuildSummary> = api::get(&format!("/libraries/{}/builds", f.id)).await?;
         builds.extend(made.into_iter().map(|b| (path.clone(), b)));
     }
-    Ok(model::timeline(&audits, &repairs, &ingests, &builds))
+    Ok(model::timeline(
+        &audits, &repairs, &ingests, &builds, &walks, &followed,
+    ))
 }
 
-/// One timeline of the source set's audits, repairs, ingests and builds, newest first.
+/// One timeline of the source set's audits, repairs, ingests, builds and what made it stale, newest first.
 #[component]
 fn History(name: String) -> impl IntoView {
     let live = use_live();
@@ -852,7 +944,7 @@ fn History(name: String) -> impl IntoView {
             label="History"
             rows
             empty="Nothing has happened to this source set yet."
-            placeholder="Filter by audit, repair, ingest, build or detail"
+            placeholder="Filter by audit, repair, ingest, build, change or detail"
             row_actions=Callback::new(|row: MomentRow| vec![RowAction::go(Glyph::Eye, "Open", row.link())])
             detail=Callback::new(|row: MomentRow| {
                 view! {

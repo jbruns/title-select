@@ -6,8 +6,8 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use title_select_api::repair::{PlanRepair, RepairPlan};
 use title_select_api::{
-    AddSourceSet, AuditEvidence, Dat, DatRevisionRecord, GameStatus, Job, PathTemplateDefaults,
-    Root, SourceSetRecord, SourceSetSummary, StartAudit,
+    AddSourceSet, AuditEvidence, Dat, GameStatus, Job, PathTemplateDefaults, Root, SourceSetRecord,
+    SourceSetSummary, StartAudit,
 };
 
 use crate::api;
@@ -60,6 +60,33 @@ pub fn start_audit(name: String, said: RwSignal<Option<String>>) {
         };
         said.set(Some(message));
     });
+}
+
+/// Queues a check of `name` for files changed since its latest audit, and says how that went in `said`.
+pub fn start_check(name: String, said: RwSignal<Option<String>>) {
+    leptos::task::spawn_local(async move {
+        let path = format!("{}/stat-walks", set_href(&name));
+        let message = match api::post::<_, Job>(&path, &()).await {
+            Ok(job) => format!("Queued check #{} of {name} for changes.", job.id),
+            Err(problem) => format!("Couldn't check {name} for changes: {problem}"),
+        };
+        said.set(Some(message));
+    });
+}
+
+/// Each cause of a stale source set as its icon, whose tooltip says what it found.
+pub fn stale_icons(stale: &[title_select_api::SourceSetStale]) -> AnyView {
+    model::stale_causes(stale)
+        .into_iter()
+        .map(|(cause, line)| {
+            view! {
+                <span class="stale-cause" title=line>
+                    <StatusIcon status=cause tab_stop=false />
+                </span>
+            }
+        })
+        .collect_view()
+        .into_any()
 }
 
 /// The status line while repairs are proposed for `names`.
@@ -127,7 +154,7 @@ impl ListRow for SetRow {
 
     fn column(col: SetCol) -> Column {
         match col {
-            SetCol::Status => Column::new("status", "Status", Width::Fixed(4.5))
+            SetCol::Status => Column::new("status", "Status", Width::Fixed(6.0))
                 .sortable()
                 .hint("Running, repair open, needs review, stale, verified or never audited"),
             SetCol::Name => Column::new(
@@ -166,20 +193,33 @@ impl ListRow for SetRow {
 
     fn search(&self) -> String {
         let set = &self.summary.set;
+        let causes: Vec<&str> = model::stale_causes(&set.stale)
+            .into_iter()
+            .map(|(cause, _)| cause.look().label)
+            .collect();
         format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {} {}",
             set.name,
             set.dat,
             set.root,
             set.path,
-            self.status.look().label
+            self.status.look().label,
+            causes.join(" ")
         )
     }
 
     fn cell(&self, col: SetCol) -> AnyView {
         let s = &self.summary;
         match col {
-            SetCol::Status => view! { <StatusIcon status=self.status tab_stop=false /> }.into_any(),
+            SetCol::Status => {
+                let causes =
+                    (self.status == SourceSetStatus::Stale).then(|| stale_icons(&s.set.stale));
+                view! {
+                    <StatusIcon status=self.status tab_stop=false />
+                    {causes}
+                }
+                .into_any()
+            }
             SetCol::Name => view! { <Clip text=s.set.name.clone() /> }.into_any(),
             SetCol::Games => match &s.latest {
                 Some(audit) => game_counts(&audit.games),
@@ -260,6 +300,14 @@ fn set_actions(row: &SetRow, ctx: Ctx) -> Vec<RowAction> {
             start_audit(name.clone(), ctx.said)
         })
     }];
+    if row.summary.latest.is_some() {
+        let name = name.clone();
+        actions.push(RowAction::run(
+            Glyph::ScanSearch,
+            "Check for changes",
+            move || start_check(name.clone(), ctx.said),
+        ));
+    }
     actions.push(match &row.summary.repair {
         Some(open) => RowAction::go(
             Glyph::Wrench,
@@ -311,6 +359,7 @@ fn set_detail(row: SetRow) -> AnyView {
         <p>
             <StatusBadge status=row.status />
         </p>
+        {stale_lines(&s.set)}
         <dl class="facts">
             <dt>"DAT"</dt>
             <dd>{s.set.dat.clone()}</dd>
@@ -370,19 +419,33 @@ fn set_detail(row: SetRow) -> AnyView {
     .into_any()
 }
 
-async fn summaries() -> Result<
-    (
-        Vec<SourceSetSummary>,
-        BTreeMap<String, Vec<DatRevisionRecord>>,
-    ),
-    String,
-> {
-    let sets: Vec<SourceSetSummary> = api::get("/source-set-summaries").await?;
-    let dats: Vec<Dat> = api::get("/dats").await?;
-    Ok((
-        sets,
-        dats.into_iter().map(|d| (d.dat, d.revisions)).collect(),
-    ))
+/// Why the source set is stale, one line each with its cause's icon, and whether it follows its DAT.
+pub fn stale_lines(set: &SourceSetRecord) -> AnyView {
+    let causes = model::stale_causes(&set.stale);
+    (!causes.is_empty())
+        .then(|| {
+            view! {
+                <ul class="plain reasons">
+                    {causes
+                        .into_iter()
+                        .map(|(cause, line)| {
+                            view! {
+                                <li>
+                                    <StatusIcon status=cause tab_stop=false />
+                                    " "
+                                    {line}
+                                </li>
+                            }
+                        })
+                        .collect_view()}
+                </ul>
+            }
+        })
+        .into_any()
+}
+
+async fn summaries() -> Result<Vec<SourceSetSummary>, String> {
+    api::get("/source-set-summaries").await
 }
 
 /// The registered source sets with their status, every action on them, and the form to register another.
@@ -395,26 +458,18 @@ pub fn SourceSets() -> impl IntoView {
         refresh.track();
         summaries()
     });
-    let latest = last_good_rows(move || loaded.get().map(|r| r.map(|data| vec![data])));
+    let latest = last_good_rows(move || loaded.get());
     let rows = Memo::new(move |_| {
         let running = live
             .book
             .with(|b| model::running(b.newest_first().iter().map(|l| &l.job)));
-        let rows: Vec<SetRow> = latest.with(|l| {
-            l.first()
-                .map(|(sets, revisions)| {
-                    sets.iter()
-                        .map(|s| SetRow {
-                            status: model::status(
-                                s,
-                                running.contains(&s.set.name),
-                                revisions.get(&s.set.dat).map_or(&[][..], Vec::as_slice),
-                            ),
-                            summary: s.clone(),
-                        })
-                        .collect()
+        let rows: Vec<SetRow> = latest.with(|sets| {
+            sets.iter()
+                .map(|s| SetRow {
+                    status: model::status(s, running.contains(&s.set.name)),
+                    summary: s.clone(),
                 })
-                .unwrap_or_default()
+                .collect()
         });
         std::sync::Arc::new(rows)
     });
@@ -443,6 +498,11 @@ pub fn SourceSets() -> impl IntoView {
         ToolAction::<SetRow>::checked(Glyph::ShieldCheck, "Audit", move |chosen| {
             for row in chosen.rows {
                 start_audit(row.name().to_string(), ctx.said);
+            }
+        }),
+        ToolAction::<SetRow>::checked(Glyph::ScanSearch, "Check for changes", move |chosen| {
+            for row in chosen.rows {
+                start_check(row.name().to_string(), ctx.said);
             }
         }),
         ToolAction::<SetRow>::checked(Glyph::Wrench, "Propose repair", move |chosen| {

@@ -18,6 +18,7 @@ mod profiles;
 mod repairs;
 mod selections;
 mod sets;
+mod stale;
 mod storage;
 
 use std::fs::{File, OpenOptions, TryLockError};

@@ -5,19 +5,15 @@ use title_select_api::build::{BuildState, BuildSummary};
 use title_select_api::ingest::{IngestAction, IngestPlan};
 use title_select_api::repair::{RepairPlan, RepairStep};
 use title_select_api::{
-    AuditEvidence, AuditSummary, DatRevisionRecord, Finding, OpenRepair, SourceSetSummary,
+    AuditEvidence, AuditSummary, Finding, FollowedRevision, JobKind, JobState, OpenRepair,
+    SourceSetStale, SourceSetSummary, StatWalk,
 };
 
-use crate::model::{audit_choices, needs_review_from_counts};
-use crate::parts::status::{RepairState, SourceSetFacts, SourceSetStatus};
+use crate::model::needs_review_from_counts;
+use crate::parts::status::{RepairState, SourceSetFacts, SourceSetStatus, StaleCause};
 
-/// What is true of a source set: `running` when a job is queued or running for it, and `revisions` its DAT's
-/// revisions, oldest first.
-pub fn facts(
-    summary: &SourceSetSummary,
-    running: bool,
-    revisions: &[DatRevisionRecord],
-) -> SourceSetFacts {
+/// What is true of a source set: `running` when a job is queued or running for it.
+pub fn facts(summary: &SourceSetSummary, running: bool) -> SourceSetFacts {
     let latest = summary.latest.as_slice();
     SourceSetFacts {
         running,
@@ -25,7 +21,7 @@ pub fn facts(
         needs_review: latest
             .first()
             .is_some_and(|a| needs_review_from_counts(&a.findings) > 0),
-        stale: !latest.is_empty() && !audit_choices(latest, revisions).1.is_empty(),
+        stale: !summary.set.stale.is_empty(),
         claims: latest.first().is_some_and(rests_on_claims),
         audited: !latest.is_empty(),
     }
@@ -68,12 +64,43 @@ pub fn evidence_coverage(audit: &AuditSummary) -> String {
     said
 }
 
-pub fn status(
-    summary: &SourceSetSummary,
-    running: bool,
-    revisions: &[DatRevisionRecord],
-) -> SourceSetStatus {
-    SourceSetStatus::of(facts(summary, running, revisions))
+/// The status that shows a source set's stale causes beside it.
+pub const STALE: SourceSetStatus = SourceSetStatus::Stale;
+
+pub fn status(summary: &SourceSetSummary, running: bool) -> SourceSetStatus {
+    SourceSetStatus::of(facts(summary, running))
+}
+
+/// What a check counted, leaving out what it found none of: "2 changed, 1 added".
+pub fn change_counts(changed: u64, added: u64, removed: u64) -> String {
+    [(changed, "changed"), (added, "added"), (removed, "removed")]
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, what)| format!("{n} {what}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Why a source set is stale: each cause, with a line that says what it found.
+pub fn stale_causes(stale: &[SourceSetStale]) -> Vec<(StaleCause, String)> {
+    stale
+        .iter()
+        .map(|s| match s {
+            SourceSetStale::FilesChanged {
+                changed,
+                added,
+                removed,
+                ..
+            } => (
+                StaleCause::FilesChanged,
+                format!("Files {}", change_counts(*changed, *added, *removed)),
+            ),
+            SourceSetStale::NewerRevision { version, .. } => (
+                StaleCause::NewerRevision,
+                format!("DAT revision {version} waits"),
+            ),
+        })
+        .collect()
 }
 
 /// Where the source set's repair is, if one is under way: `proposing` while you wait for a plan, and `job_running`
@@ -193,6 +220,16 @@ pub enum Happened {
         path: String,
         state: BuildState,
     },
+    /// A check found files changed, added or removed since the audit it names.
+    FilesChanged {
+        walk: i64,
+        audit: i64,
+        changed: u64,
+        added: u64,
+        removed: u64,
+    },
+    /// A newer revision of the DAT it follows was imported.
+    NewerRevision { sha256: String, version: String },
 }
 
 /// One moment of a source set's timeline.
@@ -211,17 +248,23 @@ impl Moment {
             Happened::Ingest { repair, .. } => format!("ingest-{repair}"),
             Happened::Ingested { id, .. } => format!("ingested-{id}"),
             Happened::Build { id, .. } => format!("build-{id}"),
+            Happened::FilesChanged { walk, .. } => format!("walk-{walk}"),
+            Happened::NewerRevision { sha256, .. } => format!("revision-{sha256}"),
         }
     }
 }
 
 /// One timeline, newest first, of a source set's audits, its repairs and the games they moved in from ingest folders,
-/// the ingest plans that changed it, and the builds of its library folders, each given with its folder's path.
+/// the ingest plans that changed it, the builds of its library folders, each given with its folder's path, the checks
+/// that found its files changed, and each newer revision of the DAT it follows that made it stale, whether or not it
+/// still is.
 pub fn timeline(
     audits: &[AuditSummary],
     repairs: &[RepairPlan],
     ingests: &[IngestPlan],
     builds: &[(String, BuildSummary)],
+    walks: &[StatWalk],
+    followed: &[FollowedRevision],
 ) -> Vec<Moment> {
     let mut moments: Vec<Moment> = audits
         .iter()
@@ -296,16 +339,35 @@ pub fn timeline(
             },
         }
     }));
+    moments.extend(walks.iter().map(|w| Moment {
+        at: w.found_at.clone(),
+        what: Happened::FilesChanged {
+            walk: w.id,
+            audit: w.audit,
+            changed: w.changed,
+            added: w.added,
+            removed: w.removed,
+        },
+    }));
+    moments.extend(followed.iter().map(|r| Moment {
+        at: r.found_at.clone(),
+        what: Happened::NewerRevision {
+            sha256: r.sha256.clone(),
+            version: r.version.clone(),
+        },
+    }));
     // Timestamps are ISO 8601 in UTC, so they sort as text.
     moments.sort_by(|a, b| b.at.cmp(&a.at));
     moments
 }
 
-/// The source sets running a job: those of the jobs given that are queued or running.
+/// The source sets running a job: those of the jobs given that are queued or running. A check for changes counts
+/// only while it runs: one waits, at low priority, for every other job.
 pub fn running<'a>(jobs: impl IntoIterator<Item = &'a title_select_api::Job>) -> Vec<String> {
     let mut names: Vec<String> = jobs
         .into_iter()
         .filter(|j| !j.state.is_final() && !j.source_set.is_empty())
+        .filter(|j| !(j.kind == JobKind::StatWalk && j.state == JobState::Queued))
         .map(|j| j.source_set.clone())
         .collect();
     names.sort();
@@ -320,15 +382,6 @@ mod tests {
     use title_select_api::{Finding, SourceSetRecord};
 
     use super::*;
-
-    fn revision(sha: &str) -> DatRevisionRecord {
-        serde_json::from_value(serde_json::json!({
-            "name": "Nintendo - Game Boy", "provider": "No-Intro", "version": sha, "sha256": sha,
-            "file": "gb.dat", "imported_at": "2026-01-01T00:00:00Z", "source_url": null,
-            "blob_present": true,
-        }))
-        .unwrap()
-    }
 
     fn audit(id: i64, at: &str, sha: &str, review: usize) -> AuditSummary {
         AuditSummary {
@@ -355,6 +408,8 @@ mod tests {
                 dat: "No-Intro/Nintendo - Game Boy".into(),
                 added_at: "2026-01-01T00:00:00Z".into(),
                 last_verified_against: None,
+                follow: false,
+                stale: Vec::new(),
             },
             latest,
             repair,
@@ -372,8 +427,6 @@ mod tests {
 
     #[test]
     fn a_source_sets_row_status_follows_its_summary() {
-        let revisions = [revision("a"), revision("b")];
-        let status = |s: &SourceSetSummary, running: bool| status(s, running, &revisions);
         assert_eq!(
             status(&summary(None, None), false),
             SourceSetStatus::NeverAudited
@@ -382,10 +435,18 @@ mod tests {
             status(&summary(Some(audit(1, "t", "b", 0)), None), false),
             SourceSetStatus::Verified
         );
+        let mut stale = summary(Some(audit(1, "t", "b", 0)), None);
+        stale.set.stale = vec![newer("c")];
         assert_eq!(
-            status(&summary(Some(audit(1, "t", "a", 0)), None), false),
+            status(&stale, false),
             SourceSetStatus::Stale,
-            "a newer DAT revision waits"
+            "a newer revision of the DAT it follows waits"
+        );
+        stale.latest = None;
+        assert_eq!(
+            status(&stale, false),
+            SourceSetStatus::NeverAudited,
+            "never audited, never stale"
         );
         let claimed = AuditSummary {
             claimed: Some(3),
@@ -490,40 +551,125 @@ mod tests {
             "approval": {"digest": "d", "actor": "Operator", "at": "2026-01-02T13:00:00Z"},
         }))
         .unwrap();
+        let walk = StatWalk {
+            id: 11,
+            source_set: "GB".into(),
+            audit: 1,
+            found_at: "2026-01-07T00:00:00Z".into(),
+            checked_at: "2026-01-09T00:00:00Z".into(),
+            changed: 1,
+            added: 0,
+            removed: 2,
+        };
         let moments = timeline(
             &[audit(1, "2026-01-01T00:00:00Z", "a", 0)],
             &[repair],
             &[ingest],
             &[("GB".into(), build)],
+            &[walk],
+            // The older made it stale before its latest audit, which cleared it; it stays in the timeline.
+            &[
+                followed("c", "2026-01-08T00:00:00Z"),
+                followed("b", "2025-12-31T00:00:00Z"),
+            ],
         );
         let keys: Vec<String> = moments.iter().map(Moment::key).collect();
-        assert_eq!(keys, ["build-7", "repair-4", "ingested-9", "audit-1"]);
         assert_eq!(
-            moments[2].at, "2026-01-02T13:00:00Z",
+            keys,
+            [
+                "revision-c",
+                "walk-11",
+                "build-7",
+                "repair-4",
+                "ingested-9",
+                "audit-1",
+                "revision-b"
+            ]
+        );
+        assert_eq!(
+            moments[1].at, "2026-01-07T00:00:00Z",
+            "a check is when it first found the changes"
+        );
+        assert_eq!(
+            moments[4].at, "2026-01-02T13:00:00Z",
             "an unfinished ingest plan is when it was approved"
         );
         assert_eq!(
-            moments[1].at, "2026-01-04T00:00:00Z",
+            moments[3].at, "2026-01-04T00:00:00Z",
             "a finished repair is when it finished"
         );
     }
 
     #[test]
     fn a_source_set_is_running_while_a_job_for_it_is_queued_or_running() {
-        let job = |name: &str, state: &str| -> title_select_api::Job {
-            serde_json::from_value(serde_json::json!({
-                "id": 1, "state": state, "source_set": name, "dat_revision": "r", "actor": "Operator",
-                "attempt": 1, "requeued_from": null, "audit": null, "created_at": "t",
-                "workers": {"readers": 1, "hashers": 1}, "version": 1,
-            }))
-            .unwrap()
-        };
+        let job =
+            |name: &str, state: &str| -> title_select_api::Job { job_of("audit", name, state) };
         let jobs = [
             job("GB", "running"),
             job("GBA", "succeeded"),
             job("GB", "queued"),
             job("", "running"),
+            job_of("stat_walk", "GBC", "queued"),
+            job_of("stat_walk", "NES", "running"),
         ];
-        assert_eq!(running(&jobs), ["GB"]);
+        assert_eq!(
+            running(&jobs),
+            ["GB", "NES"],
+            "a check waiting isn't running"
+        );
+    }
+
+    fn job_of(kind: &str, name: &str, state: &str) -> title_select_api::Job {
+        {
+            serde_json::from_value(serde_json::json!({
+                "id": 1, "kind": kind, "state": state, "source_set": name, "dat_revision": "r", "actor": "Operator",
+                "attempt": 1, "requeued_from": null, "audit": null, "created_at": "t",
+                "workers": {"readers": 1, "hashers": 1}, "version": 1,
+            }))
+            .unwrap()
+        }
+    }
+
+    fn followed(sha: &str, found_at: &str) -> FollowedRevision {
+        FollowedRevision {
+            source_set: "GB".into(),
+            sha256: sha.into(),
+            version: sha.into(),
+            imported_at: found_at.into(),
+            found_at: found_at.into(),
+        }
+    }
+
+    fn newer(sha: &str) -> SourceSetStale {
+        SourceSetStale::NewerRevision {
+            sha256: sha.into(),
+            version: sha.into(),
+            imported_at: "2026-01-08T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn a_stale_source_set_says_each_cause_with_what_it_found() {
+        let files = SourceSetStale::FilesChanged {
+            walk: 1,
+            found_at: "t".into(),
+            changed: 2,
+            added: 0,
+            removed: 1,
+        };
+        assert_eq!(
+            stale_causes(&[files, newer("20260201")]),
+            [
+                (
+                    StaleCause::FilesChanged,
+                    "Files 2 changed, 1 removed".into()
+                ),
+                (
+                    StaleCause::NewerRevision,
+                    "DAT revision 20260201 waits".into()
+                ),
+            ]
+        );
+        assert_eq!(change_counts(0, 3, 0), "3 added");
     }
 }

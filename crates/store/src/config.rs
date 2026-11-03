@@ -14,6 +14,8 @@ use title_select_api::paths::{
 pub const DEFAULT_AUDITS_KEPT: usize = 20;
 /// How many full Selections a Source Set keeps when the configuration does not say.
 pub const DEFAULT_SELECTIONS_KEPT: usize = 20;
+/// How often each audited Source Set is checked for changes when the configuration does not say: every six hours.
+pub const DEFAULT_CHECK_EVERY_MINUTES: u64 = 360;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,6 +33,8 @@ pub struct Config {
     pub jobs: Jobs,
     #[serde(default)]
     pub path_templates: PathTemplates,
+    #[serde(default)]
+    pub source_sets: SourceSets,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,6 +132,27 @@ impl Default for Selections {
     fn default() -> Self {
         Selections {
             keep: DEFAULT_SELECTIONS_KEPT,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceSets {
+    /// How often, in minutes, a stat walk checks each audited Source Set for files changed since its latest Audit;
+    /// 0 checks only when you ask.
+    #[serde(default = "default_check_every_minutes")]
+    pub check_every_minutes: u64,
+}
+
+fn default_check_every_minutes() -> u64 {
+    DEFAULT_CHECK_EVERY_MINUTES
+}
+
+impl Default for SourceSets {
+    fn default() -> Self {
+        SourceSets {
+            check_every_minutes: DEFAULT_CHECK_EVERY_MINUTES,
         }
     }
 }
@@ -255,6 +280,7 @@ impl Default for Config {
             auth: Auth::default(),
             jobs: Jobs::default(),
             path_templates: PathTemplates::default(),
+            source_sets: SourceSets::default(),
         }
     }
 }
@@ -394,6 +420,17 @@ mod tests {
             }
         );
         assert_eq!(Config::default().jobs.concurrent, 1);
+    }
+
+    #[test]
+    fn source_sets_are_checked_for_changes_every_six_hours_unless_configured() {
+        assert_eq!(
+            Config::default().source_sets.check_every_minutes,
+            DEFAULT_CHECK_EVERY_MINUTES
+        );
+        let off = Config::parse("[source_sets]\ncheck_every_minutes = 0").unwrap();
+        assert_eq!(off.source_sets.check_every_minutes, 0);
+        assert!(Config::parse("[source_sets]\ncheck_every = 5").is_err());
     }
 
     #[test]
