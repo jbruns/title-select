@@ -1,9 +1,10 @@
 use leptos::prelude::*;
-use leptos_router::components::{A, Redirect, Route, Router, Routes};
+use leptos_router::components::{A, Outlet, ParentRoute, Redirect, Route, Router, Routes};
 use leptos_router::hooks::{use_navigate, use_params_map};
 use leptos_router::path;
 
 use crate::events::{Stream, provide_live, use_live};
+use crate::parts::theme::ThemeToggle;
 #[cfg(feature = "bench")]
 use crate::screens::Bench;
 use crate::screens::{
@@ -39,13 +40,17 @@ pub fn App() -> impl IntoView {
                     <A href="/jobs">"Jobs"</A>
                 </nav>
                 <StreamStatus />
+                <ThemeToggle />
             </header>
             <main id="main" tabindex="-1">
                 <Routes fallback=|| view! { <NotFound /> }>
                     <Route path=path!("/") view=|| view! { <Redirect path="/source-sets" /> } />
                     <Route path=path!("/source-sets") view=SourceSets />
-                    <Route path=path!("/source-sets/:name") view=SourceSet />
-                    <Route path=path!("/source-sets/:name/repair") view=RepairScreen />
+                    // A Source Set's page and its repair nest under it, ready for its tabs (#74).
+                    <ParentRoute path=path!("/source-sets/:name") view=Outlet>
+                        <Route path=path!("") view=SourceSet />
+                        <Route path=path!("repair") view=RepairScreen />
+                    </ParentRoute>
                     <Route path=path!("/dat-revisions") view=DatRevisions />
                     <Route path=path!("/audits/:id") view=AuditScreen />
                     <Route path=path!("/profiles") view=Profiles />
