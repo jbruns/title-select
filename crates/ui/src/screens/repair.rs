@@ -15,6 +15,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
+use crate::parts::pending::ActionPending;
 use crate::repair_model::{
     chosen, fetch_after, repair_to_show, requested, to_add, unfinished_note, unplanned,
 };
@@ -119,44 +120,47 @@ fn Repair(name: String) -> impl IntoView {
             }
         });
     }
-    let propose = {
-        let path = format!("{base}/repairs");
-        move || {
-            working.set(true);
-            // Planning again from a plan still open carries its choices; a new proposal starts from the defaults.
-            let open = plan.get_untracked().filter(|p| p.approval.is_none());
-            let chosen = open
-                .as_ref()
-                .map(|p| requested(p, &asked.get_untracked(), &picked.get_untracked()))
-                .unwrap_or_default();
-            let additions = adding.with_untracked(|adding| {
-                let adding = adding
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.get_untracked()))
-                    .collect();
-                open.as_ref()
-                    .map(|p| to_add(p, &chosen, &adding))
-                    .unwrap_or_default()
-            });
-            let body = PlanRepair {
-                choices: chosen.clone(),
-                additions,
-            };
-            let path = path.clone();
-            leptos::task::spawn_local(async move {
-                let planned = api::post::<_, RepairPlan>(&path, &body).await;
-                working.set(false);
-                match planned {
-                    Ok(p) => {
-                        problem.set(None);
-                        picked.set(BTreeMap::new());
-                        asked.set(chosen);
-                        plan.set(Some(p));
-                    }
-                    Err(message) => problem.set(Some(message)),
-                }
-            });
+    // Planning again from a plan still open carries its choices; a new proposal starts from the defaults.
+    let request = move || {
+        let open = plan.get_untracked().filter(|p| p.approval.is_none());
+        let chosen = open
+            .as_ref()
+            .map(|p| requested(p, &asked.get_untracked(), &picked.get_untracked()))
+            .unwrap_or_default();
+        let additions = adding.with_untracked(|adding| {
+            let adding = adding
+                .iter()
+                .map(|(k, v)| (k.clone(), v.get_untracked()))
+                .collect();
+            open.as_ref()
+                .map(|p| to_add(p, &chosen, &adding))
+                .unwrap_or_default()
+        });
+        PlanRepair {
+            choices: chosen,
+            additions,
         }
+    };
+    let proposal = {
+        let path = format!("{base}/repairs");
+        Action::new_local(move |body: &PlanRepair| {
+            let (path, body) = (path.clone(), body.clone());
+            async move {
+                let planned = api::post::<_, RepairPlan>(&path, &body).await;
+                planned.map(|p| (p, body.choices))
+            }
+        })
+    };
+    Effect::new(move || {
+        if let Some(Ok((p, chosen))) = proposal.value().get() {
+            problem.set(None);
+            picked.set(BTreeMap::new());
+            asked.set(chosen);
+            plan.set(Some(p));
+        }
+    });
+    let propose = move || {
+        proposal.dispatch_local(request());
     };
     let approve = move |_| {
         let Some(p) = plan.get_untracked() else {
@@ -181,12 +185,10 @@ fn Repair(name: String) -> impl IntoView {
             }
         });
     };
-    let first = propose.clone();
-    let again = propose.clone();
+    let (first, again) = (propose, propose);
     let review = move || {
         plan.get().map(|p| {
             let open = p.approval.is_none();
-            let again = again.clone();
             let items = p
                 .content
                 .items
@@ -311,7 +313,7 @@ fn Repair(name: String) -> impl IntoView {
             };
             let held = {
                 let changed = changed.clone();
-                move || working.get() || changed() != 0
+                move || working.get() || proposal.pending().get() || changed() != 0
             };
             let audit_href = format!("/audits/{}", p.content.audit);
             view! {
@@ -336,7 +338,11 @@ fn Repair(name: String) -> impl IntoView {
                 }}
                 {open.then(|| view! {
                     <div class="form">
-                        <button type="button" disabled=move || working.get() on:click=move |_| again()>
+                        <button
+                            type="button"
+                            disabled=move || working.get() || proposal.pending().get()
+                            on:click=move |_| again()
+                        >
                             "Plan again with your choices"
                         </button>
                     </div>
@@ -394,19 +400,25 @@ fn Repair(name: String) -> impl IntoView {
         <section aria-labelledby="repair-title">
             <h2 id="repair-title">"Repair"</h2>
             {move || {
-                let first = first.clone();
                 let running = plan.with(|p| {
                     p.as_ref().is_some_and(|p| p.approval.is_some() && p.finished_at.is_none())
                 });
                 (!running).then(|| view! {
                     <div class="form">
-                        <button type="button" class="primary" disabled=move || working.get() on:click=move |_| first()>
+                        <button
+                            type="button"
+                            class="primary"
+                            disabled=move || working.get() || proposal.pending().get()
+                            on:click=move |_| first()
+                        >
                             "Propose a repair"
                         </button>
                     </div>
                 })
             }}
-            {review}
+            <ActionPending action=proposal status="Making plan…">
+                {review.clone()}
+            </ActionPending>
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
     }
