@@ -1,9 +1,8 @@
-//! An ingest plan, for you to review and approve: what it does with each item, as a `List` of rows reading item →
-//! destination with the kind of move beside them, and each item's reason and outcome in its detail. The folder page
-//! shows it in place of its items through `IngestPlanReview` alone, so that the shared plan review can take its place.
+//! An ingest plan, for you to review and approve, with the shared plan review (`parts::plan`): what it does with each
+//! item, as rows reading item → destination with the kind of move beside them, and each item's reason and outcome in
+//! its detail. A plan does one thing with every item and you approve it whole, so it offers no choices to set.
 
 use std::cmp::Ordering;
-use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
@@ -16,14 +15,14 @@ use crate::events::use_live;
 use crate::ingest_model::{self, Outcome};
 use crate::model::{short_sha, when};
 use crate::parts::icon::{Glyph, LabelledIcon};
-use crate::parts::legend::{Legend, present};
-use crate::parts::list::{Clip, Column, List, ListRow, Width};
+use crate::parts::list::{Column, ListRow, Width, last_good_rows};
 use crate::parts::pending::ActionPending;
+use crate::parts::plan::{Change, PlanReview, PlanRow};
 use crate::parts::status::{IngestPlanKind, Status, StatusBadge, StatusIcon};
 
 /// One item of the plan under review, with how its move ended once you approved the plan.
 #[derive(Debug, Clone, PartialEq)]
-struct PlanRow {
+struct IngestRow {
     item: IngestPlanItem,
     kind: IngestPlanKind,
     outcome: Option<IngestOutcome>,
@@ -37,13 +36,20 @@ enum PlanCol {
     Result,
 }
 
-impl ListRow for PlanRow {
+impl PlanRow for IngestRow {
+    type Kind = IngestPlanKind;
+    fn kind(&self) -> IngestPlanKind {
+        self.kind
+    }
+}
+
+impl ListRow for IngestRow {
     type Col = PlanCol;
     const COLUMNS: &'static [PlanCol] = &[PlanCol::Kind, PlanCol::Change, PlanCol::Result];
 
     fn column(col: PlanCol) -> Column {
         match col {
-            PlanCol::Kind => Column::new("kind", "Does", Width::Fixed(4.0))
+            PlanCol::Kind => Column::new("kind", "Kind", Width::Fixed(3.5))
                 .sortable()
                 .hint("What the plan does with the item"),
             PlanCol::Change => Column::new(
@@ -83,12 +89,7 @@ impl ListRow for PlanRow {
         match col {
             PlanCol::Kind => view! { <StatusIcon status=self.kind tab_stop=false /> }.into_any(),
             PlanCol::Change => view! {
-                <span class="ingest-change">
-                    <Clip text=self.item.name.clone() />
-                    <span aria-hidden="true">"→"</span>
-                    <span class="visually-hidden">" goes to "</span>
-                    <Clip text=self.item.destination.clone() />
-                </span>
+                <Change current=self.item.name.clone() proposed=self.item.destination.clone() />
             }
             .into_any(),
             PlanCol::Result => self.result.label().into_any(),
@@ -104,14 +105,14 @@ impl ListRow for PlanRow {
     }
 }
 
-fn rows(plan: &IngestPlan) -> Vec<PlanRow> {
+fn rows(plan: &IngestPlan) -> Vec<IngestRow> {
     let kind = IngestPlanKind::from(plan.content.action);
     plan.content
         .items
         .iter()
         .map(|item| {
             let outcome = plan.outcomes.iter().find(|o| o.item == item.item).cloned();
-            PlanRow {
+            IngestRow {
                 result: ingest_model::outcome(plan, outcome.as_ref()),
                 item: item.clone(),
                 kind,
@@ -121,8 +122,8 @@ fn rows(plan: &IngestPlan) -> Vec<PlanRow> {
         .collect()
 }
 
-fn row_detail(row: PlanRow) -> AnyView {
-    let PlanRow {
+fn row_detail(row: IngestRow) -> AnyView {
+    let IngestRow {
         item,
         kind,
         outcome,
@@ -219,9 +220,7 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>, back: Callback<()>) -
             done
         }
     });
-    let list_rows: Signal<Arc<Vec<PlanRow>>> =
-        Signal::derive(move || Arc::new(latest.with(|p| p.as_ref().map(rows).unwrap_or_default())));
-    let kinds = Signal::derive(move || present(list_rows.get().iter().map(|r| r.kind)));
+    let list_rows = last_good_rows(move || loaded.get().map(|p| p.map(|p| rows(&p))));
 
     let header = move || {
         latest.get().map(|p| {
@@ -284,14 +283,13 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>, back: Callback<()>) -
             <ActionPending action=approving status="Approving…">
                 {header}
             </ActionPending>
-            <List
+            <PlanReview
                 id="ingest-plan"
                 label=format!("Plan #{plan}")
                 rows=list_rows
                 empty="The plan moves nothing."
                 placeholder="Filter by item, destination or result"
                 detail=Callback::new(row_detail)
-                legend=move || view! { <Legend statuses=kinds list="ingest-plan" /> }
             />
         </section>
     }

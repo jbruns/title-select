@@ -8,10 +8,11 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::hooks::use_query_map;
+use wasm_bindgen::JsCast;
 
 use super::icon::{Glyph, Svg};
 use super::legend::{Legend, present};
-use super::list::{Clip, Keep, List, ListRow, RowAction, ToolAction};
+use super::list::{Clip, Keep, List, ListRow, RowAction, Selected, ToolAction};
 use super::plan_model::{kind_counts, kind_from_slug, kind_slug};
 use super::status::{Status, StatusIcon};
 use super::url_state::use_query_edit;
@@ -20,6 +21,16 @@ use super::url_state::use_query_edit;
 pub trait PlanRow: ListRow {
     type Kind: Status;
     fn kind(&self) -> Self::Kind;
+
+    /// Another kind it counts and filters under besides its own: what else it does, such as setting a file aside.
+    fn also(&self) -> Option<Self::Kind> {
+        None
+    }
+
+    /// Whether it counts under `kind`.
+    fn is(&self, kind: Self::Kind) -> bool {
+        self.kind() == kind || self.also() == Some(kind)
+    }
 }
 
 /// The kind the URL's `kind` filters a plan review by, and a way to change it.
@@ -54,6 +65,62 @@ pub fn Change(#[prop(into)] current: String, #[prop(into)] proposed: String) -> 
             <Clip text=proposed />
         </span>
     }
+}
+
+/// The "apply to all" control of `kind`: a `<select>` of `choices`, named by `label`, that starts at "no change" and
+/// goes back to it once you pick one, since it sets a choice rather than holding one. Nothing when there's no choice.
+pub fn apply_to_all<K: Status, C: Copy + Send + Sync + 'static>(
+    kind: K,
+    choices: Vec<C>,
+    label: fn(C) -> &'static str,
+    pick: impl Fn(C) + 'static,
+) -> AnyView {
+    if choices.is_empty() {
+        return ().into_any();
+    }
+    let what = kind.look().label.to_lowercase();
+    let options = choices
+        .iter()
+        .map(
+            |c| view! { <option value=label(*c)>{format!("Apply to all: {}", label(*c))}</option> },
+        )
+        .collect_view();
+    view! {
+        <select
+            class="apply-all"
+            aria-label=format!("Set every {what} item to")
+            title=format!("Set every {what} item to one choice")
+            on:change=move |ev| {
+                let value = event_target_value(&ev);
+                if let Some(c) = choices.iter().copied().find(|c| label(*c) == value) {
+                    pick(c);
+                }
+                if let Some(el) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
+                    el.set_value("");
+                }
+            }
+        >
+            <option value="">"Apply to all: no change"</option>
+            {options}
+        </select>
+    }
+    .into_any()
+}
+
+/// The toolbar's "Set to …" actions over the checked rows: one for each of `choices` that `offered` holds, running
+/// `set` with the rows checked and the choice.
+pub fn set_actions<R: ListRow, C: Copy + PartialEq + Send + Sync + 'static>(
+    choices: impl IntoIterator<Item = (Glyph, C)>,
+    offered: &[C],
+    label: fn(C) -> &'static str,
+    set: impl Fn(Vec<R>, C) + Copy + Send + Sync + 'static,
+) -> Vec<ToolAction<R>> {
+    let run = move |c: C| move |chosen: Selected<R>| set(chosen.rows, c);
+    choices
+        .into_iter()
+        .filter(|(_, c)| offered.contains(c))
+        .map(|(glyph, c)| ToolAction::checked(glyph, format!("Set to {}", label(c)), run(c)))
+        .collect()
 }
 
 /// The counts of a plan's items by kind. Each count filters the list to its kind, or back to every kind; `apply`
@@ -120,10 +187,17 @@ pub fn PlanReview<R: PlanRow>(
     #[prop(optional, into)] placeholder: Option<String>,
 ) -> impl IntoView {
     let (kind, set_kind) = use_kind_filter::<R::Kind>();
-    let counts = Signal::derive(move || rows.with(|r| kind_counts(r.iter().map(R::kind))));
+    let counts = Signal::derive(move || {
+        rows.with(|r| {
+            kind_counts(
+                r.iter()
+                    .flat_map(|r| std::iter::once(r.kind()).chain(r.also())),
+            )
+        })
+    });
     let keep = Signal::derive(move || -> Keep<R> {
         kind.get().map(|k| {
-            let keep: Arc<dyn Fn(&R) -> bool + Send + Sync> = Arc::new(move |r: &R| r.kind() == k);
+            let keep: Arc<dyn Fn(&R) -> bool + Send + Sync> = Arc::new(move |r: &R| r.is(k));
             keep
         })
     });

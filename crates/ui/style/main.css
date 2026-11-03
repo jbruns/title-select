@@ -1328,19 +1328,6 @@ a.icon-button {
   background: var(--color-surface);
 }
 
-.ingest-change {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.ingest-change > .clip,
-.ingest-change > .tip-anchor {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
 details.kept {
   margin: var(--space-6) 0 0;
 }
@@ -1640,10 +1627,6 @@ details.kept > summary {
 .choices > summary,
 .facts-more > summary {
   cursor: pointer;
-}
-
-.filter-select {
-  width: auto;
 }
 
 .bar nav a,
