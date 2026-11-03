@@ -35,7 +35,7 @@ pure logic there too.
 | The key to a list's statuses           | `Legend { statuses, list }` with `present(rows)`       | `legend`    |
 | A slow request                         | `ActionPending { action, status }` around its content  | `pending`   |
 | A slow load or any busy flag           | `Pending { pending, status, problem? }`                | `pending`   |
-| A hover/focus hint on arbitrary content| `Tooltip { label, focusable?, clipped? }`              | `overlay`   |
+| A hover/focus hint on arbitrary content| `Tooltip { label, focusable?, clipped?, shown? }`      | `overlay`   |
 | A row or toolbar menu                  | `Menu { glyph, label }` holding `MenuItem { disabled? }`| `overlay`  |
 | A side panel over the page             | `Drawer { open, title }`                               | `overlay`   |
 | Any list of rows                       | `List { id, label, rows, empty, detail, .. }`          | `list`      |
@@ -85,20 +85,23 @@ single window listener sends Escape to the topmost layer only. `Menu` supports a
 is modal: Tab and Shift+Tab wrap over its tabbable elements only (`trap`, `tabbables`), and while any modal is open
 the page's top-level elements are `inert`, except those holding the topmost modal and the layers above it. Each
 element gets back its original inert state when the last modal closes; then focus returns to where it was. A new
-overlay registers with `layers::layer` (or `open_layer`/`close_layer` when its cleanup order matters).
+overlay registers with `layers::layer` (or `open_layer`/`close_layer` when its cleanup order matters). `Tooltip { shown }`
+shows it while a signal is true, kept within its anchor's width, for an anchor the keyboard reaches without focus.
 
 ### Lists
 
 Every list screen uses `parts::list::List`; its pure logic (windowing, cursor steps, `Selection`, filter and sort,
 toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is the reference.
 
-1. **A row type.** Implement `ListRow` for the row (`Clone + Send + Sync + 'static`):
+1. **A row type.** Implement `ListRow` for the row (`Clone + PartialEq + Send + Sync + 'static`; equality decides whether a
+   reload redraws the open row's detail):
    - `type Col` (a `Copy + Eq` enum) and `const COLUMNS: &[Col]`, in display order.
    - `column(col) -> Column`: `Column::new(id, header, width)`, then `.sortable()`, `.numeric()` (right-aligned, data
      font) and `.hint(text)` (the header's tooltip). `id` names the column in the URL's `sort`. `width` is
      `Width::Fixed(rem)` or `Width::Flex { min: rem, share }` (`minmax(min, share fr)`). Give text columns a `Flex`
      with a `min`, and wrap their text in `Clip { text }`: it is cut off with an ellipsis and its tooltip shows the
-     whole text only when cut off. The columns' minimums are the grid's minimum width; past it the list scrolls
+     whole text only when cut off: on hover, and while the keyboard cursor is on its row (the grid keeps focus, so
+     a cell's own focus never fires). The columns' minimums are the grid's minimum width; past it the list scrolls
      sideways, so keep the sum under about 50rem (the list's width at 1400px with a detail pane open).
    - `key()`: stable and unique, it names the row in the URL (`row`, `sel`) and keys its element.
    - `title()`: the detail's title and the accessible name of the row's checkbox and actions.
@@ -111,7 +114,8 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
      rows at all.
    - `rows: Signal<Arc<Vec<T>>>`: every row, in their default order. A reload replaces the `Arc`.
    - `detail: Callback<T, AnyView>`: the open row's summary, under its actions in the `DetailPane` (or the drawer
-     below 1100px). Its title is `title()`.
+     below 1100px). Its title is `title()`. It follows the row's data across reloads, and closes if the row leaves
+     `rows`.
    - `actions: Vec<ToolAction<T>>`: toolbar buttons, icon and label. `ToolAction::page(glyph, label, || ..)` acts on
      the page; `ToolAction::checked(glyph, label, |chosen: Selected<T>| ..)` acts on the checked rows and is
      disabled while none are. `Selected { rows, matching, left_out }`: `rows` are the checked rows in list order;
@@ -128,7 +132,8 @@ toolbar fit, column template) is in `parts::list_model`. `screens/dats.rs` is th
 3. **What it does for you.** Filter text (`q`), sort (`sort`), the open row (`row`) and the checked rows (`sel`,
    `all`) live in the URL. Rows are keyed and virtualized: only the rows in view plus a few more are in the DOM, all
    40px tall, so a list of 100,000 filters within the ADR 0005 budget (`crates/ui/bench/filter.py --list`). The
-   header checkbox checks every row matching the filter (stored as `all=1`, not as keys), or clears; changing the
+   header checkbox checks every row matching the filter (stored as `all=1`, not as keys), even when some already
+   are, and clears only when all are; changing the
    filter text clears such a selection but keeps rows checked one by one. The toolbar shows "N selected", "Select
    all N" and a clear button. Keyboard: the grid is one tab stop; arrows, Page Up/Down, Home and End move the
    cursor; Space checks (Shift+Space checks the range from the last one); Enter opens; Escape closes the open row.

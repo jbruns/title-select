@@ -74,7 +74,7 @@ impl Column {
 }
 
 /// A row type a `List` shows.
-pub trait ListRow: Clone + Send + Sync + 'static {
+pub trait ListRow: Clone + PartialEq + Send + Sync + 'static {
     type Col: Copy + Eq + Send + Sync + 'static;
     const COLUMNS: &'static [Self::Col];
     fn column(col: Self::Col) -> Column;
@@ -188,11 +188,17 @@ impl<T: Clone + Send + Sync + 'static> ToolAction<T> {
 /// A screen's own narrowing of a list beside its filter text, such as a status chosen from a `<select>`.
 pub type Keep<T> = Option<Arc<dyn Fn(&T) -> bool + Send + Sync>>;
 
-/// Text for a cell: cut off with an ellipsis where it doesn't fit, with the whole text as a tooltip then.
+/// Whether the keyboard cursor rests on the row being drawn, so its clipped cells show their whole text.
+#[derive(Clone, Copy)]
+struct KeyboardCursor(Signal<bool>);
+
+/// Text for a cell: cut off with an ellipsis where it doesn't fit, with the whole text as a tooltip then: on hover,
+/// or while the keyboard cursor is on its row.
 #[component]
 pub fn Clip(#[prop(into)] text: String) -> impl IntoView {
+    let shown = use_context::<KeyboardCursor>().map_or(Signal::stored(false), |c| c.0);
     view! {
-        <Tooltip label=text.clone() clipped=true>
+        <Tooltip label=text.clone() clipped=true shown>
             {text}
         </Tooltip>
     }
@@ -404,6 +410,8 @@ pub fn List<T: ListRow>(
     };
 
     let cursor = RwSignal::new(None::<usize>);
+    // The cursor last moved by key, with the list focused: a mouse user has the hover tooltips instead.
+    let by_key = RwSignal::new(false);
     let anchor = RwSignal::new(None::<usize>);
     Effect::watch(
         move || shown.track(),
@@ -470,6 +478,7 @@ pub fn List<T: ListRow>(
             ) {
                 ev.prevent_default();
                 cursor.set(Some(next));
+                by_key.set(true);
                 reveal(next);
             }
             return;
@@ -574,11 +583,8 @@ pub fn List<T: ListRow>(
                 prop:indeterminate=move || { header.get() == Checked::Some }
                 disabled=move || { count.get() == 0 }
                 on:click=move |_| {
-                    if header.get_untracked() == Checked::None {
-                        update(&|q| q.checked.select_matching());
-                    } else {
-                        update(&|q| q.checked.clear());
-                    }
+                    let (shown, listed) = (count.get_untracked(), listed.get_untracked());
+                    update(&|q| q.checked.select_all_or_none(shown, listed));
                 }
             />
         </div>
@@ -612,6 +618,9 @@ pub fn List<T: ListRow>(
             move |_| open_key.with(|k| k.as_deref() == Some(key.as_str()))
         });
         let at_cursor = move || index.get().is_some() && cursor.get() == index.get();
+        provide_context(KeyboardCursor(Signal::derive(move || {
+            by_key.get() && at_cursor()
+        })));
         let on_click = move |ev: web_sys::MouseEvent| {
             let inner = ev
                 .target()
@@ -621,6 +630,7 @@ pub fn List<T: ListRow>(
                 return;
             }
             if let Some(i) = index.get_untracked() {
+                by_key.set(false);
                 open(i);
                 if let Some(g) = grid.get_untracked() {
                     let _ = g.focus();
@@ -736,14 +746,29 @@ pub fn List<T: ListRow>(
         let pairs = query_map.with(|m| q.merged(m.latest_values().map(|(k, v)| (k.as_ref(), v))));
         format!("{}{}", location.pathname.get(), query_string(&pairs))
     });
+    // The open row's current data: it follows a reload, and the detail redraws only when the row itself changed.
+    let open_row = Memo::new(move |_| open_pos.get().map(|p| rows.with(|r| r[p].clone())));
+    let is_open = Memo::new(move |_| open_row.with(Option::is_some));
+    // The open row left the list on a reload: close it rather than keep a link to nothing.
+    Effect::watch(
+        move || (open_key.get(), is_open.get()),
+        move |(key, open), prev, _| {
+            if let Some((was_key, true)) = prev
+                && !*open
+                && key.is_some()
+                && was_key == key
+            {
+                update(&|q| q.selected = None);
+            }
+        },
+        false,
+    );
     let open_title = Signal::derive(move || {
-        open_pos
-            .get()
-            .map(|p| rows.with(|r| r[p].title()))
+        open_row
+            .with(|r| r.as_ref().map(ListRow::title))
             .unwrap_or_default()
     });
-    let body = move |p: usize| {
-        let item = rows.with_untracked(|r| r[p].clone());
+    let body = move |item: T| {
         let acts = row_actions
             .map(|ra| ra.run(item.clone()))
             .unwrap_or_default();
@@ -764,7 +789,7 @@ pub fn List<T: ListRow>(
         }
     };
     let drawer_open = RwSignal::new(false);
-    Effect::new(move || drawer_open.set(narrow.get() && open_pos.get().is_some()));
+    Effect::new(move || drawer_open.set(narrow.get() && is_open.get()));
     Effect::watch(
         move || drawer_open.get(),
         move |open, prev, _| {
@@ -811,6 +836,7 @@ pub fn List<T: ListRow>(
                         aria-multiselectable="true"
                         aria-activedescendant=move || cursor.get().map(|i| format!("{id}-r{i}"))
                         on:keydown=on_keydown
+                        on:focusout=move |_| by_key.set(false)
                     >
                         <div role="row" class="list-head" aria-rowindex="1">
                             {head_checkbox}
@@ -852,22 +878,20 @@ pub fn List<T: ListRow>(
                 {legend.map(|l| l.run())}
             </div>
             {move || {
-                if narrow.get() {
+                if narrow.get() || !is_open.get() {
                     return None;
                 }
-                open_pos
-                    .get()
-                    .map(|p| {
-                        view! {
-                            <DetailPane title=open_title close=close_href>
-                                {body(p)}
-                            </DetailPane>
-                        }
-                    })
+                Some(
+                    view! {
+                        <DetailPane title=open_title close=close_href>
+                            {move || open_row.get().map(body)}
+                        </DetailPane>
+                    },
+                )
             }}
         </div>
         <Drawer open=drawer_open title=open_title>
-            {move || open_pos.get().map(body)}
+            {move || open_row.get().map(body)}
         </Drawer>
     }
 }

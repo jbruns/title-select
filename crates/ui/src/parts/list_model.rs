@@ -137,6 +137,16 @@ impl Selection {
         self.keys.clear();
     }
 
+    /// A click on the select-all checkbox, when `listed` of the `shown` rows are in `keys`: it checks every matching
+    /// row, unless every one already is; then it clears.
+    pub fn select_all_or_none(&mut self, shown: usize, listed: usize) {
+        if self.checked(shown, listed) == Checked::All {
+            self.clear();
+        } else {
+            self.select_matching();
+        }
+    }
+
     pub fn clear(&mut self) {
         self.matching = false;
         self.keys.clear();
@@ -368,6 +378,24 @@ mod tests {
         assert_eq!(s.checked(5, 0), Checked::All);
         s.toggle("a");
         assert_eq!(s.checked(5, 1), Checked::Some);
+    }
+
+    #[test]
+    fn the_select_all_checkbox_checks_every_match_unless_all_are_checked() {
+        let mut s = Selection::default();
+        s.toggle("a");
+        // One of three checked: the box checks them all rather than clearing the one.
+        s.select_all_or_none(3, 1);
+        assert_eq!(s.checked(3, 0), Checked::All);
+        s.select_all_or_none(3, 0);
+        assert!(s.is_empty());
+        s.select_all_or_none(3, 0);
+        assert_eq!(s.checked(3, 0), Checked::All);
+        // Every row checked one by one: the box clears.
+        let mut s = Selection::default();
+        s.set(["a", "b"], true);
+        s.select_all_or_none(2, 2);
+        assert!(s.is_empty());
     }
 
     #[test]

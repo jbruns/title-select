@@ -20,6 +20,13 @@ use crate::screens::audit::EntriesPanel;
 #[derive(Clone)]
 struct BenchRow(Arc<EntryRow>);
 
+// Bench rows never change once generated, so the shared row is its own identity.
+impl PartialEq for BenchRow {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BenchCol {
     Path,

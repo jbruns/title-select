@@ -136,19 +136,37 @@ pub fn Tooltip(
     #[prop(into)] label: Signal<String>,
     #[prop(optional)] focusable: bool,
     #[prop(optional)] clipped: bool,
+    /// Shows the tooltip while true, as hovering does; for an anchor the keyboard reaches without focusing it.
+    #[prop(optional, into)]
+    shown: Option<Signal<bool>>,
     children: Children,
 ) -> impl IntoView {
     let anchor = NodeRef::<html::Span>::new();
     let at = RwSignal::new(None::<Placement>);
-    let show = move || {
+    // Shown by `shown`, the tooltip keeps within its anchor's width, so a row's several tooltips don't overlap.
+    let fit = RwSignal::new(None::<i32>);
+    let open = move |pinned: bool| {
         if let Some(el) = anchor.get_untracked() {
             if clipped && el.scroll_width() <= el.client_width() {
                 return;
             }
-            at.set(Some(placement_of(&el, TOOLTIP_ROOM, true)));
+            fit.set(pinned.then(|| el.client_width()));
+            at.set(Some(placement_of(&el, TOOLTIP_ROOM, !pinned)));
         }
     };
+    let show = move || open(false);
     let hide = move || at.set(None);
+    if let Some(shown) = shown {
+        Effect::watch(
+            move || shown.get(),
+            move |on, prev, _| match (*on, prev) {
+                (true, _) => open(true),
+                (false, Some(true)) => hide(),
+                (false, _) => {}
+            },
+            true,
+        );
+    }
     let tip = NodeRef::<html::Div>::new();
     view! {
         <span
@@ -170,7 +188,13 @@ pub fn Tooltip(
                         node_ref=tip
                         role="tooltip"
                         aria-hidden="true"
-                        style=move || at.get().map(|p| p.style())
+                        style=move || {
+                            at.get()
+                                .map(|p| {
+                                    let fit = fit.get().map(|w| format!(";max-width:{w}px"));
+                                    format!("{}{}", p.style(), fit.unwrap_or_default())
+                                })
+                        }
                     >
                         {move || label.get()}
                     </div>
