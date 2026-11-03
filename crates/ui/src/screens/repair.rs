@@ -27,6 +27,7 @@ use crate::parts::list::{Column, ListRow, ToolAction, Width};
 use crate::parts::pending::Pending;
 use crate::parts::plan::{Change, PlanReview, PlanRow};
 use crate::parts::status::{PlanKind, Status, StatusIcon};
+use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
     ChangeMark, LoadTicket, Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current,
     fetch_after, kind_choices, may_propose, place, proposed, repair_to_show, requested,
@@ -114,6 +115,7 @@ impl RepairDesk {
                 planned.map(|p| (p, body.choices))
             }
         });
+        let edit_query = use_query_edit();
         let desk = RepairDesk {
             name: StoredValue::new(name),
             picked: RwSignal::new(BTreeMap::new()),
@@ -141,7 +143,10 @@ impl RepairDesk {
             if !desk.change_applies(mark) {
                 desk.reload();
             } else if let Ok((p, chosen)) = answer {
+                let id = p.id;
+                desk.loads.update_value(|l| l.accepted(Some(id)));
                 desk.show(p, chosen);
+                edit_query.run(vec![("plan", Some(id.to_string()))]);
             }
         });
         desk
@@ -295,6 +300,7 @@ impl RepairDesk {
             }
             match done {
                 Ok(p) => {
+                    self.loads.update_value(|l| l.accepted(None));
                     self.picked.set(BTreeMap::new());
                     self.asked.set(BTreeMap::new());
                     self.show(p, BTreeMap::new());
@@ -880,7 +886,10 @@ fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
                     return;
                 }
                 match done {
-                    Ok(p) if p.id == plan => shown.set(Some(p)),
+                    Ok(p) if p.id == plan => {
+                        desk.loads.update_value(|l| l.accepted(None));
+                        shown.set(Some(p));
+                    }
                     Ok(_) => {}
                     Err(message) => problem.set(Some(message)),
                 }

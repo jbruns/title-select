@@ -89,6 +89,15 @@ impl Loads {
     pub fn change_applies(&self, mark: ChangeMark) -> bool {
         mark.0 == self.seq
     }
+
+    /// The answer to a change is shown, giving back the plan `proposed` when it was a proposal (which the URL then
+    /// names): a load asked for earlier no longer counts, and asking for that plan next fetches nothing.
+    pub fn accepted(&mut self, proposed: Option<i64>) {
+        self.seq += 1;
+        if let Some(id) = proposed {
+            self.requested = Some(Some(id));
+        }
+    }
 }
 
 /// Whether a new repair may be proposed while `shown` (approved, finished) is shown and the source set is or isn't
@@ -445,6 +454,23 @@ mod tests {
             .expect("a load of 2");
         assert!(!loads.change_applies(proposing), "the proposal is dropped");
         assert!(loads.applies(two), "so 2 is shown");
+    }
+
+    #[test]
+    fn a_proposal_shown_drops_a_load_asked_for_before_it() {
+        let mut loads = Loads::default();
+        let a = loads.ask(Some(1), None, None).expect("a load of 1");
+        // Proposed while 1 is still loading: plan 2 comes back first.
+        let proposing = loads.mark();
+        assert!(loads.change_applies(proposing));
+        loads.accepted(Some(2));
+        assert!(!loads.applies(a), "1 isn't shown over 2");
+        // The URL now names 2.
+        assert_eq!(loads.ask(Some(2), None, Some((2, false))), None);
+        let b = loads
+            .ask(Some(1), None, Some((2, false)))
+            .expect("opening 1 again loads it");
+        assert!(loads.applies(b), "a load asked for afterwards wins");
     }
 
     #[test]
