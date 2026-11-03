@@ -4,6 +4,7 @@
 
 use leptos::prelude::*;
 use title_select_api::JobState;
+use title_select_api::build::ItemKind;
 use title_select_api::repair::RepairKind;
 use title_select_api::report::{Finding, GameStatus};
 
@@ -481,6 +482,136 @@ impl Status for PlanKind {
     }
 }
 
+/// The kind of a build plan item, or of a build's or cleanup's item, shown beside its row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuildKind {
+    Copy,
+    Repack,
+    Adopt,
+    Unchanged,
+    NoSource,
+    Conflict,
+    Unresolved,
+    Blocked,
+    Remove,
+    SetAside,
+    Acknowledge,
+    Restore,
+}
+
+impl From<ItemKind> for BuildKind {
+    fn from(kind: ItemKind) -> Self {
+        match kind {
+            ItemKind::Copy => BuildKind::Copy,
+            ItemKind::Repack => BuildKind::Repack,
+            ItemKind::Adopt => BuildKind::Adopt,
+            ItemKind::Unchanged => BuildKind::Unchanged,
+            ItemKind::NoSource => BuildKind::NoSource,
+            ItemKind::Conflict => BuildKind::Conflict,
+            ItemKind::Unresolved => BuildKind::Unresolved,
+            ItemKind::Blocked => BuildKind::Blocked,
+            ItemKind::Remove => BuildKind::Remove,
+            ItemKind::KeepAside => BuildKind::SetAside,
+            ItemKind::Acknowledge => BuildKind::Acknowledge,
+            ItemKind::Restore => BuildKind::Restore,
+        }
+    }
+}
+
+impl Status for BuildKind {
+    const ALL: &'static [Self] = &[
+        BuildKind::Copy,
+        BuildKind::Repack,
+        BuildKind::Adopt,
+        BuildKind::Unchanged,
+        BuildKind::NoSource,
+        BuildKind::Conflict,
+        BuildKind::Unresolved,
+        BuildKind::Blocked,
+        BuildKind::Remove,
+        BuildKind::SetAside,
+        BuildKind::Acknowledge,
+        BuildKind::Restore,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            BuildKind::Copy => look(
+                Glyph::Copy,
+                Tone::Active,
+                "Copy",
+                "Copies an archive that is already the game's TorrentZip.",
+            ),
+            BuildKind::Repack => look(
+                Glyph::Package,
+                Tone::Active,
+                "Repack",
+                "Writes a TorrentZip from the verified ROMs.",
+            ),
+            BuildKind::Adopt => look(
+                Glyph::FolderCheck,
+                Tone::Good,
+                "Adopt",
+                "Records the file already there as built, because its ROMs are the ones the DAT expects.",
+            ),
+            BuildKind::Unchanged => look(
+                Glyph::Check,
+                Tone::Neutral,
+                "Unchanged",
+                "The folder already holds this file, built from the same ROMs.",
+            ),
+            BuildKind::NoSource => look(
+                Glyph::CircleOff,
+                Tone::Review,
+                "No source",
+                "Skipped: no entry in the audit holds every ROM.",
+            ),
+            BuildKind::Conflict => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "Conflict",
+                "Skipped: a file Title Select didn't build, or one changed since, is at the target and is never overwritten.",
+            ),
+            BuildKind::Unresolved => look(
+                Glyph::CircleQuestionMark,
+                Tone::Review,
+                "Unresolved",
+                "Skipped: you chose to build the resolved groups only, so its target is left as it is.",
+            ),
+            BuildKind::Blocked => look(
+                Glyph::CircleX,
+                Tone::Failed,
+                "Blocked",
+                "Skipped: it can't be built as planned, such as for an invalid name.",
+            ),
+            BuildKind::Remove => look(
+                Glyph::Trash2,
+                Tone::Review,
+                "Remove",
+                "Removes a built file whose game is no longer selected.",
+            ),
+            BuildKind::SetAside => look(
+                Glyph::Archive,
+                Tone::Review,
+                "Set aside",
+                "Moves an entry Title Select didn't build to kept files.",
+            ),
+            BuildKind::Acknowledge => look(
+                Glyph::Eye,
+                Tone::Neutral,
+                "Acknowledge",
+                "Leaves an entry Title Select didn't build where it is.",
+            ),
+            BuildKind::Restore => look(
+                Glyph::Undo2,
+                Tone::Active,
+                "Restore",
+                "Puts a kept file back in the folder.",
+            ),
+        }
+    }
+}
+
 /// Where an Ingest Folder item stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IngestStatus {
@@ -620,6 +751,7 @@ mod tests {
             ("source set rows", vocabulary::<SourceSetStatus>()),
             ("library folder rows", vocabulary::<LibraryStatus>()),
             ("plan kinds", vocabulary::<PlanKind>()),
+            ("build plan kinds", vocabulary::<BuildKind>()),
             ("ingest items", vocabulary::<IngestStatus>()),
             ("jobs", vocabulary::<JobState>()),
         ]
@@ -675,6 +807,15 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn every_build_item_kind_has_its_own_status() {
+        let kinds: HashSet<BuildKind> = ItemKind::ALL.into_iter().map(BuildKind::from).collect();
+        assert_eq!(kinds.len(), ItemKind::ALL.len());
+        assert_eq!(kinds, BuildKind::ALL.iter().copied().collect());
+        assert_eq!(BuildKind::from(ItemKind::NoSource), BuildKind::NoSource);
+        assert_eq!(BuildKind::from(ItemKind::KeepAside), BuildKind::SetAside);
     }
 
     #[test]
