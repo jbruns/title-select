@@ -19,7 +19,7 @@ use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, RETENTION
 use title_select_api::ingest::{
     Assessment, FolderEntry, FoundDat, IngestAction, IngestFolder, IngestItem, IngestKeptFile,
     IngestMarker, IngestOutcome, IngestPlan, IngestPlanContent, IngestPlanItem, ItemMatch,
-    ItemPayload, ItemState, MatchedRom, Need, PlanIngest, Proposal,
+    ItemMove, ItemPayload, ItemState, MatchedRom, Need, PlanIngest, Proposal,
 };
 use title_select_api::{AuditEvidence, ImportOutcome, Job, JobKind, JobState, Workers};
 use title_select_engine::FileStamp;
@@ -279,6 +279,7 @@ fn item_from_row(r: &Row) -> rusqlite::Result<ItemRow> {
             assessed_at: r.get(18)?,
             assessment,
             reason: r.get(16)?,
+            last_move: None,
         },
         seen,
         stable_since: r.get(8)?,
@@ -286,6 +287,38 @@ fn item_from_row(r: &Row) -> rusqlite::Result<ItemRow> {
         hashed: seen_at(r, 9)?,
         read,
     })
+}
+
+/// The latest move of each item matching `filter` (on `ingest_moves m`, binding `?1`), by item: what plan or repair
+/// moves it, the Job carrying it out, and whether it ended.
+fn last_moves(c: &Connection, filter: &str, key: i64) -> Result<HashMap<i64, ItemMove>> {
+    let mut stmt = c.prepare(&format!(
+        "SELECT m.item_id, m.plan_id, s.plan_id, m.state NOT IN ('done', 'failed'), m.finished_at, m.error, m.note,
+                COALESCE(
+                    (SELECT max(jm.job_id) FROM additions a JOIN additions_job_members jm ON jm.addition_id = a.id
+                     WHERE a.move_id = m.id),
+                    (SELECT max(j.id) FROM jobs j WHERE s.plan_id IS NOT NULL AND j.repair_plan_id = s.plan_id))
+         FROM ingest_moves m LEFT JOIN repair_steps s ON s.move_id = m.id
+         WHERE {filter} AND m.item_id IS NOT NULL
+           AND m.id = (SELECT max(id) FROM ingest_moves WHERE item_id = m.item_id)"
+    ))?;
+    let moves = stmt
+        .query_map([key], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                ItemMove {
+                    plan: r.get(1)?,
+                    repair: r.get(2)?,
+                    under_way: r.get(3)?,
+                    finished_at: r.get(4)?,
+                    error: r.get(5)?,
+                    note: r.get(6)?,
+                    job: r.get(7)?,
+                },
+            ))
+        })?
+        .collect::<rusqlite::Result<HashMap<_, _>>>()?;
+    Ok(moves)
 }
 
 /// Refuses, as stale, the approval of the addition plan `content` if any item it reviewed would now be published
@@ -382,6 +415,38 @@ fn add_from_ingest(
         actor,
     )?;
     Ok(())
+}
+
+/// The item `id` with its latest move.
+fn item_with_move(c: &Connection, id: i64) -> Result<IngestItem> {
+    let item = item_by_id(c, id)?.item;
+    Ok(IngestItem {
+        last_move: last_moves(c, "m.item_id = ?1", id)?.remove(&id),
+        ..item
+    })
+}
+
+/// Dismisses the item `id` until it changes, unless it is no longer in the folder or is being moved.
+fn dismiss(tx: &Transaction, id: i64) -> Result<IngestItem> {
+    let item = item_with_move(tx, id)?;
+    if matches!(item.state, ItemState::Gone | ItemState::Moved) {
+        return Err(Error::Conflict(format!(
+            "{} is {}; only an item still in the folder can be dismissed",
+            item.name,
+            item.state.label()
+        )));
+    }
+    if item.last_move.as_ref().is_some_and(|m| m.under_way) {
+        return Err(Error::Conflict(format!(
+            "{} is being moved; it can't be dismissed",
+            item.name
+        )));
+    }
+    tx.execute(
+        "UPDATE ingest_items SET state = 'dismissed', changed_at = ?2 WHERE id = ?1",
+        params![id, now()],
+    )?;
+    item_with_move(tx, id)
 }
 
 fn item_by_id(c: &Connection, id: i64) -> Result<ItemRow> {
@@ -1351,35 +1416,55 @@ impl Store {
             let mut stmt = c.prepare(&format!(
                 "{ITEM_QUERY} WHERE folder_id = ?1 ORDER BY name, id"
             ))?;
+            let mut moves = last_moves(c, "m.folder_id = ?1", row.id)?;
             let items = stmt
                 .query_map([row.id], item_from_row)?
-                .map(|r| r.map(|r| r.item))
+                .map(|r| {
+                    r.map(|r| IngestItem {
+                        last_move: moves.remove(&r.item.id),
+                        ..r.item
+                    })
+                })
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(items)
         })
     }
 
     pub fn ingest_item(&self, id: i64) -> Result<IngestItem> {
-        self.read(|c| item_by_id(c, id).map(|r| r.item))
+        self.read(|c| item_with_move(c, id))
+    }
+
+    /// Dismisses `items` of the Ingest Folder of Root `root` at once, each until it changes; nothing in the folder
+    /// changes. Refused, dismissing none, if any is not in that folder, is no longer in it, or is being moved.
+    pub fn dismiss_ingest_items(&self, root: &str, items: &[i64]) -> Result<Vec<IngestItem>> {
+        if items.is_empty() {
+            return Err(Error::Refused("choose at least one item".into()));
+        }
+        self.write(|tx| {
+            let folder = registered(tx, root)?;
+            let mut dismissed = Vec::new();
+            for &id in items {
+                let in_folder: Option<i64> = tx
+                    .query_row(
+                        "SELECT folder_id FROM ingest_items WHERE id = ?1",
+                        [id],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                if in_folder != Some(folder.id) {
+                    return Err(Error::Refused(format!(
+                        "item {id} is not in ingest folder {root}"
+                    )));
+                }
+                dismissed.push(dismiss(tx, id)?);
+            }
+            Ok(dismissed)
+        })
     }
 
     /// Dismisses the item `id`: scans leave it be until it changes. Nothing in the folder changes.
     pub fn dismiss_ingest_item(&self, id: i64) -> Result<IngestItem> {
-        self.write(|tx| {
-            let row = item_by_id(tx, id)?;
-            if matches!(row.item.state, ItemState::Gone | ItemState::Moved) {
-                return Err(Error::Conflict(format!(
-                    "{} is {}; only an item still in the folder can be dismissed",
-                    row.item.name,
-                    row.item.state.label()
-                )));
-            }
-            tx.execute(
-                "UPDATE ingest_items SET state = 'dismissed', changed_at = ?2 WHERE id = ?1",
-                params![id, now()],
-            )?;
-            Ok(item_by_id(tx, id)?.item)
-        })
+        self.write(|tx| dismiss(tx, id))
     }
 
     /// Plans `request` for items of the Ingest Folder of Root `root`. Nothing changes until you approve it; the plan

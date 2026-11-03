@@ -421,6 +421,43 @@ fn a_dismissed_item_stays_dismissed_until_it_changes() {
 }
 
 #[test]
+fn several_items_are_dismissed_at_once_or_none_are() {
+    let env = Env::new();
+    env.put("one.a26", b"one");
+    env.put("two.a26", b"two");
+    env.put("three.a26", b"three");
+    env.scan();
+    env.scan();
+    let (one, two) = (env.item("one.a26").id, env.item("two.a26").id);
+
+    let dismissed = env.store.dismiss_ingest_items("in", &[one, two]).unwrap();
+    assert!(
+        dismissed.iter().all(|i| i.state == ItemState::Dismissed),
+        "{dismissed:?}"
+    );
+    assert_eq!(env.state("three.a26"), ItemState::Assessed);
+    let listing = env.listing();
+    assert_eq!(
+        listing,
+        ["one.a26", "three.a26", "two.a26"],
+        "nothing moves"
+    );
+
+    let three = env.item("three.a26").id;
+    let elsewhere = env.store.dismiss_ingest_items("slow", &[three]);
+    assert!(matches!(elsewhere, Err(Error::Refused(_))), "{elsewhere:?}");
+    let unknown = env.store.dismiss_ingest_items("in", &[three, 9999]);
+    assert!(unknown.is_err(), "{unknown:?}");
+    assert_eq!(
+        env.state("three.a26"),
+        ItemState::Assessed,
+        "none is dismissed when one can't be"
+    );
+    let none = env.store.dismiss_ingest_items("in", &[]);
+    assert!(matches!(none, Err(Error::Refused(_))), "{none:?}");
+}
+
+#[test]
 fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
     let env = Env::new();
     env.put("mystery.a26", b"homebrew");
@@ -453,6 +490,14 @@ fn a_discard_changes_nothing_until_approved_then_keeps_the_item() {
         [".title-select-retained/1/mystery.a26.kept", "other.a26"]
     );
     assert_eq!(env.state("mystery.a26"), ItemState::Moved);
+    let moved = env.item("mystery.a26").last_move.unwrap();
+    assert!(!moved.under_way && moved.error.is_none(), "{moved:?}");
+    assert_eq!(
+        (moved.plan, moved.job),
+        (Some(plan.id), None),
+        "a discard is carried out by its approval"
+    );
+    assert!(env.item("other.a26").last_move.is_none());
     let kept = env.store.ingest_kept_files("in").unwrap();
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].kept_name, "mystery.a26.kept");

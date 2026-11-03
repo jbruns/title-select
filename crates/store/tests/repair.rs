@@ -678,6 +678,14 @@ fn a_missing_game_filled_from_a_loose_ingest_item_that_is_exactly_its_rom_delete
         env.ingest_listing()
     );
     assert!(env.store.ingest_kept_files("in").unwrap().is_empty());
+    let items = env.store.ingest_items("in").unwrap();
+    let moved = items[0].last_move.as_ref().expect("the repair moved it");
+    assert_eq!(
+        (moved.repair, moved.job),
+        (Some(plan.id), done.job),
+        "{moved:?}"
+    );
+    assert!(!moved.under_way);
     env.run_queued_audit(&done);
     let report = env.latest_report();
     let pong = report.games.iter().find(|g| g.name == "Pong (USA)");

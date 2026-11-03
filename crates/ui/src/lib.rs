@@ -9,6 +9,7 @@ pub mod api;
 pub mod app;
 pub mod build_model;
 pub mod events;
+pub mod ingest_model;
 pub mod jobs;
 pub mod library_model;
 pub mod model;

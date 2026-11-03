@@ -23,7 +23,8 @@ use title_select_api::build::{
     PlanKeptDeletion,
 };
 use title_select_api::ingest::{
-    IngestFolder, IngestItem, IngestKeptFile, IngestPlan, PlanIngest, RegisterIngestFolder,
+    DismissIngestItems, IngestFolder, IngestItem, IngestKeptFile, IngestPlan, PlanIngest,
+    RegisterIngestFolder,
 };
 use title_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
 use title_select_api::selection::{Role, SelectionProfile, diff_rows};
@@ -141,6 +142,10 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
             get(ingest_plans).post(plan_ingest),
         )
         .route("/ingest-folders/{root}/kept-files", get(ingest_kept_files))
+        .route(
+            "/ingest-folders/{root}/dismissals",
+            post(dismiss_ingest_items),
+        )
         .route("/ingest-items/{id}", get(ingest_item))
         .route("/ingest-items/{id}/dismissal", post(dismiss_ingest_item))
         .route("/ingest-plans/{id}", get(ingest_plan))
@@ -739,6 +744,22 @@ async fn dismiss_ingest_item(
     let Path(id) = id?;
     Ok(Json(
         blocking(&state, move |store| store.dismiss_ingest_item(id)).await?,
+    ))
+}
+
+/// Dismisses several items of an Ingest Folder at once, each until it changes; none if any can't be.
+async fn dismiss_ingest_items(
+    State(state): State<AppState>,
+    root: Result<Path<String>, PathRejection>,
+    body: Result<Json<DismissIngestItems>, JsonRejection>,
+) -> ApiResult<Json<Vec<IngestItem>>> {
+    let Path(root) = root?;
+    let Json(request) = body?;
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.dismiss_ingest_items(&root, &request.items)
+        })
+        .await?,
     ))
 }
 

@@ -1,37 +1,39 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
+use leptos_router::NavigateOptions;
 use leptos_router::components::A;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_location, use_navigate, use_params_map, use_query_map};
 use title_select_api::Job;
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{ApprovePlan, RETENTION};
 use title_select_api::ingest::{
-    Assessment, IngestAction, IngestFolder, IngestItem, IngestKeptFile, IngestPlan, ItemState,
-    PlanIngest, Proposal, RegisterIngestFolder,
+    Assessment, DismissIngestItems, IngestAction, IngestFolder, IngestItem, IngestKeptFile,
+    IngestPlan, PlanIngest, Proposal, RegisterIngestFolder,
 };
 
 use crate::api;
 use crate::app::{Loading, Problem, use_ingest_changed};
 use crate::events::use_live;
-use crate::model::{short_sha, when};
+use crate::ingest_model::{self, Choices, Count, Decision};
+use crate::model::{earlier, short_sha, when};
+use crate::parts::icon::{Glyph, LabelledIcon, Svg};
+use crate::parts::legend::{Legend, present};
+use crate::parts::list::{
+    Clip, Column, Keep, List, ListRow, RowAction, Selected, ToolAction, Width, last_good_rows,
+};
+use crate::parts::overlay::Drawer;
+use crate::parts::pending::ActionPending;
+use crate::parts::status::{IngestStatus, Status, StatusBadge, StatusIcon};
+use crate::parts::url_state::query_string;
 use crate::screens::additions::{AdditionFields, new_addition};
+use crate::shell::waiting_on_decision;
 
 fn folder_href(root: &str) -> String {
     format!("/ingest/{}", api::segment(root))
-}
-
-fn counts(folder: &IngestFolder) -> String {
-    if folder.counts.is_empty() {
-        return "No items".into();
-    }
-    folder
-        .counts
-        .iter()
-        .map(|(state, n)| format!("{n} {}", state.label()))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// What is proposed for an assessed item.
@@ -111,6 +113,122 @@ fn evidence(a: &Assessment) -> AnyView {
     view! { <ul class="plain">{sha} {dat} {matches}</ul> }.into_any()
 }
 
+/// When the folder is next scanned on its own, as text, or none when only you start scans.
+fn next_scan(folder: &IngestFolder) -> Option<String> {
+    let every = folder.scan_every_minutes?;
+    let last = folder.last_scan_at.as_deref()?;
+    let at = js_sys::Date::parse(last);
+    if at.is_nan() {
+        return None;
+    }
+    let next = js_sys::Date::new(&(at + every as f64 * 60_000.0).into());
+    Some(when(&String::from(next.to_iso_string())))
+}
+
+/// An Ingest Folder in the list of them.
+#[derive(Debug, Clone, PartialEq)]
+struct FolderRow(IngestFolder);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FolderCol {
+    Folder,
+    Path,
+    Waiting,
+    Scanned,
+}
+
+impl FolderRow {
+    fn waiting(&self) -> u64 {
+        waiting_on_decision(std::slice::from_ref(&self.0))
+    }
+}
+
+impl ListRow for FolderRow {
+    type Col = FolderCol;
+    const COLUMNS: &'static [FolderCol] = &[
+        FolderCol::Folder,
+        FolderCol::Path,
+        FolderCol::Waiting,
+        FolderCol::Scanned,
+    ];
+
+    fn column(col: FolderCol) -> Column {
+        match col {
+            FolderCol::Folder => Column::new(
+                "folder",
+                "Folder",
+                Width::Flex {
+                    min: 10.0,
+                    share: 1,
+                },
+            )
+            .sortable(),
+            FolderCol::Path => Column::new(
+                "path",
+                "Path",
+                Width::Flex {
+                    min: 14.0,
+                    share: 2,
+                },
+            )
+            .sortable(),
+            FolderCol::Waiting => Column::new("waiting", "Waiting", Width::Fixed(6.5))
+                .sortable()
+                .numeric()
+                .hint("How many items wait on your decision"),
+            FolderCol::Scanned => {
+                Column::new("scanned", "Last scan", Width::Fixed(13.0)).sortable()
+            }
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.root.clone()
+    }
+
+    fn title(&self) -> String {
+        format!("Ingest folder {}", self.0.root)
+    }
+
+    fn search(&self) -> String {
+        format!("{} {}", self.0.root, self.0.path)
+    }
+
+    fn cell(&self, col: FolderCol) -> AnyView {
+        let f = &self.0;
+        match col {
+            FolderCol::Folder => view! { <Clip text=f.root.clone() /> }.into_any(),
+            FolderCol::Path => view! { <Clip text=f.path.clone() /> }.into_any(),
+            FolderCol::Waiting => match f.id {
+                Some(_) => self.waiting().to_string().into_any(),
+                None => "–".into_any(),
+            },
+            FolderCol::Scanned => {
+                let text = match (&f.id, &f.last_scan_at) {
+                    (None, _) => "Not registered".to_string(),
+                    (Some(_), Some(at)) => when(at),
+                    (Some(_), None) => "Never".to_string(),
+                };
+                view! { <Clip text /> }.into_any()
+            }
+        }
+    }
+
+    fn compare(&self, other: &Self, col: FolderCol) -> Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            FolderCol::Folder => a.root.cmp(&b.root),
+            FolderCol::Path => a.path.cmp(&b.path),
+            FolderCol::Waiting => self.waiting().cmp(&other.waiting()),
+            FolderCol::Scanned => a.last_scan_at.cmp(&b.last_scan_at),
+        }
+    }
+
+    fn href(&self) -> Option<String> {
+        self.0.id.map(|_| folder_href(&self.0.root))
+    }
+}
+
 /// The Ingest Folders: every ingest root, registered or not.
 #[component]
 pub fn IngestFolders() -> impl IntoView {
@@ -122,68 +240,94 @@ pub fn IngestFolders() -> impl IntoView {
         refresh.track();
         api::get::<Vec<IngestFolder>>("/ingest-folders")
     });
-    let problem = RwSignal::new(None::<String>);
-    let register = move |root: String| {
-        problem.set(None);
-        leptos::task::spawn_local(async move {
-            let body = RegisterIngestFolder { root };
-            match api::post::<_, IngestFolder>("/ingest-folders", &body).await {
-                Ok(_) => refresh.update(|n| *n += 1),
-                Err(message) => problem.set(Some(message)),
+    let rows = last_good_rows(move || {
+        folders
+            .get()
+            .map(|r| r.map(|f| f.into_iter().map(FolderRow).collect::<Vec<_>>()))
+    });
+    let registering = Action::new_local(move |root: &String| {
+        let body = RegisterIngestFolder { root: root.clone() };
+        async move {
+            let done = api::post::<_, IngestFolder>("/ingest-folders", &body).await;
+            if done.is_ok() {
+                refresh.update(|n| *n += 1);
             }
-        });
-    };
+            done
+        }
+    });
+    let row_actions = Callback::new(move |row: FolderRow| {
+        let root = row.0.root.clone();
+        match row.0.id {
+            Some(_) => vec![RowAction::go(
+                Glyph::FolderInput,
+                format!("Open {root}"),
+                folder_href(&root),
+            )],
+            None => vec![RowAction::run(
+                Glyph::CirclePlus,
+                format!("Register {root}"),
+                move || {
+                    registering.dispatch_local(root.clone());
+                },
+            )],
+        }
+    });
     view! {
         <h1>"Ingest folders"</h1>
         <p class="lede">
             "An ingest folder is a writable root of kind ingest where new files arrive. A scan assesses each item \
             against every source set; items leave the folder only through a plan you approve."
         </p>
-        {move || problem.get().map(|message| view! { <Problem message /> })}
         {move || match folders.get() {
             None => view! { <Loading what="the ingest folders" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
-            Some(Ok(folders)) if folders.is_empty() => view! {
-                <p class="note">
-                    "No ingest folders. Declare a root with kind = \"ingest\" and writable = true in your \
-                    configuration, then restart the service."
-                </p>
-            }
-            .into_any(),
-            Some(Ok(folders)) => view! {
-                <ul class="plain">
-                    {folders
-                        .into_iter()
-                        .map(|f| {
-                            let text = format!("{}: {}", f.root, f.path);
-                            let root = f.root.clone();
-                            match f.id {
-                                Some(_) => view! {
-                                    <li>
-                                        <A href=folder_href(&f.root)>{text}</A>
-                                        {format!(" · {}", counts(&f))}
-                                        {f.last_scan_at.as_deref().map(|at| format!(" · scanned {}", when(at)))}
-                                    </li>
-                                }
-                                .into_any(),
-                                None => view! {
-                                    <li>
-                                        {text}
-                                        " · not registered "
-                                        <button type="button" on:click=move |_| register(root.clone())>
-                                            "Register it"
-                                        </button>
-                                    </li>
-                                }
-                                .into_any(),
-                            }
-                        })
-                        .collect_view()}
-                </ul>
-            }
-            .into_any(),
+            Some(Ok(_)) => ().into_any(),
         }}
+        <ActionPending action=registering status="Registering…">
+            <List
+                id="ingest-folders"
+                label="Ingest folders"
+                rows
+                empty="No ingest folders. Declare a root with kind = \"ingest\" and writable = true in your \
+                    configuration, then restart the service."
+                placeholder="Filter by folder or path"
+                row_actions
+                detail=Callback::new(folder_detail)
+            />
+        </ActionPending>
     }
+}
+
+fn folder_detail(row: FolderRow) -> AnyView {
+    let f = row.0;
+    let counts = if f.counts.is_empty() {
+        "No items".to_string()
+    } else {
+        f.counts
+            .iter()
+            .map(|(state, n)| format!("{n} {}", state.label()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    view! {
+        <dl class="facts">
+            <dt>"Path"</dt>
+            <dd>
+                <code class="path">{f.path.clone()}</code>
+            </dd>
+            <dt>"Registered"</dt>
+            <dd>
+                {if f.id.is_some() {
+                    "Yes"
+                } else {
+                    "Not yet: register it to scan it and move items out of it"
+                }}
+            </dd>
+            <dt>"Items"</dt>
+            <dd>{counts}</dd>
+        </dl>
+    }
+    .into_any()
 }
 
 #[component]
@@ -201,68 +345,239 @@ pub fn IngestFolderScreen() -> impl IntoView {
             api::get::<IngestFolder>(&format!("/ingest-folders/{}", api::segment(&root))).await
         }
     });
-    move || match folder.get() {
-        None => view! { <Loading what="the ingest folder" /> }.into_any(),
-        Some(Err(message)) => view! {
-            <h1>"Ingest folder"</h1>
-            <Problem message />
-        }
-        .into_any(),
-        Some(Ok(folder)) => view! { <FolderView folder refresh /> }.into_any(),
+    // Rendered once per folder: a reload after a decision updates the facts and lists in place, keeping the plan under
+    // review and what was said.
+    move || {
+        let root = root();
+        view! { <FolderView root folder refresh /> }
     }
 }
 
 #[component]
-fn FolderView(folder: IngestFolder, refresh: RwSignal<u64>) -> impl IntoView {
-    let root = folder.root.clone();
+fn FolderView(
+    root: String,
+    folder: LocalResource<Result<IngestFolder, String>>,
+    refresh: RwSignal<u64>,
+) -> impl IntoView {
     let base = format!("/ingest-folders/{}", api::segment(&root));
-    let problem = RwSignal::new(None::<String>);
-    let scan = {
-        let base = base.clone();
-        move |_| {
-            problem.set(None);
-            let path = format!("{base}/scans");
-            leptos::task::spawn_local(async move {
-                match api::post::<_, Job>(&path, &()).await {
-                    Ok(_) => refresh.update(|n| *n += 1),
-                    Err(message) => problem.set(Some(message)),
-                }
-            });
+    let latest = Memo::new(
+        move |prev: Option<&Option<IngestFolder>>| match folder.get() {
+            Some(Ok(f)) => Some(f),
+            _ => prev.cloned().flatten(),
+        },
+    );
+    let facts = move || match (latest.get(), folder.get()) {
+        (Some(folder), _) => {
+            let schedule = match folder.scan_every_minutes {
+                Some(m) => format!("Every {m} minutes, and when you ask"),
+                None => "Only when you ask".into(),
+            };
+            view! {
+                <dl class="facts">
+                    <dt>"Path"</dt>
+                    <dd>
+                        <code class="path">{folder.path.clone()}</code>
+                    </dd>
+                    <dt>"Settles after"</dt>
+                    <dd>{format!("{} seconds unchanged", folder.settle_secs)}</dd>
+                    <dt>"Scans"</dt>
+                    <dd>{schedule}</dd>
+                    <dt>"Last scan"</dt>
+                    <dd>{folder.last_scan_at.as_deref().map(when).unwrap_or_else(|| "Never".into())}</dd>
+                </dl>
+            }
+            .into_any()
         }
-    };
-    let schedule = match folder.scan_every_minutes {
-        Some(m) => format!("Every {m} minutes, and when you ask"),
-        None => "Only when you ask".into(),
+        (None, None) => view! { <Loading what="the ingest folder" /> }.into_any(),
+        (None, Some(Err(message))) => view! { <Problem message /> }.into_any(),
+        (None, Some(Ok(_))) => ().into_any(),
     };
     view! {
-        <h1>{format!("Ingest folder {}", folder.root)}</h1>
-        <dl class="facts">
-            <dt>"Path"</dt>
-            <dd>{folder.path.clone()}</dd>
-            <dt>"Settles after"</dt>
-            <dd>{format!("{} seconds unchanged", folder.settle_secs)}</dd>
-            <dt>"Scans"</dt>
-            <dd>{schedule}</dd>
-            <dt>"Last scan"</dt>
-            <dd>{folder.last_scan_at.as_deref().map(when).unwrap_or_else(|| "Never".into())}</dd>
-            <dt>"Items"</dt>
-            <dd>{counts(&folder)}</dd>
-        </dl>
-        <div class="form">
-            <button type="button" disabled=folder.id.is_none() on:click=scan>
-                "Scan the folder"
-            </button>
-        </div>
-        {move || problem.get().map(|message| view! { <Problem message /> })}
-        <Items base=base.clone() refresh />
+        <h1>{format!("Ingest folder {root}")}</h1>
+        {facts}
+        <Items folder=latest base=base.clone() refresh />
         <KeptFiles base refresh />
     }
 }
 
-/// The folder's items, with what each is, the Evidence for it and what is proposed; and plans to discard or import
-/// the items you pick.
+/// An item in the folder's list.
+#[derive(Debug, Clone, PartialEq)]
+struct ItemRow {
+    item: IngestItem,
+    status: IngestStatus,
+    /// When an arriving item is next looked at: the folder's next scan, or none when only you start scans.
+    next_scan: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ItemCol {
+    Status,
+    Name,
+    Proposed,
+    Size,
+    Seen,
+}
+
+impl ItemRow {
+    /// What is proposed, or under way, in a few words.
+    fn proposed(&self) -> String {
+        let item = &self.item;
+        let job = item.last_move.as_ref().and_then(|m| m.job);
+        match self.status {
+            IngestStatus::Moving => match job {
+                Some(job) => format!("Moving · job #{job}"),
+                None => "Moving".into(),
+            },
+            IngestStatus::Arriving => match &self.next_scan {
+                Some(at) => format!("Assessed once settled · next scan {at}"),
+                None => "Assessed once settled · when you scan".into(),
+            },
+            IngestStatus::MatchesSourceSet => match &item.assessment.proposal {
+                Some(Proposal::SourceSet {
+                    source_set, game, ..
+                }) => format!("{game} in {source_set}"),
+                _ => "A source set needs it".into(),
+            },
+            IngestStatus::NoDatMatch => match &item.assessment.proposal {
+                Some(Proposal::Addition {
+                    system: Some(system),
+                }) => format!("Addition for {system}"),
+                _ => "Addition; choose its system".into(),
+            },
+            IngestStatus::DatFile => match &item.assessment.dat {
+                Some(d) => format!("Import DAT {} {}", d.name, d.version),
+                None => "Import the DAT".into(),
+            },
+            IngestStatus::Duplicate => match &item.assessment.dat {
+                Some(_) => "DAT already imported".into(),
+                None => "Already held".into(),
+            },
+            IngestStatus::Unreadable => item
+                .reason
+                .clone()
+                .unwrap_or_else(|| "Couldn't be read".into()),
+            IngestStatus::Dismissed => "Dismissed until it changes".into(),
+            IngestStatus::Done => item
+                .last_move
+                .as_ref()
+                .and_then(|m| m.note.clone())
+                .unwrap_or_else(|| "Moved out of the folder".into()),
+        }
+    }
+}
+
+impl ListRow for ItemRow {
+    type Col = ItemCol;
+    const COLUMNS: &'static [ItemCol] = &[
+        ItemCol::Status,
+        ItemCol::Name,
+        ItemCol::Proposed,
+        ItemCol::Size,
+        ItemCol::Seen,
+    ];
+
+    fn column(col: ItemCol) -> Column {
+        match col {
+            ItemCol::Status => Column::new("status", "Status", Width::Fixed(3.5))
+                .sortable()
+                .hint("What the item is, and whether it's being moved"),
+            ItemCol::Name => Column::new(
+                "name",
+                "Item",
+                Width::Flex {
+                    min: 14.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            ItemCol::Proposed => Column::new(
+                "proposed",
+                "Proposed",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            ItemCol::Size => Column::new("size", "Size", Width::Fixed(7.0))
+                .sortable()
+                .numeric(),
+            ItemCol::Seen => Column::new("seen", "First seen", Width::Fixed(13.0)).sortable(),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.item.id.to_string()
+    }
+
+    fn title(&self) -> String {
+        self.item.name.clone()
+    }
+
+    fn search(&self) -> String {
+        format!(
+            "{} {} {}",
+            self.item.name,
+            self.status.look().label,
+            self.proposed()
+        )
+    }
+
+    fn cell(&self, col: ItemCol) -> AnyView {
+        match col {
+            ItemCol::Status => {
+                view! { <StatusIcon status=self.status tab_stop=false /> }.into_any()
+            }
+            ItemCol::Name => view! { <Clip text=self.item.name.clone() /> }.into_any(),
+            ItemCol::Proposed => view! { <Clip text=self.proposed() /> }.into_any(),
+            ItemCol::Size => ingest_model::size(self.item.file.size).into_any(),
+            ItemCol::Seen => view! { <Clip text=when(&self.item.first_seen_at) /> }.into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: ItemCol) -> Ordering {
+        match col {
+            ItemCol::Status => self.status.rank().cmp(&other.status.rank()),
+            ItemCol::Name => self.item.name.cmp(&other.item.name),
+            ItemCol::Proposed => self.proposed().cmp(&other.proposed()),
+            ItemCol::Size => self.item.file.size.cmp(&other.item.file.size),
+            ItemCol::Seen => {
+                if earlier(&self.item.first_seen_at, &other.item.first_seen_at) {
+                    Ordering::Less
+                } else if earlier(&other.item.first_seen_at, &self.item.first_seen_at) {
+                    Ordering::Greater
+                } else {
+                    Ordering::Equal
+                }
+            }
+        }
+    }
+}
+
+/// What a decision asks of the Service: a plan to review, or dismissing items at once.
+#[derive(Debug, Clone)]
+enum Ask {
+    Plan(PlanIngest),
+    Dismiss(Vec<i64>),
+}
+
+#[derive(Debug, Clone)]
+enum Decided {
+    Planned(i64),
+    Dismissed(usize),
+}
+
+/// The `status` URL value: the one status the list shows, if you chose one.
+const STATUS: &str = "status";
+
+/// The folder's items: a strip of how many show each status, with the decisions you can apply to all of them; the
+/// list, with decisions on the items you check; and the plan you review before anything moves.
 #[component]
-fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
+fn Items(
+    folder: Memo<Option<IngestFolder>>,
+    base: String,
+    refresh: RwSignal<u64>,
+) -> impl IntoView {
     let live = use_live();
     let items = {
         let base = base.clone();
@@ -273,176 +588,638 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
             async move { api::get::<Vec<IngestItem>>(&path).await }
         })
     };
-    let picked = RwSignal::new(Vec::<i64>::new());
-    let plan = RwSignal::new(None::<IngestPlan>);
-    let problem = RwSignal::new(None::<String>);
-    let working = RwSignal::new(false);
-    let provider = RwSignal::new(String::new());
-    // What each item that can be added as an addition would be added as, by id.
-    let adding = RwSignal::new(BTreeMap::<i64, RwSignal<NewAddition>>::new());
-    let request = {
+    let plans = {
         let base = base.clone();
-        move |action: IngestAction| {
-            working.set(true);
-            let provider = provider.get_untracked().trim().to_owned();
-            let body = PlanIngest {
-                action,
-                items: picked.get_untracked(),
-                provider: (action == IngestAction::DatImport && !provider.is_empty())
-                    .then_some(provider),
-                additions: match action {
-                    IngestAction::Addition => adding.with_untracked(|adding| {
-                        picked
-                            .get_untracked()
-                            .iter()
-                            .filter_map(|id| adding.get(id).map(|a| (*id, a.get_untracked())))
-                            .collect()
-                    }),
-                    _ => BTreeMap::new(),
-                },
-            };
+        LocalResource::new(move || {
+            live.settled.track();
+            refresh.track();
             let path = format!("{base}/plans");
-            leptos::task::spawn_local(async move {
-                let planned = api::post::<_, IngestPlan>(&path, &body).await;
-                working.set(false);
-                match planned {
-                    Ok(p) => {
-                        problem.set(None);
-                        plan.set(Some(p));
-                    }
-                    Err(message) => problem.set(Some(message)),
-                }
-            });
+            async move { api::get::<Vec<IngestPlan>>(&path).await }
+        })
+    };
+    let all = last_good_rows(move || items.get());
+    let next = Memo::new(move |_| folder.with(|f| f.as_ref().and_then(next_scan)));
+    let rows: Signal<Arc<Vec<ItemRow>>> = Signal::derive(move || {
+        Arc::new(
+            all.get()
+                .iter()
+                .filter_map(|item| {
+                    ingest_model::status(item).map(|status| ItemRow {
+                        item: item.clone(),
+                        status,
+                        next_scan: next.get(),
+                    })
+                })
+                .collect(),
+        )
+    });
+
+    // What you chose to add items as, by id, and the provider to import DATs under.
+    let edits = RwSignal::new(BTreeMap::<i64, NewAddition>::new());
+    let provider = RwSignal::new(String::new());
+    let choices = move || Choices {
+        additions: edits.get(),
+        provider: provider.get(),
+    };
+    let strip = Memo::new(move |_| ingest_model::strip(&all.get(), &choices()));
+
+    // The one status the list shows, from the URL.
+    let query = use_query_map();
+    let only = Memo::new(move |_| {
+        query
+            .read()
+            .get(STATUS)
+            .and_then(|v| ingest_model::parse_slug(&v))
+    });
+    let location = use_location();
+    let navigate = use_navigate();
+    let target = RwSignal::new(None::<String>);
+    Effect::new(move || {
+        if let Some(path) = target.get() {
+            navigate(
+                &path,
+                NavigateOptions {
+                    replace: true,
+                    scroll: false,
+                    ..Default::default()
+                },
+            );
         }
-    };
-    let dismiss = move |id: i64| {
-        leptos::task::spawn_local(async move {
-            match api::post::<_, IngestItem>(&format!("/ingest-items/{id}/dismissal"), &()).await {
-                Ok(_) => refresh.update(|n| *n += 1),
-                Err(message) => problem.set(Some(message)),
-            }
+    });
+    let show_only = move |status: Option<IngestStatus>| {
+        let mut pairs: Vec<(String, String)> = query.with_untracked(|q| {
+            q.latest_values()
+                .filter(|(k, _)| k.as_ref() != STATUS)
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
         });
+        if let Some(status) = status {
+            pairs.push((STATUS.into(), ingest_model::slug(status).into()));
+        }
+        let path = location.pathname.get_untracked();
+        target.set(Some(format!("{path}{}", query_string(&pairs))));
     };
-    let approve = move |_| {
-        let Some(p) = plan.get_untracked() else {
-            return;
-        };
-        working.set(true);
-        let body = ApprovePlan {
-            digest: p.digest.clone(),
-        };
-        leptos::task::spawn_local(async move {
-            let done =
-                api::post::<_, IngestPlan>(&format!("/ingest-plans/{}/approval", p.id), &body)
-                    .await;
-            working.set(false);
-            match done {
-                Ok(p) => {
-                    picked.set(Vec::new());
-                    plan.set(Some(p));
+    let keep: Signal<Keep<ItemRow>> = Signal::derive(move || {
+        let only = only.get();
+        Some(
+            Arc::new(move |row: &ItemRow| ingest_model::shown(only, row.status))
+                as Arc<dyn Fn(&ItemRow) -> bool + Send + Sync>,
+        )
+    });
+    let statuses = Signal::derive(move || present(rows.get().iter().map(|r| r.status)));
+
+    // The plan under review, by id, and whether the drawer showing it is open.
+    let reviewing = RwSignal::new(None::<i64>);
+    let open = RwSignal::new(false);
+    let said = RwSignal::new(None::<String>);
+    let deciding = RwSignal::new(String::new());
+    let decide = {
+        let base = base.clone();
+        Action::new_local(move |ask: &Ask| {
+            let (base, ask) = (base.clone(), ask.clone());
+            async move {
+                let decided = match ask {
+                    Ask::Plan(body) => api::post::<_, IngestPlan>(&format!("{base}/plans"), &body)
+                        .await
+                        .map(|plan| Decided::Planned(plan.id)),
+                    Ask::Dismiss(items) => api::post::<_, Vec<IngestItem>>(
+                        &format!("{base}/dismissals"),
+                        &DismissIngestItems { items },
+                    )
+                    .await
+                    .map(|done| Decided::Dismissed(done.len())),
+                };
+                if decided.is_ok() {
                     refresh.update(|n| *n += 1);
                 }
-                Err(message) => problem.set(Some(message)),
+                decided
             }
-        });
+        })
     };
-    let list = move || match items.get() {
-        None => view! { <Loading what="the items" /> }.into_any(),
-        Some(Err(message)) => view! { <Problem message /> }.into_any(),
-        Some(Ok(items)) => {
-            let present: Vec<IngestItem> = items
-                .into_iter()
-                .filter(|i| !matches!(i.state, ItemState::Gone | ItemState::Moved))
-                .collect();
-            if present.is_empty() {
-                return view! { <p class="note">"Nothing is waiting in the folder."</p> }
-                    .into_any();
-            }
-            present
-                .into_iter()
-                .map(|item| {
-                    let id = item.id;
-                    let checked = move || picked.with(|p| p.contains(&id));
-                    let movable = item.state != ItemState::Arriving;
-                    let proposal = item.assessment.proposal.as_ref().map(proposal_label);
-                    let assessed = item.assessed_at.is_some();
-                    let dismissible = matches!(
-                        item.state,
-                        ItemState::Assessed | ItemState::AlreadyHeld | ItemState::Unreadable | ItemState::Unsupported
-                    );
-                    let state = item.state.label();
-                    // Only an item holding one ROM no DAT knows can be added as an addition.
-                    let addable = match &item.assessment.proposal {
-                        Some(Proposal::Addition { system }) if item.assessment.payloads.len() == 1 => {
-                            Some(adding.with_untracked(|a| a.get(&id).copied()).unwrap_or_else(|| {
-                                let fields = RwSignal::new(new_addition(&item.name, system.as_deref()));
-                                adding.update_untracked(|a| {
-                                    a.insert(id, fields);
-                                });
-                                fields
-                            }))
-                        }
-                        _ => None,
-                    };
-                    view! {
-                        <li>
-                            <label>
-                                <input
-                                    type="checkbox"
-                                    disabled=!movable
-                                    prop:checked=checked
-                                    on:change=move |_| {
-                                        picked.update(|p| {
-                                            if let Some(at) = p.iter().position(|x| *x == id) {
-                                                p.remove(at);
-                                            } else {
-                                                p.push(id);
-                                            }
-                                        })
-                                    }
-                                />
-                                " "
-                                <code>{item.name.clone()}</code>
-                            </label>
-                            " "
-                            <span class="state">{state}</span>
-                            {format!(" · {} bytes · seen {}", item.file.size, when(&item.first_seen_at))}
-                            {item.reason.clone().map(|r| format!(": {r}"))}
-                            {proposal.map(|p| view! { <p>{p}</p> })}
-                            {assessed.then(|| evidence(&item.assessment))}
-                            {addable.map(|value| view! {
-                                <p>"To add it as an addition: " <AdditionFields value /></p>
-                            })}
-                            {dismissible.then(|| view! {
-                                <button type="button" on:click=move |_| dismiss(id)>"Dismiss until it changes"</button>
-                            })}
-                        </li>
-                    }
-                })
-                .collect_view()
-                .into_any()
+    Effect::new(move || match decide.value().get() {
+        Some(Ok(Decided::Planned(id))) => {
+            reviewing.set(Some(id));
+            open.set(true);
         }
+        Some(Ok(Decided::Dismissed(n))) => said.set(Some(match n {
+            1 => "Dismissed 1 item. It stays dismissed until it changes.".into(),
+            n => format!("Dismissed {n} items. They stay dismissed until they change."),
+        })),
+        _ => {}
+    });
+    // Applies `decision` to those of `asked` it applies to, saying how many it leaves out.
+    let apply = Callback::new(move |(decision, asked): (Decision, Vec<IngestItem>)| {
+        let choices = Choices {
+            additions: edits.get_untracked(),
+            provider: provider.get_untracked(),
+        };
+        let bulk = ingest_model::choose(decision, &asked, &choices);
+        said.set((bulk.left_out > 0).then(|| decision.left_out(bulk.left_out)));
+        if bulk.items.is_empty() {
+            return;
+        }
+        deciding.set(decision.pending().into());
+        let ask = match ingest_model::request(decision, &bulk, &asked, &choices) {
+            Some(plan) => Ask::Plan(plan),
+            None => Ask::Dismiss(bulk.items),
+        };
+        decide.dispatch_local(ask);
+    });
+
+    let scanning = {
+        let base = base.clone();
+        Action::new_local(move |_: &()| {
+            let path = format!("{base}/scans");
+            async move {
+                let started = api::post::<_, Job>(&path, &()).await;
+                if started.is_ok() {
+                    refresh.update(|n| *n += 1);
+                }
+                started
+            }
+        })
     };
-    let discard = request.clone();
-    let add = request.clone();
-    let review = move || {
-        plan.get().map(|p| {
-            let open = p.approval.is_none();
-            let action = match p.content.action {
-                IngestAction::Discard => "Discarding",
-                IngestAction::DatImport => "Importing DATs",
-                IngestAction::Addition => "Adding additions",
+    let registered =
+        Memo::new(move |_| folder.with(|f| f.as_ref().is_some_and(|f| f.id.is_some())));
+    let mut actions = vec![ToolAction::page(Glyph::RefreshCw, "Scan now", move || {
+        if registered.get_untracked() {
+            scanning.dispatch_local(());
+        }
+    })];
+    actions.extend(Decision::ALL.into_iter().map(|decision| {
+        ToolAction::checked(
+            decision.glyph(),
+            decision.verb(),
+            move |chosen: Selected<ItemRow>| {
+                apply.run((decision, chosen.rows.into_iter().map(|r| r.item).collect()))
+            },
+        )
+    }));
+    let row_actions = Callback::new(move |row: ItemRow| {
+        let item = &row.item;
+        let mut actions = Vec::new();
+        if let Some(m) = &item.last_move {
+            if let Some(job) = m.job {
+                actions.push(RowAction::go(
+                    Glyph::Activity,
+                    format!("Open job #{job}"),
+                    format!("/activity?row={job}"),
+                ));
+            }
+            if let (Some(plan), Some(Proposal::SourceSet { source_set, .. })) =
+                (m.repair, &item.assessment.proposal)
+            {
+                actions.push(RowAction::go(
+                    Glyph::Wrench,
+                    format!("Open repair #{plan}"),
+                    format!(
+                        "/source-sets/{}/repair?plan={plan}",
+                        api::segment(source_set)
+                    ),
+                ));
+            }
+            if let Some(plan) = m.plan {
+                actions.push(RowAction::run(
+                    Glyph::ClipboardList,
+                    format!("Review plan #{plan}"),
+                    move || {
+                        reviewing.set(Some(plan));
+                        open.set(true);
+                    },
+                ));
+            }
+        }
+        if row.status == IngestStatus::MatchesSourceSet
+            && let Some(Proposal::SourceSet { source_set, .. }) = &item.assessment.proposal
+        {
+            actions.push(RowAction::go(
+                Glyph::Wrench,
+                format!("Repair {source_set}"),
+                format!("/source-sets/{}/repair", api::segment(source_set)),
+            ));
+        }
+        let choices = Choices {
+            additions: edits.get_untracked(),
+            provider: provider.get_untracked(),
+        };
+        for decision in Decision::ALL {
+            if ingest_model::applies(decision, item, &choices) {
+                let item = item.clone();
+                actions.push(RowAction::run(
+                    decision.glyph(),
+                    decision.single(),
+                    move || apply.run((decision, vec![item.clone()])),
+                ));
+            }
+        }
+        actions
+    });
+    let detail = Callback::new(move |row: ItemRow| item_detail(row, edits, provider));
+
+    // The newest plan you approved that is still moving items, if any.
+    let moving_plan = Memo::new(move |_| {
+        plans.get().and_then(Result::ok).and_then(|plans| {
+            plans
+                .into_iter()
+                .find(|p| p.approval.is_some() && p.finished_at.is_none())
+        })
+    });
+    let banner = move || {
+        moving_plan.get().map(|plan| {
+            let id = plan.id;
+            let job = all.with(|items| {
+                items
+                    .iter()
+                    .filter_map(|i| i.last_move.as_ref())
+                    .find(|m| m.plan == Some(id) && m.under_way)
+                    .and_then(|m| m.job)
+            });
+            let n = plan.content.items.len();
+            let what = if n == 1 {
+                "1 item".to_string()
+            } else {
+                format!("{n} items")
             };
             view! {
-                <h3>{format!("{action}, plan #{}", p.id)}</h3>
-                <p>
-                    "Digest " <code class="hash">{p.digest.clone()}</code>
+                <p class="banner" role="status">
+                    <span class="spinner" aria-hidden="true"></span>
+                    <span>{format!("Plan #{id} you approved is moving {what} out of the folder.")}</span>
+                    {job.map(|job| view! {
+                        <A href=format!("/activity?row={job}")>{format!("Job #{job}")}</A>
+                    })}
+                    <button type="button" on:click=move |_| { reviewing.set(Some(id)); open.set(true); }>
+                        {format!("Review plan #{id}")}
+                    </button>
+                </p>
+            }
+        })
+    };
+
+    let filters = move || {
+        view! {
+            <label>
+                "Status"
+                <select on:change=move |ev| {
+                    show_only(ingest_model::parse_slug(&event_target_value(&ev)))
+                }>
+                    <option value="" selected=move || only.get().is_none()>
+                        "Still in the folder"
+                    </option>
+                    {IngestStatus::ALL
+                        .iter()
+                        .map(|&s| {
+                            view! {
+                                <option
+                                    value=ingest_model::slug(s)
+                                    selected=move || only.get() == Some(s)
+                                >
+                                    {s.look().label}
+                                </option>
+                            }
+                        })
+                        .collect_view()}
+                </select>
+            </label>
+        }
+    };
+
+    view! {
+        <section aria-labelledby="items-title">
+            <h2 id="items-title">"Items"</h2>
+            <p class="lede">
+                "Each item is assessed once its size and times stop changing. Decide for every item of a status at \
+                once, for the items you check, or for one. Nothing moves until you approve the plan a decision makes; \
+                dismissing moves nothing."
+            </p>
+            {move || match items.get() {
+                None => view! { <Loading what="the items" /> }.into_any(),
+                Some(Err(message)) => view! { <Problem message /> }.into_any(),
+                Some(Ok(_)) => ().into_any(),
+            }}
+            {banner}
+            <ActionPending action=scanning status="Starting a scan…">
+                {move || (folder.with(Option::is_some) && !registered.get()).then(|| view! {
+                    <p class="note">"Register the folder before you scan it."</p>
+                })}
+            </ActionPending>
+            <ActionPending action=decide status=deciding>
+                <Strip strip only apply all provider show_only=Callback::new(show_only) />
+            </ActionPending>
+            <p class="note" role="status">
+                {move || said.get()}
+            </p>
+            <List
+                id="ingest-items"
+                label="Items"
+                rows
+                empty="Nothing has arrived in the folder yet. Items appear here after a scan."
+                placeholder="Filter by name, status or proposal"
+                actions
+                row_actions
+                quick=2
+                detail
+                filters=filters
+                keep
+                legend=move || view! { <Legend statuses list="ingest-items" /> }
+            />
+            <Drawer
+                open
+                title=Signal::derive(move || {
+                    reviewing.get().map(|id| format!("Plan #{id}")).unwrap_or_default()
+                })
+            >
+                <Review reviewing refresh />
+            </Drawer>
+        </section>
+    }
+}
+
+/// How many items show each status, with the decisions you can apply to all of them.
+#[component]
+fn Strip(
+    strip: Memo<Vec<Count>>,
+    only: Memo<Option<IngestStatus>>,
+    apply: Callback<(Decision, Vec<IngestItem>)>,
+    all: Signal<Arc<Vec<IngestItem>>>,
+    provider: RwSignal<String>,
+    show_only: Callback<Option<IngestStatus>>,
+) -> impl IntoView {
+    // Whether a DAT waiting to be imported has no registered DAT naming its provider.
+    let needs_provider = Memo::new(move |_| {
+        all.with(|items| {
+            items.iter().any(|i| {
+                ingest_model::status(i) == Some(IngestStatus::DatFile)
+                    && i.assessment
+                        .dat
+                        .as_ref()
+                        .is_some_and(|d| !d.imported && d.providers.len() != 1)
+            })
+        })
+    });
+    move || {
+        let counts = strip.get();
+        if counts.is_empty() {
+            return ().into_any();
+        }
+        view! {
+            <ul class="ingest-strip" aria-label="Items by status">
+                {counts
+                    .into_iter()
+                    .map(|count| {
+                        let status = count.status;
+                        let look = status.look();
+                        let pressed = move || only.get() == Some(status);
+                        let toggle = move |_| {
+                            show_only.run(if only.get_untracked() == Some(status) { None } else { Some(status) })
+                        };
+                        let decisions = count
+                            .decisions
+                            .into_iter()
+                            .map(|(decision, bulk)| {
+                                let label = decision.label(bulk.items.len());
+                                let ids = bulk.items;
+                                let run = move |_| {
+                                    let asked = all.with_untracked(|items| {
+                                        items.iter().filter(|i| ids.contains(&i.id)).cloned().collect()
+                                    });
+                                    apply.run((decision, asked));
+                                };
+                                view! {
+                                    <button type="button" on:click=run>
+                                        <LabelledIcon glyph=decision.glyph() label=label />
+                                    </button>
+                                }
+                            })
+                            .collect_view();
+                        let provider_field = (status == IngestStatus::DatFile && needs_provider.get()).then(|| {
+                            view! {
+                                <label class="inline">
+                                    "Provider for DATs no source set uses yet "
+                                    <input
+                                        type="text"
+                                        prop:value=move || provider.get()
+                                        on:input=move |ev| provider.set(event_target_value(&ev))
+                                    />
+                                </label>
+                            }
+                        });
+                        view! {
+                            <li>
+                                <button
+                                    type="button"
+                                    class="ingest-count"
+                                    aria-pressed=move || pressed().to_string()
+                                    title=look.hint
+                                    on:click=toggle
+                                >
+                                    <span class=format!("status {}", look.tone.class())>
+                                        <Svg glyph=look.glyph />
+                                    </span>
+                                    <span>{look.label}</span>
+                                    <span class="tally">{count.items}</span>
+                                </button>
+                                {decisions}
+                                {provider_field}
+                            </li>
+                        }
+                    })
+                    .collect_view()}
+            </ul>
+        }
+        .into_any()
+    }
+}
+
+fn item_detail(
+    row: ItemRow,
+    edits: RwSignal<BTreeMap<i64, NewAddition>>,
+    provider: RwSignal<String>,
+) -> AnyView {
+    let item = row.item.clone();
+    let id = item.id;
+    let moving = ingest_model::moving(&item);
+    let proposal = item.assessment.proposal.as_ref().map(proposal_label);
+    let last_move = item.last_move.clone().map(|m| {
+        let what = match (m.under_way, &m.error, &m.note) {
+            (true, _, _) => "Under way".to_string(),
+            (false, Some(e), _) => format!("Failed: {e}"),
+            (false, None, Some(note)) => capitalised(note),
+            (false, None, None) => "Ended".to_string(),
+        };
+        let by = match (m.plan, m.repair) {
+            (Some(plan), _) => format!("Plan #{plan}"),
+            (None, Some(repair)) => format!("Repair #{repair}"),
+            (None, None) => "A plan".to_string(),
+        };
+        let at = m
+            .finished_at
+            .as_deref()
+            .map(|at| format!(", {}", when(at)))
+            .unwrap_or_default();
+        view! {
+            <dt>"Last move"</dt>
+            <dd>
+                {format!("{by}: {what}{at}")}
+                {m.job.map(|job| view! {
+                    " · " <A href=format!("/activity?row={job}")>{format!("Job #{job}")}</A>
+                })}
+            </dd>
+        }
+    });
+    let addable = match &item.assessment.proposal {
+        Some(Proposal::Addition { system }) if item.assessment.payloads.len() == 1 && !moving => {
+            let initial = edits
+                .with_untracked(|e| e.get(&id).cloned())
+                .unwrap_or_else(|| new_addition(&item.name, system.as_deref()));
+            let value = RwSignal::new(initial);
+            Effect::new(move || {
+                let v = value.get();
+                edits.update(|e| {
+                    if e.get(&id) != Some(&v) {
+                        e.insert(id, v);
+                    }
+                });
+            });
+            Some(view! {
+                <div class="form">
+                    <AdditionFields value />
+                </div>
+            })
+        }
+        _ => None,
+    };
+    let provider_field = item
+        .assessment
+        .dat
+        .as_ref()
+        .filter(|d| !d.imported && d.providers.len() != 1 && !moving)
+        .map(|_| {
+            view! {
+                <div class="form">
+                    <label>
+                        "Provider, for a DAT no source set uses yet"
+                        <input
+                            type="text"
+                            prop:value=move || provider.get()
+                            on:input=move |ev| provider.set(event_target_value(&ev))
+                        />
+                    </label>
+                </div>
+            }
+        });
+    view! {
+        <dl class="facts">
+            <dt>"Status"</dt>
+            <dd>
+                <StatusBadge status=row.status />
+            </dd>
+            {proposal.map(|p| view! {
+                <dt>"Proposed"</dt>
+                <dd>{p}</dd>
+            })}
+            {item.reason.clone().map(|r| view! {
+                <dt>"Why"</dt>
+                <dd>{r}</dd>
+            })}
+            {(row.status == IngestStatus::Arriving).then(|| view! {
+                <dt>"Assessed"</dt>
+                <dd>{row.proposed()}</dd>
+            })}
+            {last_move}
+            <dt>"Size"</dt>
+            <dd>{format!("{} ({} bytes)", ingest_model::size(item.file.size), item.file.size)}</dd>
+            <dt>"First seen"</dt>
+            <dd>{when(&item.first_seen_at)}</dd>
+            {item.assessed_at.clone().map(|at| view! {
+                <dt>"Evidence"</dt>
+                <dd>
+                    {format!("Assessed {}", when(&at))}
+                    {evidence(&item.assessment)}
+                </dd>
+            })}
+        </dl>
+        {addable}
+        {provider_field}
+    }
+    .into_any()
+}
+
+/// The plan under review: what it moves where, and approving it, then how each move ended.
+#[component]
+fn Review(reviewing: RwSignal<Option<i64>>, refresh: RwSignal<u64>) -> impl IntoView {
+    let live = use_live();
+    let plan = LocalResource::new(move || {
+        live.settled.track();
+        refresh.track();
+        let id = reviewing.get();
+        async move {
+            match id {
+                Some(id) => api::get::<IngestPlan>(&format!("/ingest-plans/{id}"))
+                    .await
+                    .map(Some),
+                None => Ok(None),
+            }
+        }
+    });
+    let approving = Action::new_local(move |p: &IngestPlan| {
+        let (id, body) = (
+            p.id,
+            ApprovePlan {
+                digest: p.digest.clone(),
+            },
+        );
+        async move {
+            let done =
+                api::post::<_, IngestPlan>(&format!("/ingest-plans/{id}/approval"), &body).await;
+            if done.is_ok() {
+                refresh.update(|n| *n += 1);
+            }
+            done
+        }
+    });
+    let shown = move || match plan.get() {
+        None => view! { <Loading what="the plan" /> }.into_any(),
+        Some(Err(message)) => view! { <Problem message /> }.into_any(),
+        Some(Ok(None)) => ().into_any(),
+        Some(Ok(Some(p))) => {
+            let action = match p.content.action {
+                IngestAction::Discard => {
+                    "Discard: each item is kept aside in the folder's kept files"
+                }
+                IngestAction::DatImport => {
+                    "Import DATs: each is imported, then kept aside in the folder's kept files"
+                }
+                IngestAction::Addition => {
+                    "Add as additions: each is repacked into its system's additions set, its original kept aside once the copy reads back exactly"
+                }
+            };
+            let n = p.content.items.len();
+            let state = match (&p.approval, &p.finished_at) {
+                (None, _) => None,
+                (Some(a), None) => Some(format!(
+                    "You approved it {}. It's moving the items now.",
+                    when(&a.at)
+                )),
+                (Some(_), Some(at)) => Some(format!("Finished {}.", when(at))),
+            };
+            let approvable = p.approval.is_none();
+            let label = if n == 1 {
+                "Approve and move 1 item".to_string()
+            } else {
+                format!("Approve and move {n} items")
+            };
+            let to_approve = p.clone();
+            view! {
+                <p>{action}</p>
+                <p class="small">
+                    "Digest " <code class="hash">{short_sha(&p.digest).to_string()}</code>
                     {format!(
-                        " · it binds the {} entries of the folder as they are now; anything changing there before you \
-                         approve means planning again",
+                        " · it binds the {} entries of the folder as they are now; if anything there changes before \
+                         you approve, plan again",
                         p.content.fingerprint.len()
                     )}
                 </p>
+                {state.map(|s| view! { <p class="done" role="status">{s}</p> })}
                 <ul class="plain">
                     {p
                         .content
@@ -470,68 +1247,26 @@ fn Items(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                         })
                         .collect_view()}
                 </ul>
-                {open
-                    .then(|| {
-                        view! {
-                            <div class="form">
-                                <button
-                                    type="button"
-                                    class="primary"
-                                    disabled=move || working.get()
-                                    on:click=approve
-                                >
-                                    {format!("Approve and move {} items", p.content.items.len())}
-                                </button>
-                            </div>
-                        }
-                    })}
+                {approvable.then(|| view! {
+                    <div class="form">
+                        <button
+                            type="button"
+                            class="primary"
+                            disabled=move || approving.pending().get()
+                            on:click=move |_| { approving.dispatch_local(to_approve.clone()); }
+                        >
+                            {label.clone()}
+                        </button>
+                    </div>
+                })}
             }
-        })
+            .into_any()
+        }
     };
     view! {
-        <section aria-labelledby="items-title">
-            <h2 id="items-title">"Items"</h2>
-            <p class="lede">
-                "Each item is assessed once its size and times stop changing. Pick items to plan a discard, which \
-                keeps them aside in the folder's kept files, to import a DAT, or to add an item no DAT knows as an \
-                addition: repacked into its system's additions set, its original deleted only once the copy \
-                reads back exactly. Nothing moves until you approve."
-            </p>
-            <ul class="plain">{list}</ul>
-            <div class="form">
-                <button
-                    type="button"
-                    disabled=move || working.get() || picked.with(Vec::is_empty)
-                    on:click=move |_| discard(IngestAction::Discard)
-                >
-                    "Plan discarding the items you picked"
-                </button>
-                <label>
-                    "Provider, for a DAT no source set uses yet "
-                    <input
-                        type="text"
-                        prop:value=move || provider.get()
-                        on:input=move |ev| provider.set(event_target_value(&ev))
-                    />
-                </label>
-                <button
-                    type="button"
-                    disabled=move || working.get() || picked.with(Vec::is_empty)
-                    on:click=move |_| request(IngestAction::DatImport)
-                >
-                    "Plan importing the DATs you picked"
-                </button>
-                <button
-                    type="button"
-                    disabled=move || working.get() || picked.with(Vec::is_empty)
-                    on:click=move |_| add(IngestAction::Addition)
-                >
-                    "Plan adding the items you picked as additions"
-                </button>
-            </div>
-            {review}
-            {move || problem.get().map(|message| view! { <Problem message /> })}
-        </section>
+        <ActionPending action=approving status="Approving…">
+            {shown}
+        </ActionPending>
     }
 }
 
@@ -544,9 +1279,13 @@ fn KeptFiles(base: String, refresh: RwSignal<u64>) -> impl IntoView {
         let path = format!("{base}/kept-files");
         async move { api::get::<Vec<IngestKeptFile>>(&path).await }
     });
+    let summary = move || match files.get() {
+        Some(Ok(files)) => format!("Kept files ({})", files.len()),
+        _ => "Kept files".to_string(),
+    };
     view! {
-        <section aria-labelledby="kept-title">
-            <h2 id="kept-title">"Kept files"</h2>
+        <details class="kept">
+            <summary>{summary}</summary>
             <p class="lede">
                 "Items you discarded, DATs you imported and the originals of repacks, kept aside in the folder. \
                 Nothing here is deleted until you approve a cleanup."
@@ -566,11 +1305,11 @@ fn KeptFiles(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                                     <li>
                                         <code>{f.name.clone()}</code>
                                         {format!(
-                                            " as {RETENTION}/{}/{}: {}, {} bytes, {}",
+                                            " as {RETENTION}/{}/{}: {}, {}, {}",
                                             f.generation,
                                             f.kept_name,
                                             f.reason,
-                                            f.file.size,
+                                            ingest_model::size(f.file.size),
                                             when(&f.kept_at),
                                         )}
                                     </li>
@@ -581,6 +1320,6 @@ fn KeptFiles(base: String, refresh: RwSignal<u64>) -> impl IntoView {
                 }
                 .into_any(),
             }}
-        </section>
+        </details>
     }
 }

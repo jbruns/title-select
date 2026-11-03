@@ -837,6 +837,23 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     ));
 
     let mut response = client
+        .post("/ingest-folders/drop/dismissals")
+        .send_json(serde_json::json!({"items": [breakout.id]}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let dismissed: Vec<IngestItem> = response.body_mut().read_json().unwrap();
+    assert_eq!(dismissed.len(), 1);
+    assert_eq!(dismissed[0].state, ItemState::Dismissed);
+    assert_eq!(
+        status_of(
+            client
+                .post("/ingest-folders/drop/dismissals")
+                .send_json(serde_json::json!({"items": []}))
+        ),
+        400
+    );
+
+    let mut response = client
         .post("/ingest-folders/drop/plans")
         .send_json(serde_json::json!({"action": "discard", "items": [mystery.id]}))
         .unwrap();
@@ -865,6 +882,8 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     assert_eq!(kept[0].name, "mystery.bin");
     let item: IngestItem = client.json(&format!("/ingest-items/{}", mystery.id));
     assert_eq!(item.state, ItemState::Moved);
+    let moved = item.last_move.expect("its move is listed");
+    assert_eq!((moved.plan, moved.under_way), (Some(plan.id), false));
     assert_eq!(
         status_of(client.get("/ingest-folders/sets/items").call()),
         404
@@ -960,6 +979,19 @@ fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it(
     settle();
     let done: IngestPlan = client.json(&format!("/ingest-plans/{}", plan.id));
     assert!(done.outcomes.iter().all(|o| o.moved), "{done:?}");
+    let moved: IngestItem = client.json(&format!("/ingest-items/{}", item.id));
+    let moved = moved.last_move.expect("its move is listed");
+    let jobs: Vec<Job> = client.json("/jobs");
+    let job = jobs
+        .iter()
+        .filter(|j| j.kind == JobKind::Additions)
+        .max_by_key(|j| j.id);
+    assert_eq!(
+        moved.job,
+        job.map(|j| j.id),
+        "it links to its additions job"
+    );
+    assert!(!moved.under_way);
     assert!(!drop.join("My Hack.a26").exists());
     assert!(additions.join(SET).join("My Hack.zip").exists());
 

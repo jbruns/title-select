@@ -619,6 +619,9 @@ pub enum IngestStatus {
     MatchesSourceSet,
     Duplicate,
     NoDatMatch,
+    DatFile,
+    Unreadable,
+    Dismissed,
     Moving,
     Done,
 }
@@ -629,6 +632,9 @@ impl Status for IngestStatus {
         IngestStatus::MatchesSourceSet,
         IngestStatus::Duplicate,
         IngestStatus::NoDatMatch,
+        IngestStatus::DatFile,
+        IngestStatus::Unreadable,
+        IngestStatus::Dismissed,
         IngestStatus::Moving,
         IngestStatus::Done,
     ];
@@ -658,6 +664,24 @@ impl Status for IngestStatus {
                 Tone::Review,
                 "No DAT match",
                 "It matches no game in any DAT revision.",
+            ),
+            IngestStatus::DatFile => look(
+                Glyph::FileText,
+                Tone::Review,
+                "DAT file",
+                "It's a DAT file you may import.",
+            ),
+            IngestStatus::Unreadable => look(
+                Glyph::FileX,
+                Tone::Failed,
+                "Unreadable",
+                "It couldn't be read, or it's an archive Title Select doesn't open.",
+            ),
+            IngestStatus::Dismissed => look(
+                Glyph::CircleOff,
+                Tone::Neutral,
+                "Dismissed",
+                "You dismissed it; it stays dismissed until it changes.",
             ),
             IngestStatus::Moving => look(
                 Glyph::FolderInput,
