@@ -30,6 +30,11 @@ recorded with the DAT Revision of its latest Audit; the source from which a Play
 through an approved Repair, and only while its Root may write it and its marker says it is this store's Source Set.
 _Avoid_: Verified Set, Archive, romset, dump folder
 
+**Follow**:
+A Source Set's opt-in to newer DAT Revisions of its DAT. A newer revision makes a Following Source Set Stale; it never
+starts an Audit by itself.
+_Avoid_: Subscribe, track, auto-update
+
 **Play Library**:
 The selected collection that players and front ends read, derived for a device, purpose or preference. Title Select
 builds Selections into it.
@@ -55,17 +60,17 @@ A durable unit of work that Title Select runs for the Operator, such as an Audit
 Failed or Interrupted, and it survives a browser disconnecting or the Service restarting.
 _Avoid_: Task, run
 
-**Operator Addition**:
+**Addition**:
 An item the Operator approves for management in a Play Library independently of an official DAT, such as a ROM hack. It
 is identified by its own hashes (CRC32, MD5, SHA-1, SHA-256 and size) and a name the Operator can edit, and may name a
-parent Game as metadata only. It comes from an Ingest Folder item, Drift in a Managed Folder or a Source Set Entry
+parent Game as metadata only. It comes from an Ingest Folder item, Drift in a Library Folder or a Source Set Entry
 that matched nothing. Its recorded provenance and local integrity checks do not make it an official DAT match.
-_Avoid_: Custom ROM, homebrew (as a kind)
+_Avoid_: Operator Addition, Custom ROM, homebrew (as a kind)
 
 **Additions Set**:
-The folder holding the Operator Additions of one system, `<DAT name>` in the Root named `additions`, each stored under
+The folder holding the Additions of one system, `<DAT name>` in the Root named `additions`, each stored under
 its name in the format the Storage Policy says for its system's Source Sets. A Build reads it alongside the Source Set
-only when its Selection Profile opts in for that system, and it is checked for Drift like a Managed Folder. An Additions
+only when its Selection Profile opts in for that system, and it is checked for Drift like a Library Folder. An Additions
 Job publishes approved additions into it, and moves the file of one retired into its own Kept Files.
 _Avoid_: Extras folder, custom set
 
@@ -150,11 +155,11 @@ _Avoid_: Fix, rebuild, quarantine
 Applying an approved Change Plan that creates or updates a Play Library from a Selection's files in a Source Set.
 _Avoid_: Publish, export
 
-**Managed Folder**:
+**Library Folder**:
 A Play Library folder that the Operator registers for Title Select to build into, identified by its Root and a path
 relative to it, and bound to one system, one Source Set and one Selection Profile. Of a Play Library, Title Select
-writes only to Managed Folders; every other Play Library file is unmanaged and never touched. A system may have several.
-_Avoid_: Output folder, target
+writes only to Library Folders; every other Play Library file is unmanaged and never touched. A system may have several.
+_Avoid_: Managed Folder, output folder, target
 
 **Path Template**:
 A pattern of tokens, such as `{provider}/{dat}` or `{platform}`, that proposes the path of a Source Set or Managed
@@ -162,11 +167,17 @@ Folder at registration. It only proposes: a registered path never moves when a t
 _Avoid_: Naming scheme
 
 **Incomplete**:
-A Managed Folder whose current Build lacks a selected Game, because its group was unresolved and skipped, had no
+A Library Folder whose current Build lacks a selected Game, because its group was unresolved and skipped, had no
 source, failed, or is in conflict. Title Select shows why and how many.
 
+**Stale**:
+A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to
+be audited against; or a Library Folder whose Source Set or Selection Profile changed since its current Build. Looking
+changed is a heuristic, never a claim of damage.
+_Avoid_: Outdated, dirty
+
 **Drift**:
-Any difference between a Managed Folder and its current Build: a built file changed or missing, or an entry Title
+Any difference between a Library Folder and its current Build: a built file changed or missing, or an entry Title
 Select did not build. Drift is reported, never silently corrected; only an approved Change Plan acts on it. An entry
 the Operator acknowledges is not reported again until it changes.
 _Avoid_: Corruption (when meaning any difference)
@@ -191,7 +202,7 @@ original once its converted file is verified and the original is proven unchange
 original that can't be proven so stays a Kept File.
 
 **Kept File**:
-A file or folder removed from a Managed Folder by a Build or a cleanup, from a Source Set by a Repair, or from an
+A file or folder removed from a Library Folder by a Build or a cleanup, from a Source Set by a Repair, or from an
 Ingest Folder by a plan, set aside in that folder's retention area so that no tool or Audit scans it, until the
 Operator approves deleting or restoring it.
 _Avoid_: Trash, backup
