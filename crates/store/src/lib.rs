@@ -290,6 +290,9 @@ fn configure(conn: &Connection) -> Result<()> {
     conn.busy_timeout(BUSY_TIMEOUT)?;
     conn.pragma_update(None, "synchronous", "FULL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
+    // SQLite's temporary files stay in memory, so a read-only root filesystem without a writable /tmp still
+    // starts: recovering an interrupted Job's Audit needs them (#66).
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
     Ok(())
 }
 
@@ -414,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn every_connection_uses_wal_full_sync_foreign_keys_and_a_busy_timeout() {
+    fn every_connection_uses_wal_full_sync_foreign_keys_a_busy_timeout_and_memory_temp_files() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
 
@@ -427,12 +430,14 @@ mod tests {
                 pragma(c, "synchronous"),
                 pragma(c, "foreign_keys"),
                 pragma(c, "busy_timeout"),
+                pragma(c, "temp_store"),
             )
         };
         let expected = (
             "Integer(2)".to_string(),
             "Integer(1)".to_string(),
             "Integer(30000)".to_string(),
+            "Integer(2)".to_string(),
         );
         assert_eq!(settings(&writer), expected);
         assert_eq!(store.read(|c| Ok(settings(c))).unwrap(), expected);
