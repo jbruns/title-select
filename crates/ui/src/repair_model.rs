@@ -1,10 +1,13 @@
 //! The repair screen's pure logic: which repair to show when it opens, when to fetch a plan again, what to say
-//! about one left unfinished, and what you changed since the plan shown was made.
+//! about one left unfinished, what you changed since the plan shown was made, and setting one choice for many items.
 
 use std::collections::BTreeMap;
 
 use title_select_api::additions::NewAddition;
-use title_select_api::repair::{RepairChoice, RepairPlan};
+use title_select_api::repair::{RepairChoice, RepairItem, RepairPlan};
+
+use crate::parts::plan_model::{self, BulkOutcome};
+use crate::parts::status::PlanKind;
 
 /// The repair to show when the repair screen opens, from the source set's plans: the one `wanted` names, if any;
 /// otherwise the latest approved repair that hasn't finished, which is shown instead of proposing a new one.
@@ -109,6 +112,86 @@ pub fn unplanned(
         })
         .map(|item| item.key.clone())
         .collect()
+}
+
+/// The choice `item` takes now: your pick, or else what the plan shown does.
+pub fn current(item: &RepairItem, picked: &BTreeMap<String, RepairChoice>) -> RepairChoice {
+    picked.get(&item.key).copied().unwrap_or(item.chosen)
+}
+
+/// The choices of `item` you can set for many items at once: adding as an addition needs each item's own name, so
+/// it's set one item at a time.
+pub fn bulk_offers(item: &RepairItem) -> Vec<RepairChoice> {
+    item.choices
+        .iter()
+        .copied()
+        .filter(|c| *c != RepairChoice::AddAddition)
+        .collect()
+}
+
+fn of_kind(plan: &RepairPlan, kind: PlanKind) -> impl Iterator<Item = &RepairItem> {
+    plan.content
+        .items
+        .iter()
+        .filter(move |i| PlanKind::from(i.kind) == kind)
+}
+
+/// The choices "apply to all" offers for `kind`: those every item of that kind offers.
+pub fn kind_choices(plan: &RepairPlan, kind: PlanKind) -> Vec<RepairChoice> {
+    let offers: Vec<Vec<RepairChoice>> = of_kind(plan, kind).map(bulk_offers).collect();
+    plan_model::offered_by_all(offers.iter().map(Vec::as_slice))
+}
+
+/// The choices you can set for the items `keys` names: those any of them offers.
+pub fn choices_for(plan: &RepairPlan, keys: &[String]) -> Vec<RepairChoice> {
+    let offers: Vec<Vec<RepairChoice>> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| keys.contains(&i.key))
+        .map(bulk_offers)
+        .collect();
+    plan_model::offered_by_any(offers.iter().map(Vec::as_slice))
+}
+
+fn apply<'a>(
+    items: impl Iterator<Item = &'a RepairItem>,
+    choice: RepairChoice,
+    picked: &mut BTreeMap<String, RepairChoice>,
+) -> BulkOutcome {
+    let offers: Vec<(&RepairItem, Vec<RepairChoice>)> =
+        items.map(|i| (i, bulk_offers(i))).collect();
+    plan_model::apply_choice(
+        offers
+            .iter()
+            .map(|(i, o)| (i.key.as_str(), i.chosen, o.as_slice())),
+        choice,
+        picked,
+    )
+}
+
+/// Sets `choice` for every item of `kind` that offers it; no choice ("no change") changes nothing.
+pub fn apply_to_kind(
+    plan: &RepairPlan,
+    kind: PlanKind,
+    choice: Option<RepairChoice>,
+    picked: &mut BTreeMap<String, RepairChoice>,
+) -> Option<BulkOutcome> {
+    Some(apply(of_kind(plan, kind), choice?, picked))
+}
+
+/// Sets `choice` for every item `keys` names that offers it: the selected rows, or every row matching a filter.
+pub fn apply_to_keys(
+    plan: &RepairPlan,
+    keys: &[String],
+    choice: RepairChoice,
+    picked: &mut BTreeMap<String, RepairChoice>,
+) -> BulkOutcome {
+    apply(
+        plan.content.items.iter().filter(|i| keys.contains(&i.key)),
+        choice,
+        picked,
+    )
 }
 
 #[cfg(test)]
@@ -290,5 +373,117 @@ mod tests {
             },
         )]);
         assert_eq!(unplanned(&p, &choices, &renamed), ["entry:h.zip"]);
+    }
+
+    fn bulk_plan() -> RepairPlan {
+        let mut p = plan(1, false, false, None);
+        let kept = |key: &str, choices: &[&str]| {
+            let mut i = item(key, choices, "keep_aside", "keep_aside");
+            i.kind = title_select_api::repair::RepairKind::KeepAside;
+            i
+        };
+        p.content.items = vec![
+            kept("entry:a.zip", &["leave", "keep_aside", "add_addition"]),
+            kept("entry:b.zip", &["leave", "keep_aside", "add_addition"]),
+            kept("entry:c.zip", &["keep_aside"]),
+            item("game:g", &["apply", "leave"], "apply", "apply"),
+        ];
+        p
+    }
+
+    #[test]
+    fn apply_to_all_offers_what_every_item_of_the_kind_offers_but_adding() {
+        let p = bulk_plan();
+        assert_eq!(
+            kind_choices(&p, PlanKind::SetAside),
+            [RepairChoice::KeepAside]
+        );
+        let ab = ["entry:a.zip".to_string(), "entry:b.zip".to_string()];
+        assert_eq!(
+            choices_for(&p, &ab),
+            [RepairChoice::Leave, RepairChoice::KeepAside]
+        );
+        assert_eq!(
+            kind_choices(&p, PlanKind::Rename),
+            [RepairChoice::Apply, RepairChoice::Leave],
+            "a conflict is shown as a rename"
+        );
+    }
+
+    #[test]
+    fn no_change_leaves_every_pick_as_it_was() {
+        let p = bulk_plan();
+        let mut picked = BTreeMap::from([("entry:a.zip".to_string(), RepairChoice::Leave)]);
+        let before = picked.clone();
+        assert_eq!(
+            apply_to_kind(&p, PlanKind::SetAside, None, &mut picked),
+            None
+        );
+        assert_eq!(picked, before);
+    }
+
+    #[test]
+    fn apply_to_all_sets_every_item_of_the_kind_and_only_that_kind() {
+        let mut p = bulk_plan();
+        p.content.items.truncate(2);
+        p.content
+            .items
+            .push(item("game:g", &["apply", "leave"], "apply", "apply"));
+        let mut picked = BTreeMap::new();
+        let outcome = apply_to_kind(
+            &p,
+            PlanKind::SetAside,
+            Some(RepairChoice::Leave),
+            &mut picked,
+        )
+        .unwrap();
+        assert_eq!(outcome.changed, 2);
+        assert_eq!(
+            picked.keys().collect::<Vec<_>>(),
+            ["entry:a.zip", "entry:b.zip"]
+        );
+        assert_eq!(
+            unplanned(&p, &picked, &BTreeMap::new()).len(),
+            2,
+            "approval waits"
+        );
+        picked.insert("entry:a.zip".into(), RepairChoice::KeepAside);
+        assert_eq!(
+            unplanned(&p, &picked, &BTreeMap::new()),
+            ["entry:b.zip"],
+            "one item can still be changed afterwards"
+        );
+    }
+
+    #[test]
+    fn a_choice_only_some_items_offer_sets_only_those_and_says_so() {
+        let p = bulk_plan();
+        let mut picked = BTreeMap::new();
+        let keys: Vec<String> = p.content.items.iter().map(|i| i.key.clone()).collect();
+        let outcome = apply_to_keys(&p, &keys, RepairChoice::Leave, &mut picked);
+        assert_eq!(
+            outcome,
+            BulkOutcome {
+                asked: 4,
+                offered: 3,
+                changed: 3
+            }
+        );
+        assert!(!picked.contains_key("entry:c.zip"));
+        assert_eq!(
+            current(&p.content.items[2], &picked),
+            RepairChoice::KeepAside
+        );
+        assert!(outcome.message("leave").contains("1 item doesn't offer it"));
+    }
+
+    #[test]
+    fn adding_as_an_addition_is_never_set_in_bulk() {
+        let p = bulk_plan();
+        let mut picked = BTreeMap::new();
+        let keys = ["entry:a.zip".to_string()];
+        let outcome = apply_to_keys(&p, &keys, RepairChoice::AddAddition, &mut picked);
+        assert_eq!(outcome.offered, 0);
+        assert!(picked.is_empty());
     }
 }

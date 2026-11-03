@@ -770,6 +770,68 @@ input[type="file"] {
   font-weight: 700;
 }
 
+/* Plan review: counts by kind, and rows reading current → proposed */
+
+.kind-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.kind-count {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-divider);
+  border-radius: var(--radius-control);
+}
+
+.kind-count.active {
+  background: var(--color-selected);
+  border-color: var(--color-selected-edge);
+}
+
+.kind-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: none;
+  background: transparent;
+}
+
+.kind-count .n {
+  font-family: var(--font-data);
+  font-weight: 700;
+}
+
+.kind-count select {
+  max-width: 11rem;
+}
+
+.change {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.change > .clip,
+.change > span:not(.change-to) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.change-to {
+  flex: none;
+  display: inline-flex;
+  color: var(--color-text-secondary);
+}
+
 /* Tables */
 
 .table-scroll {
