@@ -59,7 +59,7 @@ pub fn SelectionQueued(job: i64) -> impl IntoView {
                 Some((state, None, Some(error))) if state.is_final() => {
                     view! { <span class="failed">{format!("It failed: {error}")}</span> }.into_any()
                 }
-                _ => view! { <A href="/jobs">"Follow it on the Jobs screen"</A> }.into_any(),
+                _ => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
             }}
         </p>
     }

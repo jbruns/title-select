@@ -58,10 +58,17 @@ pub enum Glyph {
     Sun,
     Moon,
     Monitor,
+    Database,
+    Library,
+    FileText,
+    SlidersHorizontal,
+    Activity,
+    HardDrive,
+    FolderTree,
 }
 
 impl Glyph {
-    pub const ALL: [Glyph; 54] = [
+    pub const ALL: [Glyph; 61] = [
         Glyph::ShieldCheck,
         Glyph::CircleCheck,
         Glyph::Tag,
@@ -116,6 +123,13 @@ impl Glyph {
         Glyph::Sun,
         Glyph::Moon,
         Glyph::Monitor,
+        Glyph::Database,
+        Glyph::Library,
+        Glyph::FileText,
+        Glyph::SlidersHorizontal,
+        Glyph::Activity,
+        Glyph::HardDrive,
+        Glyph::FolderTree,
     ];
 
     /// The icon's elements inside a 24 × 24 `<svg>`, stroked with `currentColor`.
@@ -263,6 +277,27 @@ impl Glyph {
             Glyph::Monitor => {
                 "<rect width='20' height='14' x='2' y='3' rx='2' /><line x1='8' x2='16' y1='21' y2='21' /><line x1='12' x2='12' y1='17' y2='21' />"
             }
+            Glyph::Database => {
+                "<ellipse cx='12' cy='5' rx='9' ry='3' /><path d='M3 5V19A9 3 0 0 0 21 19V5' /><path d='M3 12A9 3 0 0 0 21 12' />"
+            }
+            Glyph::Library => {
+                "<path d='m16 6 4 14' /><path d='M12 6v14' /><path d='M8 8v12' /><path d='M4 4v16' />"
+            }
+            Glyph::FileText => {
+                "<path d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z' /><path d='M14 2v5a1 1 0 0 0 1 1h5' /><path d='M10 9H8' /><path d='M16 13H8' /><path d='M16 17H8' />"
+            }
+            Glyph::SlidersHorizontal => {
+                "<path d='M10 5H3' /><path d='M12 19H3' /><path d='M14 3v4' /><path d='M16 17v4' /><path d='M21 12h-9' /><path d='M21 19h-5' /><path d='M21 5h-7' /><path d='M8 10v4' /><path d='M8 12H3' />"
+            }
+            Glyph::Activity => {
+                "<path d='M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2' />"
+            }
+            Glyph::HardDrive => {
+                "<path d='M10 16h.01' /><path d='M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z' /><path d='M21.946 12.013H2.054' /><path d='M6 16h.01' />"
+            }
+            Glyph::FolderTree => {
+                "<path d='M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z' /><path d='M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z' /><path d='M3 5a2 2 0 0 0 2 2h3' /><path d='M3 3v13a2 2 0 0 0 2 2h3' />"
+            }
         }
     }
 
@@ -323,6 +358,13 @@ impl Glyph {
             Glyph::Sun => "sun",
             Glyph::Moon => "moon",
             Glyph::Monitor => "monitor",
+            Glyph::Database => "database",
+            Glyph::Library => "library",
+            Glyph::FileText => "file-text",
+            Glyph::SlidersHorizontal => "sliders-horizontal",
+            Glyph::Activity => "activity",
+            Glyph::HardDrive => "hard-drive",
+            Glyph::FolderTree => "folder-tree",
         }
     }
 }

@@ -656,7 +656,7 @@ is queued or running. If something else puts another file in place of one a repa
 deleted or left untracked: it's put back under its old name, or recorded among the kept files as what it is.
 
 Approving queues the repair as a job, run by the same scheduler as audits, within `jobs.concurrent`; the repair
-screen and the jobs screen show its progress, one step at a time. While it is queued or running, and until its
+screen and Activity show its progress, one step at a time. While it is queued or running, and until its
 follow-up audit is queued, no audit of the source set starts and no build reading it is approved. You can cancel it:
 the step it is on finishes, every change of the item it started finishes, and the rest are skipped.
 
@@ -702,7 +702,7 @@ You add one from three places, each through a plan you approve:
 The plan records each addition's hashes when it is made, read from the file through a descriptor it holds, and you
 approve those hashes with the plan. An additions job, one per additions set and subject to `jobs.concurrent` like any
 other job, then publishes what you approved: for an ingest item once you approve the plan, and for a repair or a
-cleanup once its job ends. You can follow and cancel it on the jobs screen, and a stop resumes it when the service
+cleanup once its job ends. You can follow and cancel it in Activity, and a stop resumes it when the service
 next starts. Cancelling a job fails only the additions it was given to publish; one you approve afterwards goes to a
 new job. The file it reads must still hold exactly the hashes approved; otherwise the addition fails, saying
 why, and its original is left where it was.
@@ -891,7 +891,17 @@ healthcheck: { test: ["CMD", "/title-select", "health"] }
 ## Workbench
 
 The workbench is your browser interface to the Service: a Leptos app compiled to WebAssembly that uses only the
-`/api/v1` JSON API, from the same origin. Its screens:
+`/api/v1` JSON API, from the same origin.
+
+The top bar holds the navigation: **Source sets · Libraries · Ingest · DATs · Profiles · Activity · Settings**, with
+the stream's status and the theme button. Ingest shows a badge counting the items in your ingest folders that wait
+on your decision: assessed, already held, unreadable or unsupported, until you plan them out or dismiss them.
+Activity shows a badge counting the jobs running and the failed jobs you haven't opened yet; opening a failed job's
+row marks it seen in that browser. Both badges follow `/api/v1/events`. On a narrow screen the bar shows only the
+icons. Paths from earlier versions (`/ingest-folders`, `/dat-revisions`, `/jobs`, `/storage-policy`, `/about`) open
+their new place.
+
+Its screens:
 
 - **Source sets** lists each source set with its latest audit and the DAT revision it was last verified against, and
   registers another from a root, a DAT and a path in the root. The path template proposes the path from the DAT, with a
@@ -899,7 +909,7 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   go back. When the DAT has no `{platform}`, the preview says so and you type the path. Opening a source set shows its facts, starts an audit against
   the default DAT revision or a newer one, as a quick inventory or an incremental (the default) or full audit, makes a selection with a selection profile, lists its selections, and
   lists its audit history, latest first, with a Re-audit for each row. A re-audit is incremental.
-- **DAT revisions** lists every DAT revision, newest import first within each DAT, with its provenance (provider,
+- **DATs** (`/dats`) lists every DAT revision, newest import first within each DAT, with its provenance (provider,
   source URL, file, SHA-256, import time), whether its file is kept, and the audits that refer to it. It uploads a DAT
   file as a new DAT revision.
 - **Audit** shows the audit's source set, DAT revision, times and evidence, exports its JSON report and re-audits. Its summary
@@ -924,10 +934,15 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
   until you save them as the next version of the profile, which makes a new selection. "Plan a build" plans building
   it into a library folder bound to its source set and selection profile.
-- **Storage policy** sets how source sets and play libraries store games, TorrentZip or loose, and whether a
+- **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip or loose, and whether a
   conversion deletes each original once its converted file verifies, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
+  **Roots** lists the roots in the service's configuration file, read-only: each one's path, whether it's writable
+  or an ingest folder, and the source set paths a repair may write to in a read-only root. **About**, also linked
+  from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
+  texts of Title Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
+  the bundle's `licences/` folder.
 - **Libraries** lists each library folder with its current build and when it was last checked, marking a check
   made before the current build, and registers another in a writable root,
   with the path proposed from the source set's DAT as for a source set. Opening one plans a build of a selection,
@@ -941,7 +956,7 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   addition asks for its system, name and parent game. The folder shows badges
   for an incomplete folder and an interrupted build, what the folder lacks, and its latest check, which you can run
   again. Each build shows every file it wrote or failed to write.
-- **Ingest folders** lists each ingest root and registers it. Opening one scans it, and lists each item with its
+- **Ingest** (`/ingest`) lists each ingest root and registers it. Opening one scans it, and lists each item with its
   state, the evidence assessing it found and what is proposed. You pick items to plan discarding them or importing
   DATs, or adding them as additions with the system, name and parent game you give each, review the plan,
   approve it and see what happened to each item; you can dismiss an item until it changes. It lists the folder's
@@ -950,18 +965,15 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   proposed and a choice you can change before planning again, and every change in order, including what is kept
   aside. An unmatched entry you add as an addition asks for its system, name and parent game. You approve it with its digest and see what happened to each item. While an approved repair hasn't
   finished, the screen opens on it, with its job's progress and a way to cancel it, instead of proposing another, and
-  says what stopped it if it was left unfinished; a repair job on the jobs screen links to its plan. It lists the
+  says what stopped it if it was left unfinished; a repair job in Activity links to its plan. It lists the
   source set's kept files, where you pick some and approve deleting them.
-- **Additions** lists each system's additions set and its additions, with each one's name, hashes, state,
+- **Additions** (`/additions`, linked from the source sets screen) lists each system's additions set and its additions, with each one's name, hashes, state,
   parent game and where it came from. You rename an addition, set or clear its parent, retire or restore it, and
   check the additions set for drift. Each set lists its kept files, which you pick, review and approve deleting, and
   any found entries a stop left.
-- **Jobs** lists the latest jobs with their kind, state, progress and result, live: it follows `/api/v1/events`, applies `state`
+- **Activity** (`/activity`) lists the latest jobs with their kind, state, progress and result, live: it follows `/api/v1/events`, applies `state`
   and `progress` events by the job `version` rule above, and replaces what it holds with each `resync` snapshot,
   which also arrives after a reconnect.
-- **About**, linked from every screen's footer, says where selection comes from, explains the default orders, and shows the licence texts of Title
-  Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from the bundle's
-  `licences/` folder.
 
 Every table is virtualized, sorts by its column headers and works from the keyboard: Tab to the table, then the arrow
 keys, Page Up, Page Down, Home and End move the selected row, Enter opens it and Escape clears it. Each screen's

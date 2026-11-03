@@ -1124,7 +1124,7 @@ fn BuildProgress(job: i64) -> impl IntoView {
                     };
                     view! { <span>"is running. "</span> {progress_view(&l)} {control} }.into_any()
                 }
-                None => view! { <A href="/jobs">"Follow it on the Jobs screen"</A> }.into_any(),
+                None => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
             }}
         </p>
         {move || problem.get().map(|message| view! { <Problem message /> })}
@@ -1611,7 +1611,7 @@ fn PlanView(plan: Plan, refresh: RwSignal<u64>) -> impl IntoView {
                         Some(a) => format!("Approved by {} · {}", a.actor, when(&a.at)),
                         None => "Not approved".to_string(),
                     }}
-                    {plan.job.map(|j| view! { ", build job " <A href="/jobs">{format!("#{j}")}</A> })}
+                    {plan.job.map(|j| view! { ", build job " <A href="/activity">{format!("#{j}")}</A> })}
                 </dd>
             </dl>
             {summary_view(&plan.summary)}

@@ -73,6 +73,14 @@ ICONS = [
     "sun",
     "moon",
     "monitor",
+    # The top navigation and the settings tabs.
+    "database",
+    "library",
+    "file-text",
+    "sliders-horizontal",
+    "activity",
+    "hard-drive",
+    "folder-tree",
 ]
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]

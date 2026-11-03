@@ -19,7 +19,7 @@ use crate::model::{short_sha, when};
 use crate::screens::additions::{AdditionFields, new_addition};
 
 fn folder_href(root: &str) -> String {
-    format!("/ingest-folders/{}", api::segment(root))
+    format!("/ingest/{}", api::segment(root))
 }
 
 fn counts(folder: &IngestFolder) -> String {

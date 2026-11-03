@@ -361,7 +361,7 @@ fn Repair(name: String) -> impl IntoView {
                 {p.audit_job.map(|job| view! {
                     <p>
                         "An incremental audit was queued: "
-                        <A href="/jobs">{format!("job {job}")}</A>
+                        <A href="/activity">{format!("job {job}")}</A>
                     </p>
                 })}
                 {p.audit_owed.then(|| view! {
@@ -502,7 +502,7 @@ fn RepairProgress(
                     }
                     .into_any()
                 }
-                None => view! { <A href="/jobs">"Follow it on the jobs screen"</A> }.into_any(),
+                None => view! { <A href="/activity">"Follow it in Activity"</A> }.into_any(),
             }}
         </p>
         {move || problem.get().map(|message| view! { <Problem message /> })}

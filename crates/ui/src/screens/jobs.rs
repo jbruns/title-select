@@ -8,7 +8,7 @@ use leptos_struct_table::ColumnSort;
 use title_select_api::{Job, JobKind, JobState};
 
 use crate::api;
-use crate::app::{Loading, Problem};
+use crate::app::{Loading, Problem, use_seen_jobs};
 use crate::events::{Stream, use_live};
 use crate::jobs::{LiveJob, state_label};
 use crate::model::{audit_evidence_label, short_sha, when};
@@ -214,13 +214,23 @@ pub fn Jobs() -> impl IntoView {
         Arc::new(sorting.with(|s| sorted(jobs, s)))
     });
     let rows = Signal::derive(move || rows_of(shown.get().as_ref().clone()) as Rows<JobItem>);
+    // Opening a failed Job marks it seen, so the Activity badge stops counting it.
+    let seen = use_seen_jobs();
+    Effect::new(move || {
+        let opened = shown.with(|s| s.get(selected.get()?).map(|item| item.0.job.clone()));
+        if let Some(job) = opened
+            && job.state == JobState::Failed
+        {
+            seen.mark(job.id);
+        }
+    });
     let detail = move || {
         let item = shown.with(|s| s.get(selected.get()?).cloned())?;
         Some(job_detail(&item.0))
     };
 
     view! {
-        <h1>"Jobs"</h1>
+        <h1>"Activity"</h1>
         <p class="lede">
             {move || match live.stream.get() {
                 Stream::Live => "Live: state and progress arrive as they happen.".to_string(),
