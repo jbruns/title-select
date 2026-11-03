@@ -4,8 +4,8 @@ use leptos_router::components::{A, Outlet, ParentRoute, Redirect, Route, Router,
 use leptos_router::hooks::{use_location, use_navigate, use_params_map};
 use leptos_router::{NavigateOptions, path};
 use leptos_use::storage::use_local_storage;
-use title_select_api::JobState;
 use title_select_api::ingest::IngestFolder;
+use title_select_api::{Job, JobState};
 
 use crate::api;
 use crate::events::{Stream, provide_live, use_live};
@@ -107,12 +107,13 @@ fn Nav() -> impl IntoView {
     });
     let failed = LocalResource::new(move || {
         live.settled.track();
-        api::get::<Vec<i64>>("/failed-jobs")
+        api::get::<Vec<Job>>("/failed-jobs")
     });
     // Forget the seen Jobs that no longer failed, which keeps local storage bounded. A failure the live Jobs show
     // may be newer than the fetched list, so it stays.
     Effect::new(move || {
-        if let Some(Ok(mut ids)) = failed.get() {
+        if let Some(Ok(failed)) = failed.get() {
+            let mut ids: Vec<i64> = failed.iter().map(|j| j.id).collect();
             live.book.with_untracked(|book| {
                 ids.extend(
                     book.newest_first()
@@ -132,6 +133,7 @@ fn Nav() -> impl IntoView {
     });
     let attention = Signal::derive(move || {
         let failed = failed.get().and_then(Result::ok).unwrap_or_default();
+        let failed = failed.iter().map(|j| j.id);
         let live = live.book.with(|book| book.newest_first());
         seen.get()
             .with(|seen| needing_attention(live.iter().map(|l| &l.job), failed, seen))
@@ -254,6 +256,16 @@ impl Seen {
         if !self.seen.with_untracked(|s| s.is_seen(id)) {
             let mut next = self.seen.get_untracked();
             next.mark(id);
+            self.set.set(next);
+        }
+    }
+
+    /// Marks every failed Job in `ids` seen at once.
+    pub fn mark_all(self, ids: impl IntoIterator<Item = i64>) {
+        let mut next = self.seen.get_untracked();
+        let before = next.clone();
+        ids.into_iter().for_each(|id| next.mark(id));
+        if next != before {
             self.set.set(next);
         }
     }

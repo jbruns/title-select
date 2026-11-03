@@ -1556,11 +1556,9 @@ async fn jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<title_select_
     Ok(Json(blocking(&state, |store| store.jobs(100)).await?))
 }
 
-/// The ID of every Failed Job, so a client can tell which failures the Operator hasn't seen.
-async fn failed_jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<i64>>> {
-    Ok(Json(
-        blocking(&state, |store| store.failed_job_ids()).await?,
-    ))
+/// Every Failed Job, however old, so a client can show each failure the Operator hasn't seen.
+async fn failed_jobs(State(state): State<AppState>) -> ApiResult<Json<Vec<title_select_api::Job>>> {
+    Ok(Json(blocking(&state, |store| store.failed_jobs()).await?))
 }
 
 async fn job(

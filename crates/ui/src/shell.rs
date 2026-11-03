@@ -1,7 +1,7 @@
 //! The app shell's pure logic: where old workbench paths moved, the navigation badges' counts, and which failed Jobs
 //! the Operator has seen.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 
@@ -52,19 +52,41 @@ pub fn needing_attention<'a>(
     failed: impl IntoIterator<Item = i64>,
     seen: &SeenJobs,
 ) -> u64 {
-    let mut unseen: BTreeSet<i64> = failed.into_iter().collect();
-    let mut running = 0;
-    for job in jobs {
-        match job.state {
-            JobState::Running => running += 1,
-            JobState::Failed => {
-                unseen.insert(job.id);
+    let jobs: Vec<&Job> = jobs.into_iter().collect();
+    let running = jobs.iter().filter(|j| j.state == JobState::Running).count();
+    (running + unseen_failures(jobs, failed, seen).len()) as u64
+}
+
+/// The IDs of the Failed Jobs the Operator hasn't seen: among the live `jobs` and `failed`, the server's list.
+pub fn unseen_failures<'a>(
+    jobs: impl IntoIterator<Item = &'a Job>,
+    failed: impl IntoIterator<Item = i64>,
+    seen: &SeenJobs,
+) -> BTreeSet<i64> {
+    let live = jobs
+        .into_iter()
+        .filter(|j| j.state == JobState::Failed)
+        .map(|j| j.id);
+    failed
+        .into_iter()
+        .chain(live)
+        .filter(|id| !seen.is_seen(*id))
+        .collect()
+}
+
+/// The `recent` Jobs with every Job in `failed` they lack, so that each failure the Activity badge counts has a row;
+/// a Job in both keeps its newer version. Newest first.
+pub fn with_failures(recent: Vec<Job>, failed: Vec<Job>) -> Vec<Job> {
+    let mut all: BTreeMap<i64, Job> = BTreeMap::new();
+    for job in recent.into_iter().chain(failed) {
+        match all.get(&job.id) {
+            Some(held) if held.version >= job.version => {}
+            _ => {
+                all.insert(job.id, job);
             }
-            _ => {}
         }
     }
-    unseen.retain(|id| !seen.is_seen(*id));
-    running + unseen.len() as u64
+    all.into_values().rev().collect()
 }
 
 /// The failed Jobs the Operator opened, kept in local storage. It stays bounded by forgetting Jobs that no longer
@@ -234,6 +256,28 @@ mod tests {
         assert_eq!(needing_attention(&jobs, [1, 2], &seen), 4);
         seen.mark(2);
         assert_eq!(needing_attention(&jobs, [1, 2], &seen), 3);
+    }
+
+    #[test]
+    fn every_unseen_failure_is_listed_once_whether_live_or_fetched() {
+        let jobs = [job(3, JobState::Running), job(8, JobState::Failed)];
+        let mut seen = SeenJobs::default();
+        seen.mark(2);
+        let unseen = unseen_failures(&jobs, [1, 2, 8], &seen);
+        assert_eq!(unseen.into_iter().collect::<Vec<_>>(), vec![1, 8]);
+    }
+
+    #[test]
+    fn failures_older_than_the_recent_jobs_join_the_history() {
+        let mut newer = job(5, JobState::Failed);
+        newer.version = 2;
+        let history = with_failures(
+            vec![job(9, JobState::Succeeded), job(5, JobState::Failed)],
+            vec![newer.clone(), job(1, JobState::Failed)],
+        );
+        let ids: Vec<i64> = history.iter().map(|j| j.id).collect();
+        assert_eq!(ids, vec![9, 5, 1]);
+        assert_eq!(history[1], newer);
     }
 
     #[test]

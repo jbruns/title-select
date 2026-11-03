@@ -1189,6 +1189,14 @@ a.icon-button {
   text-align: center;
 }
 
+/* A page heading with its page-level actions beside it */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .page-links {
   display: flex;
   gap: var(--space-4);

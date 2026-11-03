@@ -873,7 +873,7 @@ fn a_restart_interrupts_a_running_job_and_queues_it_once_more_then_fails_it() {
 }
 
 #[test]
-fn every_failed_job_is_listed_by_id_however_old() {
+fn every_failed_job_is_listed_however_old() {
     use title_select_store::JobState;
     let env = Env::new(20);
     env.add_dat_and_set();
@@ -903,10 +903,10 @@ fn every_failed_job_is_listed_by_id_however_old() {
         (JobState::Failed, JobState::Succeeded)
     );
 
-    assert_eq!(
-        env.store.failed_job_ids().unwrap(),
-        vec![first.id, second.id]
-    );
+    let failed = env.store.failed_jobs().unwrap();
+    let ids: Vec<i64> = failed.iter().map(|j| j.id).collect();
+    assert_eq!(ids, vec![second.id, first.id]);
+    assert_eq!(failed[1], first);
 }
 
 #[test]

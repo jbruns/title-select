@@ -742,7 +742,7 @@ fn starting_the_service_interrupts_a_job_left_running_and_runs_it_again() {
 }
 
 #[test]
-fn the_api_lists_every_failed_job_by_id() {
+fn the_api_lists_every_failed_job() {
     let env = Env::new();
     let service = env.start();
     let client = Client::new(&service);
@@ -755,9 +755,9 @@ fn the_api_lists_every_failed_job_by_id() {
     let (_, broken) = client.follow(broken.id);
     assert_eq!(broken.state, JobState::Failed);
 
-    let failed: Vec<i64> = client.json("/failed-jobs");
+    let failed: Vec<Job> = client.json("/failed-jobs");
 
-    assert_eq!(failed, vec![broken.id]);
+    assert_eq!(failed, vec![broken]);
 }
 
 #[test]

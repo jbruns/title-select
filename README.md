@@ -812,7 +812,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/additions-kept-deletions/{id}`        | a plan to delete an additions set's kept files               |
 | `POST /api/v1/additions-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
 | `GET /api/v1/jobs`                                 | the latest 100 jobs, newest first                            |
-| `GET /api/v1/failed-jobs`                          | the ID of every failed job, oldest first                     |
+| `GET /api/v1/failed-jobs`                          | every failed job, however old, newest first                  |
 | `GET /api/v1/jobs/{id}`                            | one job                                                      |
 | `GET /api/v1/jobs/{id}/events`                     | server-sent events for one job, ending at its final state    |
 | `POST /api/v1/jobs/{id}/cancellation`              | cancel a repair job at the next step, or a build job at the next file; `409` once it has ended |
@@ -897,11 +897,12 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
 The top bar holds the navigation: **Source sets · Libraries · Ingest · DATs · Profiles · Activity · Settings**, with
 the stream's status and the theme button. Ingest shows a badge counting the items in your ingest folders that wait
 on your decision: assessed, already held, unreadable or unsupported, until you plan them out or dismiss them.
-Activity shows a badge counting the jobs running and the failed jobs you haven't opened yet, however old; opening a
-failed job's row marks it seen in that browser. Both badges follow `/api/v1/events`, and the Ingest badge also counts
-again after each change you make on an ingest page. On a narrow screen the bar shows only the icons; hover over or
-focus one to see its name. Paths from earlier versions (`/ingest-folders`, `/dat-revisions`, `/jobs`, `/storage-policy`, `/about`) open
-their new place.
+Activity shows a badge counting the jobs running and the failed jobs you haven't opened yet, however old. Activity
+lists every failed job beside the latest jobs; opening a failed job's row marks it seen in that browser, and the eye
+button beside the Activity heading marks every failure seen at once. Both badges follow `/api/v1/events`, and the
+Ingest badge also counts again after each change you make on an ingest page. On a narrow screen the bar shows only
+the icons; hover over or focus one to see its name. Paths from earlier versions (`/ingest-folders`, `/dat-revisions`,
+`/jobs`, `/storage-policy`, `/about`) open their new place.
 
 Its screens:
 
