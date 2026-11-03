@@ -734,9 +734,10 @@ fn SelectionView(record: SelectionRecord) -> impl IntoView {
         if pruned {
             None
         } else {
-            api::get::<SelectionDiff>(&format!("/selections/{id}/diff"))
+            api::get::<Option<SelectionDiff>>(&format!("/selections/{id}/diff"))
                 .await
                 .ok()
+                .flatten()
         }
     });
     let version_path = format!(
