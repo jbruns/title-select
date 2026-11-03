@@ -85,6 +85,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         )
         .route("/path-templates", get(path_templates))
         .route("/source-sets", get(source_sets).post(add_source_set))
+        .route("/source-set-summaries", get(source_set_summaries))
         .route("/source-sets/{name}", get(source_set))
         .route("/source-sets/{name}/history", get(history))
         .route("/audits", post(start_audit))
@@ -435,6 +436,12 @@ async fn source_sets(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<title_select_api::SourceSetRecord>>> {
     Ok(Json(blocking(&state, Store::source_sets).await?))
+}
+
+async fn source_set_summaries(
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<title_select_api::SourceSetSummary>>> {
+    Ok(Json(blocking(&state, Store::source_set_summaries).await?))
 }
 
 async fn add_source_set(

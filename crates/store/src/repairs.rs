@@ -26,7 +26,7 @@ use title_select_api::repair::{
     RepairPlanContent, RepairRom, RepairStep, SeenFile, SourceSetMarker,
 };
 use title_select_api::storage::StorageScope;
-use title_select_api::{AuditEvidence, Job, JobKind, JobState, Workers};
+use title_select_api::{AuditEvidence, Job, JobKind, JobState, OpenRepair, Workers};
 use title_select_engine::build::{FromSource, repack_sources, verify, verify_loose, write_loose};
 use title_select_engine::dat::Dat;
 use title_select_engine::{FileStamp, Progress};
@@ -2897,4 +2897,34 @@ fn as_read(seen: &Seen, stamp: &FileStamp) -> bool {
                 mtime_ns: stamp.mtime_ns,
             }
         && seen.ctime_ns == stamp.ctime_ns
+}
+
+/// The open Repair of Source Set `name`, whose latest finished Audit is `latest`: the newest one approved and not
+/// finished; or else the newest one not yet approved, proposed from `latest` after its last approved one.
+pub(super) fn open_repair(
+    c: &Connection,
+    name: &str,
+    latest: Option<i64>,
+) -> Result<Option<OpenRepair>> {
+    Ok(c.query_row(
+        "SELECT p.id, p.audit_id, p.approved_digest IS NOT NULL,
+                (SELECT j.id FROM jobs j WHERE j.repair_plan_id = p.id ORDER BY j.id DESC LIMIT 1)
+         FROM repair_plans p JOIN source_sets s ON s.id = p.source_set_id
+         WHERE s.name = ?1
+           AND ((p.approved_digest IS NOT NULL AND p.finished_at IS NULL)
+             OR (p.approved_digest IS NULL AND p.audit_id = ?2
+                 AND p.id > (SELECT COALESCE(MAX(q.id), 0) FROM repair_plans q
+                             WHERE q.source_set_id = p.source_set_id AND q.approved_digest IS NOT NULL)))
+         ORDER BY p.approved_digest IS NOT NULL DESC, p.id DESC LIMIT 1",
+        params![name, latest],
+        |r| {
+            Ok(OpenRepair {
+                id: r.get(0)?,
+                audit: r.get(1)?,
+                approved: r.get(2)?,
+                job: r.get(3)?,
+            })
+        },
+    )
+    .optional()?)
 }

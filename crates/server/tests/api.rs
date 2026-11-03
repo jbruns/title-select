@@ -500,7 +500,12 @@ fn the_api_uploads_a_dat_registers_a_source_set_and_audits_it_end_to_end() {
     let summary: AuditSummary = client.json(&format!("/audits/{audit_id}"));
     assert_eq!(summary.findings[&Finding::Matched], 2);
     let history: Vec<AuditSummary> = client.json("/source-sets/Test%20-%20System/history");
-    assert_eq!(history, vec![summary]);
+    assert_eq!(history, vec![summary.clone()]);
+    let summaries: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].set.name, set.name);
+    assert_eq!(summaries[0].latest.as_ref(), Some(&summary));
+    assert_eq!(summaries[0].repair, None);
 
     let report: Report = client.json(&format!("/audits/{audit_id}/report"));
     assert_eq!(report.schema, title_select_api::SCHEMA);
@@ -1136,6 +1141,12 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
     assert!(set.join("notes.txt").exists(), "planning changes nothing");
     let listed: Vec<RepairPlan> = client.json(repairs);
     assert_eq!(listed.iter().map(|p| p.id).collect::<Vec<_>>(), [plan.id]);
+    let summaries: Vec<title_select_api::SourceSetSummary> = client.json("/source-set-summaries");
+    assert_eq!(
+        summaries[0].repair.as_ref().map(|r| (r.id, r.approved)),
+        Some((plan.id, false)),
+        "the list shows the repair open"
+    );
 
     let approval = format!("/repairs/{}/approval", plan.id);
     let wrong = client
