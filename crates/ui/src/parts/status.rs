@@ -483,6 +483,53 @@ impl Status for PlanKind {
     }
 }
 
+/// Where a Source Set's repair is: the icon of its Repair tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RepairState {
+    Proposing,
+    Running,
+    Approved,
+    Open,
+}
+
+impl Status for RepairState {
+    const ALL: &'static [Self] = &[
+        RepairState::Proposing,
+        RepairState::Running,
+        RepairState::Approved,
+        RepairState::Open,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            RepairState::Proposing => look(
+                Glyph::Clock,
+                Tone::Active,
+                "Proposing",
+                "A repair plan is being made.",
+            ),
+            RepairState::Running => look(
+                Glyph::LoaderCircle,
+                Tone::Active,
+                "Running",
+                "The approved repair is being carried out.",
+            ),
+            RepairState::Approved => look(
+                Glyph::Check,
+                Tone::Good,
+                "Approved",
+                "You approved the repair; it hasn't finished.",
+            ),
+            RepairState::Open => look(
+                Glyph::ClipboardList,
+                Tone::Review,
+                "Open",
+                "A repair plan waits for your review.",
+            ),
+        }
+    }
+}
+
 /// The kind of a build plan item, or of a build's or cleanup's item, shown beside its row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuildKind {
@@ -909,6 +956,7 @@ mod tests {
             ("source set rows", vocabulary::<SourceSetStatus>()),
             ("library folder rows", vocabulary::<LibraryStatus>()),
             ("plan kinds", vocabulary::<PlanKind>()),
+            ("repair states", vocabulary::<RepairState>()),
             ("build plan kinds", vocabulary::<BuildKind>()),
             ("ingest items", vocabulary::<IngestStatus>()),
             ("ingest plan kinds", vocabulary::<IngestPlanKind>()),

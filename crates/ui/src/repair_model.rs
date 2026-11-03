@@ -1,10 +1,10 @@
 //! The repair screen's pure logic: which repair to show when it opens, when to fetch a plan again, what to say
 //! about one left unfinished, what you changed since the plan shown was made, and setting one choice for many items.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use title_select_api::additions::NewAddition;
-use title_select_api::repair::{RepairChoice, RepairItem, RepairPlan};
+use title_select_api::repair::{RepairChoice, RepairItem, RepairPlan, RepairStep};
 
 use crate::parts::plan_model::{self, BulkOutcome};
 use crate::parts::status::PlanKind;
@@ -144,11 +144,12 @@ pub fn kind_choices(plan: &RepairPlan, kind: PlanKind) -> Vec<RepairChoice> {
 
 /// The choices you can set for the items `keys` names: those any of them offers.
 pub fn choices_for(plan: &RepairPlan, keys: &[String]) -> Vec<RepairChoice> {
+    let keys: BTreeSet<&str> = keys.iter().map(String::as_str).collect();
     let offers: Vec<Vec<RepairChoice>> = plan
         .content
         .items
         .iter()
-        .filter(|i| keys.contains(&i.key))
+        .filter(|i| keys.contains(i.key.as_str()))
         .map(bulk_offers)
         .collect();
     plan_model::offered_by_any(offers.iter().map(Vec::as_slice))
@@ -187,11 +188,63 @@ pub fn apply_to_keys(
     choice: RepairChoice,
     picked: &mut BTreeMap<String, RepairChoice>,
 ) -> BulkOutcome {
+    let keys: BTreeSet<&str> = keys.iter().map(String::as_str).collect();
     apply(
-        plan.content.items.iter().filter(|i| keys.contains(&i.key)),
+        plan.content
+            .items
+            .iter()
+            .filter(|i| keys.contains(i.key.as_str())),
         choice,
         picked,
     )
+}
+
+/// Where `item` is now: its file, and the member in it; or, for a game it lacks, the game.
+pub fn place(item: &RepairItem) -> String {
+    match (&item.path, &item.member, &item.game) {
+        (Some(path), Some(member), _) => format!("{path} ({member})"),
+        (Some(path), None, _) => path.clone(),
+        (None, _, Some(game)) => format!("{game} (missing)"),
+        (None, _, None) => item.key.clone(),
+    }
+}
+
+/// What the plan makes of `item`: the file it ends up as, the addition it is added as, or that it is kept aside or
+/// left as it is.
+pub fn proposed(plan: &RepairPlan, item: &RepairItem) -> String {
+    if item.chosen == RepairChoice::Leave {
+        return "left as it is".to_string();
+    }
+    if item.chosen == RepairChoice::AddAddition
+        && let Some(addition) = &item.addition
+    {
+        return format!("addition {}", addition.name);
+    }
+    let steps = || {
+        plan.content
+            .steps
+            .iter()
+            .filter(|s| s.item == item.key)
+            .map(|s| &s.step)
+    };
+    let written = steps().find_map(|step| match step {
+        RepairStep::Rename { to, .. } => Some(to.clone()),
+        RepairStep::Publish { target, .. } | RepairStep::Fill { target, .. } => {
+            Some(target.clone())
+        }
+        _ => None,
+    });
+    let written = written.or_else(|| {
+        steps().find_map(|step| match step {
+            RepairStep::Build { target, .. } => Some(target.clone()),
+            _ => None,
+        })
+    });
+    match written {
+        Some(target) => target,
+        None if steps().any(|s| matches!(s, RepairStep::Keep { .. })) => "kept files".to_string(),
+        None => "left as it is".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -485,5 +538,85 @@ mod tests {
         let outcome = apply_to_keys(&p, &keys, RepairChoice::AddAddition, &mut picked);
         assert_eq!(outcome.offered, 0);
         assert!(picked.is_empty());
+    }
+
+    fn seen() -> title_select_api::repair::SeenFile {
+        use title_select_api::build::{FileIdentity, FileStat};
+        title_select_api::repair::SeenFile {
+            identity: FileIdentity { dev: 1, ino: 2 },
+            file: FileStat {
+                size: 3,
+                mtime_ns: 4,
+            },
+            ctime_ns: 5,
+        }
+    }
+
+    #[test]
+    fn a_row_reads_where_the_item_is_and_what_the_plan_makes_of_it() {
+        use title_select_api::repair::PlannedStep;
+        let mut p = plan(1, false, false, None);
+        let mut renamed = item("entry:a.zip", &["apply", "leave"], "apply", "apply");
+        renamed.path = Some("a.zip".into());
+        let mut repacked = item("entry:b.zip#b.bin", &["apply", "leave"], "apply", "apply");
+        repacked.path = Some("b.zip".into());
+        repacked.member = Some("b.bin".into());
+        let mut kept = item(
+            "entry:c.txt",
+            &["keep_aside", "leave"],
+            "keep_aside",
+            "keep_aside",
+        );
+        kept.path = Some("c.txt".into());
+        let mut left = item("entry:d.zip", &["apply", "leave"], "apply", "leave");
+        left.path = Some("d.zip".into());
+        let mut filled = item("game:Echo", &["apply", "leave"], "apply", "apply");
+        filled.game = Some("Echo".into());
+        p.content.steps = vec![
+            PlannedStep {
+                item: "entry:a.zip".into(),
+                step: RepairStep::Rename {
+                    from: "a.zip".into(),
+                    to: "Alpha.zip".into(),
+                    seen: seen(),
+                    roms: vec![],
+                    loose: false,
+                },
+            },
+            PlannedStep {
+                item: "entry:b.zip#b.bin".into(),
+                step: RepairStep::Build {
+                    target: "Bravo.zip".into(),
+                    roms: vec![],
+                    sources: BTreeMap::new(),
+                    loose: false,
+                },
+            },
+            PlannedStep {
+                item: "entry:c.txt".into(),
+                step: RepairStep::Keep {
+                    path: "c.txt".into(),
+                    kept_name: "c.txt".into(),
+                    reason: "unmatched".into(),
+                    seen: seen(),
+                    needs: vec![],
+                    affects: vec![],
+                },
+            },
+        ];
+        let rows: Vec<(String, String)> = [&renamed, &repacked, &kept, &left, &filled]
+            .into_iter()
+            .map(|i| (place(i), proposed(&p, i)))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("a.zip".into(), "Alpha.zip".into()),
+                ("b.zip (b.bin)".into(), "Bravo.zip".into()),
+                ("c.txt".into(), "kept files".into()),
+                ("d.zip".into(), "left as it is".into()),
+                ("Echo (missing)".into(), "left as it is".into()),
+            ]
+        );
     }
 }
