@@ -62,6 +62,11 @@ Non-user-facing text keeps the role "the Operator", capitalized glossary terms a
 docstrings that aren't CLI help, ADRs, `GLOSSARY.md`, design and research docs, issues and PRs, and the README's
 development and architecture sections.
 
+### Workbench UI
+
+Before changing a workbench screen or `crates/ui/src/parts/`, read `docs/agents/ui.md`: copy rules and the shared
+parts (icons, status vocabulary, legend, pending, overlays, URL state, theme).
+
 ### Privacy
 
 All prose, user-facing or not, names roles, never people, logins, hostnames, domains or the deployments that run

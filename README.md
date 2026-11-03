@@ -857,8 +857,8 @@ the token is refused or the Service cannot be reached.
 
 `ghcr.io/jbruns/title-select` is a static binary, the workbench's bundle (at `/ui`) and the patched selection engine
 with its pinned clone lists and venv (at `/opt/retool`) on `gcr.io/distroless/python3-debian12:nonroot`, for
-linux/amd64. The licence texts the About page shows are at `/ui/licences`: Title Select's, the selection engine's and
-the clone lists and metadata's. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
+linux/amd64. The licence texts the About page shows are at `/ui/licences`: Title Select's, the selection engine's,
+the clone lists and metadata's, and the Lucide icons'. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
 `/store`, and serves the workbench at `/`. It needs nothing else writable but your writable roots, not even `/tmp`, so you can
 run it with a read-only root filesystem:
 
@@ -960,11 +960,13 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   and `progress` events by the job `version` rule above, and replaces what it holds with each `resync` snapshot,
   which also arrives after a reconnect.
 - **About**, linked from every screen's footer, says where selection comes from, explains the default orders, and shows the licence texts of Title
-  Select, the selection engine and its clone lists and metadata, served from the bundle's `licences/` folder.
+  Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from the bundle's
+  `licences/` folder.
 
 Every table is virtualized, sorts by its column headers and works from the keyboard: Tab to the table, then the arrow
 keys, Page Up, Page Down, Home and End move the selected row, Enter opens it and Escape clears it. Each screen's
-controls are ordinary buttons, links and form fields. The workbench needs an evergreen browser; it makes no request
+controls are ordinary buttons, links and form fields. The workbench follows your system's light or dark setting; the
+header's theme button overrides it in that browser. The workbench needs an evergreen browser; it makes no request
 to any other origin and keeps no credential in browser storage. Its fonts, Liberation Sans and Liberation Mono, are
 served with it under the SIL Open Font License (`crates/ui/assets/fonts/LICENSE-OFL.txt`).
 
@@ -1040,5 +1042,6 @@ or a patch; the tests fail, rather than skip, without it.
 
 MIT. See [LICENSE](LICENSE). The vendored Retool is BSD-3-Clause
 ([third_party/retool/upstream/LICENSE](third_party/retool/upstream/LICENSE)); the image ships the clone lists and
-metadata with their BSD-3-Clause licence beside them. The image also ships all three licence texts under
-`/ui/licences`, where the workbench's About page shows them.
+metadata with their BSD-3-Clause licence beside them. The workbench's icons are vendored from Lucide, ISC
+([crates/ui/assets/licences/lucide.txt](crates/ui/assets/licences/lucide.txt)). The image ships all four licence texts
+under `/ui/licences`, where the workbench's About page shows them.
