@@ -4,7 +4,7 @@ Audits ROM collections against DAT files, and records exactly what was verified 
 
 Status: early pilot. You get a headless audit command; a store of DAT revisions, source sets and audits; the Service,
 a JSON API that runs audits, selections and builds as durable jobs; and a headless selection command. A build writes a
-selection into a managed folder for your front end, as TorrentZips or loose as your storage policy says, once you
+selection into a library folder for your front end, as TorrentZips or loose as your storage policy says, once you
 approve its change plan. Removing and
 replacing built files follow.
 The words used here are defined in [GLOSSARY.md](GLOSSARY.md).
@@ -221,7 +221,7 @@ writable = false            # the default
 
 [roots.play]                # a root for your front end's `roms/` folder
 path = "/data/roms"
-writable = true             # only managed folders may live in a writable root
+writable = true             # only library folders may live in a writable root
 
 [roots.downloads]           # an ingest folder, where new files arrive
 path = "/data/downloads/games"
@@ -230,7 +230,7 @@ kind = "ingest"
 settle_secs = 60            # unchanged this long before an item is assessed (the default)
 # scan_every_minutes = 15   # scan on a schedule; by default only when you ask
 
-[roots.additions]           # the additions sets, one folder per system; see "Operator additions"
+[roots.additions]           # the additions sets, one folder per system; see "Additions"
 path = "/data/additions"
 writable = true             # required, with no kind and no writable_paths
 
@@ -253,7 +253,7 @@ pace = "default"            # gentle | default | unthrottled
 
 [path_templates]            # the paths registration proposes; see "Path templates"
 source_set = "{provider}/{dat}"     # the default
-managed_folder = "{platform}"       # the default
+library_folder = "{platform}"       # the default
 ```
 
 ### Path templates
@@ -266,9 +266,10 @@ Its tokens are:
 - `{platform}`: the front end's folder name for the system, such as `atari2600`.
 
 A source set's path is proposed from `path_templates.source_set`, by default `{provider}/{dat}`: the Atari 2600 DAT
-gives `No-Intro/Atari - Atari 2600`. `path_templates.managed_folder`, by default `{platform}`, proposes the managed folder
+gives `No-Intro/Atari - Atari 2600`. `path_templates.library_folder`, by default `{platform}`, proposes the library folder
 a play library build writes to, in a writable root pointing at the front end's `roms/` folder: `atari2600`. You can change
-either default here, use another template when you register, or type the path yourself.
+either default here, use another template when you register, or type the path yourself. A configuration that still
+uses the earlier name, `managed_folder`, keeps working.
 
 The proposed path keeps every character of the provider and DAT name as it is. It must be relative to the root, not
 empty and without `..`, and registration refuses a path that resolves outside the root. Folders are separated with
@@ -405,14 +406,14 @@ A save names the version it started from, and is refused with `409` if a newer v
 queue a selection for one or more source sets with the new version.
 
 Each system's settings in a profile can opt in to its additions set, which is off by default. When it is on, a build
-of that system reads the source set and the system's active operator additions, each built as a selected title under
+of that system reads the source set and the system's active additions, each built as a selected title under
 its own name. An addition whose file name is taken by a selected game or by another addition blocks only itself,
 saying why.
 
 ### Storage policy
 
 The storage policy says how each folder stores a game: as one TorrentZip per game, `<game>.zip`, or loose, as its
-ROM itself under the name the DAT gives it. It has two scopes, source sets and play libraries (managed folders), each
+ROM itself under the name the DAT gives it. It has two scopes, source sets and play libraries (library folders), each
 with a global setting and settings for each system, a DAT as `<provider>/<name>`, as a selection profile has. The
 default is TorrentZip everywhere. Only a game with one ROM can be stored loose: a game with more stays TorrentZip, and
 so does a game whose ROM's name isn't a plain file name; a plan says which games and why.
@@ -435,13 +436,13 @@ files, and the plan's outcome says why. Only a game whose ROMs are the same, by 
 converted; a game whose ROMs changed is replaced, and its old file is kept, never deleted. A conversion the service stopped during ends, when it next starts, with the original either deleted, when
 that was proven before the stop, or kept; a file found by its path alone is never deleted.
 
-### Managed folders and builds
+### Library folders and builds
 
-A managed folder is a folder in a writable root that Title Select builds selections into, for your front end to play
+A library folder is a folder in a writable root that Title Select builds selections into, for your front end to play
 from. It is bound to a source set and a selection profile, and so to a system; a system may have several, each with
 its own profile. A source set cannot be registered in a writable root, and nothing else is ever written to one.
 
-Registering a managed folder needs a folder that is empty or missing; registration creates it and writes a
+Registering a library folder needs a folder that is empty or missing; registration creates it and writes a
 `.title-select` marker holding the store's id, the folder's id and its build generation. A plan refuses a folder whose
 marker is missing, names another store or folder, or has another generation, as after restoring a backup or mounting
 the wrong share.
@@ -492,8 +493,8 @@ Your choices are part of the plan, and of its digest: building resolved groups o
 it (the default), adopting it when it holds the ROMs the DAT expects, or keeping it aside and building the game in its
 place. To change one, plan again with it. The removals are part of the digest too.
 
-Kept files stay until you delete them: list them (`GET /managed-folders/{id}/kept-files`), plan deleting some or all
-(`POST /managed-folders/{id}/kept-deletions`), review the plan's digest, and approve it. Planning reads each kept
+Kept files stay until you delete them: list them (`GET /libraries/{id}/kept-files`), plan deleting some or all
+(`POST /libraries/{id}/kept-deletions`), review the plan's digest, and approve it. Planning reads each kept
 file and the digest binds what it read, its change time and SHA-256 included. Each kept file is deleted
 only while it is still the file that was kept and still reads as you reviewed it: it is moved, without replacing anything, into the private folder
 `.title-select-retained/.deleting`, and deleted there only once what was moved is found to be that file and is hashed again. A file that changed since
@@ -505,7 +506,7 @@ folder's marker checked, is reported gone and no longer listed. A deletion the s
 when it next starts, once the folder's root is writable and its marker shows it is this store's folder; until then
 its kept files stay recorded and plans for the folder are blocked. Checks and drift never report the retention area.
 
-Planning also checks the folder, as a check job does. A check job (`POST /managed-folders/{id}/checks`) reads the
+Planning also checks the folder, as a check job does. A check job (`POST /libraries/{id}/checks`) reads the
 folder and writes only to the store. It reads a built file only when its size or modification time differs from the
 store's record: a file with the same content refreshes the record; one holding the same ROMs in another ZIP is
 recorded as built and flagged not TorrentZip; anything else is a conflict. Every other entry is drift, reported as a
@@ -514,11 +515,11 @@ unknown file, or a directory, which is never opened. Symlinks and special files 
 Select's own entries are never drift. Drift is a warning: only a conflict at a selected game's file makes the folder
 incomplete.
 
-A cleanup acts on what a check found, only as you choose, entry by entry (`POST /managed-folders/{id}/cleanups`):
+A cleanup acts on what a check found, only as you choose, entry by entry (`POST /libraries/{id}/cleanups`):
 keep an entry aside, a file or a whole folder, into the retention area as a kept file; adopt a file that holds exactly
 a selected game's ROMs under the current DAT revision, renamed to that game's file name when it is not already, and
 recorded as built; or acknowledge an entry, which writes nothing to the folder and stops reporting it until its
-identity, size or modification time changes; or add a file that holds one ROM no DAT knows as an operator addition,
+identity, size or modification time changes; or add a file that holds one ROM no DAT knows as an addition,
 which keeps it aside and copies it into its system's additions set. A cleanup also puts kept files back, under their own name when it is
 free and, for a file holding a selected game, that game's file name; a kept file holding a selected game under
 another name is adopted under that game's file name instead, and one whose name is taken is refused. It repacks a
@@ -543,10 +544,10 @@ the store's record, straight after a restart. Planning again finishes it: the fi
 A plan is stored with the SHA-256 of its content, its digest, and you approve it by sending that digest. The approval
 queues a job of kind `build`, which plans again and refuses, writing nothing, when the plan changed since you
 approved it, storing the new plan for you to review. Otherwise it writes each file into a staging folder inside the
-managed folder, re-hashes its ROMs against the DAT, checks the TorrentZip's structure, and renames it into place
+library folder, re-hashes its ROMs against the DAT, checks the TorrentZip's structure, and renames it into place
 without replacing anything; a source that fails its re-hash fails only its own file. Files get your umask's
 permissions and the build's time as their modification time. The marker's generation goes up last, when the build
-succeeds. Every write goes through the managed folder as it was opened, never a symlink, and the build checks the
+succeeds. Every write goes through the library folder as it was opened, never a symlink, and the build checks the
 marker again before each file and before the marker; if the marker changed, or the folder itself fails a write, the
 build fails and the marker stays where it was. You can cancel a build while it runs: the file it is writing, and
 the original it converts, finish; files already in place stay, the rest are left out, and the build shows as
@@ -560,7 +561,7 @@ fails. The store records the next generation before the marker follows it, and a
 While a build is queued or running, its selection and audit are kept from being pruned.
 
 A build cut off by a stop or a failure is not run again. When the server starts, it cleans up after such a build only
-if the managed folder's root is still writable and the folder's marker is still this store's and matches what the
+if the library folder's root is still writable and the folder's marker is still this store's and matches what the
 store recorded. It removes only what the build recorded creating, by device and inode: the staging folder, the files
 in it, and a marker temporary file. It records each file already put in place whose content it re-hashes and finds
 as planned, and marks any other file at that target uncertain, leaving it as it is. A marker that did not follow the
@@ -569,7 +570,7 @@ blocked until you resolve it and restart the server; this includes a marker newe
 restore the store from a backup. Anything else in the staging folder, or at the marker's temporary name, also blocks
 planning until you remove it.
 
-The current build of each managed folder keeps its selection and its audit from being pruned.
+The current build of each library folder keeps its selection and its audit from being pruned.
 
 ### Ingest folders
 
@@ -592,7 +593,7 @@ loose file, hashed whole, whatever bytes its tail holds, and is never opened as 
 directory before any member is read. Its members are read only up to the limits of one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all. Each item is one of:
 
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
-  a candidate operator addition, with the system its extension suggests when exactly one registered system uses it;
+  a candidate addition, with the system its extension suggests when exactly one registered system uses it;
   or a DAT you may import;
 - already held, when every source set it matches holds it with a verified payload, or it is a DAT revision already
   imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
@@ -674,9 +675,9 @@ saying what was left where: for example, if a file it put in place was replaced 
 with, the fill fails and both are left as they are. Audits never read `.title-select` or
 `.title-select-retained`. You delete a source set's kept files by picking them and approving the deletion.
 
-### Operator additions
+### Additions
 
-An operator addition is a file no DAT knows that you chose to keep, such as a ROM hack or a translation. It is known
+An addition is a file no DAT knows that you chose to keep, such as a ROM hack or a translation. It is known
 by its own hashes (CRC32, MD5, SHA-1, SHA-256 and size) and a name you give it, never as a match of any DAT, and may
 name a parent game, which is shown and nothing more. Each system has an additions set: the folder named after its DAT
 in the root named `additions`, created by its first addition with a marker naming this store. Each addition is stored
@@ -689,13 +690,13 @@ suggests is filled in when there is one.
 
 You add one from three places, each through a plan you approve:
 
-- an ingest folder item that matched nothing and holds one ROM, by planning to add it as an operator addition. It is
+- an ingest folder item that matched nothing and holds one ROM, by planning to add it. It is
   moved as an approved ingest move is: written into the additions set, read back, and the original deleted only when
   what was written is exactly the addition's ROM. A loose file is deleted then; a ZIP original is kept in the ingest
   folder's kept files;
-- an entry of a source set that matched nothing and holds one ROM, by choosing "add as operator addition" for it in
+- an entry of a source set that matched nothing and holds one ROM, by choosing "add to additions" for it in
   a repair. The repair keeps it aside as it would otherwise, and the addition is copied from that kept file;
-- drift in a managed folder, by choosing "add as operator addition" for an entry not built there in a cleanup. The
+- drift in a library folder, by choosing "add to additions" for an entry not built there in a cleanup. The
   cleanup keeps it aside, and the addition is copied from that kept file.
 
 The plan records each addition's hashes when it is made, read from the file through a descriptor it holds, and you
@@ -717,7 +718,7 @@ You can rename an addition, which changes only the name builds write, set or cle
 additions job moves a retired addition's file into the additions set's kept files, and builds no longer read it. You
 can restore a retired addition, which moves its file back, or delete its kept file through a plan you approve, as for
 a source set's kept files. A name stays taken by its addition, even once it is retired. A check of an additions set,
-like that of a managed folder, reads the folder and changes nothing: it reports each active addition as intact,
+like that of a library folder, reads the folder and changes nothing: it reports each active addition as intact,
 missing or changed, and anything else as an unknown file. A file whose change time moved is re-hashed, and is
 intact only if it still holds what was published. It ignores `.title-select` entries and kept files.
 
@@ -733,7 +734,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/dat-revisions`                        | every DAT revision                                           |
 | `POST /api/v1/dat-revisions`                       | import a DAT: multipart `provider`, `source_url`?, `file`    |
 | `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against |
-| `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "managed_folder"}` |
+| `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
 | `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat"}`; with no `path`, the path `template`, else the default, proposes |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
@@ -761,19 +762,19 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection; `?against=`        |
-| `GET /api/v1/managed-folders`                      | the managed folders, each with its current build             |
-| `POST /api/v1/managed-folders`                     | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
-| `GET /api/v1/managed-folders/{id}`                 | one managed folder                                           |
-| `PATCH /api/v1/managed-folders/{id}`               | rebind it: `{"source_set"?, "profile"?}`                     |
-| `GET /api/v1/managed-folders/{id}/builds`          | its builds, newest first                                     |
-| `GET /api/v1/managed-folders/{id}/files`           | the files built into it, with their provenance               |
-| `POST /api/v1/managed-folders/{id}/plans`          | plan building a selection into it: `{"selection", "resolved_only"?, "adopt"?: [target], "keep_aside"?: [target]}`; `201` |
-| `POST /api/v1/managed-folders/{id}/cleanups`       | plan a cleanup: `{"entries"?: {name: "keep_aside" \| "adopt" \| "acknowledge" \| "add_addition"}, "restore"?: [kept id], "repack"?: [target], "additions"?: {name: {"system", "name", "parent"?}}}`; `201`, approved as a plan |
-| `POST /api/v1/managed-folders/{id}/checks`         | check it; `202` with the check job                           |
-| `GET /api/v1/managed-folders/{id}/check`           | its latest check: each built file, the drift and the acknowledged entries; `404` when never checked |
-| `GET /api/v1/managed-folders/{id}/incomplete`      | what its current build lacks, by reason                      |
-| `GET /api/v1/managed-folders/{id}/kept-files`      | the files builds kept aside in it, newest generation first   |
-| `POST /api/v1/managed-folders/{id}/kept-deletions` | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
+| `GET /api/v1/libraries`                            | the library folders, each with its current build             |
+| `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
+| `GET /api/v1/libraries/{id}`                       | one library folder                                           |
+| `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |
+| `GET /api/v1/libraries/{id}/builds`                | its builds, newest first                                     |
+| `GET /api/v1/libraries/{id}/files`                 | the files built into it, with their provenance               |
+| `POST /api/v1/libraries/{id}/plans`                | plan building a selection into it: `{"selection", "resolved_only"?, "adopt"?: [target], "keep_aside"?: [target]}`; `201` |
+| `POST /api/v1/libraries/{id}/cleanups`             | plan a cleanup: `{"entries"?: {name: "keep_aside" \| "adopt" \| "acknowledge" \| "add_addition"}, "restore"?: [kept id], "repack"?: [target], "additions"?: {name: {"system", "name", "parent"?}}}`; `201`, approved as a plan |
+| `POST /api/v1/libraries/{id}/checks`               | check it; `202` with the check job                           |
+| `GET /api/v1/libraries/{id}/check`                 | its latest check: each built file, the drift and the acknowledged entries; `404` when never checked |
+| `GET /api/v1/libraries/{id}/incomplete`            | what its current build lacks, by reason                      |
+| `GET /api/v1/libraries/{id}/kept-files`            | the files builds kept aside in it, newest generation first   |
+| `POST /api/v1/libraries/{id}/kept-deletions`       | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |
 | `GET /api/v1/kept-deletions/{id}`                  | a plan to delete kept files, with its digest and outcomes    |
 | `POST /api/v1/kept-deletions/{id}/approval`        | approve it: `{"digest"}`; deletes them and answers with each outcome, `409` when they changed |
 | `GET /api/v1/ingest-folders`                       | every ingest root, with its counts of items by state once registered |
@@ -802,7 +803,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/additions-sets`                       | every additions set, with its additions                      |
 | `GET /api/v1/additions-set?system=`                | one system's additions set                                   |
 | `POST /api/v1/additions-set/checks?system=`        | check it for drift; changes nothing                          |
-| `GET /api/v1/additions/{id}`                       | one operator addition                                        |
+| `GET /api/v1/additions/{id}`                       | one addition                                                 |
 | `PATCH /api/v1/additions/{id}`                     | rename it or set its parent: `{"name"?, "parent"?: name \| null}` |
 | `POST /api/v1/additions/{id}/retirement`           | retire it: builds no longer read it, and its file is kept aside |
 | `POST /api/v1/additions/{id}/restoration`          | restore a retired one: its file is moved back                |
@@ -922,12 +923,12 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   name, role, availability and flag as you type. Opening a group lets you check the releases you want, confirm an
   unresolved pick, include an excluded release, or reset the group to the default choices; your choices are staged
   until you save them as the next version of the profile, which makes a new selection. "Plan a build" plans building
-  it into a managed folder bound to its source set and selection profile.
+  it into a library folder bound to its source set and selection profile.
 - **Storage policy** sets how source sets and play libraries store games, TorrentZip or loose, and whether a
   conversion deletes each original once its converted file verifies, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
-- **Managed folders** lists each managed folder with its current build and when it was last checked, marking a check
+- **Libraries** lists each library folder with its current build and when it was last checked, marking a check
   made before the current build, and registers another in a writable root,
   with the path proposed from the source set's DAT as for a source set. Opening one plans a build of a selection,
   shows the plan's files by what they do, what blocks it and what changed, approves it and follows the build live, with a way to cancel it.
@@ -936,22 +937,22 @@ The workbench is your browser interface to the Service: a Leptos app compiled to
   aside has a choice to keep it aside and rebuild. The plan lists the built files no longer selected and what
   happens to each. The folder lists its kept files by generation, where you pick some or all and approve deleting
   them. It plans a cleanup of what the latest check found: an action for each entry not built here, kept files to
-  put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry added as an operator
+  put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry added as an
   addition asks for its system, name and parent game. The folder shows badges
   for an incomplete folder and an interrupted build, what the folder lacks, and its latest check, which you can run
   again. Each build shows every file it wrote or failed to write.
 - **Ingest folders** lists each ingest root and registers it. Opening one scans it, and lists each item with its
   state, the evidence assessing it found and what is proposed. You pick items to plan discarding them or importing
-  DATs, or adding them as operator additions with the system, name and parent game you give each, review the plan,
+  DATs, or adding them as additions with the system, name and parent game you give each, review the plan,
   approve it and see what happened to each item; you can dismiss an item until it changes. It lists the folder's
   kept files.
 - **Repair**, opened from a source set or an audit, proposes a repair of the source set, lists each item with what is
   proposed and a choice you can change before planning again, and every change in order, including what is kept
-  aside. An unmatched entry you add as an operator addition asks for its system, name and parent game. You approve it with its digest and see what happened to each item. While an approved repair hasn't
+  aside. An unmatched entry you add as an addition asks for its system, name and parent game. You approve it with its digest and see what happened to each item. While an approved repair hasn't
   finished, the screen opens on it, with its job's progress and a way to cancel it, instead of proposing another, and
   says what stopped it if it was left unfinished; a repair job on the jobs screen links to its plan. It lists the
   source set's kept files, where you pick some and approve deleting them.
-- **Operator additions** lists each system's additions set and its additions, with each one's name, hashes, state,
+- **Additions** lists each system's additions set and its additions, with each one's name, hashes, state,
   parent game and where it came from. You rename an addition, set or clear its parent, retire or restore it, and
   check the additions set for drift. Each set lists its kept files, which you pick, review and approve deleting, and
   any found entries a stop left.

@@ -185,7 +185,7 @@ Inference:
 
 - The only enrichment RomM cannot provide under `:ro` is ES-DE `gamelist.xml` and media inside the Library, for
   devices that read the Library without RomM. If the Operator wants that, it is a separately specified Organizer
-  capability: publish ES-DE media and `gamelist.xml` into managed folders under a Change Plan. RomM already reads
+  capability: publish ES-DE media and `gamelist.xml` into library folders under a Change Plan. RomM already reads
   `gamelist.xml` as a provider, so such files would feed RomM too.
 - The Organizer could call `POST /api/tasks/scan` with `platform_fs_slugs` after a publish, so that RomM picks up
   changes promptly. This is an integration, not enrichment, and needs a token with `tasks.run`, which only Admins

@@ -21,7 +21,7 @@ in the pilot.
   Revision, reading payloads first with Payload Evidence, exactly as an Audit reads a Verified Set. Matches that fill
   a Missing Game or replace a Bad or Unreadable Entry are offered in a repair Change Plan. Nothing joins a Verified
   Set without approval.
-- **From slice 6 (Operator Additions):** items that match no ROM can be offered as Operator Additions. They join the
+- **From slice 6 (Additions):** items that match no ROM can be offered as Additions. They join the
   Library only, never a Verified Set.
 - **Deferred until after slice 8:** qBittorrent and SABnzbd API adapters, used only to label items with their
   Downloader state and to show download progress next to ingestion progress.
@@ -192,9 +192,9 @@ outlives the jobs that act on it.
 | Seen | Found by a scan | Source, path, size | Unchanged across two scans |
 | Assessing | Payloads being read and hashed | Bytes read / total, throughput, current Entry | Every Entry has Evidence |
 | Assessed | Findings recorded against a named DAT Revision | Findings, Evidence Level, Game each Entry matches, proposed classification | The Operator includes it in a plan, or dismisses it |
-| Proposed | In a pending repair Change Plan or Operator Addition | Plan link, target paths, conflicts | Approved or rejected |
+| Proposed | In a pending repair Change Plan or Addition | Plan link, target paths, conflicts | Approved or rejected |
 | Applying | Staging and verifying the copy | Bytes written / verified | Destination Evidence matches |
-| Applied | Now an Entry of a Verified Set, or an Operator Addition | Destination, provenance | — |
+| Applied | Now an Entry of a Verified Set, or an Addition | Destination, provenance | — |
 
 Side states are never hidden:
 
@@ -287,7 +287,7 @@ ADR 0009 tension (inference): to get a clone, the download folder must be on the
 keep the games dataset's snapshots free of download churn, it should be on a different dataset. Same pool, different
 dataset, same recordsize satisfies both.
 
-## 4. How does an incoming file become a Verified Set member, a repair source or an Operator Addition?
+## 4. How does an incoming file become a Verified Set member, a repair source or an Addition?
 
 | Step | What happens | Approval |
 |---|---|---|
@@ -296,7 +296,7 @@ dataset, same recordsize satisfies both.
 | Fill a Missing Game, or replace a Bad or Unreadable Entry | Proposed as a repair Change Plan. The displaced Entry is quarantined (#3) | **Repair Change Plan** |
 | Rename or repack Misnamed or Conflicting incoming payloads into DAT names | Part of the same repair Change Plan | **Repair Change Plan** |
 | Publish the result into the Library | A separate publish Change Plan (slice 5) | **Publish Change Plan**, separate from repair (glossary) |
-| Extra (no ROM matched) | Offered as an Operator Addition. Library only, never the Verified Set | **Operator Addition approval** (slice 6) |
+| Extra (no ROM matched) | Offered as an Addition. Library only, never the Verified Set | **Addition approval** (slice 6) |
 | Already held | No change | None |
 
 Rules this respects:
@@ -305,7 +305,7 @@ Rules this respects:
   Change Plan". Assessing a source writes nothing. Membership happens only at apply time.
 - **#3:** repairs use "adequately verified payloads from explicitly registered local sources", and apply revalidates
   inputs, so a source that changed after approval is caught (Stale).
-- **Operator Addition:** approval "never converts a DAT mismatch into an official match" (#3). An unmatched download
+- **Addition:** approval "never converts a DAT mismatch into an official match" (#3). An unmatched download
   is never added to a Verified Set.
 - **The DAT Revision is explicit.** If an item matches only a newer revision, the Operator must adopt that revision
   first (#3: "Adoption is explicit").
@@ -340,7 +340,7 @@ Little now, and it is cheap to keep open. Recommended changes:
 - **3 (repair Change Plan):** add registered local sources (already implied by #3), the "fill Missing, replace
   Bad/Unreadable" proposal, quarantine of displaced Entries, Stale/Gone revalidation, and destination read-back
   Evidence. Copy with `copy_file_range` so ZFS can block-clone.
-- **6 (Operator Additions):** accept an Extra incoming item as an Operator Addition candidate.
+- **6 (Additions):** accept an Extra incoming item as an Addition candidate.
 - **8 (UI):** the incoming-items view in §2.
 - **After the pilot:** qBittorrent and SABnzbd adapters with Contract Tests, used only to label items with their
   Downloader state. A home-ops deployment ticket for games download folders and read-only mounts, alongside 1c's
@@ -353,7 +353,7 @@ state. Retrofitting that is the main cost this research avoids.
 
 - Which OpenZFS version runs on the Host, is `block_cloning` active, and is `zfs_bclone_enabled` on?
 - Where do games download folders live (home-ops deployment), and with what recordsize?
-- Is Operator Addition approval a Change Plan, or a separate approval flow? #3 says "a simple approval flow".
+- Is Addition approval a Change Plan, or a separate approval flow? #3 says "a simple approval flow".
 - Should assessment be a widened Audit or a new term (glossary gap above)?
 
 ## Sources
