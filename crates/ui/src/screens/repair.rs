@@ -8,7 +8,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
-use leptos_router::hooks::use_query_map;
+use leptos_router::hooks::{use_params_map, use_query_map};
 use leptos_router::params::ParamsMap;
 use title_select_api::Job;
 use title_select_api::additions::NewAddition;
@@ -110,6 +110,8 @@ pub struct RepairDesk {
     unnamed: StoredValue<Option<(i64, Option<i64>)>>,
     edit_query: Callback<Vec<(&'static str, Option<String>)>>,
     query: Memo<ParamsMap>,
+    /// The route's parameters, whose `name` is the source set whose page is open.
+    route: Memo<ParamsMap>,
     proposal: Action<PlanRepair, Result<Proposed, String>>,
 }
 
@@ -126,6 +128,7 @@ impl RepairDesk {
         });
         let edit_query = use_query_edit();
         let query = use_query_map();
+        let route = use_params_map();
         let desk = RepairDesk {
             name: StoredValue::new(name),
             picked: RwSignal::new(BTreeMap::new()),
@@ -145,6 +148,7 @@ impl RepairDesk {
             unnamed: StoredValue::new(None),
             edit_query,
             query,
+            route,
             proposal,
         };
         Effect::new(move || {
@@ -234,7 +238,12 @@ impl RepairDesk {
         leptos::task::spawn_local(async move {
             let plans = api::get::<Vec<RepairPlan>>(&path).await;
             // Another load was asked for meanwhile: that one wins.
-            if !self.loads.with_value(|l| l.applies(ticket)) {
+            // Or the page was left: nothing is shown.
+            if !self
+                .loads
+                .try_with_value(|l| l.applies(ticket))
+                .unwrap_or(false)
+            {
                 return;
             }
             match plans {
@@ -254,7 +263,9 @@ impl RepairDesk {
     /// Names the plan `id`, just proposed, in the URL: now, if the Repair tab is open, or else once it opens. Another
     /// tab's URL is left as it is.
     fn name_in_url(self, id: i64) {
-        if self.open_tab.get_value() {
+        if !self.on_its_page() {
+            self.unnamed.set_value(None);
+        } else if self.open_tab.get_value() {
             self.unnamed.set_value(None);
             self.edit_query.run(vec![("plan", Some(id.to_string()))]);
         } else {
@@ -272,9 +283,18 @@ impl RepairDesk {
         self.loads.with_value(Loads::mark)
     }
 
-    /// Whether the answer to the change `mark`ed is still to be shown.
+    /// Whether the answer to the change `mark`ed is still to be shown: not once the page was left.
     fn change_applies(self, mark: ChangeMark) -> bool {
-        self.loads.with_value(|l| l.change_applies(mark))
+        self.loads
+            .try_with_value(|l| l.change_applies(mark))
+            .unwrap_or(false)
+    }
+
+    /// Whether the route is this desk's source set's page, as it is unless you have just left it for another's.
+    fn on_its_page(self) -> bool {
+        self.route
+            .try_with(|r| r.get("name").as_deref() == self.name.try_get_value().as_deref())
+            .unwrap_or(false)
     }
 
     /// Proposes a plan; planning again from a plan still open carries its choices and additions.
@@ -648,6 +668,12 @@ pub fn RepairTab(
     on_cleanup(move || desk.open_tab.set_value(false));
     Effect::new(move || {
         let (named, open) = (named.get(), current.get());
+        // Another source set's page is opening in place of this one: nothing of this one's goes in its URL or is
+        // loaded for it.
+        if !desk.on_its_page() {
+            desk.unnamed.set_value(None);
+            return;
+        }
         // A plan proposed while the tab was closed is shown already: the URL names it, rather than its old plan being
         // fetched over it.
         if let Some((id, then)) = desk.unnamed.get_value()

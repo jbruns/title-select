@@ -56,7 +56,10 @@ pub fn SourceSet() -> impl IntoView {
             <Problem message />
         }
         .into_any(),
-        Some(Ok(set)) => view! { <SetPage set /> }.into_any(),
+        // Each source set's page is its own, from its repair desk down: one left for another's is gone, not kept
+        // while the other loads.
+        Some(Ok(set)) if set.name == name.get() => view! { <SetPage set /> }.into_any(),
+        Some(Ok(_)) => view! { <Loading what="the source set" /> }.into_any(),
     }
 }
 
