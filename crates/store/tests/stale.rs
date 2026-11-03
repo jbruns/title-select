@@ -401,57 +401,82 @@ fn each_newer_revision_that_made_a_followed_source_set_stale_stays_in_its_histor
     );
 }
 
+/// Moves the Source Set `name`'s audits and check jobs back in time, `hours` before now.
+fn backdate(env: &Env, name: &str, audits: i64, created: i64, finished: i64) {
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let ago =
+        |hours: i64| (jiff::Timestamp::now() - jiff::SignedDuration::from_hours(hours)).to_string();
+    let set = "(SELECT id FROM source_sets WHERE name = ?1)";
+    db.execute(
+        &format!("UPDATE audits SET finished_at = ?2 WHERE source_set_id = {set}"),
+        rusqlite::params![name, ago(audits)],
+    )
+    .unwrap();
+    db.execute(
+        &format!(
+            "UPDATE jobs SET created_at = ?2, finished_at = ?3
+             WHERE kind = 'stat_walk' AND source_set_id = {set}"
+        ),
+        rusqlite::params![name, ago(created), ago(finished)],
+    )
+    .unwrap();
+    db.execute(
+        &format!(
+            "UPDATE stat_walks SET found_at = ?2, checked_at = ?2 WHERE source_set_id = {set}"
+        ),
+        rusqlite::params![name, ago(finished)],
+    )
+    .unwrap();
+}
+
+/// The Source Sets the schedule queues a check of, checking each every hour.
+fn due(env: &Env) -> Vec<String> {
+    env.store
+        .enqueue_stat_walks("schedule", std::time::Duration::from_secs(3600))
+        .unwrap()
+        .into_iter()
+        .map(|j| j.source_set)
+        .collect()
+}
+
 #[test]
 fn the_schedule_checks_only_the_source_sets_whose_last_check_or_else_audit_is_older_than_its_interval()
  {
-    use std::time::Duration;
     let env = Env::new();
     env.audit("Alpha", AuditEvidence::Incremental);
     env.audit("Beta", AuditEvidence::Incremental);
     assert_eq!(
-        env.store
-            .enqueue_stat_walks("schedule", Duration::from_secs(3600))
-            .unwrap(),
-        [],
+        due(&env),
+        Vec::<String>::new(),
         "both audited within the hour"
     );
 
-    std::thread::sleep(Duration::from_millis(1200));
     env.walk("Alpha");
-    let queued = env
-        .store
-        .enqueue_stat_walks("schedule", Duration::from_millis(600))
-        .unwrap();
-    assert_eq!(
-        queued
-            .iter()
-            .map(|j| j.source_set.as_str())
-            .collect::<Vec<_>>(),
-        ["Beta"],
-        "alpha was just checked"
-    );
+    backdate(&env, "Alpha", 3, 0, 0);
+    backdate(&env, "Beta", 3, 0, 0);
+    assert_eq!(due(&env), ["Beta"], "alpha was checked within the hour");
 }
 
 #[test]
 fn a_check_that_waited_long_to_run_is_due_again_an_interval_after_it_finished() {
-    use std::time::Duration;
     let env = Env::new();
     env.audit("Alpha", AuditEvidence::Incremental);
-    let job = env.store.enqueue_stat_walk("Alpha", "Operator").unwrap();
-    std::thread::sleep(Duration::from_millis(1200));
-    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
-    env.store.run_stat_walk_job(&env.config, job.id).unwrap();
-
-    let queued = env
-        .store
-        .enqueue_stat_walks("schedule", Duration::from_millis(600))
-        .unwrap();
+    env.walk("Alpha");
+    // Queued 3 hours ago, it waited behind other jobs and finished a minute ago.
+    backdate(&env, "Alpha", 4, 3, 0);
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let minute_ago = (jiff::Timestamp::now() - jiff::SignedDuration::from_mins(1)).to_string();
+    db.execute(
+        "UPDATE jobs SET finished_at = ?1 WHERE kind = 'stat_walk'",
+        [&minute_ago],
+    )
+    .unwrap();
     assert_eq!(
-        queued
-            .iter()
-            .map(|j| j.source_set.as_str())
-            .collect::<Vec<_>>(),
-        Vec::<&str>::new(),
-        "alpha's check was queued long ago but only just finished"
+        due(&env),
+        Vec::<String>::new(),
+        "not due until an hour after it finished"
     );
+
+    backdate(&env, "Alpha", 4, 3, 2);
+    assert_eq!(due(&env), ["Alpha"], "due an hour after it finished");
 }
