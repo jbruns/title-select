@@ -12,6 +12,8 @@ copy rules and the shared parts in `crates/ui/src/parts/` that every screen buil
   help goes in a collapsible `<details>`.
 - **Every icon is named.** It has a tooltip and an `aria-label`: use `Icon`, `IconButton`, `StatusIcon` or
   `StatusBadge`, which require the label. `LabelledIcon` is the one exception: its visible label names it.
+- **Every tooltip is reachable from the keyboard.** A standalone `Icon` is a tab stop. Inside a link or button, draw
+  the glyph with `Svg`, name the control, and wrap it in `Tooltip` so there is one tab stop, not two.
 - **Destructive actions are labelled and confirmed.** A visible verb ("Set aside", "Delete plan"), never an icon
   alone, and a confirmation step before anything is moved or removed.
 - **One legend strip per list.** It shows only the statuses present in that list.
@@ -33,7 +35,7 @@ pure logic there too.
 | The key to a list's statuses           | `Legend { statuses, list }` with `present(rows)`       | `legend`    |
 | A slow request                         | `ActionPending { action, status }` around its content  | `pending`   |
 | A slow load or any busy flag           | `Pending { pending, status, problem? }`                | `pending`   |
-| A hover/focus hint on arbitrary content| `Tooltip { label }`                                    | `overlay`   |
+| A hover/focus hint on arbitrary content| `Tooltip { label, focusable? }`                        | `overlay`   |
 | A row or toolbar menu                  | `Menu { glyph, label }` holding `MenuItem`s            | `overlay`   |
 | A side panel over the page             | `Drawer { open, title }`                               | `overlay`   |
 | Filter, sort, selected row, tab in URL | `use_list_query()`                                     | `url_state` |
@@ -51,7 +53,8 @@ nothing is fetched at runtime. The licence ships at `/licences/lucide.txt` and i
 
 `parts::status` maps every status to a `Look { glyph, tone, label, hint }`. Colour and shape both differ, so no state
 is told apart by colour alone. Vocabularies: `FindingStatus`, `GameStatus`, `SourceSetStatus`, `LibraryStatus`,
-`PlanKind`, `IngestStatus`, `JobState`.
+`PlanKind` (repair plans, `From<RepairKind>`), `BuildKind` (build plans, builds and cleanups, `From<ItemKind>`),
+`IngestStatus`, `JobState`.
 
 - A row with several facts takes the highest-ranked status: build `SourceSetFacts` / `LibraryFacts` and call `of()`,
   or call `highest(iter)` for any vocabulary.
@@ -73,8 +76,9 @@ triggering button with `action.pending()`. `screens/repair.rs` (propose repair) 
 ### Overlays
 
 `Tooltip`, `Menu` and `Drawer` render through `Portal`, so they escape table and pane overflow. An overlay opens
-above its anchor when only above has room, and lines up with the anchor's edge near the sides (`overlay::place`). Escape closes each; `Menu` supports arrow keys; `Drawer` restores
-focus on close.
+above its anchor when only above has room, and lines up with the anchor's edge near the sides (`overlay::place`). Escape anywhere in the page closes each, through a window listener held only while the overlay is
+open. `Menu` supports arrow keys and closes on Tab. `Drawer` is modal: Tab and Shift+Tab wrap inside it (`trap`), the
+page's other top-level elements are `inert` while it is open, and focus returns to where it was when it closes.
 
 ### URL state
 
