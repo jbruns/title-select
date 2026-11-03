@@ -569,7 +569,7 @@ const STATUS: &str = "status";
 /// The `plan` URL value: the plan under review, shown in place of the items.
 const PLAN: &str = "plan";
 /// The URL values a list keeps its state in, which the other list on the page must not inherit.
-const LIST_STATE: [&str; 5] = ["q", "sort", "row", "sel", "all"];
+const LIST_STATE: [&str; 6] = ["q", "sort", "row", "sel", "all", "kind"];
 
 /// The folder's items: a strip of how many show each status, with the decisions you can apply to all of them; the
 /// list, with decisions on the items you check; and the plan you review before anything moves.

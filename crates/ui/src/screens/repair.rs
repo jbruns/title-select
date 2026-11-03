@@ -18,16 +18,15 @@ use title_select_api::repair::{
     SourceKeptFile,
 };
 use title_select_api::storage::{Storage, StorageFormat};
-use wasm_bindgen::JsCast;
 
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::when;
 use crate::parts::icon::Glyph;
-use crate::parts::list::{Column, ListRow, ToolAction, Width};
+use crate::parts::list::{Column, ListRow, Width};
 use crate::parts::pending::Pending;
-use crate::parts::plan::{Change, PlanReview, PlanRow};
+use crate::parts::plan::{self, Change, PlanReview, PlanRow};
 use crate::parts::status::{PlanKind, Status, StatusIcon};
 use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
@@ -590,48 +589,24 @@ fn repair_detail(row: RepairRow, steps: Arc<Vec<(String, String, &'static str)>>
     .into_any()
 }
 
-/// The "apply to all" control of a kind: a `<select>` defaulting to "no change".
+/// The "apply to all" control of a kind.
 fn apply_to_all(desk: RepairDesk, kind: PlanKind) -> AnyView {
     let choices = desk
         .plan
         .with_untracked(|p| p.as_ref().map(|p| kind_choices(p, kind)))
         .unwrap_or_default();
-    if choices.is_empty() {
-        return ().into_any();
-    }
-    let label = kind.look().label.to_lowercase();
-    view! {
-        <select
-            class="apply-all"
-            aria-label=format!("Set every {label} item to")
-            title=format!("Set every {label} item to one choice")
-            on:change=move |ev| {
-                let value = event_target_value(&ev);
-                let choice = choices.iter().copied().find(|c| c.label() == value);
-                let said = desk.plan.with_untracked(|p| {
-                    let p = p.as_ref()?;
-                    let mut picked = desk.picked.get_untracked();
-                    let outcome = apply_to_kind(p, kind, choice, &mut picked)?;
-                    desk.picked.set(picked);
-                    Some(outcome.message(choice?.label()))
-                });
-                if let Some(said) = said {
-                    desk.said.set(Some(said));
-                }
-                // The control goes back to "no change": it sets, it doesn't hold, a choice.
-                if let Some(el) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
-                    el.set_value("");
-                }
-            }
-        >
-            <option value="">"Apply to all: no change"</option>
-            {choices
-                .iter()
-                .map(|c| view! { <option value=c.label()>{format!("Apply to all: {}", c.label())}</option> })
-                .collect_view()}
-        </select>
-    }
-    .into_any()
+    plan::apply_to_all(kind, choices, RepairChoice::label, move |choice| {
+        let said = desk.plan.with_untracked(|p| {
+            let p = p.as_ref()?;
+            let mut picked = desk.picked.get_untracked();
+            let outcome = apply_to_kind(p, kind, Some(choice), &mut picked)?;
+            desk.picked.set(picked);
+            Some(outcome.message(choice.label()))
+        });
+        if let Some(said) = said {
+            desk.said.set(Some(said));
+        }
+    })
 }
 
 fn outcome_text(o: &title_select_api::repair::RepairOutcome) -> String {
@@ -782,39 +757,34 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
     let count = p.content.steps.len();
     let changed = move || desk.changed();
     let held = move || desk.working.get() || desk.proposal.pending().get() || changed() != 0;
-    let bulk = |glyph: Glyph, choice: RepairChoice| {
-        ToolAction::checked(
-            glyph,
-            format!("Set to {}", choice.label()),
-            move |chosen: crate::parts::list::Selected<RepairRow>| {
-                let keys: Vec<String> = chosen.rows.iter().map(|r| r.item.key.clone()).collect();
-                let said = desk.plan.with_untracked(|p| {
-                    let p = p.as_ref()?;
-                    let mut picked = desk.picked.get_untracked();
-                    let outcome = apply_to_keys(p, &keys, choice, &mut picked);
-                    desk.picked.set(picked);
-                    Some(outcome.message(choice.label()))
-                });
-                desk.said.set(said);
-            },
-        )
-    };
     // Only the choices some item offers are offered in bulk.
     let all_keys: Vec<String> = p.content.items.iter().map(|i| i.key.clone()).collect();
-    let offered = choices_for(&p, &all_keys);
-    let actions: Vec<ToolAction<RepairRow>> = if open {
+    let offered = if open {
+        choices_for(&p, &all_keys)
+    } else {
+        Vec::new()
+    };
+    let set = move |rows: Vec<RepairRow>, choice: RepairChoice| {
+        let keys: Vec<String> = rows.into_iter().map(|r| r.item.key).collect();
+        let said = desk.plan.with_untracked(|p| {
+            let p = p.as_ref()?;
+            let mut picked = desk.picked.get_untracked();
+            let outcome = apply_to_keys(p, &keys, choice, &mut picked);
+            desk.picked.set(picked);
+            Some(outcome.message(choice.label()))
+        });
+        desk.said.set(said);
+    };
+    let actions = plan::set_actions(
         [
             (Glyph::Check, RepairChoice::Apply),
             (Glyph::CircleOff, RepairChoice::Leave),
             (Glyph::Archive, RepairChoice::KeepAside),
-        ]
-        .into_iter()
-        .filter(|(_, c)| offered.contains(c))
-        .map(|(g, c)| bulk(g, c))
-        .collect()
-    } else {
-        Vec::new()
-    };
+        ],
+        &offered,
+        RepairChoice::label,
+        set,
+    );
     let detail_steps = steps.clone();
     let audit_href = format!("/audits/{}", p.content.audit);
     let notes = p.content.notes.clone();

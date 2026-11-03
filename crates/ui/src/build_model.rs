@@ -5,7 +5,7 @@ use title_select_api::SelectionRecord;
 use title_select_api::build::{
     BlockerKind, BuildState, Cause, CleanupAction, DriftEntry, DriftKind, FileOutcome,
     IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder,
-    PlanChoices, PlanItem, RemovalKind, RestoreKind, UnfinishedBuild,
+    PlanChoices, PlanItem, RestoreKind, UnfinishedBuild,
 };
 
 pub fn item_kind_label(kind: ItemKind) -> &'static str {
@@ -146,28 +146,94 @@ pub fn cleanup_actions(d: &DriftEntry) -> Vec<CleanupAction> {
     actions
 }
 
-/// The choices of a plan made again with `adopt` for `target` set to `on`, keeping the rest.
-pub fn with_adopt(choices: &PlanChoices, target: &str, on: bool) -> PlanChoices {
-    let mut next = choices.clone();
-    next.adopt.retain(|t| t != target);
-    if on {
-        next.keep_aside.retain(|t| t != target);
-        next.adopt.push(target.to_owned());
-        next.adopt.sort();
+/// What you choose for a build plan's item in conflict: leave it, adopt the file there, or keep it aside and build
+/// the game in its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictChoice {
+    Leave,
+    Adopt,
+    KeepAside,
+}
+
+impl ConflictChoice {
+    pub fn label(self) -> &'static str {
+        match self {
+            ConflictChoice::Leave => "Leave it",
+            ConflictChoice::Adopt => "Adopt it",
+            ConflictChoice::KeepAside => "Keep aside and rebuild",
+        }
     }
+
+    /// The choice `choices` makes for `item`.
+    pub fn of(item: &PlanItem, choices: &PlanChoices) -> Self {
+        if choices.adopt.contains(&item.target) {
+            ConflictChoice::Adopt
+        } else if choices.keep_aside.contains(&item.target) {
+            ConflictChoice::KeepAside
+        } else {
+            ConflictChoice::Leave
+        }
+    }
+
+    /// The choices `item` offers: none unless it is in conflict, or was and you chose for it.
+    pub fn offered(item: &PlanItem) -> Vec<Self> {
+        let adopt = item.adoptable || item.kind == ItemKind::Adopt;
+        let keep = item.keepable
+            || item
+                .keep
+                .as_ref()
+                .is_some_and(|k| k.reason == KeepReason::Conflict);
+        let leave = (adopt || keep).then_some(ConflictChoice::Leave);
+        let adopt = adopt.then_some(ConflictChoice::Adopt);
+        leave
+            .into_iter()
+            .chain(adopt)
+            .chain(keep.then_some(ConflictChoice::KeepAside))
+            .collect()
+    }
+}
+
+/// The choices of a plan made again with `picked`, a choice by target, keeping the rest.
+pub fn with_conflict_choices<'a>(
+    choices: &PlanChoices,
+    picked: impl IntoIterator<Item = (&'a String, &'a ConflictChoice)>,
+) -> PlanChoices {
+    let mut next = choices.clone();
+    for (target, choice) in picked {
+        next.adopt.retain(|t| t != target);
+        next.keep_aside.retain(|t| t != target);
+        match choice {
+            ConflictChoice::Leave => {}
+            ConflictChoice::Adopt => next.adopt.push(target.clone()),
+            ConflictChoice::KeepAside => next.keep_aside.push(target.clone()),
+        }
+    }
+    next.adopt.sort();
+    next.keep_aside.sort();
     next
 }
 
-/// The choices of a plan made again with keeping aside the file at `target` set to `on`, keeping the rest.
-pub fn with_keep_aside(choices: &PlanChoices, target: &str, on: bool) -> PlanChoices {
-    let mut next = choices.clone();
-    next.keep_aside.retain(|t| t != target);
-    if on {
-        next.adopt.retain(|t| t != target);
-        next.keep_aside.push(target.to_owned());
-        next.keep_aside.sort();
+/// An item's row in its plan's review, as current → proposed: where its file comes from and its name, or, for an
+/// item that writes nothing, its name and what becomes of it.
+pub fn item_change(item: &PlanItem) -> (String, String) {
+    let target = item.target.clone();
+    match item.kind {
+        ItemKind::Copy | ItemKind::Repack => {
+            let mut from: Vec<String> = item
+                .sources
+                .iter()
+                .map(|s| match &s.member {
+                    Some(member) => format!("{} ({member})", s.path),
+                    None => s.path.clone(),
+                })
+                .collect();
+            from.dedup();
+            (from.join(", "), target)
+        }
+        ItemKind::Unchanged => (target, "as it is".into()),
+        ItemKind::Adopt => (target, "recorded as built".into()),
+        _ => (target, "skipped".into()),
     }
-    next
 }
 
 pub fn keep_reason_label(reason: KeepReason) -> &'static str {
@@ -177,14 +243,6 @@ pub fn keep_reason_label(reason: KeepReason) -> &'static str {
         KeepReason::Conflict => "conflict kept aside",
         KeepReason::Drift => "not built here, kept aside",
         KeepReason::Repack => "before repacking",
-    }
-}
-
-pub fn removal_kind_label(kind: RemovalKind) -> &'static str {
-    match kind {
-        RemovalKind::Keep => "Keep aside",
-        RemovalKind::Forget => "Forget",
-        RemovalKind::Leave => "Leave",
     }
 }
 
@@ -271,6 +329,7 @@ fn url_component(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use title_select_api::ProfileVersionRef;
     use title_select_api::selection::{SelectionPins, SelectionSummary};
 
@@ -422,20 +481,71 @@ mod tests {
     }
 
     #[test]
-    fn choosing_to_adopt_a_conflict_keeps_the_other_choices() {
+    fn choosing_for_conflicts_keeps_the_other_choices() {
         let choices = PlanChoices {
             resolved_only: true,
             adopt: vec!["Pong.zip".into()],
             keep_aside: vec!["Combat.zip".into()],
         };
+        let picked = BTreeMap::from([
+            ("Combat.zip".to_string(), ConflictChoice::Adopt),
+            ("Pong.zip".to_string(), ConflictChoice::Leave),
+            ("Asteroids.zip".to_string(), ConflictChoice::KeepAside),
+        ]);
 
-        let both = with_adopt(&choices, "Combat.zip", true);
-        let left = with_adopt(&both, "Pong.zip", false);
+        let next = with_conflict_choices(&choices, &picked);
 
-        assert_eq!(both.adopt, ["Combat.zip", "Pong.zip"]);
-        assert!(both.keep_aside.is_empty());
-        assert_eq!(left.adopt, ["Combat.zip"]);
-        assert!(left.resolved_only);
+        assert_eq!(next.adopt, ["Combat.zip"]);
+        assert_eq!(next.keep_aside, ["Asteroids.zip"]);
+        assert!(next.resolved_only);
+    }
+
+    #[test]
+    fn only_a_conflict_or_an_item_chosen_for_one_offers_choices() {
+        assert!(ConflictChoice::offered(&item("Pong", ItemKind::NoSource)).is_empty());
+        let conflict = PlanItem {
+            keepable: true,
+            ..item("Pong", ItemKind::Conflict)
+        };
+        assert_eq!(
+            ConflictChoice::offered(&conflict),
+            [ConflictChoice::Leave, ConflictChoice::KeepAside]
+        );
+        assert_eq!(
+            ConflictChoice::offered(&item("Pong", ItemKind::Adopt)),
+            [ConflictChoice::Leave, ConflictChoice::Adopt]
+        );
+        let choices = PlanChoices {
+            adopt: vec!["Pong.zip".into()],
+            ..PlanChoices::default()
+        };
+        assert_eq!(
+            ConflictChoice::of(&conflict, &choices),
+            ConflictChoice::Adopt
+        );
+    }
+
+    #[test]
+    fn a_written_item_reads_from_its_sources_and_a_skipped_one_from_its_name() {
+        let copy = PlanItem {
+            sources: ["a.zip", "a.zip", "b.zip"]
+                .map(|path| {
+                    serde_json::from_value(serde_json::json!({
+                        "rom": "r", "path": path, "file": { "size": 1, "mtime_ns": 0 }
+                    }))
+                    .unwrap()
+                })
+                .into(),
+            ..item("Pong", ItemKind::Copy)
+        };
+        assert_eq!(
+            item_change(&copy),
+            ("a.zip, b.zip".into(), "Pong.zip".into())
+        );
+        assert_eq!(
+            item_change(&item("Pong", ItemKind::Conflict)),
+            ("Pong.zip".into(), "skipped".into())
+        );
     }
 
     #[test]

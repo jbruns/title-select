@@ -43,7 +43,7 @@ use crate::parts::status::{BuildKind, LibraryStatus, Status, StatusBadge, Status
 use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::progress_view;
-use crate::screens::library_plan::PlanReview;
+use crate::screens::library_plan::LibraryPlan;
 
 fn folder_href(id: i64) -> String {
     format!("/libraries/{id}")
@@ -185,6 +185,8 @@ pub(crate) struct Planner {
     folder: RwSignal<Option<i64>>,
     /// An older selection the last plan could build instead, offered once making a fresh one failed.
     older: RwSignal<Option<OlderSelection>>,
+    /// What the last choice set in bulk did, and in which folder: the plan it replaced is gone.
+    pub(crate) said: RwSignal<Option<(i64, String)>>,
 }
 
 /// A selection of a folder made before its profile's newest version or its source set's latest DAT revision, which
@@ -233,18 +235,29 @@ impl Planner {
             status,
             folder: RwSignal::new(None),
             older,
+            said: RwSignal::new(None),
         }
     }
 
-    fn start(self, folder: i64, selection: Option<i64>, choices: PlanChoices) {
+    pub(crate) fn start(self, folder: i64, selection: Option<i64>, choices: PlanChoices) {
         self.folder.set(Some(folder));
         self.older.set(None);
+        self.said.set(None);
         self.status.set("Making plan…".into());
         self.action.dispatch(MakePlan {
             folder,
             selection,
             choices,
         });
+    }
+
+    /// What the last choice set in bulk did in the folder.
+    pub(crate) fn said(self, folder: i64) -> Signal<Option<String>> {
+        Signal::derive(move || {
+            self.said
+                .get()
+                .and_then(|(f, s)| (f == folder).then_some(s))
+        })
     }
 
     fn pending(self, folder: i64) -> Signal<bool> {
@@ -277,7 +290,7 @@ pub fn provide_planner() {
     provide_context(Planner::new());
 }
 
-fn use_planner() -> Planner {
+pub(crate) fn use_planner() -> Planner {
     expect_context::<Planner>()
 }
 
@@ -1154,9 +1167,6 @@ fn SelectionTab(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView 
 #[component]
 fn PlanTab(folder: i64, latest: Option<i64>, refresh: RwSignal<u64>) -> impl IntoView {
     let planner = use_planner();
-    let replan = Callback::new(move |(selection, choices): (i64, PlanChoices)| {
-        planner.start(folder, Some(selection), choices)
-    });
     view! {
         <Pending pending=planner.pending(folder) status=planner.status problem=planner.problem(folder)>
             {move || {
@@ -1179,7 +1189,7 @@ fn PlanTab(folder: i64, latest: Option<i64>, refresh: RwSignal<u64>) -> impl Int
                     })
             }}
             {match latest {
-                Some(plan) => view! { <PlanReview plan replan refresh /> }.into_any(),
+                Some(plan) => view! { <LibraryPlan plan folder refresh /> }.into_any(),
                 None => view! { <p class="note">"No plan yet. Choose Plan build to make one."</p> }.into_any(),
             }}
         </Pending>

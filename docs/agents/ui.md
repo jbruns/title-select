@@ -96,12 +96,15 @@ A tooltip wraps anywhere, and is placed again for its drawn height, so a tall on
 
 Every plan is reviewed with `parts::plan::PlanReview`, a `List` with a strip of counts by kind above it. Its rows
 implement `PlanRow` (a `ListRow` with `type Kind: Status`): `PlanKind` for repairs, `BuildKind` for builds and
-cleanups. Each kind's count is a filter (`kind` in the URL); pass `apply` to put an "apply to all" control beside each
-count, which must start at "no change" and go back to it. Bulk choices are toolbar `ToolAction::checked` actions over
-the checked rows or every row matching the filter. Count what a bulk choice did with `plan_model::apply_choice` and
-show `BulkOutcome::message` in `message`, so a partial application says how many items don't offer the choice.
-Rows show `Change { current, proposed }`; reasons and evidence go in `detail`. Keep the plan's own choice rules
-pure and tested (`repair_model`). `screens/repair.rs` (`RepairTab`) is the reference.
+cleanups, `IngestPlanKind` for ingests. Each kind's count is a filter (`kind` in the URL; add `kind` to the screen's
+list state so leaving the list clears it). Pass `apply` with `plan::apply_to_all` to put an "apply to all" control
+beside each count; it starts at "no change" and goes back to it. Bulk choices are toolbar "Set to …" actions over the
+checked rows, made with `plan::set_actions`. Count what a bulk choice did with `plan_model::apply_choice` and show
+`BulkOutcome::message` in `message`, so a partial application says how many items don't offer the choice. A plan
+that offers no choices, such as an ingest plan approved whole, passes neither `apply` nor `actions`. Rows show
+`Change { current, proposed }`; reasons and evidence go in `detail`. Keep the plan's own choice rules pure and tested
+(`repair_model`, `build_model::ConflictChoice`). `screens/repair.rs` (`RepairTab`) is the reference;
+`screens/library_plan.rs` replans on each choice, and `screens/ingest_plan.rs` keeps its rows with `last_good_rows`.
 
 ### Lists
 

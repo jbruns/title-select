@@ -1,11 +1,11 @@
 //! What the Library Folder screens decide without rendering: a folder's status, the selection a new plan builds,
 //! the page's tabs, and the words for why a folder is stale.
 
-use title_select_api::build::{LibraryFolder, PlanSummary, Stale};
+use title_select_api::build::{LibraryFolder, Stale};
 use title_select_api::{Job, JobKind, SelectionRecord};
 
 use crate::model::earlier;
-use crate::parts::status::{BuildKind, LibraryFacts, LibraryStatus};
+use crate::parts::status::{LibraryFacts, LibraryStatus};
 
 /// Whether the folder's latest check, made since its current build, found it differs from that build.
 pub fn drifted(folder: &LibraryFolder) -> bool {
@@ -179,30 +179,6 @@ impl FolderTab {
             FolderTab::Kept => "Kept files",
         }
     }
-}
-
-/// How many items of each kind a plan holds, in the kinds' order, leaving out the kinds it has none of.
-pub fn kind_counts(s: &PlanSummary) -> Vec<(BuildKind, u64)> {
-    use crate::parts::status::Status;
-    let count = |kind: BuildKind| match kind {
-        BuildKind::Copy => s.copy,
-        BuildKind::Repack => s.repack,
-        BuildKind::Adopt => s.adopt,
-        BuildKind::Unchanged => s.unchanged,
-        BuildKind::NoSource => s.no_source,
-        BuildKind::Conflict => s.conflict,
-        BuildKind::Unresolved => s.unresolved,
-        BuildKind::Blocked => s.blocked,
-        BuildKind::Remove => s.remove,
-        BuildKind::SetAside => s.keep,
-        BuildKind::Acknowledge => s.acknowledge,
-        BuildKind::Restore => s.restore,
-    };
-    BuildKind::ALL
-        .iter()
-        .map(|k| (*k, count(*k)))
-        .filter(|(_, n)| *n > 0)
-        .collect()
 }
 
 #[cfg(test)]
@@ -394,26 +370,6 @@ mod tests {
         assert_eq!(FolderTab::parse(Some("kept")), FolderTab::Kept);
         assert_eq!(FolderTab::parse(Some("Plan")), FolderTab::Overview);
         assert_eq!(FolderTab::parse(None), FolderTab::Overview);
-    }
-
-    #[test]
-    fn a_plans_counts_follow_the_kinds_order_without_the_kinds_it_has_none_of() {
-        let summary = PlanSummary {
-            repack: 3,
-            copy: 1,
-            no_source: 2,
-            keep: 1,
-            ..PlanSummary::default()
-        };
-        assert_eq!(
-            kind_counts(&summary),
-            [
-                (BuildKind::Copy, 1),
-                (BuildKind::Repack, 3),
-                (BuildKind::NoSource, 2),
-                (BuildKind::SetAside, 1),
-            ]
-        );
     }
 
     fn job(id: i64, kind: JobKind, state: JobState) -> Job {
