@@ -556,7 +556,10 @@ fn Register(on_added: Callback<String>) -> impl IntoView {
             let added = api::post::<_, SourceSetRecord>("/source-sets", &request).await;
             busy.set(false);
             match added {
-                Ok(set) => on_added.run(set.name),
+                // The form may be gone by now.
+                Ok(set) => {
+                    on_added.try_run(set.name);
+                }
                 Err(message) => problem.set(Some(message)),
             }
         });

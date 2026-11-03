@@ -237,8 +237,8 @@ impl RepairDesk {
         );
         leptos::task::spawn_local(async move {
             let plans = api::get::<Vec<RepairPlan>>(&path).await;
-            // Another load was asked for meanwhile: that one wins.
-            // Or the page was left: nothing is shown.
+            // Another load was asked for meanwhile: that one wins. Or the page was left, taking the desk with it:
+            // nothing is shown. Past this check the desk is still there to read.
             if !self
                 .loads
                 .try_with_value(|l| l.applies(ticket))
@@ -944,8 +944,7 @@ fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
             let mark = desk.mark();
             leptos::task::spawn_local(async move {
                 let done = api::get::<RepairPlan>(&format!("/repairs/{plan}")).await;
-                // Another plan is shown now.
-                // Another plan was asked for meanwhile: show the one wanted, and fetch this one again when its job's
+                // Another plan was asked for meanwhile, or the page was left: show the one wanted, and fetch this one again when its job's
                 // end is next seen.
                 if !desk.change_applies(mark) {
                     fetched.set(None);

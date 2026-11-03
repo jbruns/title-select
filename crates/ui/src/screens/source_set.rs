@@ -99,12 +99,14 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
     let summary = LocalResource::new(move || {
         live.settled.track();
         desk.track();
+        // Owned, as the page may be gone by the time the answers come.
+        let name = name.get_value();
         async move {
             let sets: Vec<SourceSetSummary> = api::get("/source-set-summaries").await?;
             let dats: Vec<Dat> = api::get("/dats").await?;
             let summary = sets
                 .into_iter()
-                .find(|s| s.set.name == name.get_value())
+                .find(|s| s.set.name == name)
                 .ok_or_else(|| "That source set is gone.".to_string())?;
             let revisions = dats
                 .into_iter()
@@ -632,9 +634,10 @@ fn Additions(system: String) -> impl IntoView {
     let set = LocalResource::new(move || {
         live.settled.track();
         refresh.track();
+        let system = system.get_value();
         async move {
             let sets = api::get::<Vec<AdditionsSet>>("/additions-sets").await?;
-            Ok::<_, String>(sets.into_iter().find(|s| s.system == system.get_value()))
+            Ok::<_, String>(sets.into_iter().find(|s| s.system == system))
         }
     });
     view! {
