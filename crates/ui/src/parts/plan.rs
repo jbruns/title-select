@@ -21,6 +21,16 @@ use super::url_state::use_query_edit;
 pub trait PlanRow: ListRow {
     type Kind: Status;
     fn kind(&self) -> Self::Kind;
+
+    /// Another kind it counts and filters under besides its own: what else it does, such as setting a file aside.
+    fn also(&self) -> Option<Self::Kind> {
+        None
+    }
+
+    /// Whether it counts under `kind`.
+    fn is(&self, kind: Self::Kind) -> bool {
+        self.kind() == kind || self.also() == Some(kind)
+    }
 }
 
 /// The kind the URL's `kind` filters a plan review by, and a way to change it.
@@ -177,10 +187,17 @@ pub fn PlanReview<R: PlanRow>(
     #[prop(optional, into)] placeholder: Option<String>,
 ) -> impl IntoView {
     let (kind, set_kind) = use_kind_filter::<R::Kind>();
-    let counts = Signal::derive(move || rows.with(|r| kind_counts(r.iter().map(R::kind))));
+    let counts = Signal::derive(move || {
+        rows.with(|r| {
+            kind_counts(
+                r.iter()
+                    .flat_map(|r| std::iter::once(r.kind()).chain(r.also())),
+            )
+        })
+    });
     let keep = Signal::derive(move || -> Keep<R> {
         kind.get().map(|k| {
-            let keep: Arc<dyn Fn(&R) -> bool + Send + Sync> = Arc::new(move |r: &R| r.kind() == k);
+            let keep: Arc<dyn Fn(&R) -> bool + Send + Sync> = Arc::new(move |r: &R| r.is(k));
             keep
         })
     });

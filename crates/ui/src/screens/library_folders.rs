@@ -30,7 +30,8 @@ use crate::build_model::{
 };
 use crate::events::{Live, use_live};
 use crate::library_model::{
-    FolderTab, Pick, drifted, fresh, live_status, pick, selection_under_way, stale_label,
+    FolderTab, Pick, Replan, Replans, drifted, fresh, live_status, pick, selection_under_way,
+    stale_label,
 };
 use crate::model::{age, earlier, when};
 use crate::parts::icon::{Glyph, LabelledIcon, Svg};
@@ -171,6 +172,8 @@ fn Crumbs(trail: Vec<(String, String)>, #[prop(into)] here: String) -> impl Into
 /// is none.
 #[derive(Debug, Clone)]
 struct MakePlan {
+    /// Which request it is, to tell its answer from one a later request superseded.
+    replan: Replan,
     folder: i64,
     selection: Option<i64>,
     choices: PlanChoices,
@@ -187,6 +190,9 @@ pub(crate) struct Planner {
     older: RwSignal<Option<OlderSelection>>,
     /// What the last choice set in bulk did, and in which folder: the plan it replaced is gone.
     pub(crate) said: RwSignal<Option<(i64, String)>>,
+    replans: StoredValue<Replans>,
+    /// Bumped when the answer to a superseded request lands, so that the pages show the plan as the server holds it.
+    dropped: RwSignal<u64>,
 }
 
 /// A selection of a folder made before its profile's newest version or its source set's latest DAT revision, which
@@ -226,9 +232,19 @@ impl Planner {
     fn new() -> Self {
         let status = RwSignal::new(String::new());
         let older = RwSignal::new(None);
+        let replans = StoredValue::new(Replans::default());
+        let dropped = RwSignal::new(0);
+        // The action keeps only the answer to the latest request; the pages reload when it drops one.
         let action = Action::new_local(move |request: &MakePlan| {
             let request = request.clone();
-            async move { make_plan(request, status, older).await }
+            async move {
+                let replan = request.replan;
+                let made = make_plan(request, status, older).await;
+                if !replans.with_value(|r| r.is_latest(replan)) {
+                    dropped.update(|n| *n += 1);
+                }
+                made
+            }
         });
         Planner {
             action,
@@ -236,6 +252,8 @@ impl Planner {
             folder: RwSignal::new(None),
             older,
             said: RwSignal::new(None),
+            replans,
+            dropped,
         }
     }
 
@@ -244,7 +262,12 @@ impl Planner {
         self.older.set(None);
         self.said.set(None);
         self.status.set("Making plan…".into());
+        let replan = self
+            .replans
+            .try_update_value(Replans::ask)
+            .unwrap_or_default();
         self.action.dispatch(MakePlan {
+            replan,
             folder,
             selection,
             choices,
@@ -260,7 +283,13 @@ impl Planner {
         })
     }
 
-    fn pending(self, folder: i64) -> Signal<bool> {
+    /// Subscribes to the plans made, and to answers dropped for a later request's.
+    fn track(self) {
+        self.action.version().track();
+        self.dropped.track();
+    }
+
+    pub(crate) fn pending(self, folder: i64) -> Signal<bool> {
         Signal::derive(move || self.action.pending().get() && self.folder.get() == Some(folder))
     }
 
@@ -629,7 +658,7 @@ pub fn Libraries() -> impl IntoView {
     let planner = use_planner();
     let folders = LocalResource::new(move || {
         live.settled.track();
-        planner.action.version().track();
+        planner.track();
         api::get::<Vec<LibraryFolder>>("/libraries")
     });
     let jobs = Memo::new(move |_| live_jobs(live));
@@ -1031,7 +1060,7 @@ pub fn LibraryFolderScreen() -> impl IntoView {
     let folder = LocalResource::new(move || {
         live.settled.track();
         refresh.track();
-        planner.action.version().track();
+        planner.track();
         let id = id();
         async move {
             match id {

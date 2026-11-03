@@ -181,6 +181,29 @@ impl FolderTab {
     }
 }
 
+/// The plans asked for in turn, to tell the answer to the latest from those it superseded.
+#[derive(Debug, Default)]
+pub struct Replans {
+    seq: u64,
+}
+
+/// One plan asked for, to check its answer against.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Replan(u64);
+
+impl Replans {
+    /// Asks for a plan, superseding every one asked for before.
+    pub fn ask(&mut self) -> Replan {
+        self.seq += 1;
+        Replan(self.seq)
+    }
+
+    /// Whether `replan` is the latest asked for, so its answer is the one to show.
+    pub fn is_latest(&self, replan: Replan) -> bool {
+        replan.0 == self.seq
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,5 +523,15 @@ mod tests {
             live_status(&folder(), &[check(JobState::Succeeded), elsewhere]),
             LibraryStatus::NeverBuilt
         );
+    }
+
+    #[test]
+    fn only_the_latest_plan_asked_for_is_shown() {
+        let mut replans = Replans::default();
+        let first = replans.ask();
+        assert!(replans.is_latest(first));
+        let second = replans.ask();
+        assert!(!replans.is_latest(first));
+        assert!(replans.is_latest(second));
     }
 }

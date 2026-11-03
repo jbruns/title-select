@@ -5,8 +5,10 @@ use title_select_api::SelectionRecord;
 use title_select_api::build::{
     BlockerKind, BuildState, Cause, CleanupAction, DriftEntry, DriftKind, FileOutcome,
     IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder,
-    PlanChoices, PlanItem, RestoreKind, UnfinishedBuild,
+    PlanChoices, PlanContent, PlanItem, PlanRemoval, RemovalKind, RestoreKind, UnfinishedBuild,
 };
+
+use crate::parts::status::BuildKind;
 
 pub fn item_kind_label(kind: ItemKind) -> &'static str {
     match kind {
@@ -236,6 +238,62 @@ pub fn item_change(item: &PlanItem) -> (String, String) {
     }
 }
 
+/// The kind an item's row counts under, and what else it does: an item that keeps a file aside first (a replacement,
+/// or a conflict you chose to keep aside) also counts as set aside, as the plan's summary counts it.
+pub fn item_kinds(item: &PlanItem) -> (BuildKind, Option<BuildKind>) {
+    (
+        item.kind.into(),
+        item.keep.as_ref().map(|_| BuildKind::SetAside),
+    )
+}
+
+/// The kind a removal's row counts under, and what else it does: one that keeps the file also counts as set aside.
+pub fn removal_kinds(removal: &PlanRemoval) -> (BuildKind, Option<BuildKind>) {
+    let kept = removal.kind == RemovalKind::Keep;
+    (BuildKind::Remove, kept.then_some(BuildKind::SetAside))
+}
+
+/// The kind a cleanup's entry counts under, by what it does with it.
+pub fn entry_kind(action: CleanupAction) -> BuildKind {
+    match action {
+        CleanupAction::KeepAside | CleanupAction::AddAddition => BuildKind::SetAside,
+        CleanupAction::Adopt => BuildKind::Adopt,
+        CleanupAction::Acknowledge => BuildKind::Acknowledge,
+    }
+}
+
+/// The kind a cleanup's kept file put back counts under: one adopted under its game's name is an adoption.
+pub fn restore_kind(kind: RestoreKind) -> BuildKind {
+    match kind {
+        RestoreKind::Adopt => BuildKind::Adopt,
+        RestoreKind::Restore | RestoreKind::PutBack => BuildKind::Restore,
+    }
+}
+
+/// The kinds a plan's rows count under, each with what else it does, in the order its review lists them.
+pub fn plan_kinds(content: &PlanContent) -> Vec<(BuildKind, Option<BuildKind>)> {
+    let Some(cleanup) = &content.cleanup else {
+        let items = content.items.iter().map(item_kinds);
+        return items
+            .chain(content.removals.iter().map(removal_kinds))
+            .collect();
+    };
+    let entries = cleanup
+        .entries
+        .iter()
+        .filter_map(|e| e.action)
+        .map(|a| (entry_kind(a), None));
+    let restores = cleanup
+        .restores
+        .iter()
+        .map(|r| (restore_kind(r.kind), None));
+    let repacks = cleanup
+        .repacks
+        .iter()
+        .map(|_| (BuildKind::Repack, Some(BuildKind::SetAside)));
+    entries.chain(restores).chain(repacks).collect()
+}
+
 pub fn keep_reason_label(reason: KeepReason) -> &'static str {
     match reason {
         KeepReason::Removal => "no longer selected",
@@ -331,6 +389,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use title_select_api::ProfileVersionRef;
+    use title_select_api::build::{Cleanup, KeepAside};
     use title_select_api::selection::{SelectionPins, SelectionSummary};
 
     fn drift(kind: DriftKind, game: Option<&str>, conflict: bool) -> DriftEntry {
@@ -554,5 +613,121 @@ mod tests {
             group_href(7, "café & co/1"),
             "/selections/7?group=caf%C3%A9%20%26%20co%2F1"
         );
+    }
+
+    /// The kinds counted from a plan's rows, as `kind_counts` counts them for the review's strip.
+    fn counted(content: &PlanContent) -> Vec<(BuildKind, usize)> {
+        let kinds = plan_kinds(content);
+        crate::parts::plan_model::kind_counts(
+            kinds
+                .into_iter()
+                .flat_map(|(k, also)| [Some(k), also])
+                .flatten(),
+        )
+    }
+
+    fn summary_of(content: &PlanContent, kind: BuildKind) -> usize {
+        counted(content)
+            .into_iter()
+            .find(|(k, _)| *k == kind)
+            .map_or(0, |(_, n)| n)
+    }
+
+    fn content(items: Vec<PlanItem>, removals: Vec<PlanRemoval>) -> PlanContent {
+        serde_json::from_value::<PlanContent>(serde_json::json!({
+            "folder": 1, "generation": 1, "selection": 1, "audit": null, "dat_revision": "r",
+            "items": [], "blockers": [],
+        }))
+        .map(|c| PlanContent {
+            items,
+            removals,
+            ..c
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn a_replacement_counts_as_set_aside_as_the_summary_does() {
+        let kept: KeepAside = serde_json::from_value(serde_json::json!({
+            "reason": "replacement", "name": "Pong.zip",
+            "file": { "size": 1, "mtime_ns": 0 }, "identity": { "dev": 1, "ino": 2 },
+        }))
+        .unwrap();
+        let removal = |kind| PlanRemoval {
+            target: "Combat.zip".into(),
+            game: "Combat".into(),
+            kind,
+            reason: String::new(),
+            keep: None,
+            converts_to: None,
+        };
+        let plan = content(
+            vec![
+                PlanItem {
+                    keep: Some(kept),
+                    ..item("Pong", ItemKind::Repack)
+                },
+                item("Combat", ItemKind::Copy),
+            ],
+            vec![removal(RemovalKind::Keep), removal(RemovalKind::Forget)],
+        );
+        let summary = plan.summary();
+
+        assert_eq!(summary.keep, 2);
+        assert_eq!(summary_of(&plan, BuildKind::SetAside), 2);
+        assert_eq!(summary_of(&plan, BuildKind::Repack), 1);
+        assert_eq!(summary_of(&plan, BuildKind::Remove), 2);
+        assert_eq!(
+            plan_kinds(&plan).len(),
+            4,
+            "one row each, counted twice where it sets a file aside"
+        );
+    }
+
+    #[test]
+    fn a_cleanups_rows_count_as_its_summary_does() {
+        let stat = serde_json::json!({ "file": { "size": 1, "mtime_ns": 0 }, "identity": { "dev": 1, "ino": 2 } });
+        let entry = |name: &str, action: &str| {
+            let mut e = serde_json::json!({ "name": name, "kind": "unselected", "action": action });
+            e.as_object_mut()
+                .unwrap()
+                .extend(stat.as_object().unwrap().clone());
+            e
+        };
+        let mut kept = serde_json::json!({
+            "id": 1, "folder": 1, "generation": 1, "name": "Pong.zip", "kept_name": "Pong.zip",
+            "reason": "drift", "build": 1, "kept_at": "now",
+        });
+        kept.as_object_mut()
+            .unwrap()
+            .extend(stat.as_object().unwrap().clone());
+        let mut repack = serde_json::json!({ "target": "Combat.zip", "game": "Combat", "roms": [], "sha256": "s" });
+        repack
+            .as_object_mut()
+            .unwrap()
+            .extend(stat.as_object().unwrap().clone());
+        let cleanup: Cleanup = serde_json::from_value(serde_json::json!({
+            "build": 1, "choices": {},
+            "entries": [entry("a", "keep_aside"), entry("b", "add_addition"), entry("c", "adopt"), entry("d", "acknowledge")],
+            "restores": [{ "kept": kept, "kind": "adopt", "target": "Pong.zip" }],
+            "repacks": [repack],
+        }))
+        .unwrap();
+        let plan = PlanContent {
+            cleanup: Some(cleanup),
+            ..content(Vec::new(), Vec::new())
+        };
+        let s = plan.summary();
+
+        for (kind, n) in [
+            (BuildKind::SetAside, s.keep),
+            (BuildKind::Adopt, s.adopt),
+            (BuildKind::Acknowledge, s.acknowledge),
+            (BuildKind::Restore, s.restore),
+            (BuildKind::Repack, s.repack),
+        ] {
+            assert_eq!(summary_of(&plan, kind) as u64, n, "{kind:?}");
+        }
+        assert_eq!(s.keep, 3);
     }
 }

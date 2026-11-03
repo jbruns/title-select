@@ -11,14 +11,14 @@ use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use title_select_api::Job;
 use title_select_api::build::{
-    ApprovePlan, BlockerKind, CleanupAction, Plan, PlanChoices, RETENTION, RemovalKind,
+    ApprovePlan, BlockerKind, CleanupAction, Plan, PlanChoices, PlanContent, RETENTION, RemovalKind,
 };
 
 use crate::api;
 use crate::app::{Loading, Problem};
 use crate::build_model::{
     ConflictChoice, blocker_label, cause_label, cleanup_action_label, group_href, item_change,
-    keep_reason_label, restore_kind_label, with_conflict_choices,
+    keep_reason_label, plan_kinds, restore_kind_label, with_conflict_choices,
 };
 use crate::events::use_live;
 use crate::model::{short_sha, when};
@@ -52,7 +52,8 @@ struct Chooser {
     planner: Planner,
     folder: i64,
     selection: i64,
-    busy: RwSignal<bool>,
+    /// While you approve the plan or it is planned again: your choices wait.
+    busy: Signal<bool>,
 }
 
 // A plan's rows share its one chooser.
@@ -71,6 +72,9 @@ impl Chooser {
         choice: ConflictChoice,
         telling: bool,
     ) {
+        if self.busy.get_untracked() {
+            return;
+        }
         let mut picked = BTreeMap::new();
         let items = rows
             .into_iter()
@@ -120,6 +124,8 @@ impl Chooser {
 #[derive(Clone, PartialEq)]
 struct ItemRow {
     kind: BuildKind,
+    /// What else it does, such as setting a file aside.
+    also: Option<BuildKind>,
     key: String,
     game: String,
     current: String,
@@ -132,10 +138,11 @@ struct ItemRow {
 }
 
 impl ItemRow {
-    /// A row named `key`, which is what it is now, becoming `proposed`.
-    fn new(kind: BuildKind, key: &str, game: &str, proposed: impl Into<String>) -> Self {
+    /// A row named `key`, which is what it is now, becoming `proposed`. `plan_rows` sets its kinds.
+    fn new(key: &str, game: &str, proposed: impl Into<String>) -> Self {
         ItemRow {
-            kind,
+            kind: BuildKind::Unchanged,
+            also: None,
             key: key.to_string(),
             game: game.to_string(),
             current: key.to_string(),
@@ -159,8 +166,7 @@ impl ItemRow {
 }
 
 /// The plan's rows: a build plan's items and removals, or a cleanup's entries, kept files put back and repacks.
-fn plan_rows(plan: &Plan, chooser: Option<Chooser>) -> Vec<ItemRow> {
-    let content = &plan.content;
+fn plan_rows(content: &PlanContent, chooser: Option<Chooser>) -> Vec<ItemRow> {
     let Some(cleanup) = &content.cleanup else {
         let items = content.items.iter().map(|i| {
             let (current, proposed) = item_change(i);
@@ -169,7 +175,7 @@ fn plan_rows(plan: &Plan, chooser: Option<Chooser>) -> Vec<ItemRow> {
                 chosen: ConflictChoice::of(i, &content.choices),
                 chooser,
                 current,
-                ..ItemRow::new(i.kind.into(), &i.target, &i.game, proposed)
+                ..ItemRow::new(&i.target, &i.game, proposed)
                     .fact("Why", i.reason.clone())
                     .fact(
                         "Kept aside first",
@@ -195,36 +201,38 @@ fn plan_rows(plan: &Plan, chooser: Option<Chooser>) -> Vec<ItemRow> {
                 RemovalKind::Forget => "forgotten",
                 RemovalKind::Leave => "left as it is",
             };
-            ItemRow::new(BuildKind::Remove, &r.target, &r.game, to).fact("Why", r.reason.clone())
+            ItemRow::new(&r.target, &r.game, to).fact("Why", r.reason.clone())
         });
-        return items.chain(removals).collect();
+        return with_kinds(content, items.chain(removals));
     };
     let entries = cleanup.entries.iter().filter_map(|e| {
         let action = e.action?;
-        let (kind, to) = match action {
-            CleanupAction::KeepAside => (BuildKind::SetAside, "kept files"),
-            CleanupAction::AddAddition => (BuildKind::SetAside, "additions set"),
-            CleanupAction::Acknowledge => (BuildKind::Acknowledge, "left as it is"),
-            CleanupAction::Adopt => (BuildKind::Adopt, e.target.as_deref().unwrap_or(&e.name)),
+        let to = match action {
+            CleanupAction::KeepAside => "kept files",
+            CleanupAction::AddAddition => "additions set",
+            CleanupAction::Acknowledge => "left as it is",
+            CleanupAction::Adopt => e.target.as_deref().unwrap_or(&e.name),
         };
         let game = e.game.as_deref().unwrap_or_default();
-        Some(
-            ItemRow::new(kind, &e.name, game, to)
-                .fact("Does", cleanup_action_label(action).to_string()),
-        )
+        Some(ItemRow::new(&e.name, game, to).fact("Does", cleanup_action_label(action).to_string()))
     });
     let restores = cleanup.restores.iter().map(|r| {
         let kept = format!("{RETENTION}/{}/{}", r.kept.generation, r.kept.kept_name);
         let game = r.game.as_deref().unwrap_or_default();
-        ItemRow::new(BuildKind::Restore, &kept, game, &r.target)
-            .fact("Does", restore_kind_label(r.kind).to_string())
+        ItemRow::new(&kept, game, &r.target).fact("Does", restore_kind_label(r.kind).to_string())
     });
     let repacks = cleanup.repacks.iter().map(|r| {
         let does = "Repack as TorrentZip, keeping the file as it is aside";
-        ItemRow::new(BuildKind::Repack, &r.target, &r.game, &r.target)
-            .fact("Does", does.to_string())
+        ItemRow::new(&r.target, &r.game, &r.target).fact("Does", does.to_string())
     });
-    entries.chain(restores).chain(repacks).collect()
+    with_kinds(content, entries.chain(restores).chain(repacks))
+}
+
+/// `rows`, listed as `plan_kinds` lists them, with their kinds.
+fn with_kinds(content: &PlanContent, rows: impl Iterator<Item = ItemRow>) -> Vec<ItemRow> {
+    rows.zip(plan_kinds(content))
+        .map(|(row, (kind, also))| ItemRow { kind, also, ..row })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,6 +247,10 @@ impl PlanRow for ItemRow {
     type Kind = BuildKind;
     fn kind(&self) -> BuildKind {
         self.kind
+    }
+
+    fn also(&self) -> Option<BuildKind> {
+        self.also
     }
 }
 
@@ -420,12 +432,8 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             }
         })
     };
-    let removes = plan
-        .content
-        .removals
-        .iter()
-        .filter(|r| r.kind == RemovalKind::Keep)
-        .count();
+    // As the strip counts it: replacements, conflicts kept aside and removals that keep their file.
+    let removes = plan.summary.keep;
     let cleanup = plan.content.cleanup.as_ref();
     let is_cleanup = cleanup.is_some();
     // A cleanup's entries it leaves as they are aren't its items.
@@ -435,7 +443,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
     let approve_label = match (is_cleanup, removes) {
         (true, _) => "Approve the cleanup".to_string(),
         (false, 0) => format!("Approve and build {writes} files"),
-        (false, n) => format!("Approve and build {writes} files, keeping {n} aside"),
+        (false, n) => format!("Approve and build {writes} files, setting {n} aside"),
     };
     let heading = if is_cleanup {
         format!("Cleanup plan #{id}")
@@ -446,14 +454,15 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
         Some(a) => format!("Approved by {} · {}", a.actor, when(&a.at)),
         None => "Waiting on your approval".to_string(),
     };
+    let replanning = planner.pending(folder);
     let chooser = open.then(|| Chooser {
         choices: StoredValue::new(choices.clone()),
         planner,
         folder,
         selection,
-        busy,
+        busy: Signal::derive(move || busy.get() || replanning.get()),
     });
-    let rows: Arc<Vec<ItemRow>> = Arc::new(plan_rows(&plan, chooser));
+    let rows: Arc<Vec<ItemRow>> = Arc::new(plan_rows(&plan.content, chooser));
     let offered = offered_by_any(rows.iter().map(|r| r.offers.as_slice()));
     let actions = match chooser {
         Some(chooser) => set_actions(
@@ -472,8 +481,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
         let rows = rows.clone();
         Callback::new(move |kind: BuildKind| match chooser {
             Some(chooser) => {
-                let of_kind: Vec<ItemRow> =
-                    rows.iter().filter(|r| r.kind == kind).cloned().collect();
+                let of_kind: Vec<ItemRow> = rows.iter().filter(|r| r.is(kind)).cloned().collect();
                 let choices = offered_by_any(of_kind.iter().map(|r| r.offers.as_slice()));
                 apply_to_all(kind, choices, ConflictChoice::label, move |c| {
                     chooser.set(&of_kind, c, true)
