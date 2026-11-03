@@ -17,7 +17,7 @@ use title_select_api::{
 use super::audits::{check_blob_present, choose_revision};
 use super::dats::{REVISION_COLUMNS, revision_from_row};
 use super::jobs::{check_no_active, finish_running, job_by_id};
-use super::profiles::version_row;
+use super::profiles::{profile_id, version_row};
 use super::sets::set_by_name;
 use super::{Error, Result, Store, now};
 use crate::config::Config;
@@ -77,7 +77,11 @@ fn revision_by_id(c: &Connection, id: i64) -> Result<DatRevisionRecord> {
 const SELECTION_QUERY: &str = "SELECT sel.id, s.name, r.sha256, r.version, p.name, v.version,
             (SELECT max(version) FROM profile_versions WHERE profile_id = p.id),
             sel.job_id, sel.system, sel.system_settings, sel.pins, sel.summary, sel.created_at,
-            sel.pruned_at IS NOT NULL
+            sel.pruned_at IS NOT NULL,
+            (SELECT group_concat(folder_id) FROM (
+                SELECT folder_id FROM plans WHERE selection_id = sel.id
+                UNION SELECT folder_id FROM builds WHERE selection_id = sel.id
+                ORDER BY folder_id))
      FROM selections sel
      JOIN source_sets s ON s.id = sel.source_set_id
      JOIN dat_revisions r ON r.id = sel.dat_revision_id
@@ -109,6 +113,12 @@ fn record_from_row(row: &Row) -> rusqlite::Result<SelectionRecord> {
         summary: json(row, 11)?,
         created_at: row.get(12)?,
         pruned: row.get(13)?,
+        library_folders: row
+            .get::<_, Option<String>>(14)?
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|id| id.parse().ok())
+            .collect(),
     })
 }
 
@@ -430,12 +440,27 @@ impl Store {
 
     /// Every Selection made for the Source Set, newest first.
     pub fn selections(&self, source_set: &str) -> Result<Vec<SelectionRecord>> {
+        self.selections_of(Some(source_set), None)
+    }
+
+    /// Every Selection made for the Source Set, with the Profile, or both, newest first; every Selection when
+    /// neither is given.
+    pub fn selections_of(
+        &self,
+        source_set: Option<&str>,
+        profile: Option<&str>,
+    ) -> Result<Vec<SelectionRecord>> {
         self.read(|c| {
-            let set = set_by_name(c, source_set)?;
+            let set = source_set.map(|s| set_by_name(c, s)).transpose()?;
+            let profile = profile.map(|p| profile_id(c, p)).transpose()?;
             let mut stmt = c.prepare(&format!(
-                "{SELECTION_QUERY} WHERE sel.source_set_id = ?1 ORDER BY sel.id DESC"
+                "{SELECTION_QUERY} WHERE (?1 IS NULL OR sel.source_set_id = ?1)
+                    AND (?2 IS NULL OR p.id = ?2) ORDER BY sel.id DESC"
             ))?;
-            let rows = stmt.query_map([set.id], record_from_row)?;
+            let rows = stmt.query_map(
+                rusqlite::params![set.map(|s| s.id), profile],
+                record_from_row,
+            )?;
             Ok(rows.collect::<Result<_, _>>()?)
         })
     }

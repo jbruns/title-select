@@ -1520,6 +1520,34 @@ mod selections {
     }
 
     #[test]
+    fn a_source_sets_system_is_named_before_any_selection_and_selections_list_by_profile() {
+        let env = Env::new();
+        let (_service, client) = ready(&env);
+        let systems: Vec<title_select_api::SourceSetSystem> = client.json("/systems");
+        assert_eq!(
+            systems,
+            [title_select_api::SourceSetSystem {
+                source_set: SET.into(),
+                system: Some("Test - System".into()),
+            }]
+        );
+
+        let (_, made) = save(&client, json!({}));
+        assert_eq!(
+            made.system, "Test - System",
+            "a Profile files settings under it"
+        );
+        assert!(made.library_folders.is_empty(), "no Library Folder uses it");
+        let by_profile: Vec<SelectionRecord> = client.json("/selections?profile=Everyday");
+        assert_eq!(by_profile, std::slice::from_ref(&made));
+        let both: Vec<SelectionRecord> =
+            client.json("/selections?profile=Everyday&source_set=Test%20-%20System");
+        assert_eq!(both, [made]);
+        let response = client.get("/selections?profile=Nobody").call().unwrap();
+        assert_eq!(response.status(), 404);
+    }
+
+    #[test]
     fn a_selection_is_explained_joined_to_availability_and_reproduced_by_a_rerun() {
         let env = Env::new();
         let (_service, client) = ready(&env);

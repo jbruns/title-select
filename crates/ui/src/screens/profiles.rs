@@ -12,15 +12,17 @@ use title_select_api::selection::{
 };
 use title_select_api::{
     Preview, PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, SaveProfile,
-    SavedProfile, SourceSetRecord, StartSelectionFor, Vocabulary,
+    SavedProfile, SelectionRecord, SourceSetRecord, SourceSetSystem, StartSelectionFor, Vocabulary,
 };
 
 use crate::api;
 use crate::app::{Loading, Problem, navigator};
+use crate::events::use_live;
 use crate::model::{short_sha, when};
+use crate::parts::pending::Pending;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
-    SelectionIndex, Setting, Source, lines, move_item, reset_global, reset_system,
+    SelectionIndex, Setting, Source, lines, move_item, reset_global, reset_system, system_tabs,
     use_global_settings,
 };
 use crate::table::{DataTable, Grid, Rows, rows_of};
@@ -201,10 +203,74 @@ pub fn ProfileScreen() -> impl IntoView {
                         }
                     })}
                 <Editor name=Some(record.name.clone()) initial=record.latest.clone() />
+                <WhatIfs name=name.clone() />
                 <Versions name />
             }
             .into_any()
         }
+    }
+}
+
+/// The profile's what-if Selections: those no Library Folder uses. A Source Set's page lists only the Selections
+/// its Library Folders use.
+#[component]
+fn WhatIfs(name: String) -> impl IntoView {
+    let live = use_live();
+    let path = format!("/selections?profile={}", api::segment(&name));
+    let selections = LocalResource::new(move || {
+        live.settled.track();
+        let path = path.clone();
+        async move { api::get::<Vec<SelectionRecord>>(&path).await }
+    });
+    let new_href = format!("/selections/new?profile={}", api::segment(&name));
+    view! {
+        <section aria-labelledby="what-ifs-title">
+            <h2 id="what-ifs-title">"What-if selections"</h2>
+            <p class="lede">
+                "Selections of this profile that no library folder uses: what it would keep from a source set. Open one to review it, or to create a library folder from it."
+            </p>
+            <div class="actions">
+                <A href=new_href attr:class="button">
+                    "New what-if selection"
+                </A>
+            </div>
+            {move || match selections.get() {
+                None => view! { <Loading what="the what-if selections" /> }.into_any(),
+                Some(Err(message)) => view! { <Problem message /> }.into_any(),
+                Some(Ok(all)) => {
+                    let what_ifs: Vec<SelectionRecord> = all
+                        .into_iter()
+                        .filter(|s| s.library_folders.is_empty() && !s.pruned)
+                        .collect();
+                    if what_ifs.is_empty() {
+                        return view! { <p class="note">"None yet."</p> }.into_any();
+                    }
+                    view! {
+                        <ul class="plain">
+                            {what_ifs
+                                .into_iter()
+                                .map(|s| {
+                                    view! {
+                                        <li>
+                                            <A href=format!("/selections/{}", s.id)>{format!("Selection #{}", s.id)}</A>
+                                            {format!(
+                                                " of {}, version {}, made {}: {} kept, {} to review",
+                                                s.source_set,
+                                                s.profile.version,
+                                                when(&s.created_at),
+                                                s.summary.winners,
+                                                s.summary.needs_review(),
+                                            )}
+                                        </li>
+                                    }
+                                })
+                                .collect_view()}
+                        </ul>
+                    }
+                        .into_any()
+                }
+            }}
+        </section>
     }
 }
 
@@ -285,6 +351,9 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
     let dirty = Memo::new(move |_| profile.with(|p| saved.with(|s| p != s)));
     let vocabulary = LocalResource::new(|| api::get::<Vocabulary>("/vocabulary"));
     let sets = LocalResource::new(|| api::get::<Vec<SourceSetRecord>>("/source-sets"));
+    // The system of every registered source set, so that each has a tab before anything was previewed. Without
+    // the engine there are none, and the preview says why.
+    let registered = LocalResource::new(|| api::get::<Vec<SourceSetSystem>>("/systems"));
     let set = RwSignal::new(String::new());
     Effect::new(move || {
         if let Some(Ok(sets)) = sets.get()
@@ -381,13 +450,36 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                 .map(|p| p.selection.system.clone())
         })
     });
+    let registered = Memo::new(move |_| registered.get().and_then(Result::ok).unwrap_or_default());
     let systems = Memo::new(move |_| {
-        let mut systems: BTreeSet<String> =
-            profile.with(|p| p.systems.keys().chain(p.choices.keys()).cloned().collect());
-        systems.extend(previewed_system.get());
-        systems.into_iter().collect::<Vec<_>>()
+        let previewed = previewed_system.get();
+        registered.with(|r| {
+            profile.with(|p| {
+                system_tabs(
+                    p,
+                    r.iter().filter_map(|s| s.system.as_deref()),
+                    previewed.as_deref(),
+                )
+            })
+        })
     });
     let tab = RwSignal::new(None::<String>);
+    // A system's tab previews against its source set.
+    Effect::new(move || {
+        let Some(system) = tab.get() else {
+            return;
+        };
+        let source_set = registered.with_untracked(|r| {
+            r.iter()
+                .find(|s| s.system.as_deref() == Some(system.as_str()))
+                .map(|s| s.source_set.clone())
+        });
+        if let Some(source_set) = source_set
+            && set.get_untracked() != source_set
+        {
+            set.set(source_set);
+        }
+    });
 
     let queue = RwSignal::new(true);
     let outcome = RwSignal::new(None::<Result<SavedProfile, String>>);
@@ -469,6 +561,8 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                     </form>
                 }
             })}
+        <div class="editor-split">
+        <div class="editor-settings">
         {move || {
             let problems = problems.get();
             (!problems.is_empty())
@@ -572,8 +666,9 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
             }}
         </section>
 
-        <section aria-labelledby="preview-title">
-            <h2 id="preview-title">"Preview"</h2>
+        </div>
+        <section class="editor-preview" aria-labelledby="preview-title">
+            <h2 id="preview-title">"What-if preview"</h2>
             <form class="form" on:submit=move |ev| {
                 ev.prevent_default();
                 run_preview();
@@ -598,32 +693,53 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                     "Preview"
                 </button>
             </form>
-            <p class="note" aria-live="polite">
+            <p class="note">
                 {move || {
-                    if running.get() {
-                        "Previewing…".to_string()
-                    } else if mode.get() == PreviewMode::Button {
+                    if mode.get() == PreviewMode::Button {
                         "Previews of this source set take more than 2 seconds, so they run when you press Preview."
-                            .to_string()
                     } else {
-                        "The preview follows your edits. Nothing is saved until you save.".to_string()
+                        "The preview follows your edits. Nothing is saved until you save."
                     }
                 }}
             </p>
-            {move || match preview.get() {
-                None => {
-                    sets.get()
-                        .and_then(Result::ok)
-                        .filter(Vec::is_empty)
-                        .map(|_| {
-                            view! { <p class="note">"Register a source set to preview what this profile selects."</p> }
-                        })
-                        .into_any()
-                }
-                Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(p)) => view! { <PreviewView preview=p /> }.into_any(),
+            <Pending
+                pending=running
+                status=Signal::derive(move || format!("Previewing what this profile keeps from {}…", set.get()))
+                problem=Signal::derive(move || preview.with(|p| p.as_ref().and_then(|p| p.as_ref().err().cloned())))
+            >
+                {move || match preview.get() {
+                    None => {
+                        sets.get()
+                            .and_then(Result::ok)
+                            .filter(Vec::is_empty)
+                            .map(|_| {
+                                view! { <p class="note">"Register a source set to preview what this profile selects."</p> }
+                            })
+                            .into_any()
+                    }
+                    Some(Err(_)) => ().into_any(),
+                    Some(Ok(p)) => view! { <PreviewView preview=p /> }.into_any(),
+                }}
+            </Pending>
+            {move || {
+                (existing && !set.with(String::is_empty))
+                    .then(|| {
+                        let href = format!(
+                            "/selections/new?profile={}&source_set={}",
+                            api::segment(&name.get()),
+                            api::segment(&set.get()),
+                        );
+                        view! {
+                            <p class="note">
+                                "To keep this what-if and review it group by group, save, then "
+                                <A href=href>"make a what-if selection"</A>
+                                "."
+                            </p>
+                        }
+                    })
             }}
         </section>
+        </div>
     }
 }
 

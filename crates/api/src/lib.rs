@@ -296,6 +296,18 @@ pub struct SelectionRecord {
     pub summary: selection::SelectionSummary,
     pub created_at: String,
     pub pruned: bool,
+    /// The Library Folders whose plans or builds use the Selection, so that a client can tell a what-if
+    /// Selection, which none uses.
+    #[serde(default)]
+    pub library_folders: Vec<i64>,
+}
+
+/// The system a Source Set's latest DAT Revision is for, named as a Profile files its system settings and
+/// choices under. None when the engine can't read the DAT.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceSetSystem {
+    pub source_set: String,
+    pub system: Option<String>,
 }
 
 /// A release of a Selection with its position, and the availability of the release in the Source Set's latest

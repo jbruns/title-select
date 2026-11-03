@@ -572,3 +572,41 @@ fn a_real_dat_gets_a_rule_for_every_group() {
         selection.coverage_drift.titles_without_metadata.len(),
     );
 }
+
+#[test]
+fn a_dats_system_is_named_as_retool_files_its_settings() {
+    let work = tempfile::tempdir().unwrap();
+    let no_intro = work.path().join("gba.dat");
+    std::fs::write(
+        &no_intro,
+        "<?xml version=\"1.0\"?>\n<datafile>\n\t<header>\n\t\t<name>Nintendo - Game Boy Advance (Parent-Clone)</name>\n\
+         \t\t<description>Nintendo - Game Boy Advance (Parent-Clone)</description>\n\
+         \t\t<version>20240101-000000</version>\n\t\t<url>https://www.no-intro.org</url>\n\
+         \t</header>\n</datafile>\n",
+    )
+    .unwrap();
+    let plain = work.path().join("plain.dat");
+    dat(&plain, "Title Select - Plain", &["Solo (Europe)"]);
+    let unreadable = work.path().join("not-a.dat");
+    std::fs::write(&unreadable, "not a DAT").unwrap();
+
+    let names = support::engine()
+        .systems(&[&no_intro, &plain, &unreadable], &work.path().join("work"))
+        .unwrap();
+
+    assert_eq!(
+        names,
+        [
+            Some("Nintendo - Game Boy Advance (No-Intro)".to_owned()),
+            Some("Title Select - Plain".to_owned()),
+            None,
+        ]
+    );
+    assert!(
+        std::fs::read_dir(work.path().join("work"))
+            .unwrap()
+            .next()
+            .is_none(),
+        "the scratch folder is removed"
+    );
+}

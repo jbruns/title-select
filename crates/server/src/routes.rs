@@ -32,8 +32,8 @@ use title_select_api::{
     AddSourceSet, Availability, CreateProfile, Dat, ErrorBody, Finding, GameStatus, Health,
     ImportedDatRevision, JobEvent, JobSnapshot, Page, PathTemplateDefaults, Preview,
     PreviewRequest, ProfileCheck, ProfileRecord, ProfileVersion, Root, SSE_KEEP_ALIVE, SaveProfile,
-    SavedProfile, SelectionDiff, SelectionRecord, SelectionReleaseRow, StartAudit, StartSelection,
-    Vocabulary,
+    SavedProfile, SelectionDiff, SelectionRecord, SelectionReleaseRow, SourceSetSystem, StartAudit,
+    StartSelection, Vocabulary,
 };
 use title_select_selection::Engine;
 use title_select_store::config::Config;
@@ -93,6 +93,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/audits/{id}/entries.ndjson", get(entries_ndjson))
         .route("/audits/{id}/games", get(games))
         .route("/vocabulary", get(vocabulary))
+        .route("/systems", get(systems))
         .route("/check", post(check_profile))
         .route("/profiles", get(profiles).post(create_profile))
         .route("/profiles/{name}", get(profile))
@@ -1254,6 +1255,17 @@ async fn vocabulary(State(state): State<AppState>) -> ApiResult<Json<Vocabulary>
     }))
 }
 
+/// The system each registered Source Set's latest DAT Revision is for, so that the Profile editor can offer
+/// settings for every system before anything was selected.
+async fn systems(State(state): State<AppState>) -> ApiResult<Json<Vec<SourceSetSystem>>> {
+    let engine = state.engine()?;
+    let store = state.store.clone();
+    let systems = tokio::task::spawn_blocking(move || crate::selections::systems(&store, &engine))
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
+    Ok(Json(systems))
+}
+
 /// Checks that the engine can read a Selection Profile; the problems are empty when it can.
 async fn check_profile(
     State(state): State<AppState>,
@@ -1445,7 +1457,8 @@ async fn start_selection(
 
 #[derive(Deserialize)]
 struct SelectionsQuery {
-    source_set: String,
+    source_set: Option<String>,
+    profile: Option<String>,
 }
 
 async fn selections(
@@ -1454,7 +1467,10 @@ async fn selections(
 ) -> ApiResult<Json<Vec<SelectionRecord>>> {
     let Query(query) = query?;
     Ok(Json(
-        blocking(&state, move |store| store.selections(&query.source_set)).await?,
+        blocking(&state, move |store| {
+            store.selections_of(query.source_set.as_deref(), query.profile.as_deref())
+        })
+        .await?,
     ))
 }
 
