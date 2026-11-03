@@ -162,7 +162,7 @@ writes only to Library Folders; every other Play Library file is unmanaged and n
 _Avoid_: Managed Folder, output folder, target
 
 **Path Template**:
-A pattern of tokens, such as `{provider}/{dat}` or `{platform}`, that proposes the path of a Source Set or Managed
+A pattern of tokens, such as `{provider}/{dat}` or `{platform}`, that proposes the path of a Source Set or Library
 Folder at registration. It only proposes: a registered path never moves when a template changes.
 _Avoid_: Naming scheme
 
