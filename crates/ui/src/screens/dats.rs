@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use leptos::html::Form;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
-use leptos_struct_table::ColumnSort;
 use title_select_api::{
     AuditSummary, Dat, DatRevisionRecord, ImportOutcome, ImportedDatRevision, SourceSetRecord,
 };
@@ -14,8 +14,11 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::{short_sha, when};
-use crate::screens::audit::focus;
-use crate::table::{DataTable, Grid, Rows, rows_of, sort_of};
+use crate::parts::icon::Glyph;
+use crate::parts::legend::{Legend, present};
+use crate::parts::list::{Clip, Column, List, ListRow, RowAction, ToolAction, Width};
+use crate::parts::overlay::Drawer;
+use crate::parts::status::{DatFileStatus, StatusIcon};
 
 /// An Audit that refers to a DAT Revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,87 +34,103 @@ struct RevisionItem {
     used_by: Vec<UsedBy>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+impl RevisionItem {
+    fn file_status(&self) -> DatFileStatus {
+        if self.revision.blob_present {
+            DatFileStatus::Kept
+        } else {
+            DatFileStatus::Deleted
+        }
+    }
+
+    /// The Audits that refer to it, newest first.
+    fn audits_newest_first(&self) -> Vec<&UsedBy> {
+        let mut audits: Vec<&UsedBy> = self.used_by.iter().collect();
+        audits.sort_by_key(|a| std::cmp::Reverse(a.audit));
+        audits
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RevisionCol {
+    File,
     Dat,
     Version,
     Imported,
-    File,
-    Sha,
-    Blob,
     Audits,
 }
 
-fn audit_links(used_by: &[UsedBy]) -> AnyView {
-    used_by
-        .iter()
-        .map(|u| {
-            let title = format!("{}{}", u.source_set, if u.pruned { ", pruned" } else { "" });
-            let label = format!("#{}", u.audit);
-            view! {
-                <A href=format!("/audits/{}", u.audit) attr:title=title>
-                    {label}
-                </A>
-                " "
-            }
-        })
-        .collect_view()
-        .into_any()
-}
-
-impl Grid for RevisionItem {
+impl ListRow for RevisionItem {
     type Col = RevisionCol;
     const COLUMNS: &'static [RevisionCol] = &[
+        RevisionCol::File,
         RevisionCol::Dat,
         RevisionCol::Version,
         RevisionCol::Imported,
-        RevisionCol::File,
-        RevisionCol::Sha,
-        RevisionCol::Blob,
         RevisionCol::Audits,
     ];
 
-    fn header(col: RevisionCol) -> &'static str {
+    fn column(col: RevisionCol) -> Column {
         match col {
-            RevisionCol::Dat => "DAT",
-            RevisionCol::Version => "Version",
-            RevisionCol::Imported => "Imported",
-            RevisionCol::File => "File",
-            RevisionCol::Sha => "SHA-256",
-            RevisionCol::Blob => "File kept",
-            RevisionCol::Audits => "Audits",
+            RevisionCol::File => Column::new("file", "File", Width::Fixed(3.5))
+                .sortable()
+                .hint("Whether the store still keeps its DAT file"),
+            RevisionCol::Dat => Column::new(
+                "dat",
+                "DAT",
+                Width::Flex {
+                    min: 12.0,
+                    share: 3,
+                },
+            )
+            .sortable(),
+            RevisionCol::Version => {
+                Column::new("version", "Version", Width::Flex { min: 7.0, share: 1 }).sortable()
+            }
+            RevisionCol::Imported => {
+                Column::new("imported", "Imported", Width::Fixed(13.0)).sortable()
+            }
+            RevisionCol::Audits => Column::new("audits", "Audits", Width::Fixed(5.5))
+                .sortable()
+                .numeric()
+                .hint("How many audits refer to it"),
         }
     }
 
-    fn class(col: RevisionCol) -> &'static str {
-        match col {
-            RevisionCol::Dat | RevisionCol::File | RevisionCol::Audits => "c-wide",
-            RevisionCol::Version | RevisionCol::Imported => "c-time data",
-            RevisionCol::Sha => "c-hash data",
-            RevisionCol::Blob => "c-state",
-        }
+    fn key(&self) -> String {
+        self.revision.sha256.clone()
     }
 
-    fn sortable(col: RevisionCol) -> bool {
-        matches!(
-            col,
-            RevisionCol::Dat | RevisionCol::Version | RevisionCol::Imported
-        )
+    fn title(&self) -> String {
+        format!("{} {}", self.revision.dat(), self.revision.version)
+    }
+
+    fn search(&self) -> String {
+        let r = &self.revision;
+        format!("{} {} {} {}", r.dat(), r.version, r.file, r.sha256)
     }
 
     fn cell(&self, col: RevisionCol) -> AnyView {
         let r = &self.revision;
         match col {
-            RevisionCol::Dat => r.dat().into_any(),
-            RevisionCol::Version => r.version.clone().into_any(),
-            RevisionCol::Imported => when(&r.imported_at).into_any(),
-            RevisionCol::File => r.file.clone().into_any(),
-            RevisionCol::Sha => short_sha(&r.sha256).to_string().into_any(),
-            RevisionCol::Blob => if r.blob_present { "Kept" } else { "Deleted" }.into_any(),
-            RevisionCol::Audits => match self.used_by.len() {
-                0 => "None".into_any(),
-                _ => audit_links(&self.used_by),
-            },
+            RevisionCol::File => {
+                view! { <StatusIcon status=self.file_status() tab_stop=false /> }.into_any()
+            }
+            RevisionCol::Dat => view! { <Clip text=r.dat() /> }.into_any(),
+            RevisionCol::Version => view! { <Clip text=r.version.clone() /> }.into_any(),
+            RevisionCol::Imported => view! { <Clip text=when(&r.imported_at) /> }.into_any(),
+            RevisionCol::Audits => self.used_by.len().to_string().into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: RevisionCol) -> Ordering {
+        let (a, b) = (&self.revision, &other.revision);
+        match col {
+            RevisionCol::File => a.blob_present.cmp(&b.blob_present),
+            RevisionCol::Dat => a.dat().cmp(&b.dat()),
+            RevisionCol::Version => a.version.cmp(&b.version),
+            RevisionCol::Imported => a.imported_at.cmp(&b.imported_at),
+            RevisionCol::Audits => self.used_by.len().cmp(&other.used_by.len()),
         }
     }
 }
@@ -145,7 +164,47 @@ async fn revisions() -> Result<Vec<RevisionItem>, String> {
         .collect())
 }
 
-/// The DATs and their DAT Revisions, with their provenance, and the form to upload another.
+/// Puts `text` on the clipboard, then says so in `said`.
+fn copy(text: String, what: String, said: RwSignal<Option<String>>) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let promise = window.navigator().clipboard().write_text(&text);
+    leptos::task::spawn_local(async move {
+        let message = match wasm_bindgen_futures::JsFuture::from(promise).await {
+            Ok(_) => format!("Copied {what}."),
+            Err(_) => format!("Couldn't copy {what}: the browser didn't allow it."),
+        };
+        said.set(Some(message));
+    });
+}
+
+/// The actions on one DAT Revision: open its newest Audit, copy its SHA-256, and open its other Audits.
+fn revision_actions(item: &RevisionItem, said: RwSignal<Option<String>>) -> Vec<RowAction> {
+    let audits = item.audits_newest_first();
+    let mut actions = Vec::new();
+    if let Some(latest) = audits.first() {
+        actions.push(RowAction::go(
+            Glyph::ClipboardList,
+            format!("Open its latest audit, #{}", latest.audit),
+            format!("/audits/{}", latest.audit),
+        ));
+    }
+    let sha = item.revision.sha256.clone();
+    actions.push(RowAction::run(Glyph::Copy, "Copy its SHA-256", move || {
+        copy(sha.clone(), "the SHA-256".to_string(), said)
+    }));
+    actions.extend(audits.iter().skip(1).map(|u| {
+        RowAction::go(
+            Glyph::ClipboardList,
+            format!("Open audit #{} of {}", u.audit, u.source_set),
+            format!("/audits/{}", u.audit),
+        )
+    }));
+    actions
+}
+
+/// The DATs and their DAT Revisions, with their provenance, and the form to import another.
 #[component]
 pub fn DatRevisions() -> impl IntoView {
     let live = use_live();
@@ -155,28 +214,30 @@ pub fn DatRevisions() -> impl IntoView {
         uploaded.track();
         revisions()
     });
-    let sorting = RwSignal::new(VecDeque::<(RevisionCol, ColumnSort)>::new());
-    let selected = RwSignal::new(None::<usize>);
-    let shown = Memo::new(move |_| {
-        let mut items = items.get().and_then(Result::ok).unwrap_or_default();
-        if let Some(sort) = sorting.with(sort_of) {
-            items.sort_by(|a, b| {
-                let (a, b) = (&a.revision, &b.revision);
-                let ord = match sort.column {
-                    RevisionCol::Version => a.version.cmp(&b.version),
-                    RevisionCol::Imported => a.imported_at.cmp(&b.imported_at),
-                    _ => a.dat().cmp(&b.dat()),
-                };
-                if sort.descending { ord.reverse() } else { ord }
-            });
-        }
-        Arc::new(items)
-    });
-    let rows = Signal::derive(move || rows_of(shown.get().as_ref().clone()) as Rows<RevisionItem>);
-    let detail = move || {
-        let item = shown.with(|s| s.get(selected.get()?).cloned())?;
-        Some(revision_detail(item))
-    };
+    let rows =
+        Signal::derive(move || Arc::new(items.get().and_then(Result::ok).unwrap_or_default()));
+    let statuses =
+        Signal::derive(move || present(rows.get().iter().map(RevisionItem::file_status)));
+    let importing = RwSignal::new(false);
+    let said = RwSignal::new(None::<String>);
+    let actions = vec![
+        ToolAction::page(Glyph::Upload, "Import", move || importing.set(true)),
+        ToolAction::checked(Glyph::Copy, "Copy SHA-256s", move |chosen| {
+            let n = chosen.rows.len();
+            let text = chosen
+                .rows
+                .iter()
+                .map(|r: &RevisionItem| r.revision.sha256.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let what = if n == 1 {
+                "1 SHA-256".to_string()
+            } else {
+                format!("{n} SHA-256s")
+            };
+            copy(text, what, said);
+        }),
+    ];
 
     view! {
         <h1>"DAT revisions"</h1>
@@ -188,29 +249,30 @@ pub fn DatRevisions() -> impl IntoView {
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
             Some(Ok(_)) => ().into_any(),
         }}
-        <DataTable
+        <p class="done" role="status">
+            {move || said.get()}
+        </p>
+        <List
             id="dat-revisions"
-            label="DAT revisions".to_string()
+            label="DAT revisions"
             rows
-            sorting
-            selected
-            on_open=Callback::new(|_| focus("revision-detail"))
-            empty="No DAT revisions yet. Upload a DAT below.".to_string()
+            empty="No DAT revisions yet. Choose Import to add a DAT."
+            placeholder="Filter by DAT, version, file or SHA-256"
+            actions
+            row_actions=Callback::new(move |item: RevisionItem| revision_actions(&item, said))
+            quick=2
+            detail=Callback::new(revision_detail)
+            legend=move || view! { <Legend statuses list="dat-revisions" /> }
         />
-        <section class="detail" id="revision-detail" tabindex="-1" aria-label="Selected DAT revision">
-            {move || match detail() {
-                Some(view) => view,
-                None => view! { <p class="note">"Select a DAT revision to see its provenance."</p> }.into_any(),
-            }}
-        </section>
-        <Upload on_done=Callback::new(move |_| uploaded.update(|n| *n += 1)) />
+        <Drawer open=importing title="Import a DAT">
+            <Upload on_done=Callback::new(move |_| uploaded.update(|n| *n += 1)) />
+        </Drawer>
     }
 }
 
 fn revision_detail(item: RevisionItem) -> AnyView {
     let r = item.revision;
     view! {
-        <h3>{format!("{} {}", r.dat(), r.version)}</h3>
         <dl class="facts">
             <dt>"SHA-256"</dt>
             <dd>
@@ -236,7 +298,7 @@ fn revision_detail(item: RevisionItem) -> AnyView {
                 {if r.blob_present {
                     "Kept in the store"
                 } else {
-                    "Deleted from the store; the DAT revision is still recorded, and uploading the same file again restores it"
+                    "Deleted from the store; the DAT revision is still recorded, and importing the same file again restores it"
                 }}
             </dd>
             <dt>"Audits"</dt>
@@ -297,8 +359,7 @@ fn Upload(on_done: Callback<()>) -> impl IntoView {
         });
     };
     view! {
-        <section aria-labelledby="upload-title">
-            <h2 id="upload-title">"Upload a DAT"</h2>
+        <section aria-label="Import a DAT">
             <form class="form" node_ref=form on:submit=submit>
                 <label>
                     "Provider"
@@ -313,7 +374,7 @@ fn Upload(on_done: Callback<()>) -> impl IntoView {
                     <input type="file" name="file" required accept=".dat,.xml" />
                 </label>
                 <button type="submit" class="primary" disabled=busy>
-                    {move || if busy.get() { "Uploading…" } else { "Upload" }}
+                    {move || if busy.get() { "Importing…" } else { "Import" }}
                 </button>
             </form>
             {move || {

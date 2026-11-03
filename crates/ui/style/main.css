@@ -497,6 +497,234 @@ input[type="file"] {
 
 /* Tabs */
 
+/* The shared list (parts::list): a toolbar over a virtualized grid of 40px rows, laid out by --list-columns. */
+
+.tip-anchor.clip {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-2);
+}
+
+.toolbar-actions {
+  display: flex;
+  flex: 1 1 12rem;
+  min-width: 0;
+  gap: var(--space-2);
+  overflow: hidden;
+}
+
+.toolbar-actions .tool {
+  flex: none;
+  white-space: nowrap;
+}
+
+.toolbar-actions .tool[hidden] {
+  display: none;
+}
+
+.list-checked {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.link-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-action);
+  text-decoration: underline;
+}
+
+.link-button:hover {
+  background: none;
+}
+
+.list-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+}
+
+.list-filter .filter-text {
+  width: 18rem;
+  max-width: 100%;
+}
+
+.list-toolbar .shown {
+  margin: 0;
+}
+
+.list-scroll {
+  position: relative;
+  height: min(70vh, 48rem);
+  overflow: auto;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-divider);
+  border-radius: var(--radius-control);
+}
+
+.list-grid {
+  min-width: var(--list-min);
+}
+
+.list-grid:focus-visible {
+  outline-offset: calc(-1 * var(--focus-width));
+}
+
+.list-head,
+.list-row {
+  display: grid;
+  grid-template-columns: var(--list-columns);
+  align-items: center;
+  height: var(--table-row-min-height);
+}
+
+.list-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface-subtle);
+  border-bottom: var(--border-width) solid var(--color-divider);
+  font-weight: 700;
+}
+
+.list-head .sort,
+.list-head .label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  height: var(--table-row-min-height);
+  min-height: 0;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.list-head .sort:hover {
+  background: var(--color-selected);
+}
+
+.list-head .list-cell {
+  padding: 0;
+}
+
+.list-head .tip-anchor {
+  display: flex;
+  width: 100%;
+}
+
+.list-body {
+  position: relative;
+}
+
+.list-window {
+  will-change: transform;
+}
+
+.list-row {
+  box-sizing: border-box;
+  border-bottom: var(--border-width) solid var(--color-divider);
+  cursor: pointer;
+}
+
+.list-row:hover {
+  background: var(--color-canvas);
+}
+
+.list-row.checked,
+.list-row.open {
+  background: var(--color-selected);
+  color: var(--color-selected-text);
+}
+
+.list-row.open {
+  box-shadow: inset var(--space-1) 0 0 var(--color-selected-edge);
+}
+
+.list-grid:focus-visible .list-row.cursor {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: calc(-1 * var(--focus-width));
+}
+
+.list-cell {
+  min-width: 0;
+  padding: 0 var(--space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-cell.numeric {
+  text-align: right;
+}
+
+.list-row .list-cell.numeric {
+  font-family: var(--font-data);
+}
+
+.list-head .list-cell.numeric .sort {
+  justify-content: flex-end;
+}
+
+.list-check {
+  display: flex;
+  justify-content: center;
+}
+
+.list-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: var(--space-1);
+}
+
+.list-actions .icon-button {
+  width: 2rem;
+  min-height: 2rem;
+  height: 2rem;
+  border-color: transparent;
+  background: transparent;
+}
+
+.list-row .list-actions {
+  visibility: hidden;
+}
+
+.list-row:hover .list-actions,
+.list-row:focus-within .list-actions,
+.list-row.cursor .list-actions,
+.list-row.open .list-actions {
+  visibility: visible;
+}
+
+.list-scroll .empty {
+  margin: var(--space-4);
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+}
+
 .tabs {
   display: flex;
   gap: var(--space-1);

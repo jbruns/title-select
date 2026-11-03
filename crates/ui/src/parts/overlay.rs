@@ -129,17 +129,22 @@ const MENU_ROOM: f64 = 240.0;
 /// Shows `label` beside its children while the pointer is over them or focus is in them, until Escape. The label
 /// repeats the accessible name the children already carry, so it is hidden from assistive technology. `focusable`
 /// makes the anchor a tab stop, so keyboard users can reach the tooltip; leave it off when the children are already
-/// focusable, such as a button.
+/// focusable, such as a button. `clipped` cuts the children off with an ellipsis where they don't fit, and shows the
+/// tooltip only when they are cut off: give it the children's full text.
 #[component]
 pub fn Tooltip(
     #[prop(into)] label: Signal<String>,
     #[prop(optional)] focusable: bool,
+    #[prop(optional)] clipped: bool,
     children: Children,
 ) -> impl IntoView {
     let anchor = NodeRef::<html::Span>::new();
     let at = RwSignal::new(None::<Placement>);
     let show = move || {
         if let Some(el) = anchor.get_untracked() {
+            if clipped && el.scroll_width() <= el.client_width() {
+                return;
+            }
             at.set(Some(placement_of(&el, TOOLTIP_ROOM, true)));
         }
     };
@@ -148,6 +153,7 @@ pub fn Tooltip(
     view! {
         <span
             class="tip-anchor"
+            class:clip=clipped
             node_ref=anchor
             on:mouseenter=move |_| show()
             on:mouseleave=move |_| hide()
@@ -278,14 +284,22 @@ pub fn Menu(
 }
 
 /// One choice in a `Menu`. A destructive choice names what it destroys and asks you to confirm after it's chosen.
+/// A `disabled` choice is shown but skipped by the arrow keys.
 #[component]
 pub fn MenuItem(
     #[prop(into)] label: Signal<String>,
     #[prop(optional)] glyph: Option<Glyph>,
     #[prop(into)] on_select: Callback<()>,
+    #[prop(optional, into)] disabled: MaybeProp<bool>,
 ) -> impl IntoView {
     view! {
-        <button type="button" role="menuitem" class="menu-item" on:click=move |_| on_select.run(())>
+        <button
+            type="button"
+            role="menuitem"
+            class="menu-item"
+            disabled=move || disabled.get().unwrap_or(false)
+            on:click=move |_| on_select.run(())
+        >
             {glyph.map(|glyph| view! { <Svg glyph /> })}
             <span>{move || label.get()}</span>
         </button>

@@ -1,9 +1,11 @@
-//! A synthetic Audit for the filtering benchmark in `crates/ui/bench/`: `/bench?entries=100000`.
+//! A synthetic Audit for the filtering benchmark in `crates/ui/bench/`: `/bench?entries=100000`, or with `&list=1`,
+//! the same Entries in the shared list (`parts::list`).
 
 use std::borrow::Cow;
 use std::sync::Arc;
 
 use leptos::prelude::*;
+use leptos::tachys::view::any_view::AnyView;
 use leptos_router::hooks::use_query_map;
 use title_select_api::{
     ALGORITHMS, Entry, EntryRow, Evidence, EvidenceLevel, Finding, Game, GameRow, GameStatus,
@@ -11,7 +13,62 @@ use title_select_api::{
 };
 
 use crate::model::{AuditEntries, DerivedCounts};
+use crate::parts::list::{Clip, Column, List, ListRow, Width};
 use crate::screens::audit::EntriesPanel;
+
+/// A synthetic Entry as a row of the shared list.
+#[derive(Clone)]
+struct BenchRow(Arc<EntryRow>);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BenchCol {
+    Path,
+    Finding,
+}
+
+impl ListRow for BenchRow {
+    type Col = BenchCol;
+    const COLUMNS: &'static [BenchCol] = &[BenchCol::Path, BenchCol::Finding];
+
+    fn column(col: BenchCol) -> Column {
+        match col {
+            BenchCol::Path => Column::new(
+                "path",
+                "Path",
+                Width::Flex {
+                    min: 20.0,
+                    share: 1,
+                },
+            )
+            .sortable(),
+            BenchCol::Finding => Column::new("finding", "Finding", Width::Fixed(10.0)),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.seq.to_string()
+    }
+
+    fn title(&self) -> String {
+        self.0.entry.path.clone()
+    }
+
+    fn search(&self) -> String {
+        let e = &self.0.entry;
+        format!("{} {}", e.path, e.member.as_deref().unwrap_or(""))
+    }
+
+    fn cell(&self, col: BenchCol) -> AnyView {
+        match col {
+            BenchCol::Path => view! { <Clip text=self.0.entry.path.clone() /> }.into_any(),
+            BenchCol::Finding => format!("{:?}", self.0.entry.finding).into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, _col: BenchCol) -> std::cmp::Ordering {
+        self.0.entry.path.cmp(&other.0.entry.path)
+    }
+}
 
 const WORDS: [&str; 16] = [
     "Adventure",
@@ -133,6 +190,7 @@ pub fn Bench() -> impl IntoView {
         .get("entries")
         .and_then(|n| n.parse().ok())
         .unwrap_or(100_000);
+    let list = query.read_untracked().get("list").is_some();
     let entries = Arc::new(synthetic(n));
     let DerivedCounts {
         verified,
@@ -145,6 +203,21 @@ pub fn Bench() -> impl IntoView {
                 "{n} synthetic entries: {verified} verified, {needs_review} need review. Nothing here comes from the service.",
             )}
         </p>
-        <EntriesPanel entries />
+        {if list {
+            let rows: Arc<Vec<BenchRow>> =
+                Arc::new(entries.rows.iter().cloned().map(|r| BenchRow(Arc::new(r))).collect());
+            view! {
+                <List
+                    id="bench"
+                    label="Synthetic entries"
+                    rows=Signal::stored(rows)
+                    empty="No entries."
+                    detail=Callback::new(|row: BenchRow| row.0.entry.path.clone().into_any())
+                />
+            }
+                .into_any()
+        } else {
+            view! { <EntriesPanel entries /> }.into_any()
+        }}
     }
 }

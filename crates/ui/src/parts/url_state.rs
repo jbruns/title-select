@@ -1,10 +1,13 @@
 //! A list's view state in the URL's query string, so a link or a reload keeps it: its filter (`q`), its sort
-//! (`sort`, `-` first when descending), its selected row (`row`) and its page's tab (`tab`). Other query parameters,
-//! such as a plan's id, are kept as they are.
+//! (`sort`, `-` first when descending), its open row (`row`), its page's tab (`tab`) and its checked rows (`sel`, with
+//! `all=1` when every row matching the filter is checked and `sel` lists those left out). Other query parameters, such
+//! as a plan's id, are kept as they are.
 
 use leptos::prelude::*;
 use leptos_router::NavigateOptions;
 use leptos_router::hooks::{use_location, use_navigate, use_query_map};
+
+use super::list_model::Selection;
 
 /// A sort by one column.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,13 +23,40 @@ pub struct ListQuery {
     pub sort: Option<Sort>,
     pub selected: Option<String>,
     pub tab: Option<String>,
+    pub checked: Selection,
 }
 
 const FILTER: &str = "q";
 const SORT: &str = "sort";
 const ROW: &str = "row";
 const TAB: &str = "tab";
-const KEYS: [&str; 4] = [FILTER, SORT, ROW, TAB];
+const ALL: &str = "all";
+const SEL: &str = "sel";
+const KEYS: [&str; 6] = [FILTER, SORT, ROW, TAB, ALL, SEL];
+
+/// Row keys as one value: comma-separated, with `\` escaping a comma or backslash within a key.
+fn join_keys<'a>(keys: impl IntoIterator<Item = &'a String>) -> String {
+    let escaped: Vec<String> = keys
+        .into_iter()
+        .map(|k| k.replace('\\', "\\\\").replace(',', "\\,"))
+        .collect();
+    escaped.join(",")
+}
+
+fn split_keys(value: &str) -> impl Iterator<Item = String> {
+    let mut keys = Vec::new();
+    let mut key = String::new();
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => key.extend(chars.next()),
+            ',' => keys.push(std::mem::take(&mut key)),
+            c => key.push(c),
+        }
+    }
+    keys.push(key);
+    keys.into_iter().filter(|k| !k.is_empty())
+}
 
 impl ListQuery {
     /// The state a query string's pairs hold; an empty value counts as none.
@@ -50,6 +80,8 @@ impl ListQuery {
                 }
                 ROW => q.selected = some,
                 TAB => q.tab = some,
+                ALL => q.checked.matching = value == "1",
+                SEL => q.checked.keys = split_keys(value).collect(),
                 _ => {}
             }
         }
@@ -67,6 +99,11 @@ impl ListQuery {
             (SORT, sort),
             (ROW, self.selected.clone()),
             (TAB, self.tab.clone()),
+            (ALL, self.checked.matching.then(|| "1".to_string())),
+            (
+                SEL,
+                (!self.checked.keys.is_empty()).then(|| join_keys(&self.checked.keys)),
+            ),
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|v| (k, v)))
@@ -170,6 +207,7 @@ mod tests {
             }),
             selected: Some("12".to_string()),
             tab: Some("games".to_string()),
+            ..Default::default()
         };
         let pairs = q.to_pairs();
         assert_eq!(
@@ -228,6 +266,29 @@ mod tests {
         assert_eq!(
             query_string(&pairs),
             "?q=Pok%C3%A9mon%3A%20Red%20%26%20Blue%2F1"
+        );
+    }
+
+    #[test]
+    fn checked_rows_survive_a_round_trip_whatever_their_keys() {
+        let mut q = ListQuery::default();
+        q.checked
+            .set(["plain", "a,b", "back\\slash", "trailing\\"], true);
+        let pairs = q.to_pairs();
+        assert_eq!(
+            ListQuery::from_pairs(pairs.iter().map(|(k, v)| (*k, v.as_str()))),
+            q
+        );
+        let mut q = ListQuery::default();
+        q.checked.select_matching();
+        q.checked.toggle("left out");
+        assert_eq!(
+            q.to_pairs(),
+            vec![("all", "1".to_string()), ("sel", "left out".to_string())]
+        );
+        assert_eq!(
+            ListQuery::from_pairs(q.to_pairs().iter().map(|(k, v)| (*k, v.as_str()))),
+            q
         );
     }
 }
