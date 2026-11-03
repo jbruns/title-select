@@ -763,7 +763,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection; `?against=`        |
-| `GET /api/v1/libraries`                            | the library folders, each with its current build             |
+| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}` |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
 | `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |
@@ -960,19 +960,25 @@ Its screens:
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
   texts of Title Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
-- **Libraries** lists each library folder with its current build and when it was last checked, marking a check
-  made before the current build, and registers another in a writable root,
-  with the path proposed from the source set's DAT as for a source set. Opening one plans a build of a selection,
-  shows the plan's files by what they do, what blocks it and what changed, approves it and follows the build live, with a way to cancel it.
-  It rebinds the folder, and lists its builds and the files built into it. A plan with unresolved groups offers to build
-  resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict you can keep
-  aside has a choice to keep it aside and rebuild. The plan lists the built files no longer selected and what
-  happens to each. The folder lists its kept files by generation, where you pick some or all and approve deleting
-  them. It plans a cleanup of what the latest check found: an action for each entry not built here, kept files to
-  put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry added as an
-  addition asks for its system, name and parent game. The folder shows badges
-  for an incomplete folder and an interrupted build, what the folder lacks, and its latest check, which you can run
-  again. Each build shows every file it wrote or failed to write.
+- **Libraries** (`/libraries`) lists each library folder with its status: running, plan open, drift, incomplete,
+  stale, current or never built, in that precedence. Stale means its source set's latest audit found something other than the audit
+  its current build used, its selection profile was saved since, or the folder was rebound to another; the folder
+  says which. Each row can be
+  checked, or have a build planned of the newest selection of its source set and profile against the source set's
+  latest verified DAT revision, made first when there is none. **New library folder** (`/libraries/new`, or
+  `/libraries/new?source_set=<name>` or `?selection=<id>` from a source set or a selection) picks a saved selection
+  profile and a writable root, proposes the path from the path template as for a source set, creates the folder and
+  plans its first build. A folder's page (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs:
+  **Overview**, its facts, what it lacks and the files built into it; **Selection**, the selection it was built
+  from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
+  blocks it, its choices, the built files no longer selected, approval and the build live, with a way to cancel it;
+  **Builds**; **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept
+  files**, by generation, where you pick some or all and approve deleting them. A plan with unresolved groups offers
+  to build resolved groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict
+  you can keep aside has a choice to keep it aside and rebuild. A cleanup offers an action for each entry not built
+  here, kept files to put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry
+  added as an addition asks for its system, name and parent game. Each build shows every file it wrote or failed to
+  write.
 - **Ingest** (`/ingest`) lists each ingest root and registers it. Opening one scans it, and lists each item with its
   state, the evidence assessing it found and what is proposed. You pick items to plan discarding them or importing
   DATs, or adding them as additions with the system, name and parent game you give each, review the plan,

@@ -344,6 +344,8 @@ mod tests {
             incomplete: None,
             unfinished: None,
             check: None,
+            plan_open: false,
+            stale: Vec::new(),
         }
     }
 

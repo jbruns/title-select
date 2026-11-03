@@ -7,6 +7,7 @@ mod dats;
 mod ingest_folders;
 mod jobs;
 mod library_folders;
+mod library_plan;
 mod profiles;
 pub mod repair;
 mod roots;
@@ -22,7 +23,10 @@ pub use bench::Bench;
 pub use dats::DatRevisions;
 pub use ingest_folders::{IngestFolderScreen, IngestFolders};
 pub use jobs::{Activity, Jobs, KeptFiles};
-pub use library_folders::{BuildScreen, Libraries, LibraryFolderScreen, PlanABuild};
+pub use library_folders::{
+    BuildScreen, Libraries, LibrariesPages, LibraryFolderScreen, NewLibraryFolder, PlanABuild,
+    provide_planner,
+};
 pub use profiles::{NewProfile, ProfileScreen, Profiles};
 pub use repair::RepairScreen;
 pub use roots::Roots;

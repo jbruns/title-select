@@ -16,13 +16,21 @@ pub fn segment(name: &str) -> String {
 }
 
 async fn checked(response: Response) -> Result<Response, String> {
+    refused(response).await.map_err(|body| body.error)
+}
+
+/// The response, or the Service's refusal with the Job it names, if any.
+async fn refused(response: Response) -> Result<Response, ErrorBody> {
     if response.ok() {
         return Ok(response);
     }
     let status = response.status();
     match response.json::<ErrorBody>().await {
-        Ok(body) => Err(body.error),
-        Err(_) => Err(format!("The service answered {status}.")),
+        Ok(body) => Err(body),
+        Err(_) => Err(ErrorBody {
+            error: format!("The service answered {status}."),
+            job: None,
+        }),
     }
 }
 
@@ -50,6 +58,23 @@ pub async fn text(path: &str) -> Result<String, String> {
 
 pub async fn post<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Result<T, String> {
     post_until(path, body, None).await
+}
+
+/// Like `post`, but a refusal keeps the Job it names, such as the one already doing the work.
+pub async fn post_refusable<B: Serialize, T: DeserializeOwned>(
+    path: &str,
+    body: &B,
+) -> Result<T, ErrorBody> {
+    let plain = |error: String| ErrorBody { error, job: None };
+    let request = Request::post(&url(path))
+        .json(body)
+        .map_err(|e| plain(e.to_string()))?;
+    let response = request.send().await.map_err(|e| plain(failed(e)))?;
+    refused(response)
+        .await?
+        .json()
+        .await
+        .map_err(|e| plain(e.to_string()))
 }
 
 /// Like `post`, but `signal` aborts the request, which closes the connection so the Service stops the work.

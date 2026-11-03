@@ -5,6 +5,7 @@ use std::sync::{Mutex, PoisonError};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
+use sha2::{Digest, Sha256};
 
 use super::dats::revision_by_id;
 use super::dats::{DatRevisionRecord, REVISION_COLUMNS, revision_from_row};
@@ -434,7 +435,73 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
             claimed
         ])?;
     }
+    drop((entry, game));
+    let content = content_sha256(tx, id)?;
+    tx.execute(
+        "UPDATE audits SET content_sha256 = ?2 WHERE id = ?1",
+        params![id, content],
+    )?;
     Ok(())
+}
+
+/// What the Audit `id` found, as a SHA-256 over its DAT Revision, its Entries and its Game Statuses in a fixed order:
+/// equal for two Audits that found the same. How an Entry was verified (its evidence, and when it was read) is left
+/// out: a re-read of an unchanged file finds the same.
+pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
+    let mut hasher = Sha256::new();
+    let mut field = |value: Option<String>| {
+        match value {
+            Some(v) => {
+                hasher.update((v.len() as u64).to_le_bytes());
+                hasher.update(v.as_bytes());
+            }
+            None => hasher.update(u64::MAX.to_le_bytes()),
+        };
+    };
+    let revision: i64 = c.query_row(
+        "SELECT dat_revision_id FROM audits WHERE id = ?1",
+        [id],
+        |r| r.get(0),
+    )?;
+    field(Some(revision.to_string()));
+    let mut entries = c.prepare(
+        "SELECT path, member, finding, roms, named_game, named_rom, reason FROM audit_entries
+         WHERE audit_id = ?1 ORDER BY path, member, seq",
+    )?;
+    let mut rows = entries.query([id])?;
+    while let Some(row) = rows.next()? {
+        for i in 0..7 {
+            field(row.get(i)?);
+        }
+    }
+    field(None);
+    let mut games = c.prepare(
+        "SELECT name, status, missing_roms, claimed_roms FROM audit_games WHERE audit_id = ?1 ORDER BY name, seq",
+    )?;
+    let mut rows = games.query([id])?;
+    while let Some(row) = rows.next()? {
+        for i in 0..4 {
+            field(row.get(i)?);
+        }
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
+/// The Audit `id`'s content SHA-256: as recorded when it finished, or else worked out now.
+pub(super) fn recorded_content_sha256(c: &Connection, id: i64) -> Result<String> {
+    let recorded: Option<String> = c.query_row(
+        "SELECT content_sha256 FROM audits WHERE id = ?1",
+        [id],
+        |r| r.get(0),
+    )?;
+    match recorded {
+        Some(sha) => Ok(sha),
+        None => content_sha256(c, id),
+    }
 }
 
 /// Deletes the Audits matching `condition`, with their Entries and Game Statuses.

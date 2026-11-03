@@ -9,10 +9,11 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use title_select_api::build::{
     AddLibraryFolder, BuildState, BuildSummary, ChangeLibraryFolder, FileOutcome, Incomplete,
     IncompleteItem, IncompleteReason, LibraryFolder, MARKER, Marker, PlanContent, RETENTION,
-    STAGING, UnfinishedBuild,
+    STAGING, Stale, UnfinishedBuild,
 };
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
 
+use super::audits::recorded_content_sha256;
 use super::checks::{latest_check, latest_summary, selected_targets};
 use super::dats::split_dat;
 use super::folder_dir::{FolderDir, Identity};
@@ -168,6 +169,8 @@ fn record(c: &Connection, config: &Config, row: FolderRow) -> Result<LibraryFold
     };
     let incomplete = Some(incomplete(c, &row)?.counts).filter(|counts| counts.total() > 0);
     let unfinished = unfinished(c, &row)?;
+    let plan_open = plan_open(c, &row)?;
+    let stale = stale(c, &row)?;
     Ok(LibraryFolder {
         id: row.id,
         writable: config.root(&row.root).is_some_and(|r| r.writable),
@@ -185,7 +188,89 @@ fn record(c: &Connection, config: &Config, row: FolderRow) -> Result<LibraryFold
         incomplete,
         unfinished,
         check: latest_summary(c, row.id)?,
+        plan_open,
+        stale,
     })
+}
+
+/// Whether the folder's newest plan waits on approval: unapproved, and made at the folder's current generation, so
+/// no Build has carried out another plan since.
+fn plan_open(c: &Connection, row: &FolderRow) -> Result<bool> {
+    let Some(plan) = row.latest_plan else {
+        return Ok(false);
+    };
+    Ok(c.query_row(
+        "SELECT p.generation = ?2 AND NOT EXISTS (SELECT 1 FROM plan_approvals a WHERE a.plan_id = p.id)
+         FROM plans p WHERE p.id = ?1",
+        params![plan, row.generation as i64],
+        |r| r.get(0),
+    )?)
+}
+
+/// What changed since the folder's current Build: a rebinding to another Source Set or Profile, or else a newer
+/// Audit of its Source Set that found something other than the Build's did, or a version of its Profile newer than the
+/// Build's Selection's.
+fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
+    let Some(build) = row.current_build else {
+        return Ok(Vec::new());
+    };
+    let (set_id, set, profile_id, profile, version, audit): (i64, String, i64, String, u32, i64) =
+        c.query_row(
+            "SELECT s.source_set_id, ss.name, v.profile_id, p.name, v.version, b.audit_id
+             FROM builds b
+             JOIN selections s ON s.id = b.selection_id
+             JOIN source_sets ss ON ss.id = s.source_set_id
+             JOIN profile_versions v ON v.id = s.profile_version_id
+             JOIN profiles p ON p.id = v.profile_id
+             WHERE b.id = ?1",
+            [build],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )?;
+    let mut stale = Vec::new();
+    if set_id != row.source_set_id {
+        stale.push(Stale::SourceSetRebound { built: set });
+    } else if let Some(latest) = c
+        .query_row(
+            "SELECT a.id FROM audits a
+             WHERE a.source_set_id = ?1 AND a.status = 'finished' AND a.pruned_at IS NULL
+               AND a.finish_seq > (SELECT finish_seq FROM audits WHERE id = ?2)
+             ORDER BY a.finish_seq DESC LIMIT 1",
+            params![set_id, audit],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+        && recorded_content_sha256(c, latest)? != recorded_content_sha256(c, audit)?
+    {
+        stale.push(Stale::SourceSetChanged {
+            built: audit,
+            latest,
+        });
+    }
+    if profile_id != row.profile_id {
+        stale.push(Stale::ProfileRebound { built: profile });
+    } else {
+        let latest: u32 = c.query_row(
+            "SELECT max(version) FROM profile_versions WHERE profile_id = ?1",
+            [profile_id],
+            |r| r.get(0),
+        )?;
+        if latest > version {
+            stale.push(Stale::ProfileSaved {
+                built: version,
+                latest,
+            });
+        }
+    }
+    Ok(stale)
 }
 
 /// The folder's latest Build that stopped before it finished, unless a Build has succeeded since. Whether it is the

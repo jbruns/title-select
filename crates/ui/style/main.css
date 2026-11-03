@@ -1456,6 +1456,59 @@ a.icon-button {
   gap: var(--space-4);
 }
 
+.page-title h1 {
+  margin: 0;
+}
+
+.page-title,
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* A trail of links to the pages above this one */
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-4) 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+  font-size: var(--type-meta);
+}
+
+.crumbs li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.crumbs svg {
+  width: 1em;
+  height: 1em;
+}
+
+.reasons {
+  margin: var(--space-2) 0 var(--space-4);
+}
+
+.choices,
+.facts-more {
+  margin: var(--space-3) 0;
+}
+
+.choices > summary,
+.facts-more > summary {
+  cursor: pointer;
+}
+
+.filter-select {
+  width: auto;
+}
+
 .bar nav a,
 .stream {
   white-space: nowrap;
