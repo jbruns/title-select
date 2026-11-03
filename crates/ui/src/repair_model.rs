@@ -136,10 +136,11 @@ fn of_kind(plan: &RepairPlan, kind: PlanKind) -> impl Iterator<Item = &RepairIte
         .filter(move |i| PlanKind::from(i.kind) == kind)
 }
 
-/// The choices "apply to all" offers for `kind`: those every item of that kind offers.
+/// The choices "apply to all" offers for `kind`: those any item of that kind offers. One that only some offer sets
+/// only those.
 pub fn kind_choices(plan: &RepairPlan, kind: PlanKind) -> Vec<RepairChoice> {
     let offers: Vec<Vec<RepairChoice>> = of_kind(plan, kind).map(bulk_offers).collect();
-    plan_model::offered_by_all(offers.iter().map(Vec::as_slice))
+    plan_model::offered_by_any(offers.iter().map(Vec::as_slice))
 }
 
 /// The choices you can set for the items `keys` names: those any of them offers.
@@ -445,11 +446,11 @@ mod tests {
     }
 
     #[test]
-    fn apply_to_all_offers_what_every_item_of_the_kind_offers_but_adding() {
+    fn apply_to_all_offers_what_any_item_of_the_kind_offers_but_adding() {
         let p = bulk_plan();
         assert_eq!(
             kind_choices(&p, PlanKind::SetAside),
-            [RepairChoice::KeepAside]
+            [RepairChoice::Leave, RepairChoice::KeepAside]
         );
         let ab = ["entry:a.zip".to_string(), "entry:b.zip".to_string()];
         assert_eq!(
