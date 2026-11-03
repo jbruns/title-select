@@ -891,6 +891,7 @@ mod tests {
             games: BTreeMap::new(),
             pruned: false,
             evidence: AuditEvidence::Incremental,
+            claimed: Some(0),
         }
     }
 

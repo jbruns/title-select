@@ -4,7 +4,9 @@
 use title_select_api::build::{BuildState, BuildSummary, LibraryFolder};
 use title_select_api::ingest::{IngestAction, IngestPlan};
 use title_select_api::repair::{RepairPlan, RepairStep};
-use title_select_api::{AuditSummary, DatRevisionRecord, OpenRepair, SourceSetSummary};
+use title_select_api::{
+    AuditEvidence, AuditSummary, DatRevisionRecord, Finding, OpenRepair, SourceSetSummary,
+};
 
 use crate::model::{audit_choices, needs_review_from_counts};
 use crate::parts::status::{
@@ -26,8 +28,46 @@ pub fn facts(
             .first()
             .is_some_and(|a| needs_review_from_counts(&a.findings) > 0),
         stale: !latest.is_empty() && !audit_choices(latest, revisions).1.is_empty(),
+        claims: latest.first().is_some_and(rests_on_claims),
         audited: !latest.is_empty(),
     }
+}
+
+/// Whether some of `audit`'s entries rest on Claim Evidence: those it counts, or, once it's pruned and they can't be
+/// counted, whether it was a quick inventory.
+pub fn rests_on_claims(audit: &AuditSummary) -> bool {
+    match audit.claimed {
+        Some(n) => n > 0,
+        None => audit.evidence == AuditEvidence::Quick,
+    }
+}
+
+/// What `audit`'s entries rest on: how many on payloads read, how many on claims, and how many couldn't be read.
+pub fn evidence_coverage(audit: &AuditSummary) -> String {
+    let total: usize = audit.findings.values().sum();
+    let unreadable = audit
+        .findings
+        .get(&Finding::Unreadable)
+        .copied()
+        .unwrap_or(0);
+    let entries = |n: usize| if n == 1 { "entry" } else { "entries" };
+    let Some(claimed) = audit.claimed else {
+        return format!(
+            "Unknown: the audit is pruned, so its {total} {} are no longer kept",
+            entries(total)
+        );
+    };
+    let payload = total.saturating_sub(claimed + unreadable);
+    let mut said = format!("{payload} of {total} {} on payloads read", entries(total));
+    if claimed > 0 {
+        said.push_str(&format!(
+            "; {claimed} on claims, which never verify an entry"
+        ));
+    }
+    if unreadable > 0 {
+        said.push_str(&format!("; {unreadable} unreadable"));
+    }
+    said
 }
 
 pub fn status(
@@ -125,14 +165,13 @@ pub fn tabs(repair: Option<RepairState>, open: PageTab) -> Vec<PageTab> {
 }
 
 /// A library folder's status, from what its record says: `latest_audit` is the source set's latest audit, which a
-/// build made from another is behind.
+/// build made from another is behind. It never reads "Plan open", as the record doesn't say so.
 pub fn library_status(folder: &LibraryFolder, latest_audit: Option<i64>) -> LibraryStatus {
     let build = folder.build.as_ref();
     LibraryStatus::of(LibraryFacts {
         running: folder.active_job.is_some(),
-        plan_open: folder
-            .latest_plan
-            .is_some_and(|plan| build.is_none_or(|b| plan > b.plan)),
+        // The record doesn't say whether a plan is open: a plan newer than the last build may have failed.
+        plan_open: false,
         drift: folder.check.as_ref().is_some_and(|c| c.drift > 0),
         incomplete: folder.incomplete.is_some() || folder.unfinished.is_some(),
         stale: build.zip(latest_audit).is_some_and(|(b, a)| b.audit != a),
@@ -320,6 +359,7 @@ mod tests {
             games: BTreeMap::new(),
             pruned: false,
             evidence: Default::default(),
+            claimed: Some(0),
         }
     }
 
@@ -363,6 +403,33 @@ mod tests {
             status(&summary(Some(audit(1, "t", "a", 0)), None), false),
             SourceSetStatus::Stale,
             "a newer DAT revision waits"
+        );
+        let claimed = AuditSummary {
+            claimed: Some(3),
+            ..audit(1, "t", "b", 0)
+        };
+        assert_eq!(
+            status(&summary(Some(claimed), None), false),
+            SourceSetStatus::OnClaims,
+            "claims never make it verified"
+        );
+        let mut covered = audit(1, "t", "b", 1);
+        covered.findings.insert(Finding::Matched, 9);
+        covered.findings.insert(Finding::Unreadable, 2);
+        covered.claimed = Some(3);
+        assert_eq!(
+            evidence_coverage(&covered),
+            "7 of 12 entries on payloads read; 3 on claims, which never verify an entry; 2 unreadable"
+        );
+        let pruned_quick = AuditSummary {
+            claimed: None,
+            evidence: AuditEvidence::Quick,
+            ..audit(1, "t", "b", 0)
+        };
+        assert_eq!(
+            status(&summary(Some(pruned_quick), None), false),
+            SourceSetStatus::OnClaims,
+            "a quick inventory whose entries are gone can't be told verified"
         );
         assert_eq!(
             status(&summary(Some(audit(1, "t", "b", 2)), None), false),

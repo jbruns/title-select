@@ -207,7 +207,10 @@ impl PayloadReads for StoredReads<'_> {
 
 const SUMMARY_QUERY: &str = "SELECT a.id, s.name, a.started_at, a.finished_at, r.sha256, r.version,
             a.pruned_at IS NOT NULL, a.matched, a.misnamed, a.conflicting, a.mismatched, a.unmatched, a.unreadable,
-            a.complete, a.incomplete, a.missing, a.evidence
+            a.complete, a.incomplete, a.missing, a.evidence,
+            CASE WHEN a.pruned_at IS NULL THEN
+                (SELECT COUNT(*) FROM audit_entries e WHERE e.audit_id = a.id AND e.evidence_level = 'claim')
+            END
      FROM audits a
      JOIN dat_revisions r ON r.id = a.dat_revision_id
      JOIN source_sets s ON s.id = a.source_set_id";
@@ -223,6 +226,7 @@ fn summary_from_row(r: &Row) -> rusqlite::Result<AuditSummary> {
         dat_revision_version: r.get(5)?,
         pruned: r.get(6)?,
         evidence: evidence_from(r, 16)?,
+        claimed: r.get::<_, Option<i64>>(17)?.map(|n| n as usize),
         findings,
         games,
     })

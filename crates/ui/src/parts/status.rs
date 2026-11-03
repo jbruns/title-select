@@ -219,6 +219,8 @@ pub enum SourceSetStatus {
     RepairOpen,
     NeedsReview,
     Stale,
+    /// Audited with nothing to review, but some of it rests on Claim Evidence, which never makes it Verified.
+    OnClaims,
     Verified,
     NeverAudited,
 }
@@ -233,6 +235,8 @@ pub struct SourceSetFacts {
     /// Its latest Audit has Needs Review Entries.
     pub needs_review: bool,
     pub stale: bool,
+    /// Some Entries of its latest Audit rest on Claim Evidence, or it can't be told which.
+    pub claims: bool,
     pub audited: bool,
 }
 
@@ -246,6 +250,7 @@ impl SourceSetStatus {
                 SourceSetStatus::NeedsReview,
             ),
             (facts.audited && facts.stale, SourceSetStatus::Stale),
+            (facts.audited && facts.claims, SourceSetStatus::OnClaims),
             (facts.audited, SourceSetStatus::Verified),
             (true, SourceSetStatus::NeverAudited),
         ];
@@ -260,6 +265,7 @@ impl Status for SourceSetStatus {
         SourceSetStatus::RepairOpen,
         SourceSetStatus::NeedsReview,
         SourceSetStatus::Stale,
+        SourceSetStatus::OnClaims,
         SourceSetStatus::Verified,
         SourceSetStatus::NeverAudited,
     ];
@@ -289,6 +295,13 @@ impl Status for SourceSetStatus {
                 Tone::Review,
                 "Stale",
                 "Its files look changed since its audit, or a newer DAT revision is waiting.",
+            ),
+            SourceSetStatus::OnClaims => look(
+                Glyph::FileQuestionMark,
+                Tone::Review,
+                "On claims",
+                "Its latest audit found nothing to review, but some entries rest on claims taken from archive \
+                 directories, not on payloads read. Audit it incrementally or fully to verify it.",
             ),
             SourceSetStatus::Verified => look(
                 Glyph::ShieldCheck,
@@ -1057,9 +1070,14 @@ mod tests {
             SourceSetStatus::NeverAudited
         );
         assert_eq!(SourceSetStatus::of(audited), SourceSetStatus::Verified);
+        let claims = SourceSetFacts {
+            claims: true,
+            ..audited
+        };
+        assert_eq!(SourceSetStatus::of(claims), SourceSetStatus::OnClaims);
         let stale = SourceSetFacts {
             stale: true,
-            ..audited
+            ..claims
         };
         assert_eq!(SourceSetStatus::of(stale), SourceSetStatus::Stale);
         let review = SourceSetFacts {

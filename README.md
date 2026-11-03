@@ -736,7 +736,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
 | `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat"}`; with no `path`, the path `template`, else the default, proposes |
-| `GET /api/v1/source-set-summaries`                 | each source set with its latest audit and its open repair, if any: what the list of source sets shows |
+| `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
 | `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
@@ -911,7 +911,8 @@ the icons; hover over or focus one to see its name. Paths from earlier versions 
 Its screens:
 
 - **Source sets** lists each source set with its status (running, repair open, needs review, behind a newer DAT
-  revision, audited or never audited), its game counts by game status, its DAT and its latest audit. Each row audits
+  revision, resting on claims, verified or never audited); a set whose latest audit matched entries only on claims
+  (a quick inventory) never reads verified, its game counts by game status, its DAT and its latest audit. Each row audits
   in one click and offers proposing or reviewing its repair, previewing a selection, making a library folder, and
   its tabs; check rows to audit them or propose their repairs together, which says it is making each plan while it
   waits. Register adds another from a root, a DAT and a path in the root. The path template proposes the path from
@@ -919,7 +920,8 @@ Its screens:
   proposed path" to go back. When the DAT has no `{platform}`, the preview says so and you type the path.
 - **A source set** (`/source-sets/<name>`) is one page in tabs, each linkable as `?tab=`. **Overview** shows the
   latest audit's game statuses and how many entries need review, a badge per finding that opens the entries with
-  that finding, its facts, and starts an audit against the default DAT revision or a newer one, as a quick inventory
+  that finding, its facts with its evidence coverage (how many entries rest on payloads read and how many on
+  claims), and starts an audit against the default DAT revision or a newer one, as a quick inventory
   or an incremental (the default) or full audit. **Games** and **Entries** show the latest audit's game statuses and
   entries, as the audit screen does. **Libraries** lists its library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it and builds from it,

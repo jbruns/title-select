@@ -1561,9 +1561,11 @@ fn a_quick_audit_stores_claims_as_claims_and_leaves_nothing_to_reuse() {
         (evidence.level, evidence.read_at),
         (EvidenceLevel::Claim, None)
     );
-    assert_eq!(
-        env.store.audit(quick.id).unwrap().evidence,
-        AuditEvidence::Quick
+    let summary = env.store.audit(quick.id).unwrap();
+    assert_eq!(summary.evidence, AuditEvidence::Quick);
+    assert!(
+        summary.claimed.is_some_and(|n| n > 0),
+        "its summary counts the entries resting on claims"
     );
 
     let next = env.audit(None);
@@ -1573,6 +1575,7 @@ fn a_quick_audit_stores_claims_as_claims_and_leaves_nothing_to_reuse() {
         (EvidenceLevel::Payload, None),
         "a claim is never reused as a payload read"
     );
+    assert_eq!(env.store.audit(next.id).unwrap().claimed, Some(0));
 }
 
 #[test]

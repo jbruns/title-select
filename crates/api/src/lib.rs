@@ -161,6 +161,9 @@ pub struct AuditSummary {
     /// How the Audit got its Entries' checksums.
     #[serde(default = "full_evidence")]
     pub evidence: AuditEvidence,
+    /// How many of its Entries rest on Claim Evidence rather than Payload Evidence; unknown once it is pruned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed: Option<usize>,
 }
 
 /// A Source Set with what the list of Source Sets shows of it: its latest finished Audit and its open Repair.
