@@ -12,7 +12,7 @@ use crate::screens::additions::new_addition;
 
 /// The loads of the plan to show, in the order they were asked for: only the last one's answer counts, and only if
 /// the plan shown hasn't changed since it was asked for. A change you make to a plan (approving it, planning again)
-/// is answered by [`mutation_applies`] instead, so a load never drops it.
+/// is answered by [`Loads::change_applies`] instead, so a load never drops it.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Loads {
     /// The plan last asked to be shown, once one has been: `Some(None)` for the open repair.
@@ -20,6 +20,17 @@ pub struct Loads {
     /// The source set's open repair, the last time it had one.
     last_open: Option<i64>,
     seq: u64,
+    /// The plan the URL last named, and how many times that has changed: a plan you open yourself wins over a
+    /// change still under way.
+    named: Option<Option<i64>>,
+    navigations: u64,
+}
+
+/// When a change to a plan was made, to check its answer against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChangeMark {
+    navigations: u64,
+    shown: Option<i64>,
 }
 
 /// A load asked for, to check its answer against.
@@ -42,6 +53,10 @@ impl Loads {
         open: Option<i64>,
         shown: Option<(i64, bool)>,
     ) -> Option<LoadTicket> {
+        if self.named.is_some_and(|last| last != named) {
+            self.navigations += 1;
+        }
+        self.named = Some(named);
         if open.is_some() {
             self.last_open = open;
         }
@@ -66,12 +81,27 @@ impl Loads {
     pub fn applies(&self, ticket: LoadTicket, shown: Option<i64>) -> bool {
         ticket.seq == self.seq && ticket.shown == shown
     }
+
+    /// Marks a change (approving, planning again, refreshing a running repair) made to the plan `shown`.
+    pub fn mark(&self, shown: Option<i64>) -> ChangeMark {
+        ChangeMark {
+            navigations: self.navigations,
+            shown,
+        }
+    }
+
+    /// Whether the answer to the change `mark`ed, which gave back the plan `result`, belongs on screen now that
+    /// `shown` is: unless you have since opened another plan, or moved to one. The source set's open repair catching
+    /// up drops nothing.
+    pub fn change_applies(&self, mark: ChangeMark, shown: Option<i64>, result: i64) -> bool {
+        mark.navigations == self.navigations && (shown == mark.shown || shown == Some(result))
+    }
 }
 
-/// Whether the answer to a change made while `before` was shown, which gave back the plan `result`, belongs on screen
-/// now that `shown` is: unless you have since moved to another plan.
-pub fn mutation_applies(before: Option<i64>, shown: Option<i64>, result: i64) -> bool {
-    shown == before || shown == Some(result)
+/// Whether a new repair may be proposed while `shown` (approved, finished) is shown: when no plan is, or the one shown
+/// has finished. A plan still open is planned again instead, and a running repair runs out first.
+pub fn may_propose(shown: Option<(bool, bool)>) -> bool {
+    shown.is_none_or(|(_, finished)| finished)
 }
 
 /// The repair to show when the repair screen opens, from the source set's plans: the one `wanted` names, if any;
@@ -374,16 +404,21 @@ mod tests {
             None,
             "already shown: nothing to load"
         );
+        let approving = loads.mark(Some(5));
+        let replanning = loads.mark(Some(5));
+        // The summary catches up with the approval, or with the plan made again, while each is under way.
+        assert_eq!(loads.ask(None, Some(5), Some((5, false))), None);
+        assert!(loads.ask(None, Some(6), Some((5, false))).is_some());
         assert!(
-            mutation_applies(Some(5), Some(5), 5),
+            loads.change_applies(approving, Some(5), 5),
             "approving 5 still lands"
         );
         assert!(
-            mutation_applies(Some(5), Some(5), 6),
+            loads.change_applies(replanning, Some(5), 6),
             "planning again from 5 still lands"
         );
         assert!(
-            mutation_applies(None, Some(6), 6),
+            loads.change_applies(loads.mark(None), Some(6), 6),
             "a plan the summary already showed is its own"
         );
     }
@@ -397,7 +432,7 @@ mod tests {
         assert!(loads.applies(one, None));
         assert!(!loads.applies(one, Some(7)), "a proposal shown since wins");
         assert!(
-            !mutation_applies(Some(2), Some(1), 2),
+            !loads.change_applies(loads.mark(Some(2)), Some(1), 2),
             "2's refresh, approval or proposal"
         );
         assert_eq!(
@@ -426,6 +461,30 @@ mod tests {
         loads.ask(Some(2), None, None);
         let ticket = loads.ask(None, None, Some((2, true))).expect("a lookup");
         assert_eq!(ticket.wanted, None);
+    }
+
+    #[test]
+    fn a_plan_you_open_wins_over_a_proposal_still_under_way() {
+        let mut loads = Loads::default();
+        assert_eq!(loads.ask(None, Some(1), Some((1, false))), None);
+        let proposing = loads.mark(Some(1));
+        // You open plan 2 from the history before the proposal (plan 3) comes back.
+        let two = loads
+            .ask(Some(2), Some(1), Some((1, false)))
+            .expect("a load of 2");
+        assert!(
+            !loads.change_applies(proposing, Some(1), 3),
+            "the proposal isn't shown over 2"
+        );
+        assert!(loads.applies(two, Some(1)), "so 2 is shown");
+    }
+
+    #[test]
+    fn a_repair_can_be_proposed_once_the_one_shown_finishes() {
+        assert!(may_propose(None));
+        assert!(!may_propose(Some((false, false))), "plan it again instead");
+        assert!(!may_propose(Some((true, false))), "it is running");
+        assert!(may_propose(Some((true, true))));
     }
 
     #[test]

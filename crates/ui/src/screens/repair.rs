@@ -28,8 +28,8 @@ use crate::parts::pending::Pending;
 use crate::parts::plan::{Change, PlanReview, PlanRow};
 use crate::parts::status::{PlanKind, Status, StatusIcon};
 use crate::repair_model::{
-    Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current, fetch_after, kind_choices,
-    mutation_applies, place, proposed, repair_to_show, requested, steps_by_item,
+    ChangeMark, Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current, fetch_after,
+    kind_choices, may_propose, place, proposed, repair_to_show, requested, steps_by_item,
     suggested_addition, to_add, unfinished_note, unplanned,
 };
 use crate::screens::additions::AdditionFields;
@@ -99,7 +99,7 @@ pub struct RepairDesk {
     /// The choices asked for and picked on each plan shown before, by plan, so coming back to one keeps them.
     staged: StoredValue<BTreeMap<i64, Staged>>,
     /// The plan shown when the last proposal was asked for.
-    proposed_from: StoredValue<Option<i64>>,
+    proposed_from: StoredValue<Option<ChangeMark>>,
     proposal: Action<PlanRepair, Result<Proposed, String>>,
 }
 
@@ -133,7 +133,10 @@ impl RepairDesk {
         };
         Effect::new(move || {
             if let Some(Ok((p, chosen))) = proposal.value().get()
-                && mutation_applies(desk.proposed_from.get_value(), desk.shown_id(), p.id)
+                && desk
+                    .proposed_from
+                    .get_value()
+                    .is_some_and(|mark| desk.change_applies(mark, p.id))
             {
                 desk.show(p, chosen);
             }
@@ -221,6 +224,17 @@ impl RepairDesk {
         self.plan.with_untracked(|p| p.as_ref().map(|p| p.id))
     }
 
+    /// Marks a change made now to the plan shown.
+    fn mark(self) -> ChangeMark {
+        self.loads.with_value(|l| l.mark(self.shown_id()))
+    }
+
+    /// Whether the answer to the change `mark`ed, which gave back the plan `result`, is still to be shown.
+    fn change_applies(self, mark: ChangeMark, result: i64) -> bool {
+        self.loads
+            .with_value(|l| l.change_applies(mark, self.shown_id(), result))
+    }
+
     /// Proposes a plan; planning again from a plan still open carries its choices and additions.
     pub fn propose(self) {
         let open = self.plan.get_untracked().filter(|p| p.approval.is_none());
@@ -237,7 +251,7 @@ impl RepairDesk {
                 .map(|p| to_add(p, &chosen, &adding, &self.system.get_value()))
                 .unwrap_or_default()
         });
-        self.proposed_from.set_value(self.shown_id());
+        self.proposed_from.set_value(Some(self.mark()));
         self.proposal.dispatch_local(PlanRepair {
             choices: chosen,
             additions,
@@ -249,6 +263,7 @@ impl RepairDesk {
             return;
         };
         self.working.set(true);
+        let mark = self.mark();
         let body = ApprovePlan {
             digest: p.digest.clone(),
         };
@@ -263,7 +278,7 @@ impl RepairDesk {
                 });
             }
             // You moved to another plan meanwhile: it stays shown.
-            if !mutation_applies(Some(p.id), self.shown_id(), p.id) {
+            if !self.change_applies(mark, p.id) {
                 return;
             }
             match done {
@@ -592,12 +607,6 @@ pub fn RepairTab(
         })
     });
     let proposal = desk.proposal;
-    let running = move || {
-        desk.plan.with(|p| {
-            p.as_ref()
-                .is_some_and(|p| p.approval.is_some() && p.finished_at.is_none())
-        })
-    };
     let problem = Signal::derive(move || {
         proposal
             .value()
@@ -612,7 +621,10 @@ pub fn RepairTab(
                 replaces or sets aside goes to kept files."
             </p>
             {move || {
-                (!running() && desk.plan.with(Option::is_none)).then(|| view! {
+                let shown = desk
+                    .plan
+                    .with(|p| p.as_ref().map(|p| (p.approval.is_some(), p.finished_at.is_some())));
+                may_propose(shown).then(|| view! {
                     <div class="actions">
                         <button
                             type="button"
@@ -841,10 +853,11 @@ fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
             shown.with_untracked(|p| p.as_ref().is_some_and(|p| p.finished_at.is_none()));
         if fetch_after(job, ended, unfinished, fetched.get_untracked()) {
             fetched.set(Some(job));
+            let mark = desk.mark();
             leptos::task::spawn_local(async move {
                 let done = api::get::<RepairPlan>(&format!("/repairs/{plan}")).await;
                 // Another plan is shown now.
-                if !mutation_applies(Some(plan), desk.shown_id(), plan) {
+                if desk.shown_id() != Some(plan) || !desk.change_applies(mark, plan) {
                     return;
                 }
                 match done {
