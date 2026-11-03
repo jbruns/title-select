@@ -17,7 +17,7 @@ use title_select_api::build::{
     AddLibraryFolder, CleanupAction, DriftKind, ItemKind, LibraryFolder, Plan, PlanCleanup,
 };
 use title_select_api::build::{PlanKeptDeletion, RETENTION};
-use title_select_api::ingest::{IngestAction, IngestPlan, PlanIngest, Proposal};
+use title_select_api::ingest::{IngestAction, IngestPlan, ItemState, PlanIngest, Proposal};
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairPlan};
 use title_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
@@ -1017,8 +1017,23 @@ fn an_ingest_addition_is_published_by_its_additions_job_not_by_the_approval() {
     let queued = env.store.queued_additions_jobs().unwrap();
     assert_eq!(queued.len(), 1, "{queued:#?}");
     assert_eq!(queued[0].additions_set.as_deref(), Some(SYSTEM));
+    let item = env.item_id("My Hack.a26");
+    let moving = env.store.ingest_item(item).unwrap().last_move.unwrap();
+    assert!(moving.under_way, "{moving:?}");
+    assert_eq!(
+        (moving.plan, moving.job),
+        (Some(plan.id), Some(queued[0].id))
+    );
+    let listed = env.store.ingest_items("in").unwrap();
+    let listed = listed.iter().find(|i| i.id == item).unwrap();
+    assert_eq!(listed.last_move.as_ref(), Some(&moving));
 
     assert_eq!(env.settle().len(), 1);
+    let moved = env.store.ingest_item(item).unwrap();
+    assert_eq!(moved.state, ItemState::Moved);
+    let ended = moved.last_move.unwrap();
+    assert!(!ended.under_way && ended.finished_at.is_some(), "{ended:?}");
+    assert_eq!(ended.job, Some(queued[0].id));
     assert_published(
         &env,
         &env.only_addition(),

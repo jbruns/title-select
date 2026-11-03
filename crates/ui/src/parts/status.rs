@@ -5,6 +5,7 @@
 use leptos::prelude::*;
 use title_select_api::JobState;
 use title_select_api::build::ItemKind;
+use title_select_api::ingest::IngestAction;
 use title_select_api::repair::RepairKind;
 use title_select_api::report::{Finding, GameStatus};
 
@@ -612,6 +613,55 @@ impl Status for BuildKind {
     }
 }
 
+/// The kind of an ingest plan item, shown beside its *current → proposed* row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IngestPlanKind {
+    Add,
+    Import,
+    Discard,
+}
+
+impl From<IngestAction> for IngestPlanKind {
+    fn from(action: IngestAction) -> Self {
+        match action {
+            IngestAction::Addition => IngestPlanKind::Add,
+            IngestAction::DatImport => IngestPlanKind::Import,
+            IngestAction::Discard => IngestPlanKind::Discard,
+        }
+    }
+}
+
+impl Status for IngestPlanKind {
+    const ALL: &'static [Self] = &[
+        IngestPlanKind::Add,
+        IngestPlanKind::Import,
+        IngestPlanKind::Discard,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            IngestPlanKind::Add => look(
+                Glyph::CirclePlus,
+                Tone::Good,
+                "Add",
+                "Repacks it into its system's additions set, keeping the original once the copy reads back exactly.",
+            ),
+            IngestPlanKind::Import => look(
+                Glyph::Upload,
+                Tone::Active,
+                "Import",
+                "Imports it as a DAT revision, then keeps it in the folder's kept files.",
+            ),
+            IngestPlanKind::Discard => look(
+                Glyph::Archive,
+                Tone::Review,
+                "Discard",
+                "Keeps it aside in the folder's kept files.",
+            ),
+        }
+    }
+}
+
 /// Where an Ingest Folder item stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IngestStatus {
@@ -619,6 +669,9 @@ pub enum IngestStatus {
     MatchesSourceSet,
     Duplicate,
     NoDatMatch,
+    DatFile,
+    Unreadable,
+    Dismissed,
     Moving,
     Done,
 }
@@ -629,6 +682,9 @@ impl Status for IngestStatus {
         IngestStatus::MatchesSourceSet,
         IngestStatus::Duplicate,
         IngestStatus::NoDatMatch,
+        IngestStatus::DatFile,
+        IngestStatus::Unreadable,
+        IngestStatus::Dismissed,
         IngestStatus::Moving,
         IngestStatus::Done,
     ];
@@ -658,6 +714,24 @@ impl Status for IngestStatus {
                 Tone::Review,
                 "No DAT match",
                 "It matches no game in any DAT revision.",
+            ),
+            IngestStatus::DatFile => look(
+                Glyph::FileText,
+                Tone::Review,
+                "DAT file",
+                "It's a DAT file you may import.",
+            ),
+            IngestStatus::Unreadable => look(
+                Glyph::FileX,
+                Tone::Failed,
+                "Unreadable",
+                "It couldn't be read, or it's an archive Title Select doesn't open.",
+            ),
+            IngestStatus::Dismissed => look(
+                Glyph::CircleOff,
+                Tone::Neutral,
+                "Dismissed",
+                "You dismissed it; it stays dismissed until it changes.",
             ),
             IngestStatus::Moving => look(
                 Glyph::FolderInput,
@@ -837,6 +911,7 @@ mod tests {
             ("plan kinds", vocabulary::<PlanKind>()),
             ("build plan kinds", vocabulary::<BuildKind>()),
             ("ingest items", vocabulary::<IngestStatus>()),
+            ("ingest plan kinds", vocabulary::<IngestPlanKind>()),
             ("jobs", vocabulary::<JobState>()),
             ("DAT files", vocabulary::<DatFileStatus>()),
             ("selection groups", vocabulary::<GroupStatus>()),

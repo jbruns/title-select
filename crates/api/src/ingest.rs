@@ -246,6 +246,40 @@ pub struct IngestItem {
     /// Why it is Unreadable, Failed or Unsupported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Its latest move out of the folder, under way or ended: by an ingest plan you approved, or by a repair.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_move: Option<ItemMove>,
+}
+
+/// A move of an item out of its Ingest Folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ItemMove {
+    /// The ingest plan that moves it, if one does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<i64>,
+    /// The repair plan that moves it, if one does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair: Option<i64>,
+    /// The Job carrying it out, if one does: an Additions Job or a repair's Job. A discard or DAT import is carried
+    /// out by its approval.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<i64>,
+    /// Whether it has not ended yet.
+    pub under_way: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+    /// Why it failed, if it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// What it did besides what was planned, such as keeping an original that changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Dismisses `items` of an Ingest Folder at once, each until it changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DismissIngestItems {
+    pub items: Vec<i64>,
 }
 
 /// What a plan does with an item.
@@ -286,7 +320,8 @@ impl IngestAction {
 pub struct PlanIngest {
     pub action: IngestAction,
     pub items: Vec<i64>,
-    /// For a DAT import: the provider to import under, when no registered DAT names one.
+    /// For a DAT import: the provider to import a DAT under when no one registered DAT names its provider; a DAT
+    /// whose provider is known is imported under that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     /// For an Addition: its system, name and parent Game, by item.

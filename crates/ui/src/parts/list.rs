@@ -666,7 +666,7 @@ pub fn List<T: ListRow>(
             })
             .collect_view();
         let actions = row_actions.map(|ra| {
-            let all = ra.run(item.clone());
+            let all = untrack(|| ra.run(item.clone()));
             let (icons, rest) = all.split_at(all.len().min(quick));
             let icons = icons
                 .iter()
@@ -787,9 +787,18 @@ pub fn List<T: ListRow>(
             .unwrap_or_default()
     });
     let body = move |item: T| {
-        let acts = row_actions
-            .map(|ra| ra.run(item.clone()))
-            .unwrap_or_default();
+        // The actions follow whatever they read, such as a choice made in the detail, without redrawing the detail.
+        let acts = {
+            let item = item.clone();
+            move || {
+                row_actions
+                    .map(|ra| ra.run(item.clone()))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|a| labelled_act(a, go))
+                    .collect_view()
+            }
+        };
         let href = item.href();
         view! {
             <div class="detail-actions">
@@ -801,7 +810,7 @@ pub fn List<T: ListRow>(
                             </A>
                         }
                     })}
-                {acts.into_iter().map(|a| labelled_act(a, go)).collect_view()}
+                {acts}
             </div>
             {detail.run(item)}
         }

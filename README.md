@@ -782,10 +782,11 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/ingest-folders`                      | register one: `{"root"}`; `201`                              |
 | `GET /api/v1/ingest-folders/{root}`                | one ingest folder                                            |
 | `POST /api/v1/ingest-folders/{root}/scans`         | scan it; `202` with the scan job                             |
-| `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence and proposal      |
+| `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence, proposal and `last_move`: the plan or repair that last moved it, its job, and whether it is still under way |
 | `GET /api/v1/ingest-folders/{root}/plans`          | its plans, newest first                                      |
 | `POST /api/v1/ingest-folders/{root}/plans`         | plan moving items: `{"action": "discard" \| "dat_import" \| "addition", "items": [id], "provider"?, "additions"?: {id: {"system", "name", "parent"?}}}`; `201` |
 | `GET /api/v1/ingest-folders/{root}/kept-files`     | the files its plans kept aside                               |
+| `POST /api/v1/ingest-folders/{root}/dismissals`    | dismiss several of its items until they change: `{"items": [id]}`; all of them or none |
 | `GET /api/v1/ingest-items/{id}`                    | one item                                                     |
 | `POST /api/v1/ingest-items/{id}/dismissal`         | dismiss it until it changes                                  |
 | `GET /api/v1/ingest-plans/{id}`                    | an ingest plan, with its digest and outcomes                 |
@@ -979,11 +980,20 @@ Its screens:
   here, kept files to put back and built files to repack as TorrentZip, reviewed and approved as a plan; an entry
   added as an addition asks for its system, name and parent game. Each build shows every file it wrote or failed to
   write.
-- **Ingest** (`/ingest`) lists each ingest root and registers it. Opening one scans it, and lists each item with its
-  state, the evidence assessing it found and what is proposed. You pick items to plan discarding them or importing
-  DATs, or adding them as additions with the system, name and parent game you give each, review the plan,
-  approve it and see what happened to each item; you can dismiss an item until it changes. It lists the folder's
-  kept files.
+- **Ingest** (`/ingest`) lists each ingest root with how many of its items wait on your decision and when it was
+  last scanned, and registers one. Opening one shows its items in a list, each with a status: arriving (with how often
+  the folder is scanned), matches a source set, duplicate, no DAT match, DAT file, unreadable, dismissed, moving or
+  done. A strip above the list counts the items of each status and offers what you can decide for all of them at
+  once, such as **Add 2 as additions**, **Discard 3** or **Dismiss 3**; clicking a count shows only that status. You
+  can also check items, or select every item matching the filter, and decide for those from the toolbar, or decide
+  for one item from its row; an item a decision doesn't apply to is left out, and the page says how many. Opening an
+  item shows the evidence its assessment found, what is proposed, and its last move; for a candidate addition, the
+  system, name and parent game to add it as; for a DAT no source set uses yet, the provider to import it under (a
+  DAT whose provider is known is imported under its own). Adding, discarding or importing makes a plan, which shows
+  in place of the items as a list of each item and where it goes, with its reason and outcome when you open it; you
+  approve it before anything moves. Dismissing moves nothing. While a plan you approved is moving items, the page says so and links to its job, and each item
+  being moved shows as moving, then as done or with what went wrong, without reloading. The folder's kept files
+  are under the list.
 - **Repair**, opened from a source set or an audit, proposes a repair of the source set, lists each item with what is
   proposed and a choice you can change before planning again, and every change in order, including what is kept
   aside. An unmatched entry you add as an addition asks for its system, name and parent game. You approve it with its digest and see what happened to each item. While an approved repair hasn't
