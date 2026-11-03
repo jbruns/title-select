@@ -141,8 +141,6 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 .and_then(|(s, _)| s.repair.as_ref().map(|r| r.id))
         })
     });
-    // The plan the URL names, even a finished one; otherwise the open repair.
-    let wanted = Memo::new(move |_| named.get().or(current.get()));
     let ready = Memo::new(move |_| good.with(Option::is_some));
     let said = RwSignal::new(None::<String>);
     let audit_now = move |_| start_audit(name.get_value(), said);
@@ -204,7 +202,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 return None;
             }
             if tab.get() == PageTab::Repair {
-                return Some(view! { <RepairTab desk wanted current /> }.into_any());
+                return Some(view! { <RepairTab desk named current /> }.into_any());
             }
             Some((move || {
             let (summary, revisions) = good.get()?;

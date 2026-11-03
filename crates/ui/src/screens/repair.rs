@@ -28,9 +28,9 @@ use crate::parts::pending::Pending;
 use crate::parts::plan::{Change, PlanReview, PlanRow};
 use crate::parts::status::{PlanKind, Status, StatusIcon};
 use crate::repair_model::{
-    apply_to_keys, apply_to_kind, choices_for, chosen, current, fetch_after, kind_choices, place,
-    proposed, repair_to_show, requested, steps_by_item, suggested_addition, to_add,
-    unfinished_note, unplanned,
+    Loads, apply_to_keys, apply_to_kind, choices_for, chosen, current, fetch_after, kind_choices,
+    mutation_applies, place, proposed, repair_to_show, requested, steps_by_item,
+    suggested_addition, to_add, unfinished_note, unplanned,
 };
 use crate::screens::additions::AdditionFields;
 use crate::screens::jobs::{progress_view, state_view};
@@ -94,14 +94,12 @@ pub struct RepairDesk {
     system: StoredValue<String>,
     /// What the last bulk choice changed.
     said: RwSignal<Option<String>>,
-    /// The plan last asked to be shown, once one has been: `Some(None)` for the open repair.
-    requested: RwSignal<Option<Option<i64>>>,
+    /// The loads of the plan to show, so only the last one's answer is shown.
+    loads: StoredValue<Loads>,
     /// The choices asked for and picked on each plan shown before, by plan, so coming back to one keeps them.
     staged: StoredValue<BTreeMap<i64, Staged>>,
-    /// Goes up each time another plan is asked for or shown: a response to an earlier request is dropped.
-    epoch: StoredValue<u64>,
-    /// The epoch the last proposal was asked for in.
-    proposed_in: StoredValue<u64>,
+    /// The plan shown when the last proposal was asked for.
+    proposed_from: StoredValue<Option<i64>>,
     proposal: Action<PlanRepair, Result<Proposed, String>>,
 }
 
@@ -128,31 +126,19 @@ impl RepairDesk {
             owner: StoredValue::new(Owner::current().expect("the source set page has an owner")),
             system: StoredValue::new(system),
             said: RwSignal::new(None),
-            requested: RwSignal::new(None),
+            loads: StoredValue::new(Loads::default()),
             staged: StoredValue::new(BTreeMap::new()),
-            epoch: StoredValue::new(0),
-            proposed_in: StoredValue::new(0),
+            proposed_from: StoredValue::new(None),
             proposal,
         };
         Effect::new(move || {
             if let Some(Ok((p, chosen))) = proposal.value().get()
-                && desk.is_current(desk.proposed_in.get_value())
+                && mutation_applies(desk.proposed_from.get_value(), desk.shown_id(), p.id)
             {
                 desk.show(p, chosen);
             }
         });
         desk
-    }
-
-    /// Starts another epoch, ending every request made before it.
-    fn next_epoch(self) -> u64 {
-        self.epoch.update_value(|e| *e += 1);
-        self.epoch.get_value()
-    }
-
-    /// Whether nothing else was asked for or shown since `epoch` began.
-    fn is_current(self, epoch: u64) -> bool {
-        self.epoch.get_value() == epoch
     }
 
     /// Keeps what was asked for and picked on the plan shown, for coming back to it.
@@ -172,7 +158,6 @@ impl RepairDesk {
             .staged
             .with_value(|s| s.get(&plan.id).cloned())
             .unwrap_or((asked, BTreeMap::new()));
-        self.next_epoch();
         self.problem.set(None);
         self.said.set(None);
         self.picked.set(picked);
@@ -192,21 +177,30 @@ impl RepairDesk {
 
     /// Shows the plan `wanted` names, or else the approved repair that hasn't finished, each time what's wanted
     /// changes. The plan already shown stays as it is, with your picks.
-    pub fn load(self, wanted: Option<i64>) {
-        if self.requested.get_untracked() == Some(wanted) {
+    pub fn load(self, named: Option<i64>, open: Option<i64>) {
+        let before = self.shown_id();
+        let shown = self
+            .plan
+            .with_untracked(|p| p.as_ref().map(|p| (p.id, p.approval.is_some())));
+        let Some(ticket) = self
+            .loads
+            .try_update_value(|l| l.ask(named, open, shown))
+            .flatten()
+        else {
             return;
-        }
-        self.requested.set(Some(wanted));
+        };
+        let wanted = ticket.wanted;
         let path = format!(
             "/source-sets/{}/repairs",
             api::segment(&self.name.get_value())
         );
-        let before = self.shown_id();
-        let epoch = self.next_epoch();
         leptos::task::spawn_local(async move {
             let plans = api::get::<Vec<RepairPlan>>(&path).await;
             // Another plan was asked for, or one was proposed or shown, meanwhile: that one wins.
-            if !self.is_current(epoch) {
+            if !self
+                .loads
+                .with_value(|l| l.applies(ticket, self.shown_id()))
+            {
                 return;
             }
             match plans {
@@ -215,7 +209,6 @@ impl RepairDesk {
                     Some(p) => self.show(p.clone(), chosen(p)),
                     None => {
                         self.stash();
-                        self.next_epoch();
                         self.plan.set(None);
                     }
                 },
@@ -244,7 +237,7 @@ impl RepairDesk {
                 .map(|p| to_add(p, &chosen, &adding, &self.system.get_value()))
                 .unwrap_or_default()
         });
-        self.proposed_in.set_value(self.next_epoch());
+        self.proposed_from.set_value(self.shown_id());
         self.proposal.dispatch_local(PlanRepair {
             choices: chosen,
             additions,
@@ -259,7 +252,6 @@ impl RepairDesk {
         let body = ApprovePlan {
             digest: p.digest.clone(),
         };
-        let epoch = self.next_epoch();
         leptos::task::spawn_local(async move {
             let done =
                 api::post::<_, RepairPlan>(&format!("/repairs/{}/approval", p.id), &body).await;
@@ -270,7 +262,8 @@ impl RepairDesk {
                     s.remove(&p.id);
                 });
             }
-            if !self.is_current(epoch) {
+            // You moved to another plan meanwhile: it stays shown.
+            if !mutation_applies(Some(p.id), self.shown_id(), p.id) {
                 return;
             }
             match done {
@@ -581,19 +574,20 @@ fn outcome_text(o: &title_select_api::repair::RepairOutcome) -> String {
 /// The Repair tab: a plan proposed from the source set's latest audit, the choice for each item, set in bulk or one
 /// at a time, every change it makes, and its approval and job.
 ///
-/// `wanted` is the plan to show, and `current` the source set's open repair: a plan not yet approved that isn't the
-/// open repair, shown because the URL names it, was replaced, so it is shown read-only.
+/// It shows the plan the URL `named`, even a finished one, or else `current`, the source set's open repair. A plan not
+/// yet approved that isn't the open repair, shown because the URL names it, was replaced, so it is shown read-only.
 #[component]
 pub fn RepairTab(
     desk: RepairDesk,
-    #[prop(into)] wanted: Signal<Option<i64>>,
+    #[prop(into)] named: Signal<Option<i64>>,
     #[prop(into)] current: Signal<Option<i64>>,
 ) -> impl IntoView {
-    Effect::new(move || desk.load(wanted.get()));
+    Effect::new(move || desk.load(named.get(), current.get()));
+    let wanted = move || named.get().or(current.get());
     let replaced = Memo::new(move |_| {
         desk.plan.with(|p| {
             p.as_ref().is_some_and(|p| {
-                p.approval.is_none() && wanted.get() == Some(p.id) && current.get() != Some(p.id)
+                p.approval.is_none() && wanted() == Some(p.id) && current.get() != Some(p.id)
             })
         })
     });
@@ -847,11 +841,10 @@ fn RepairProgress(job: i64, plan: i64, desk: RepairDesk) -> impl IntoView {
             shown.with_untracked(|p| p.as_ref().is_some_and(|p| p.finished_at.is_none()));
         if fetch_after(job, ended, unfinished, fetched.get_untracked()) {
             fetched.set(Some(job));
-            let epoch = desk.epoch.get_value();
             leptos::task::spawn_local(async move {
                 let done = api::get::<RepairPlan>(&format!("/repairs/{plan}")).await;
-                // Another plan was asked for or shown meanwhile: this one is no longer on screen.
-                if !desk.is_current(epoch) || desk.shown_id() != Some(plan) {
+                // Another plan is shown now.
+                if !mutation_applies(Some(plan), desk.shown_id(), plan) {
                     return;
                 }
                 match done {

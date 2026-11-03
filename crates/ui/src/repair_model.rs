@@ -10,6 +10,70 @@ use crate::parts::plan_model::{self, BulkOutcome};
 use crate::parts::status::PlanKind;
 use crate::screens::additions::new_addition;
 
+/// The loads of the plan to show, in the order they were asked for: only the last one's answer counts, and only if
+/// the plan shown hasn't changed since it was asked for. A change you make to a plan (approving it, planning again)
+/// is answered by [`mutation_applies`] instead, so a load never drops it.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Loads {
+    /// The plan last asked to be shown, once one has been: `Some(None)` for the open repair.
+    requested: Option<Option<i64>>,
+    /// The source set's open repair, the last time it had one.
+    last_open: Option<i64>,
+    seq: u64,
+}
+
+/// A load asked for, to check its answer against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoadTicket {
+    seq: u64,
+    shown: Option<i64>,
+    /// The plan to show: none for whichever approved repair hasn't finished.
+    pub wanted: Option<i64>,
+}
+
+impl Loads {
+    /// Asks for the plan the URL `named`, or else the source set's `open` repair, while `shown` (approved or not) is
+    /// shown: a ticket to fetch it with, or none when it was asked for last or is already shown. Either way an
+    /// earlier load still under way no longer counts. An approved repair that was the open one stays shown once it
+    /// finishes, with what happened to each item, until another plan is asked for.
+    pub fn ask(
+        &mut self,
+        named: Option<i64>,
+        open: Option<i64>,
+        shown: Option<(i64, bool)>,
+    ) -> Option<LoadTicket> {
+        if open.is_some() {
+            self.last_open = open;
+        }
+        let finished = shown
+            .filter(|&(id, approved)| approved && Some(id) == self.last_open)
+            .map(|(id, _)| id);
+        let wanted = named.or(open).or(finished);
+        if self.requested == Some(wanted) {
+            return None;
+        }
+        self.requested = Some(wanted);
+        self.seq += 1;
+        let shown = shown.map(|(id, _)| id);
+        (wanted.is_none() || wanted != shown).then_some(LoadTicket {
+            seq: self.seq,
+            shown,
+            wanted,
+        })
+    }
+
+    /// Whether the answer to `ticket` is still wanted, with `shown` shown now.
+    pub fn applies(&self, ticket: LoadTicket, shown: Option<i64>) -> bool {
+        ticket.seq == self.seq && ticket.shown == shown
+    }
+}
+
+/// Whether the answer to a change made while `before` was shown, which gave back the plan `result`, belongs on screen
+/// now that `shown` is: unless you have since moved to another plan.
+pub fn mutation_applies(before: Option<i64>, shown: Option<i64>, result: i64) -> bool {
+    shown == before || shown == Some(result)
+}
+
 /// The repair to show when the repair screen opens, from the source set's plans: the one `wanted` names, if any;
 /// otherwise the latest approved repair that hasn't finished, which is shown instead of proposing a new one.
 pub fn repair_to_show(plans: &[RepairPlan], wanted: Option<i64>) -> Option<&RepairPlan> {
@@ -299,6 +363,69 @@ mod tests {
         assert_eq!(repair_to_show(&plans, None).map(|p| p.id), Some(3));
         assert_eq!(repair_to_show(&plans[..1], None).map(|p| p.id), None);
         assert_eq!(repair_to_show(&plans, Some(2)).map(|p| p.id), Some(2));
+    }
+
+    #[test]
+    fn asking_again_for_the_plan_shown_drops_no_approval_or_proposal() {
+        let mut loads = Loads::default();
+        // A proposal shows plan 5, then the source set's summary catches up and asks for it.
+        assert_eq!(
+            loads.ask(None, Some(5), Some((5, false))),
+            None,
+            "already shown: nothing to load"
+        );
+        assert!(
+            mutation_applies(Some(5), Some(5), 5),
+            "approving 5 still lands"
+        );
+        assert!(
+            mutation_applies(Some(5), Some(5), 6),
+            "planning again from 5 still lands"
+        );
+        assert!(
+            mutation_applies(None, Some(6), 6),
+            "a plan the summary already showed is its own"
+        );
+    }
+
+    #[test]
+    fn moving_to_another_plan_drops_what_was_under_way_for_the_last() {
+        let mut loads = Loads::default();
+        let two = loads.ask(Some(2), None, None).expect("a load of 2");
+        let one = loads.ask(Some(1), None, None).expect("a load of 1");
+        assert!(!loads.applies(two, None), "2 was asked for before 1");
+        assert!(loads.applies(one, None));
+        assert!(!loads.applies(one, Some(7)), "a proposal shown since wins");
+        assert!(
+            !mutation_applies(Some(2), Some(1), 2),
+            "2's refresh, approval or proposal"
+        );
+        assert_eq!(
+            loads.ask(Some(1), None, Some((1, false))),
+            None,
+            "asked for last"
+        );
+        assert!(
+            loads.ask(None, None, Some((1, false))).is_some(),
+            "the open repair is looked up"
+        );
+    }
+
+    #[test]
+    fn the_open_repair_stays_shown_once_it_finishes() {
+        let mut loads = Loads::default();
+        assert_eq!(loads.ask(None, Some(3), Some((3, true))), None);
+        // It finished, so the source set has no open repair.
+        assert_eq!(
+            loads.ask(None, None, Some((3, true))),
+            None,
+            "its outcomes stay"
+        );
+        // A finished repair opened from its history isn't kept once the link no longer names it.
+        let mut loads = Loads::default();
+        loads.ask(Some(2), None, None);
+        let ticket = loads.ask(None, None, Some((2, true))).expect("a lookup");
+        assert_eq!(ticket.wanted, None);
     }
 
     #[test]
