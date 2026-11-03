@@ -1,13 +1,14 @@
 //! The repair screen's pure logic: which repair to show when it opens, when to fetch a plan again, what to say
 //! about one left unfinished, what you changed since the plan shown was made, and setting one choice for many items.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use title_select_api::additions::NewAddition;
 use title_select_api::repair::{RepairChoice, RepairItem, RepairPlan, RepairStep};
 
 use crate::parts::plan_model::{self, BulkOutcome};
 use crate::parts::status::PlanKind;
+use crate::screens::additions::new_addition;
 
 /// The repair to show when the repair screen opens, from the source set's plans: the one `wanted` names, if any;
 /// otherwise the latest approved repair that hasn't finished, which is shown instead of proposing a new one.
@@ -76,11 +77,13 @@ pub fn requested(
 }
 
 /// The additions to ask for when planning again from `plan` with `choices`: the fields of each item chosen
-/// to be added as one. An item without a choice takes its default.
+/// to be added as one. An item without a choice takes its default. Fields you haven't opened are what the plan adds
+/// it as, or else its suggested name in `system`, the source set's DAT.
 pub fn to_add(
     plan: &RepairPlan,
     choices: &BTreeMap<String, RepairChoice>,
     adding: &BTreeMap<String, NewAddition>,
+    system: &str,
 ) -> BTreeMap<String, NewAddition> {
     plan.content
         .items
@@ -88,8 +91,21 @@ pub fn to_add(
         .filter(|item| {
             choices.get(&item.key).copied().unwrap_or(item.default) == RepairChoice::AddAddition
         })
-        .filter_map(|item| Some((item.key.clone(), adding.get(&item.key)?.clone())))
+        .map(|item| {
+            let fields = adding
+                .get(&item.key)
+                .or(item.addition.as_ref())
+                .cloned()
+                .unwrap_or_else(|| suggested_addition(item, system));
+            (item.key.clone(), fields)
+        })
         .collect()
+}
+
+/// What `item` is added as until you say otherwise: an addition named from its file, in `system`.
+pub fn suggested_addition(item: &RepairItem, system: &str) -> NewAddition {
+    let path = item.path.as_deref().unwrap_or(&item.key);
+    new_addition(path, Some(system))
 }
 
 /// The items you changed since `plan` was shown, by key: one you picked otherwise than the plan does, or an
@@ -210,9 +226,19 @@ pub fn place(item: &RepairItem) -> String {
     }
 }
 
-/// What the plan makes of `item`: the file it ends up as, the addition it is added as, or that it is kept aside or
-/// left as it is.
-pub fn proposed(plan: &RepairPlan, item: &RepairItem) -> String {
+/// The steps of `plan`, in order, by the key of the item each is for: so a row finds its own without reading every
+/// step of the plan.
+pub fn steps_by_item(plan: &RepairPlan) -> HashMap<&str, Vec<&RepairStep>> {
+    let mut by_item: HashMap<&str, Vec<&RepairStep>> = HashMap::new();
+    for s in &plan.content.steps {
+        by_item.entry(s.item.as_str()).or_default().push(&s.step);
+    }
+    by_item
+}
+
+/// What the plan makes of `item`, given its own `steps`: the file it ends up as, the addition it is added as, or
+/// that it is kept aside or left as it is.
+pub fn proposed(item: &RepairItem, steps: &[&RepairStep]) -> String {
     if item.chosen == RepairChoice::Leave {
         return "left as it is".to_string();
     }
@@ -221,13 +247,7 @@ pub fn proposed(plan: &RepairPlan, item: &RepairItem) -> String {
     {
         return format!("addition {}", addition.name);
     }
-    let steps = || {
-        plan.content
-            .steps
-            .iter()
-            .filter(|s| s.item == item.key)
-            .map(|s| &s.step)
-    };
+    let steps = || steps.iter().copied();
     let written = steps().find_map(|step| match step {
         RepairStep::Rename { to, .. } => Some(to.clone()),
         RepairStep::Publish { target, .. } | RepairStep::Fill { target, .. } => {
@@ -393,11 +413,48 @@ mod tests {
         let adding = BTreeMap::from([("entry:h.zip".to_string(), added.clone())]);
         let asked = chosen(&p);
         assert_eq!(
-            to_add(&p, &requested(&p, &asked, &BTreeMap::new()), &adding),
+            to_add(
+                &p,
+                &requested(&p, &asked, &BTreeMap::new()),
+                &adding,
+                "Atari - 2600"
+            ),
             adding
         );
         let back = BTreeMap::from([("entry:h.zip".to_string(), RepairChoice::KeepAside)]);
-        assert!(to_add(&p, &requested(&p, &asked, &back), &adding).is_empty());
+        assert!(to_add(&p, &requested(&p, &asked, &back), &adding, "Atari - 2600").is_empty());
+    }
+
+    #[test]
+    fn planning_again_adds_what_the_plan_did_or_a_suggestion_for_an_addition_never_opened() {
+        let added = NewAddition {
+            system: "Atari - 2600".into(),
+            name: "Hack".into(),
+            parent: Some("Pong (USA)".into()),
+        };
+        let mut p = plan(1, false, false, None);
+        let mut push = |key: &str, path: &str, chosen: &str, addition: Option<&NewAddition>| {
+            p.content.items.push(
+                serde_json::from_value(serde_json::json!({
+                    "key": key, "kind": "keep_aside", "summary": "s", "path": path,
+                    "choices": ["keep_aside", "add_addition"], "default": "keep_aside", "chosen": chosen,
+                    "addition": addition,
+                }))
+                .unwrap(),
+            );
+        };
+        push("entry:h.zip", "h.zip", "add_addition", Some(&added));
+        push("entry:My Demo.zip", "My Demo.zip", "keep_aside", None);
+        let picked = BTreeMap::from([("entry:My Demo.zip".to_string(), RepairChoice::AddAddition)]);
+        let choices = requested(&p, &chosen(&p), &picked);
+        let asked = to_add(&p, &choices, &BTreeMap::new(), "Atari - 2600");
+        assert_eq!(asked["entry:h.zip"], added, "what the plan adds it as");
+        let suggested = &asked["entry:My Demo.zip"];
+        assert_eq!(
+            (suggested.system.as_str(), suggested.name.as_str()),
+            ("Atari - 2600", "My Demo"),
+            "a suggestion in the source set's DAT"
+        );
     }
 
     #[test]
@@ -605,9 +662,13 @@ mod tests {
                 },
             },
         ];
+        let by_item = steps_by_item(&p);
         let rows: Vec<(String, String)> = [&renamed, &repacked, &kept, &left, &filled]
             .into_iter()
-            .map(|i| (place(i), proposed(&p, i)))
+            .map(|i| {
+                let own = by_item.get(i.key.as_str()).map_or(&[][..], Vec::as_slice);
+                (place(i), proposed(i, own))
+            })
             .collect();
         assert_eq!(
             rows,

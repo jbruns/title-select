@@ -2,7 +2,6 @@
 //! files and repair. The tab is the URL's `tab`, so every tab can be linked to.
 
 use std::cmp::Ordering;
-use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
@@ -27,7 +26,7 @@ use crate::model::{
 };
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
-use crate::parts::list::{Column, List, ListRow, RowAction, Width};
+use crate::parts::list::{Column, List, ListRow, RowAction, Width, last_good_rows};
 use crate::parts::pending::PendingStatus;
 use crate::parts::status::{FindingStatus, LibraryStatus, Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::encode;
@@ -132,7 +131,17 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         model::repair_state(open.as_ref(), job_running, desk.proposing().get())
     });
     let tab = Memo::new(move |_| PageTab::from_query(query.read().get("tab").as_deref()));
-    let wanted = move || query.read().get("plan").and_then(|p| p.parse::<i64>().ok());
+    // Each its own memo, so a change to the rest of the query (a filter, a sort, a row) remounts no tab.
+    let named = Memo::new(move |_| query.read().get("plan").and_then(|p| p.parse::<i64>().ok()));
+    let current = Memo::new(move |_| {
+        good.with(|g| {
+            g.as_ref()
+                .and_then(|(s, _)| s.repair.as_ref().map(|r| r.id))
+        })
+    });
+    // The plan the URL names, even a finished one; otherwise the open repair.
+    let wanted = Memo::new(move |_| named.get().or(current.get()));
+    let ready = Memo::new(move |_| good.with(Option::is_some));
     let said = RwSignal::new(None::<String>);
     let audit_now = move |_| start_audit(name.get_value(), said);
 
@@ -189,6 +198,13 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             _ => ().into_any(),
         }}
         {move || {
+            if !ready.get() {
+                return None;
+            }
+            if tab.get() == PageTab::Repair {
+                return Some(view! { <RepairTab desk wanted current /> }.into_any());
+            }
+            Some((move || {
             let (summary, revisions) = good.get()?;
             let latest = summary.latest.clone();
             Some(match tab.get() {
@@ -201,12 +217,9 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 PageTab::Additions => view! { <Additions system=summary.set.dat.clone() /> }.into_any(),
                 PageTab::History => view! { <History name=name.get_value() /> }.into_any(),
                 PageTab::Kept => view! { <SourceKept name=name.get_value() /> }.into_any(),
-                // The plan the URL names, even a finished one; otherwise the open repair.
-                PageTab::Repair => {
-                    let wanted = wanted().or(summary.repair.as_ref().map(|r| r.id));
-                    view! { <RepairTab desk wanted /> }.into_any()
-                }
+                PageTab::Repair => ().into_any(),
             })
+            }).into_any())
         }}
     }
 }
@@ -294,6 +307,8 @@ fn Overview(
             </dd>
             <dt>"Evidence"</dt>
             <dd>{audit_evidence_label(a.evidence)}</dd>
+            <dt>"Coverage"</dt>
+            <dd>{model::evidence_coverage(&a)}</dd>
         }
     });
     view! {
@@ -540,18 +555,20 @@ fn Libraries(name: String, latest: Option<i64>) -> impl IntoView {
         live.settled.track();
         async move { api::get::<Vec<LibraryFolder>>("/libraries").await }
     });
-    let rows = Signal::derive(move || {
-        let folders = folders.get().and_then(Result::ok).unwrap_or_default();
-        Arc::new(
-            folders
-                .into_iter()
-                .filter(|f| f.source_set == name.get_value())
-                .map(|folder| FolderRow {
-                    status: model::library_status(&folder, latest),
-                    folder,
-                })
-                .collect::<Vec<_>>(),
-        )
+    // A failed refresh keeps the rows last shown; the problem shows above them.
+    let rows = last_good_rows(move || {
+        folders.get().map(|loaded| {
+            loaded.map(|folders| {
+                folders
+                    .into_iter()
+                    .filter(|f| f.source_set == name.get_value())
+                    .map(|folder| FolderRow {
+                        status: model::library_status(&folder, latest),
+                        folder,
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
     });
     view! {
         {move || match folders.get() {
@@ -793,17 +810,19 @@ fn History(name: String) -> impl IntoView {
         live.settled.track();
         history(name.get_value())
     });
-    let rows = Signal::derive(move || {
-        let moments = moments.get().and_then(Result::ok).unwrap_or_default();
-        Arc::new(
-            moments
-                .into_iter()
-                .map(|moment| MomentRow {
-                    moment,
-                    set: name.get_value(),
-                })
-                .collect::<Vec<_>>(),
-        )
+    // A failed refresh keeps the rows last shown; the problem shows above them.
+    let rows = last_good_rows(move || {
+        moments.get().map(|loaded| {
+            loaded.map(|moments| {
+                moments
+                    .into_iter()
+                    .map(|moment| MomentRow {
+                        moment,
+                        set: name.get_value(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
     });
     view! {
         <p class="lede">

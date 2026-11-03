@@ -2,7 +2,7 @@
 //! and its Kept files tab. The plan review is `parts::plan::PlanReview`, the reference for reviewing any plan.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -29,10 +29,13 @@ use crate::parts::plan::{Change, PlanReview, PlanRow};
 use crate::parts::status::{PlanKind, Status, StatusIcon};
 use crate::repair_model::{
     apply_to_keys, apply_to_kind, choices_for, chosen, current, fetch_after, kind_choices, place,
-    proposed, repair_to_show, requested, to_add, unfinished_note, unplanned,
+    proposed, repair_to_show, requested, steps_by_item, suggested_addition, to_add,
+    unfinished_note, unplanned,
 };
-use crate::screens::additions::{AdditionFields, new_addition};
+use crate::screens::additions::AdditionFields;
 use crate::screens::jobs::{progress_view, state_view};
+use crate::screens::source_sets::tab_href;
+use crate::source_set_model::PageTab;
 
 /// What the pending status says while a plan is made.
 pub const MAKING_PLAN: &str = "Making the repair plan… a large source set can take a while.";
@@ -64,6 +67,12 @@ fn step_line(step: &RepairStep) -> (String, &'static str) {
 /// A plan made, with the choices it was asked for with.
 type Proposed = (RepairPlan, BTreeMap<String, RepairChoice>);
 
+/// The choices a plan was asked for with, and those you picked on it.
+type Staged = (
+    BTreeMap<String, RepairChoice>,
+    BTreeMap<String, RepairChoice>,
+);
+
 /// A source set's repair, kept by its page so that a plan being made, and your picks, outlive a change of tab.
 #[derive(Clone, Copy)]
 pub struct RepairDesk {
@@ -85,7 +94,10 @@ pub struct RepairDesk {
     system: StoredValue<String>,
     /// What the last bulk choice changed.
     said: RwSignal<Option<String>>,
-    loaded: RwSignal<bool>,
+    /// The plan last asked to be shown, once one has been: `Some(None)` for the open repair.
+    requested: RwSignal<Option<Option<i64>>>,
+    /// The choices asked for and picked on each plan shown before, by plan, so coming back to one keeps them.
+    staged: StoredValue<BTreeMap<i64, Staged>>,
     proposal: Action<PlanRepair, Result<Proposed, String>>,
 }
 
@@ -112,7 +124,8 @@ impl RepairDesk {
             owner: StoredValue::new(Owner::current().expect("the source set page has an owner")),
             system: StoredValue::new(system),
             said: RwSignal::new(None),
-            loaded: RwSignal::new(false),
+            requested: RwSignal::new(None),
+            staged: StoredValue::new(BTreeMap::new()),
             proposal,
         };
         Effect::new(move || {
@@ -123,10 +136,26 @@ impl RepairDesk {
         desk
     }
 
+    /// Keeps what was asked for and picked on the plan shown, for coming back to it.
+    fn stash(self) {
+        if let Some(id) = self.plan.with_untracked(|p| p.as_ref().map(|p| p.id)) {
+            let staged = (self.asked.get_untracked(), self.picked.get_untracked());
+            self.staged.update_value(|s| {
+                s.insert(id, staged);
+            });
+        }
+    }
+
+    /// Shows `plan`, asked for with `asked`: with what you picked on it before, if you've shown it already.
     fn show(self, plan: RepairPlan, asked: BTreeMap<String, RepairChoice>) {
+        self.stash();
+        let (asked, picked) = self
+            .staged
+            .with_value(|s| s.get(&plan.id).cloned())
+            .unwrap_or((asked, BTreeMap::new()));
         self.problem.set(None);
         self.said.set(None);
-        self.picked.set(BTreeMap::new());
+        self.picked.set(picked);
         self.asked.set(asked);
         self.plan.set(Some(plan));
     }
@@ -141,28 +170,40 @@ impl RepairDesk {
         self.proposal.pending().into()
     }
 
-    /// Loads, once, the plan `wanted` names, or else the approved repair that hasn't finished.
+    /// Shows the plan `wanted` names, or else the approved repair that hasn't finished, each time what's wanted
+    /// changes. The plan already shown stays as it is, with your picks.
     pub fn load(self, wanted: Option<i64>) {
-        if self.loaded.get_untracked() {
+        if self.requested.get_untracked() == Some(wanted) {
             return;
         }
-        self.loaded.set(true);
+        self.requested.set(Some(wanted));
         let path = format!(
             "/source-sets/{}/repairs",
             api::segment(&self.name.get_value())
         );
+        let before = self.shown_id();
         leptos::task::spawn_local(async move {
-            match api::get::<Vec<RepairPlan>>(&path).await {
-                Ok(plans) => {
-                    if self.plan.get_untracked().is_none()
-                        && let Some(p) = repair_to_show(&plans, wanted)
-                    {
-                        self.show(p.clone(), chosen(p));
+            let plans = api::get::<Vec<RepairPlan>>(&path).await;
+            // Another plan was asked for, or one was proposed, meanwhile: that one wins.
+            if self.requested.get_untracked() != Some(wanted) || self.shown_id() != before {
+                return;
+            }
+            match plans {
+                Ok(plans) => match repair_to_show(&plans, wanted) {
+                    Some(p) if Some(p.id) == before => {}
+                    Some(p) => self.show(p.clone(), chosen(p)),
+                    None => {
+                        self.stash();
+                        self.plan.set(None);
                     }
-                }
+                },
                 Err(message) => self.problem.set(Some(message)),
             }
         });
+    }
+
+    fn shown_id(self) -> Option<i64> {
+        self.plan.with_untracked(|p| p.as_ref().map(|p| p.id))
     }
 
     /// Proposes a plan; planning again from a plan still open carries its choices and additions.
@@ -178,7 +219,7 @@ impl RepairDesk {
                 .map(|(k, v)| (k.clone(), v.get_untracked()))
                 .collect();
             open.as_ref()
-                .map(|p| to_add(p, &chosen, &adding))
+                .map(|p| to_add(p, &chosen, &adding, &self.system.get_value()))
                 .unwrap_or_default()
         });
         self.proposal.dispatch_local(PlanRepair {
@@ -200,7 +241,12 @@ impl RepairDesk {
                 api::post::<_, RepairPlan>(&format!("/repairs/{}/approval", p.id), &body).await;
             self.working.set(false);
             match done {
-                Ok(p) => self.show(p, BTreeMap::new()),
+                Ok(p) => {
+                    // An approved plan holds no picks.
+                    self.picked.set(BTreeMap::new());
+                    self.asked.set(BTreeMap::new());
+                    self.show(p, BTreeMap::new());
+                }
                 Err(message) => self.problem.set(Some(message)),
             }
         });
@@ -211,11 +257,10 @@ impl RepairDesk {
         if let Some(fields) = self.adding.with_untracked(|a| a.get(&item.key).copied()) {
             return fields;
         }
-        let path = item.path.clone().unwrap_or_else(|| item.key.clone());
         let value = item
             .addition
             .clone()
-            .unwrap_or_else(|| new_addition(&path, Some(&self.system.get_value())));
+            .unwrap_or_else(|| suggested_addition(item, &self.system.get_value()));
         let fields = self.owner.get_value().with(|| RwSignal::new(value));
         self.adding.update_untracked(|a| {
             a.insert(item.key.clone(), fields);
@@ -485,8 +530,8 @@ fn apply_to_all(desk: RepairDesk, kind: PlanKind) -> AnyView {
     .into_any()
 }
 
-fn outcome_text(plan: &RepairPlan, key: &str) -> Option<String> {
-    plan.outcomes.iter().find(|o| o.item == key).map(|o| {
+fn outcome_text(o: &title_select_api::repair::RepairOutcome) -> String {
+    {
         let what = match (&o.error, o.done) {
             (Some(e), _) => format!("Not done: {e}"),
             (None, true) => "Done".to_string(),
@@ -498,14 +543,28 @@ fn outcome_text(plan: &RepairPlan, key: &str) -> Option<String> {
         } else {
             format!("{what} ({detail})")
         }
-    })
+    }
 }
 
 /// The Repair tab: a plan proposed from the source set's latest audit, the choice for each item, set in bulk or one
 /// at a time, every change it makes, and its approval and job.
+///
+/// `wanted` is the plan to show, and `current` the source set's open repair: a plan not yet approved that isn't the
+/// open repair, shown because the URL names it, was replaced, so it is shown read-only.
 #[component]
-pub fn RepairTab(desk: RepairDesk, wanted: Option<i64>) -> impl IntoView {
-    desk.load(wanted);
+pub fn RepairTab(
+    desk: RepairDesk,
+    #[prop(into)] wanted: Signal<Option<i64>>,
+    #[prop(into)] current: Signal<Option<i64>>,
+) -> impl IntoView {
+    Effect::new(move || desk.load(wanted.get()));
+    let replaced = Memo::new(move |_| {
+        desk.plan.with(|p| {
+            p.as_ref().is_some_and(|p| {
+                p.approval.is_none() && wanted.get() == Some(p.id) && current.get() != Some(p.id)
+            })
+        })
+    });
     let proposal = desk.proposal;
     let running = move || {
         desk.plan.with(|p| {
@@ -541,7 +600,10 @@ pub fn RepairTab(desk: RepairDesk, wanted: Option<i64>) -> impl IntoView {
                 })
             }}
             <Pending pending=proposal.pending() status=MAKING_PLAN problem>
-                {move || desk.plan.get().map(|p| view! { <PlanShown desk plan=p /> })}
+                {move || {
+                    let replaced = replaced.get();
+                    desk.plan.get().map(|p| view! { <PlanShown desk plan=p replaced /> })
+                }}
             </Pending>
             {move || desk.problem.get().map(|message| view! { <Problem message /> })}
         </section>
@@ -549,9 +611,9 @@ pub fn RepairTab(desk: RepairDesk, wanted: Option<i64>) -> impl IntoView {
 }
 
 #[component]
-fn PlanShown(desk: RepairDesk, plan: RepairPlan) -> impl IntoView {
+fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoView {
     let p = plan;
-    let open = p.approval.is_none();
+    let open = p.approval.is_none() && !replaced;
     let steps: Arc<Vec<(String, String, &'static str)>> = Arc::new(
         p.content
             .steps
@@ -562,20 +624,29 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan) -> impl IntoView {
             })
             .collect(),
     );
+    let by_item = steps_by_item(&p);
+    let outcomes: HashMap<&str, _> = p.outcomes.iter().map(|o| (o.item.as_str(), o)).collect();
     let rows: Arc<Vec<RepairRow>> = Arc::new(
         p.content
             .items
             .iter()
             .map(|item| RepairRow {
                 place: place(item),
-                proposed: proposed(&p, item),
+                proposed: proposed(
+                    item,
+                    by_item
+                        .get(item.key.as_str())
+                        .map_or(&[][..], Vec::as_slice),
+                ),
                 open,
-                outcome: outcome_text(&p, &item.key),
+                outcome: outcomes.get(item.key.as_str()).map(|o| outcome_text(o)),
                 item: item.clone(),
                 desk,
             })
             .collect(),
     );
+    drop(by_item);
+    drop(outcomes);
     let removals = p
         .content
         .steps
@@ -621,8 +692,17 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan) -> impl IntoView {
     let detail_steps = steps.clone();
     let audit_href = format!("/audits/{}", p.content.audit);
     let notes = p.content.notes.clone();
+    let replaced_note = replaced.then(|| {
+        view! {
+            <p class="notice" role="status">
+                "A newer plan replaced this one, so it is shown read-only. "
+                <A href=tab_href(&desk.name.get_value(), PageTab::Repair)>"Show the source set's repair"</A>
+            </p>
+        }
+    });
     view! {
         <h2>{format!("Repair plan #{}", p.id)}</h2>
+        {replaced_note}
         <p class="note">
             "From " <A href=audit_href>{format!("audit #{}", p.content.audit)}</A>
             {format!(
@@ -990,4 +1070,11 @@ pub fn KeptFiles(
             {move || problem.get().map(|message| view! { <Problem message /> })}
         </section>
     }
+}
+
+/// A repair plan of `plan`, open for review, in the Repair tab's review: for the filtering benchmark.
+#[cfg(feature = "bench")]
+pub(crate) fn bench_plan(plan: RepairPlan) -> impl IntoView {
+    let desk = RepairDesk::new(plan.content.source_set.clone(), "Bench".to_string());
+    view! { <PlanShown desk plan replaced=false /> }
 }
