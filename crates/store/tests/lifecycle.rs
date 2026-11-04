@@ -1504,3 +1504,98 @@ fn a_rebound_library_folders_built_files_are_removed_whatever_its_old_source_set
     assert_eq!(job.state, JobState::Succeeded, "{job:?}");
     assert_eq!(env.store.kept_files(folder.id).unwrap().len(), 2);
 }
+
+/// `env`'s Roots, and `all`, a read-only Root holding all of them, without the Ingest Folder `in`.
+fn nesting_config(env: &Env) -> Config {
+    Config::parse(&format!(
+        "[roots.all]\npath = {:?}\n\n[roots.sets]\npath = {:?}\n\n[roots.play]\npath = {:?}\nwritable = true\n",
+        env.tmp.path().display().to_string(),
+        env.tmp.path().join("sets").display().to_string(),
+        env.play().display().to_string(),
+    ))
+    .unwrap()
+}
+
+#[test]
+fn a_source_set_is_refused_where_it_would_overlap_a_library_folder_a_move_or_an_ingest_folder() {
+    let env = Env::new();
+    let folder = env.folder();
+    let plan = env
+        .store
+        .plan_library_folder_move(
+            &env.config,
+            folder.id,
+            &PlanFolderMove {
+                path: "next".into(),
+            },
+        )
+        .unwrap();
+    // As an approval would leave it just before the rename.
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "UPDATE library_folder_moves SET approved_by = 'Operator', approved_at = '2026-01-01T00:00:00Z' WHERE id = ?1",
+        [plan.id],
+    )
+    .unwrap();
+    std::fs::create_dir_all(env.play().join("next")).unwrap();
+    let mut config = nesting_config(&env);
+    config
+        .roots
+        .insert("in".into(), env.config.root("in").unwrap().clone());
+
+    for (rel, what) in [
+        ("play/next", "being moved"),
+        ("play/atari", "library folder"),
+        ("play", "library folder"),
+        ("in", "ingest folder"),
+    ] {
+        let refused = env.store.add_source_set(&config, "all", rel, SYSTEM);
+        assert!(
+            matches!(&refused, Err(Error::Refused(why)) if why.contains(what)),
+            "{rel}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn an_ingest_folder_is_refused_where_it_would_overlap_a_source_set() {
+    let env = Env::new();
+    env.store
+        .unregister_ingest_folder(&env.config, "in")
+        .unwrap();
+    env.store
+        .add_source_set(&nesting_config(&env), "all", "in", SYSTEM)
+        .unwrap();
+    // The ingest folder's root is configured after the source set was added.
+    let mut config = nesting_config(&env);
+    config
+        .roots
+        .insert("in".into(), env.config.root("in").unwrap().clone());
+
+    let refused = env.store.register_ingest_folder(&config, "in");
+    assert!(
+        matches!(&refused, Err(Error::Refused(why)) if why.contains("source set")),
+        "{refused:?}"
+    );
+    assert!(!env.tmp.path().join("in/.title-select").exists());
+}
+
+#[test]
+fn built_files_are_removed_while_the_source_set_folder_is_unavailable() {
+    let env = Env::new();
+    let folder = env.built();
+    std::fs::rename(env.set(), env.tmp.path().join("unmounted")).unwrap();
+
+    let plan = env
+        .store
+        .plan_library_removal(&env.config, folder.id)
+        .unwrap();
+    assert!(
+        plan.content.blockers.is_empty(),
+        "{:#?}",
+        plan.content.blockers
+    );
+    let job = env.build(&plan);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    assert_eq!(env.store.kept_files(folder.id).unwrap().len(), 2);
+}

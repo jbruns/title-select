@@ -190,10 +190,29 @@ impl Store {
                  read-only root"
             )));
         }
-        let rel = resolve(config, root, rel)?.rel;
+        // Held while it is checked and recorded, so that no Library Folder registered or move approved meanwhile
+        // comes to overlap it.
+        let _lifecycle = self.lifecycle_lock();
+        let resolved = resolve(config, root, rel)?;
+        let canonical = resolved
+            .path
+            .canonicalize()
+            .map_err(|e| Error::Refused(format!("{}: {e}", resolved.path.display())))?;
+        let rel = resolved.rel;
         let name = rel.rsplit('/').next().unwrap_or(&rel).to_owned();
         let (provider, dat_name) = split_dat(dat)?;
         self.write(|tx| {
+            if let Some((what, other)) = crate::folders::overlapping(
+                tx,
+                config,
+                &canonical,
+                crate::folders::Registering::SourceSet,
+            )? {
+                return Err(Error::Refused(format!(
+                    "{rel} in root {root} would overlap {what} at {}",
+                    other.display()
+                )));
+            }
             let dat_id: i64 = tx
                 .query_row(
                     "SELECT id FROM dats WHERE provider = ?1 AND name = ?2",

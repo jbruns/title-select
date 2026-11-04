@@ -1118,7 +1118,22 @@ impl Store {
                         dir.path().display()
                     )));
                 }
+                let canonical = dir
+                    .path()
+                    .canonicalize()
+                    .map_err(|e| Error::Refused(format!("{}: {e}", dir.path().display())))?;
                 self.write(|tx| {
+                    if let Some((what, other)) = crate::folders::overlapping(
+                        tx,
+                        config,
+                        &canonical,
+                        crate::folders::Registering::IngestFolder,
+                    )? {
+                        return Err(Error::Refused(format!(
+                            "ingest folder {root} would overlap {what} at {}; nothing in it was changed",
+                            other.display()
+                        )));
+                    }
                     tx.execute(
                         "INSERT INTO ingest_folders (root, created_at) VALUES (?1, ?2)",
                         params![root, now()],

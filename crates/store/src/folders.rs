@@ -669,67 +669,99 @@ pub(super) fn check_library_path(
     let canonical_root = root.path.canonicalize().map_err(|e| {
         Error::Refused(format!("root {} ({}): {e}", root_name, root.path.display()))
     })?;
-    let others = {
-        let clash: Option<i64> = c
-            .query_row(
-                "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
-                params![root_name, rel],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(clash) = clash {
-            return Err(Error::Refused(format!(
-                "library folder {clash} already uses {rel} in root {}",
-                root_name
-            )));
-        }
-        // An approved move that hasn't finished holds its destination, as though the folder were there already.
-        let mut stmt = c.prepare(
-            "SELECT root, path, 'a source set' FROM source_sets WHERE unregistered_at IS NULL
-             UNION ALL SELECT root, path, 'another library folder' FROM library_folders
-             WHERE unregistered_at IS NULL
-             UNION ALL SELECT root, to_path, 'a library folder being moved there' FROM library_folder_moves
-             WHERE approved_at IS NOT NULL AND finished_at IS NULL",
-        )?;
-        stmt.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    };
+    let clash: Option<i64> = c
+        .query_row(
+            "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
+            params![root_name, rel],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(clash) = clash {
+        return Err(Error::Refused(format!(
+            "library folder {clash} already uses {rel} in root {}",
+            root_name
+        )));
+    }
     // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
     // Select reads or writes.
     let would_be = resolved(&canonical_root, &rel).unwrap_or_else(|| {
         rel.split('/')
             .fold(canonical_root.clone(), |p, part| p.join(part))
     });
+    if let Some((what, other)) = overlapping(c, config, &would_be, Registering::LibraryFolder)? {
+        return Err(Error::Refused(format!(
+            "{rel} in root {} would overlap {what} at {}",
+            root_name,
+            other.display()
+        )));
+    }
+    Ok(rel)
+}
+
+/// What is being registered, which overlaps nothing else Title Select reads or writes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Registering {
+    /// May not overlap another one, nor a Source Set or an Ingest Folder.
+    LibraryFolder,
+    /// May not overlap a Library Folder or an Ingest Folder; Source Sets are checked by their own rules.
+    SourceSet,
+    /// May not overlap a Source Set or a Library Folder.
+    IngestFolder,
+}
+
+/// The first registered folder, or destination reserved by an approved move, that `would_be` overlaps but
+/// `registering` may not: what it is, and where.
+pub(super) fn overlapping(
+    c: &Connection,
+    config: &Config,
+    would_be: &Path,
+    registering: Registering,
+) -> Result<Option<(String, PathBuf)>> {
+    // An approved move that hasn't finished holds its destination, as though the folder were there already.
+    let mut stmt = c.prepare(
+        "SELECT root, path, 'a source set' FROM source_sets WHERE unregistered_at IS NULL AND ?1
+         UNION ALL SELECT root, path, ?2 FROM library_folders WHERE unregistered_at IS NULL
+         UNION ALL SELECT root, to_path, 'a library folder being moved there' FROM library_folder_moves
+         WHERE approved_at IS NOT NULL AND finished_at IS NULL",
+    )?;
+    let others = stmt
+        .query_map(
+            params![
+                registering != Registering::SourceSet,
+                match registering {
+                    Registering::LibraryFolder => "another library folder",
+                    _ => "a library folder",
+                }
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            },
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
     let ingest = config
         .roots
         .iter()
-        .filter(|(_, r)| r.is_ingest())
+        .filter(|(_, r)| r.is_ingest() && registering != Registering::IngestFolder)
         .map(|(name, _)| (name.clone(), String::new(), "an ingest folder".to_owned()));
     for (root, path, what) in others.into_iter().chain(ingest) {
         // A destination being moved to may not exist yet.
         let Some(other) = config.root(&root).and_then(|r| resolved(&r.path, &path)) else {
             continue;
         };
-        if overlaps(&would_be, &other) {
-            return Err(Error::Refused(format!(
-                "{rel} in root {} would overlap {what} at {}",
-                root_name,
-                other.display()
-            )));
+        if overlaps(would_be, &other) {
+            return Ok(Some((what, other)));
         }
     }
-    Ok(rel)
+    Ok(None)
 }
 
 /// `rel` under `base`, through whatever of it exists: its longest existing ancestor resolved, with the rest, each a
 /// plain name, joined on. `None` when a part is not a plain name, or an existing part can't be resolved.
-fn resolved(base: &Path, rel: &str) -> Option<PathBuf> {
+pub(super) fn resolved(base: &Path, rel: &str) -> Option<PathBuf> {
     let parts: Vec<&str> = rel.split('/').filter(|part| !part.is_empty()).collect();
     if parts.iter().any(|part| matches!(*part, "." | "..")) {
         return None;
