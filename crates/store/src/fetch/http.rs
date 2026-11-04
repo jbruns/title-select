@@ -9,7 +9,7 @@ use ureq::http::Uri;
 pub const USER_AGENT: &str = concat!(
     "title-select/",
     env!("CARGO_PKG_VERSION"),
-    " (fetches DATs for the systems its operator follows, at most once a day each, a second apart)"
+    " (+https://github.com/jbruns/title-select)"
 );
 
 /// The domains no request may address, nor any of their subdomains. No-Intro sanctions no automated access.

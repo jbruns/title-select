@@ -7,10 +7,10 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use title_select_api::AuditEvidence;
 use title_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
 };
+use title_select_api::{AuditEvidence, CuePackOrigin};
 use title_select_store::config::Config;
 use title_select_store::fetch::{Endpoints, FetchError, Fetcher, Http};
 use title_select_store::{Error, Store};
@@ -244,14 +244,33 @@ impl Env {
             &dat_xml("Sony - PlayStation", version),
         )]);
         self.fake.reply("/datfile/psx/", Reply::Body(dat));
+        self.serve_psx_packs(version);
+    }
+
+    /// Serves a cue pack and an SBI pack for `psx` whose contents differ with `version`.
+    fn serve_psx_packs(&self, version: &str) {
+        let cue = format!("FILE \"Game (USA).bin\" BINARY {version}");
         self.fake.reply(
             "/cues/psx/",
-            Reply::Body(zip_of(&[("Game (USA).cue", b"FILE")])),
+            Reply::Body(zip_of(&[("Game (USA).cue", cue.as_bytes())])),
         );
+        let sbi = format!("SBI\0{version}");
         self.fake.reply(
             "/sbi/psx/",
-            Reply::Body(zip_of(&[("Game (USA).sbi", b"SBI\0")])),
+            Reply::Body(zip_of(&[("Game (USA).sbi", sbi.as_bytes())])),
         );
+    }
+
+    /// The SHA-256s of the SBI packs whose files the store keeps.
+    fn sbi_packs(&self) -> Vec<String> {
+        let mut found: Vec<String> = std::fs::read_dir(self.store.dir().join("sbi_packs"))
+            .map(|d| {
+                d.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        found.sort();
+        found
     }
 
     fn audits(&self) -> i64 {
@@ -331,10 +350,24 @@ fn a_redump_fetch_brings_a_newer_dat_and_its_packs_a_second_apart_and_starts_no_
     let stale = env.store.followed_revisions("PSX").unwrap();
     assert_eq!(stale.len(), 1, "the following source set is stale");
     assert_eq!(Some(&stale[0].sha256), dat.dat_revision.as_ref());
-    for pack in &report.attempts[1..] {
-        let sha = pack.pack.as_ref().unwrap();
-        assert!(env.store.dir().join("packs").join(sha).is_file());
-    }
+    let cues = env.store.cue_packs().unwrap();
+    assert_eq!(cues.len(), 1, "the cue pack is in the cue pack store");
+    assert_eq!(cues[0].origin, CuePackOrigin::Fetch);
+    assert_eq!(cues[0].dat, "Redump/Sony - PlayStation");
+    assert_eq!(cues[0].cues, 1);
+    assert_eq!(report.attempts[1].pack.as_ref(), Some(&cues[0].sha256));
+    assert!(
+        cues[0]
+            .source_url
+            .as_deref()
+            .unwrap()
+            .ends_with("/cues/psx/")
+    );
+    assert_eq!(
+        env.sbi_packs(),
+        [report.attempts[2].pack.clone().unwrap()],
+        "the SBI pack is kept"
+    );
     assert_eq!(env.store.jobs(100).unwrap(), jobs, "fetching queues no job");
     assert_eq!(env.audits(), audits, "fetching starts no audit");
 }
@@ -451,7 +484,93 @@ fn fetching_is_off_until_you_turn_it_on_and_only_for_following_systems() {
         env.fetch(FetchProvider::Redump, FetchTrigger::Manual)
             .is_err()
     );
+    let status = env.store.fetch_status(&env.config, &env.fetcher).unwrap();
+    assert_eq!(
+        status.providers[0].systems,
+        [],
+        "an unregistered set follows nothing"
+    );
     assert_eq!(env.fake.seen().len(), 0, "nothing was requested");
+}
+
+#[test]
+fn a_system_is_fetched_while_any_registered_source_set_follows_it() {
+    let env = Env::new("redump = true");
+    std::fs::create_dir_all(env._tmp.path().join("sets/PSX2")).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "PSX2", "Redump/Sony - PlayStation")
+        .unwrap();
+    env.store.set_follow("PSX2", true).unwrap();
+    env.store.unregister_source_set(&env.config, "PSX").unwrap();
+    env.serve_psx("2");
+
+    let report = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(report.attempts.len(), 3, "{report:?}");
+}
+
+#[test]
+fn only_what_redump_publishes_for_a_system_is_requested() {
+    let env = Env::new("redump = true");
+    env.store.set_follow("PSX", false).unwrap();
+    env.follow("PS2", "Redump", "Sony - PlayStation 2");
+    env.follow("GC", "Redump", "Nintendo - GameCube");
+    env.fake.reply(
+        "/datfile/ps2/",
+        Reply::Body(zip_of(&[("x.dat", &dat_xml("Sony - PlayStation 2", "2"))])),
+    );
+    env.fake.reply(
+        "/cues/ps2/",
+        Reply::Body(zip_of(&[("Game (USA).cue", b"FILE")])),
+    );
+    env.fake.reply(
+        "/datfile/gc/",
+        Reply::Body(zip_of(&[("x.dat", &dat_xml("Nintendo - GameCube", "2"))])),
+    );
+
+    let report = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(report.stopped, None, "{report:?}");
+    let mut paths: Vec<String> = env.fake.seen().into_iter().map(|s| s.path).collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        ["/cues/ps2/", "/datfile/gc/", "/datfile/ps2/"],
+        "no SBI pack for either, and no cue pack for the GameCube"
+    );
+}
+
+#[test]
+fn a_newer_pack_releases_the_last_ones_file_and_the_latest_is_kept() {
+    let env = Env::new("redump = true");
+    env.serve_psx("2");
+    let first = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    env.backdate(25);
+    env.serve_psx_packs("3");
+    let second = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    let added = Some(FetchOutcome::Added);
+    assert_eq!(second.attempts[1].outcome, added, "{second:?}");
+    assert_eq!(second.attempts[2].outcome, added, "{second:?}");
+
+    let cues = env.store.cue_packs().unwrap();
+    let kept: Vec<(String, bool)> = cues
+        .iter()
+        .map(|c| (c.sha256.clone(), c.blob_present))
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            (first.attempts[1].pack.clone().unwrap(), false),
+            (second.attempts[1].pack.clone().unwrap(), true),
+        ]
+    );
+    assert_eq!(env.sbi_packs(), [second.attempts[2].pack.clone().unwrap()]);
 }
 
 /// A MAME ListXML at build `build`.
@@ -549,6 +668,11 @@ fn a_mame_fetch_finds_the_latest_release_and_brings_its_listxml_and_software_lis
         ]
     );
     assert_eq!(report.attempts[1].version.as_deref(), Some("mame0270"));
+    assert_eq!(
+        report.attempts[2].version.as_deref(),
+        Some("mame0270"),
+        "a software list, whose header has no version, takes the release's tag"
+    );
     assert!(
         report
             .attempts

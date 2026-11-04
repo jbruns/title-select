@@ -20,6 +20,7 @@ mod migrations;
 mod plans;
 mod profiles;
 mod repairs;
+mod sbi_packs;
 mod selections;
 mod sets;
 mod stale;
@@ -36,6 +37,7 @@ pub use audits::StoredAudit;
 pub use cue_packs::{CUE_PACK_LIMIT, CUE_PACKS};
 pub use ingest::OwedAudits;
 pub use jobs::Interruption;
+pub use sbi_packs::SBI_PACKS;
 pub use selections::SelectionInput;
 pub use title_select_api::{
     AuditSummary, DatRevisionRecord, ImportOutcome, Job, JobState, LastVerified, SourceSetRecord,

@@ -15,26 +15,22 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension, params};
-use sha2::Digest;
-use title_select_api::ImportOutcome;
 use title_select_api::fetch::{
     FetchArtifact, FetchArtifactStatus, FetchAttempt, FetchOutcome, FetchProvider,
     FetchProviderStatus, FetchReport, FetchStatus, FetchSystem, FetchTrigger,
 };
+use title_select_api::{CuePackOrigin, ImportOutcome};
 use title_select_engine::dat::Dat;
 
 pub use http::{FetchError, Fetched, Http, USER_AGENT, refusal};
 
-use crate::blobs::write_blob;
 use crate::config::Config;
-use crate::{Error, Result, Store, io_error, now};
+use crate::{Error, Result, Store, now};
 
 /// The least time between two requests to one provider, redirects included.
 pub const MIN_GAP: Duration = Duration::from_secs(1);
 /// How long a system's artifact waits after a request before the next.
 const ONCE_A_DAY: jiff::SignedDuration = jiff::SignedDuration::from_hours(24);
-/// The directory, in the store directory, that holds fetched cue and SBI packs.
-pub const PACKS: &str = "packs";
 
 /// The largest download, and the largest DAT read out of one.
 const MAX_DOWNLOAD: u64 = 512 << 20;
@@ -141,43 +137,51 @@ impl Drop for Running<'_> {
     }
 }
 
-/// A Redump system Title Select can fetch.
+/// A Redump system, as its downloads page lists it, and its DAT's header name, if Title Select knows it.
+#[derive(Debug)]
 struct RedumpSystem {
-    dat: &'static str,
     code: &'static str,
+    dat: Option<&'static str>,
+    datfile: bool,
     cues: bool,
     sbi: bool,
 }
 
 fn redump_systems() -> Vec<RedumpSystem> {
-    include_str!("fetch/redump_systems.tsv")
-        .lines()
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(|l| {
-            let mut cols = l.split('\t');
-            let dat = cols.next().unwrap_or_default();
-            let code = cols.next().unwrap_or_default();
-            let packs = cols.next().unwrap_or_default();
-            RedumpSystem {
-                dat,
-                code,
-                cues: packs.split(',').any(|p| p == "cues"),
-                sbi: packs.split(',').any(|p| p == "sbi"),
-            }
+    let rows = |tsv: &'static str| {
+        tsv.lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(|l| l.split('\t').collect::<Vec<_>>())
+    };
+    let names: HashMap<&str, &str> = rows(include_str!("fetch/redump_dat_names.tsv"))
+        .map(|cols| (cols[0], cols[1]))
+        .collect();
+    rows(include_str!("fetch/redump_systems.tsv"))
+        .map(|cols| RedumpSystem {
+            code: cols[0],
+            dat: names.get(cols[0]).copied(),
+            cues: cols[2] == "y",
+            datfile: cols[3] == "y",
+            sbi: cols[4] == "y",
         })
         .collect()
 }
 
-/// The artifacts fetched for a Redump system, in order.
+/// The Redump system whose DAT has the header name `dat`, matched exactly.
+fn redump_system<'a>(systems: &'a [RedumpSystem], dat: &str) -> Option<&'a RedumpSystem> {
+    systems.iter().find(|s| s.dat == Some(dat))
+}
+
+/// The artifacts fetched for a Redump system, in order: only what Redump publishes for it.
 fn redump_artifacts(system: &RedumpSystem) -> Vec<FetchArtifact> {
-    let mut artifacts = vec![FetchArtifact::Dat];
-    if system.cues {
-        artifacts.push(FetchArtifact::Cues);
-    }
-    if system.sbi {
-        artifacts.push(FetchArtifact::Sbi);
-    }
-    artifacts
+    [
+        (system.datfile, FetchArtifact::Dat),
+        (system.cues, FetchArtifact::Cues),
+        (system.sbi, FetchArtifact::Sbi),
+    ]
+    .into_iter()
+    .filter_map(|(published, artifact)| published.then_some(artifact))
+    .collect()
 }
 
 /// MAME's system for a DAT it publishes: `mame` for ListXML, or the software list's name.
@@ -194,6 +198,8 @@ fn mame_system(dat: &str) -> Option<String> {
 
 /// A DAT of a provider that Following Source Sets are bound to.
 struct Followed {
+    /// The provider as the DAT was imported under, whatever its case.
+    provider: String,
     /// The DAT's header name.
     dat: String,
     source_sets: Vec<String>,
@@ -312,17 +318,22 @@ fn artifact_status(
 /// The DATs of `provider` that a registered Source Set Follows, by header name, with those Source Sets.
 fn followed(c: &Connection, provider: FetchProvider) -> Result<Vec<Followed>> {
     let mut stmt = c.prepare(
-        "SELECT d.name, s.name FROM source_sets s JOIN dats d ON d.id = s.dat_id
+        "SELECT d.provider, d.name, s.name FROM source_sets s JOIN dats d ON d.id = s.dat_id
          WHERE s.follow AND s.unregistered_at IS NULL AND d.provider = ?1 COLLATE NOCASE
-         ORDER BY d.name, s.name",
+         ORDER BY d.name, d.provider, s.name",
     )?;
-    let rows = stmt.query_map([provider.dat_provider()], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let rows = stmt.query_map([provider.dat_provider()], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    })?;
     let mut out: Vec<Followed> = Vec::new();
     for row in rows {
-        let (dat, set): (String, String) = row?;
+        let (provider, dat, set): (String, String, String) = row?;
         match out.last_mut() {
-            Some(last) if last.dat == dat => last.source_sets.push(set),
+            Some(last) if last.dat == dat && last.provider == provider => {
+                last.source_sets.push(set)
+            }
             _ => out.push(Followed {
+                provider,
                 dat,
                 source_sets: vec![set],
             }),
@@ -376,19 +387,14 @@ fn zip_member(
     Ok((name, out))
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    sha2::Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 /// The steps of a fetch: each system's artifact to request, with its URL.
 struct Step {
     system: String,
     artifact: FetchArtifact,
     url: String,
-    /// For a DAT, the header name it must carry.
+    /// The provider the DAT was imported under.
+    provider: String,
+    /// The header name the DAT must carry, and the packs are for.
     dat: String,
 }
 
@@ -430,14 +436,14 @@ impl Store {
                 let systems = redump_systems();
                 let known: Vec<_> = followed
                     .iter()
-                    .filter_map(|f| systems.iter().find(|s| s.dat == f.dat))
+                    .filter_map(|f| redump_system(&systems, &f.dat).map(|s| (f, s)))
                     .collect();
                 if known.is_empty() {
                     return refuse_or_nothing(no_followed(name, &followed))
                         .map(|_: Option<()>| report);
                 }
                 let mut steps = Vec::new();
-                for system in known {
+                for (followed, system) in known {
                     for artifact in redump_artifacts(system) {
                         let path = match artifact {
                             FetchArtifact::Dat => "datfile",
@@ -448,16 +454,17 @@ impl Store {
                             system: system.code.into(),
                             artifact,
                             url: format!("{}/{path}/{}/", fetcher.endpoints.redump, system.code),
-                            dat: system.dat.into(),
+                            provider: followed.provider.clone(),
+                            dat: followed.dat.clone(),
                         });
                     }
                 }
                 Some((steps, None))
             }
             FetchProvider::Mame => {
-                let systems: Vec<(String, String)> = followed
+                let systems: Vec<(String, &Followed)> = followed
                     .iter()
-                    .filter_map(|f| mame_system(&f.dat).map(|s| (s, f.dat.clone())))
+                    .filter_map(|f| mame_system(&f.dat).map(|s| (s, f)))
                     .collect();
                 if systems.is_empty() {
                     return refuse_or_nothing(no_followed(name, &followed))
@@ -498,7 +505,7 @@ impl Store {
                     None => None,
                     Some((tag, asset)) => {
                         let mut steps = Vec::new();
-                        for (system, dat) in systems {
+                        for (system, followed) in systems {
                             let current = self
                                 .read(|c| latest(c, provider, &system, FetchArtifact::Dat, true))?
                                 .is_some_and(|(a, _)| a.release.as_deref() == Some(tag.as_str()));
@@ -517,7 +524,8 @@ impl Store {
                                 system,
                                 artifact: FetchArtifact::Dat,
                                 url,
-                                dat,
+                                provider: followed.provider.clone(),
+                                dat: followed.dat.clone(),
                             });
                         }
                         Some((steps, Some(tag)))
@@ -543,6 +551,14 @@ impl Store {
             .map(|_: Option<()>| report);
         }
         for step in due {
+            // A Source Set unregistered or no longer Following since the fetch began leaves its DAT unfetched.
+            let still = self
+                .read(|c| self::followed(c, provider))?
+                .iter()
+                .any(|f| f.provider == step.provider && f.dat == step.dat);
+            if !still {
+                continue;
+            }
             let tag = tag.clone();
             let attempt = self.attempt(
                 fetcher,
@@ -558,17 +574,18 @@ impl Store {
                             if provider == FetchProvider::Mame && step.system == "mame" =>
                         {
                             let (file, bytes) = zip_member(&f.bytes, ".xml", MAX_DAT)?;
-                            s.import_fetched(provider, &step.dat, &file, &bytes, &f.url)?
+                            s.import_fetched(&step, &file, &bytes, &f.url, None)?
                         }
                         FetchArtifact::Dat if provider == FetchProvider::Mame => {
+                            // A software list's header has no version: it is its release's.
                             let file = format!("{}.xml", step.system);
-                            s.import_fetched(provider, &step.dat, &file, &f.bytes, &f.url)?
+                            s.import_fetched(&step, &file, &f.bytes, &f.url, tag.as_deref())?
                         }
                         FetchArtifact::Dat => {
                             let (file, bytes) = zip_member(&f.bytes, ".dat", MAX_DAT)?;
-                            s.import_fetched(provider, &step.dat, &file, &bytes, &f.url)?
+                            s.import_fetched(&step, &file, &bytes, &f.url, None)?
                         }
-                        artifact => s.keep_pack(artifact, &f.bytes)?,
+                        artifact => s.keep_pack(&step, artifact, f)?,
                     };
                     brought.release = tag;
                     Ok(brought)
@@ -655,21 +672,25 @@ impl Store {
     /// Imports a fetched DAT, once it is found to be a revision of the DAT `expected`.
     fn import_fetched(
         &self,
-        provider: FetchProvider,
-        expected: &str,
+        step: &Step,
         file: &str,
         bytes: &[u8],
         url: &str,
+        version: Option<&str>,
     ) -> std::result::Result<Brought, String> {
-        let dat = Dat::parse(bytes, Path::new(file)).map_err(|e| e.to_string())?;
-        if dat.name != expected {
+        let expected = &step.dat;
+        let mut dat = Dat::parse(bytes, Path::new(file)).map_err(|e| e.to_string())?;
+        if let Some(version) = version {
+            dat.version = version.to_owned();
+        }
+        if dat.name != *expected {
             return Err(format!(
                 "{file} is a DAT of {:?}, not of {expected:?}",
                 dat.name
             ));
         }
         let (record, outcome) = self
-            .import_parsed_dat(&dat, bytes, file, provider.dat_provider(), Some(url))
+            .import_parsed_dat(&dat, bytes, file, &step.provider, Some(url))
             .map_err(|e| e.to_string())?;
         let id = self
             .read(|c| {
@@ -690,41 +711,34 @@ impl Store {
         })
     }
 
-    /// Keeps a fetched cue or SBI pack whole in the store, once it is found to be a ZIP.
+    /// Keeps a fetched cue pack in the cue pack store, or an SBI pack in the SBI pack store, for the DAT it is for.
     fn keep_pack(
         &self,
+        step: &Step,
         artifact: FetchArtifact,
-        bytes: &[u8],
+        fetched: Fetched,
     ) -> std::result::Result<Brought, String> {
-        let archive =
-            zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("not a ZIP: {e}"))?;
-        if archive.is_empty() {
-            return Err("the ZIP is empty".into());
+        let dat = format!("{}/{}", step.provider, step.dat);
+        let file = fetched
+            .file_name
+            .clone()
+            .unwrap_or_else(|| format!("{} ({}).zip", step.dat, artifact.as_str()));
+        let (sha, outcome) = match artifact {
+            FetchArtifact::Cues => self
+                .import_cue_pack_bytes(
+                    &fetched.bytes,
+                    &file,
+                    &dat,
+                    Some(&fetched.url),
+                    CuePackOrigin::Fetch,
+                )
+                .map(|(record, outcome)| (record.sha256, outcome)),
+            _ => self.import_sbi_pack_bytes(&fetched.bytes, &file, &dat, &fetched.url),
         }
-        let sha = sha256_hex(bytes);
-        let packs = self.dir.join(PACKS);
-        let kept = self.with_writer(|conn| {
-            let known: bool = conn.query_row(
-                "SELECT EXISTS (SELECT 1 FROM fetched_packs WHERE sha256 = ?1)",
-                [&sha],
-                |r| r.get(0),
-            )?;
-            if known && packs.join(&sha).is_file() {
-                return Ok(false);
-            }
-            std::fs::create_dir_all(&packs).map_err(|e| io_error(&packs, e))?;
-            write_blob(&packs, &sha, bytes)?;
-            conn.execute(
-                "INSERT INTO fetched_packs (sha256, kind, size, stored_at) VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT DO NOTHING",
-                params![sha, artifact.as_str(), bytes.len() as i64, now()],
-            )?;
-            Ok(!known)
-        });
-        let added = kept.map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
         Ok(Brought {
             pack: Some(sha),
-            ..Brought::new(if added {
+            ..Brought::new(if outcome == ImportOutcome::Added {
                 FetchOutcome::Added
             } else {
                 FetchOutcome::Unchanged
@@ -810,7 +824,7 @@ impl Store {
                 let mut out = Vec::new();
                 for f in followed(c, provider)? {
                     let (system, artifacts) = match provider {
-                        FetchProvider::Redump => match systems.iter().find(|s| s.dat == f.dat) {
+                        FetchProvider::Redump => match redump_system(&systems, &f.dat) {
                             Some(s) => (Some(s.code.to_owned()), redump_artifacts(s)),
                             None => (None, Vec::new()),
                         },
@@ -867,5 +881,39 @@ fn no_followed(provider: &str, followed: &[Followed]) -> String {
             "Title Select can't fetch the {provider} DATs your source sets follow: {}",
             dats.join(", ")
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_named_redump_dat_is_a_system_redump_publishes_a_dat_for() {
+        let systems = redump_systems();
+        let names = include_str!("fetch/redump_dat_names.tsv")
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'));
+        for line in names {
+            let (code, dat) = line.split_once('\t').unwrap();
+            let system = systems.iter().find(|s| s.code == code);
+            assert!(
+                system.is_some_and(|s| s.datfile && s.dat == Some(dat)),
+                "{line}"
+            );
+        }
+        let psx = redump_system(&systems, "Sony - PlayStation").unwrap();
+        assert_eq!(
+            redump_artifacts(psx),
+            [FetchArtifact::Dat, FetchArtifact::Cues, FetchArtifact::Sbi]
+        );
+        let gc = redump_system(&systems, "Nintendo - GameCube").unwrap();
+        assert_eq!(redump_artifacts(gc), [FetchArtifact::Dat]);
+        assert!(
+            redump_system(&systems, "Sony PlayStation").is_none(),
+            "the site's name is not the DAT's"
+        );
+        let kt = systems.iter().find(|s| s.code == "kt").unwrap();
+        assert_eq!(redump_artifacts(kt), []);
     }
 }
