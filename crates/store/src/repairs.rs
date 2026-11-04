@@ -28,7 +28,9 @@ use title_select_api::repair::{
 };
 use title_select_api::storage::StorageScope;
 use title_select_api::{AuditEvidence, Job, JobKind, JobState, OpenRepair, Workers};
-use title_select_engine::build::{FromSource, repack_sources, verify, verify_loose, write_loose};
+use title_select_engine::build::{
+    FromSource, repack_sources, verify, verify_loose, write_loose, write_loose_members,
+};
 use title_select_engine::dat::Dat;
 use title_select_engine::{FileStamp, Progress};
 
@@ -469,6 +471,7 @@ pub(crate) fn queue_repair_job(tx: &Transaction, plan: i64, last: Option<i64>) -
 }
 
 /// One step of an approved repair, as recorded.
+#[derive(Clone)]
 struct StepRow {
     id: i64,
     seq: u32,
@@ -483,6 +486,15 @@ struct StepRow {
     aside_name: Option<String>,
     aside_why: Option<String>,
     discard_slot: Option<String>,
+}
+
+/// One Build step of an [extraction](Store::run_extraction): the ROM it writes loose to `target`, read from
+/// `member` of the ZIP every step of it reads.
+struct Extracting {
+    step: StepRow,
+    target: String,
+    rom: ExpectedRom,
+    member: String,
 }
 
 const STEP_QUERY: &str = "SELECT id, seq, item, detail, state, staged_name, staged_dev, staged_ino, move_id, \
@@ -1787,7 +1799,7 @@ impl Store {
                     if checks_as(&file, &expected, loose).is_ok() && file.sync_all().is_ok() {
                         dir.sync().map_err(io_err)?;
                         // Its source was not read now, so no hash of it is trusted, and a conversion keeps it.
-                        return self.build_staged(step, &file, None);
+                        return self.build_staged(step, &file, None, None);
                     }
                     drop(file);
                     if let Err(why) = self.discard_staged(r, step, staged_name, id)? {
@@ -1807,6 +1819,9 @@ impl Store {
                 }
                 None => {}
             }
+        }
+        if let Some(batch) = self.extraction_of(r, step, roms, sources, loose)? {
+            return self.run_extraction(r, &batch, sources);
         }
         let staged_name = format!(".{}.title-select-new-{}", base_name(target), unique());
         self.write(|tx| {
@@ -1907,17 +1922,8 @@ impl Store {
                 .then(|| serde_json::to_string(&reads).expect("a map of strings"));
             Ok((single, reads))
         })();
-        let source_sha = match written {
-            Ok((sha, reads)) => {
-                self.write(|tx| {
-                    tx.execute(
-                        "UPDATE repair_steps SET source_reads = ?2 WHERE id = ?1",
-                        params![step.id, reads],
-                    )?;
-                    Ok(())
-                })?;
-                sha
-            }
+        let (source_sha, reads) = match written {
+            Ok(read) => read,
             Err(why) => {
                 self.stamp_staged(step, &file)?;
                 // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
@@ -1928,18 +1934,197 @@ impl Store {
             }
         };
         dir.sync().map_err(io_err)?;
-        self.build_staged(step, &file, source_sha)
+        self.build_staged(step, &file, source_sha, reads)
+    }
+
+    /// The Build steps, `step` first, that extract a Game's ROMs from one ZIP of the Source Set into loose files, one
+    /// each: `step` and the steps right after it of the same item, each reading only that ZIP as the plan saw it, none
+    /// started. None when there is just `step`, which is then run alone.
+    fn extraction_of(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        roms: &[RepairRom],
+        sources: &BTreeMap<String, SeenFile>,
+        loose: bool,
+    ) -> Result<Option<Vec<Extracting>>> {
+        let one = |state: &str, staged: &Option<String>, roms: &[RepairRom]| match roms {
+            [rom] if state == "pending" && staged.is_none() && rom.cue_pack.is_none() => {
+                rom.member.clone().map(|member| (rom.rom.clone(), member))
+            }
+            _ => None,
+        };
+        if !loose || sources.len() != 1 {
+            return Ok(None);
+        }
+        let Some((rom, member)) = one(&step.state, &step.staged_name, roms) else {
+            return Ok(None);
+        };
+        let RepairStep::Build { target, .. } = &step.step else {
+            return Ok(None);
+        };
+        let mut batch = vec![Extracting {
+            step: step.clone(),
+            target: target.clone(),
+            rom,
+            member,
+        }];
+        for next in self.read(|c| steps_of(c, r.plan.id))? {
+            if next.seq <= step.seq {
+                continue;
+            }
+            let RepairStep::Build {
+                target,
+                roms,
+                sources: theirs,
+                loose: true,
+            } = &next.step
+            else {
+                break;
+            };
+            if next.item != step.item || theirs != sources {
+                break;
+            }
+            let Some((rom, member)) = one(&next.state, &next.staged_name, roms) else {
+                break;
+            };
+            batch.push(Extracting {
+                target: target.clone(),
+                step: next.clone(),
+                rom,
+                member,
+            });
+        }
+        Ok((batch.len() > 1).then_some(batch))
+    }
+
+    /// Runs the Build steps of `batch` together: their staged files are recorded and created first, then written in
+    /// one pass over the one ZIP they read, opened once and hashed as it is read while its stamp holds still, and
+    /// each checked against the DAT. Each step records the hash that one read gave, which a conversion deletes its
+    /// original by, as a step run alone would. When any fails, none is written.
+    fn run_extraction(
+        &self,
+        r: &Repairing,
+        batch: &[Extracting],
+        sources: &BTreeMap<String, SeenFile>,
+    ) -> Ran {
+        let dir = &r.dir;
+        let (path, seen) = sources.iter().next().expect("one source");
+        let mut staged: Vec<(&Extracting, String, File, Identity)> = Vec::new();
+        let mut failed: Option<String> = None;
+        for one in batch {
+            let staged_name = format!(".{}.title-select-new-{}", base_name(&one.target), unique());
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL,
+                         staged_ino = NULL, staged_size = NULL, staged_mtime_ns = NULL, staged_sha256 = NULL
+                     WHERE id = ?1",
+                    params![one.step.id, staged_name],
+                )?;
+                Ok(())
+            })?;
+            let file = match dir.create_new(&staged_name) {
+                Ok(file) => file,
+                Err(e) => {
+                    failed = Some(e.to_string());
+                    break;
+                }
+            };
+            let id = Identity::of_fd(&file).map_err(io_err)?;
+            let (dev, ino) = id.to_sql();
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE repair_steps SET staged_dev = ?2, staged_ino = ?3 WHERE id = ?1",
+                    params![one.step.id, dev, ino],
+                )?;
+                Ok(())
+            })?;
+            staged.push((one, staged_name, file, id));
+        }
+        let written = match failed {
+            Some(why) => Err(why),
+            None => (|| -> std::result::Result<(String, u64), String> {
+                let (parent, name) = parent_of(dir, path).map_err(|e| e.to_string())?;
+                let source = parent
+                    .as_ref()
+                    .unwrap_or(dir)
+                    .open_file(name)
+                    .map_err(|e| e.to_string())?;
+                let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
+                if Seen::of(&st) != seen_of(seen) {
+                    return Err(format!(
+                        "{path} changed since the plan was made; it was left as it is"
+                    ));
+                }
+                let dests: Vec<&File> = staged.iter().map(|(_, _, file, _)| file).collect();
+                let roms: Vec<(&ExpectedRom, &str)> = staged
+                    .iter()
+                    .map(|(one, ..)| (&one.rom, one.member.as_str()))
+                    .collect();
+                let read = write_loose_members(&dests, &roms, &source)?;
+                for (one, _, file, _) in &staged {
+                    verify_loose(file, &one.rom)
+                        .map_err(|why| format!("the new {} did not check: {why}", one.target))?;
+                }
+                let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
+                if Seen::of(&st) != seen_of(seen) {
+                    return Err(format!(
+                        "{path} changed while it was read; it was left as it is"
+                    ));
+                }
+                Ok(read)
+            })(),
+        };
+        match written {
+            Ok((sha, size)) => {
+                // What the ZIP was, hashed as it was read while its stamp, ctime included, held still.
+                let single = (seen.file.size == size).then_some(sha);
+                let reads = single.as_ref().map(|sha| {
+                    serde_json::to_string(&BTreeMap::from([(path.as_str(), sha.as_str())]))
+                        .expect("a map of strings")
+                });
+                dir.sync().map_err(io_err)?;
+                for (one, _, file, _) in &staged {
+                    if let Err(why) =
+                        self.build_staged(&one.step, file, single.clone(), reads.clone())?
+                    {
+                        return Ok(Err(why));
+                    }
+                }
+                Ok(Ok(()))
+            }
+            Err(why) => {
+                for (one, staged_name, file, id) in &staged {
+                    self.stamp_staged(&one.step, file)?;
+                    // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
+                    if let Err(left) = self.discard_staged(r, &one.step, staged_name, *id)? {
+                        return Ok(Err(format!("{why}; {left}")));
+                    }
+                }
+                for one in batch {
+                    self.fail_step(&one.step, "failed", why.clone())?;
+                }
+                Ok(Ok(()))
+            }
+        }
     }
 
     /// Records a Build step done, with the stamp of what it staged read through `file`, the descriptor that wrote or
-    /// checked it.
-    fn build_staged(&self, step: &StepRow, file: &File, source_sha: Option<String>) -> Ran {
+    /// checked it, and what it read its sources as, recorded only with the step done so a stop before then leaves no
+    /// read of them trusted.
+    fn build_staged(
+        &self,
+        step: &StepRow,
+        file: &File,
+        source_sha: Option<String>,
+        reads: Option<String>,
+    ) -> Ran {
         let sha = self.stamp_staged(step, file)?;
         self.write(|tx| {
             tx.execute(
-                "UPDATE repair_steps SET state = 'done', sha256 = ?2, finished_at = ?3, source_sha256 = ?4
-                 WHERE id = ?1",
-                params![step.id, sha, now(), source_sha],
+                "UPDATE repair_steps SET state = 'done', sha256 = ?2, finished_at = ?3, source_sha256 = ?4,
+                 source_reads = ?5 WHERE id = ?1",
+                params![step.id, sha, now(), source_sha, reads],
             )?;
             Ok(())
         })?;

@@ -376,6 +376,57 @@ pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
     Ok(())
 }
 
+/// Writes each ROM of `roms` into its own file of `dests`, each a new, empty file the caller created, as a loose file:
+/// its payload read from the named member of the ZIP `source`, an open file read once from its start, members in the
+/// order its directory lists them. Returns the SHA-256 and size of `source`, hashed as it was read, so a Game's ROMs
+/// are extracted from one archive in one pass. A payload of the wrong size is refused; checksums are checked by
+/// [`verify_loose`] afterwards.
+pub fn write_loose_members(
+    dests: &[&File],
+    roms: &[(&ExpectedRom, &str)],
+    source: &File,
+) -> Result<(String, u64), String> {
+    if dests.len() != roms.len() {
+        return Err(format!(
+            "{} files for {} ROMs; each ROM is written to a file of its own",
+            dests.len(),
+            roms.len()
+        ));
+    }
+    let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
+    let mut order: Vec<(usize, &File, &ExpectedRom)> = Vec::with_capacity(roms.len());
+    for (dest, (rom, member)) in dests.iter().zip(roms) {
+        let index = archive
+            .index_for_name(member)
+            .ok_or_else(|| format!("{member}: no such member"))?;
+        order.push((index, dest, rom));
+    }
+    order.sort_by_key(|(index, ..)| *index);
+    for (index, dest, rom) in order {
+        let mut out = BufWriter::new(dest);
+        let copied = {
+            let mut payload = archive
+                .by_index(index)
+                .map_err(|e| format!("{}: {e}", rom.name))?;
+            io::copy(&mut (&mut payload).take(rom.size + 1), &mut out)
+                .map_err(|e| format!("{}: {e}", rom.name))?
+        };
+        if copied != rom.size {
+            return Err(format!(
+                "{}: its payload is {copied} bytes, not the DAT's {}",
+                rom.name, rom.size
+            ));
+        }
+        let file = out.into_inner().map_err(|e| e.error().to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+    }
+    archive
+        .into_inner()
+        .into_inner()
+        .finish()
+        .map_err(|e| e.to_string())
+}
+
 /// Writes the one ROM of `roms` into `dest`, a new, empty file the caller created, as a loose file: its payload,
 /// read from its source in `sources`, a member of a ZIP archive or a whole loose file. Returns the SHA-256 and size
 /// of each source, as [`repack_sources`] does. A payload of the wrong size is refused; checksums are checked by

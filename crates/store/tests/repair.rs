@@ -2939,7 +2939,23 @@ fn a_loose_folder_converts_to_torrentzip_and_back_deleting_each_original_once_ve
         "{}",
         item_folder.summary
     );
+    // Every track is extracted in one pass over the ZIP: when the first is staged, every other is too.
+    let build = step_seq(&to_folder, |s| matches!(s, RepairStep::Build { .. }));
+    let set = env.set();
+    let staged_together = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let seen = staged_together.clone();
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::RepairStaged(build) {
+            let staged = Env::files(&set)
+                .iter()
+                .filter(|p| p.contains(".title-select-new-"))
+                .count();
+            *seen.lock().unwrap() = Some(staged);
+        }
+    })));
     let foldered = env.approve(&to_folder);
+    env.store.hook_faults(None);
+    assert_eq!(*staged_together.lock().unwrap(), Some(quest.len()));
     let mut wanted = vec![".title-select".to_string()];
     wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
     wanted.sort();
@@ -2955,6 +2971,55 @@ fn a_loose_folder_converts_to_torrentzip_and_back_deleting_each_original_once_ve
     );
     env.run_queued_audit(&foldered);
     assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_conversion_stopped_once_its_tracks_were_extracted_together_finishes_them_all() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    env.audit(AuditEvidence::Full);
+    set_disc_policy(&env, StorageFormat::TorrentZip, true);
+    let zipped = env.approve(&env.plan());
+    env.run_queued_audit(&zipped);
+    set_disc_policy(&env, StorageFormat::LooseFolder, true);
+    let plan = env.plan();
+    let build = step_seq(&plan, |s| matches!(s, RepairStep::Build { .. }));
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.inject_fault(Some(Fault::RepairStaged(build)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    assert_eq!(ended.id, requeued.id);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+
+    // The tracks staged with the first are checked and put in place. The ZIP's one read was recorded with the
+    // finished first track, so it is still trusted, and the original goes once the folder verifies.
+    for r in &quest {
+        assert_eq!(
+            std::fs::read(env.set().join("Quest (USA)").join(r.name)).unwrap(),
+            r.payload
+        );
+    }
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(
+        done.outcomes[0]
+            .detail
+            .iter()
+            .any(|d| d.contains("was deleted once its converted file was verified")),
+        "{:#?}",
+        done.outcomes
+    );
 }
 
 #[test]
