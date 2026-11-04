@@ -293,6 +293,7 @@ keep = 20                   # full audits kept per source set (the default)
 keep = 20                   # full selections kept per source set (the default)
 # engine = "bundled"        # the engine that makes selections: "bundled" (the default) or "builtin"
 # shadow = false            # also run the other engine on each selection and record how it compares
+# shadow_result_mib = 64    # the largest result, in MiB, a shadow run may return (the default)
 
 [source_sets]
 check_every_minutes = 360   # check each source set for changes this often (the default); 0 checks only when you ask
@@ -507,10 +508,14 @@ may have one audit job and one selection job queued or running at once. Afterwar
 `[selections] shadow = true`, each selection job also runs the other engine on the same DAT revision and selection
 profile, after the selection is recorded, and records how the two compare beside the selection: the groups they place
 differently or explain differently, and their warnings where those differ. The shadow run is a separate process with
-the job's timeout and an 8 GiB memory limit; it is stopped when it overruns either. It never changes or delays the
-selection, and a shadow run that fails for any reason, including a pattern the built-in engine can't read, is
-recorded as failed without failing the job. Pruning a selection also deletes its shadow comparison. The server's log gets one line
-per shadow run saying whether the engines agreed, and naming the first groups where they didn't;
+the job's timeout and an 8 GiB memory limit; it is stopped when it overruns either. Its result may be at most
+`shadow_result_mib` MiB: 64 by default, many times the largest selection the test DATs make (about 3 MB for 11,000
+releases). One shadow run runs at a time and one waits; when another selection is recorded meanwhile, its shadow run
+takes the waiting one's place, and the one it replaced is recorded as `skipped: busy`. Stopping the service stops a
+running shadow run and everything it started, and a shadow run's process also stops if the service dies. A shadow run
+never changes or delays the selection, and a shadow run that fails for any reason, including a pattern the built-in
+engine can't read, is recorded as failed without failing the job. Pruning a selection also deletes its shadow
+comparison. The server's log gets one line per shadow run saying whether the engines agreed, and naming the first groups where they didn't;
 `GET /api/v1/selections/{id}/shadow` returns the full comparison. A shadow run compares one run of each engine, so
 its differences are unclassified: some may come only from the order the bundled engine meets titles in. The log line
 and the comparison's `"classification": "unclassified"` say so; run `conformance` on the DAT to classify them.

@@ -30,7 +30,9 @@ use title_select_api::selection::{
 
 pub use compare::compare;
 pub use conformance::{Component, Conformance, Verdict, failure_category};
-pub use isolated::{DEFAULT_SHADOW_MEMORY, SHADOW_SUBCOMMAND, ShadowCommand, serve_shadow};
+pub use isolated::{
+    DEFAULT_SHADOW_MEMORY, DEFAULT_SHADOW_RESULT, SHADOW_SUBCOMMAND, ShadowCommand, serve_shadow,
+};
 pub use title_select_api::selection::SelectionEngine;
 pub use trace::stable_trace;
 
@@ -93,6 +95,8 @@ pub struct RunOptions {
     pub engine: SelectionEngine,
     /// The most address space a shadow run's child process may use (`Engine::shadow`), where the system enforces it.
     pub shadow_memory: Option<u64>,
+    /// The largest result, in bytes, a shadow run's child may return; a larger one is the shadow run's error.
+    pub shadow_result: u64,
     /// Runs the bundled engine with its sets of releases iterated in another order, chosen by this seed. Retool's
     /// sets of releases hash by identity, so the order they iterate in, and with it a few of its tie-breaks and
     /// explanations, follows the memory addresses CPython happens to allocate; a seed shows which results depend on
@@ -108,6 +112,7 @@ impl RunOptions {
             cancel: None,
             engine: SelectionEngine::default(),
             shadow_memory: Some(DEFAULT_SHADOW_MEMORY),
+            shadow_result: DEFAULT_SHADOW_RESULT,
             set_order: None,
         }
     }
@@ -136,6 +141,7 @@ pub struct Engine {
     data: PathBuf,
     pins: SelectionPins,
     shadow_command: Option<ShadowCommand>,
+    shadows: Arc<isolated::Shadows>,
 }
 
 impl Engine {
@@ -194,6 +200,7 @@ impl Engine {
             data: root.join("retool"),
             pins: expected,
             shadow_command: None,
+            shadows: Arc::default(),
         })
     }
 
@@ -488,6 +495,8 @@ impl Engine {
             .stdin(Stdio::null())
             .stdout(File::create(&stdout_path).map_err(io(stdout_path.display().to_string()))?)
             .stderr(File::create(&stderr_path).map_err(io(stderr_path.display().to_string()))?);
+        // A shadow run's child dies with its parent; so must the bundled engine it runs.
+        isolated::die_with_parent(&mut command);
         let mut child = command
             .spawn()
             .map_err(io(format!("starting {}", self.python().display())))?;

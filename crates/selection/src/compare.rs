@@ -2,6 +2,7 @@
 //! shadow mode.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Instant;
 
 use title_select_api::selection::{
     EngineComparison, GroupDifference, Placement, PlacementRole, ReleaseDifference, Rule,
@@ -15,20 +16,66 @@ pub fn compare(
     bundled_warnings: &[String],
     builtin_warnings: &[String],
 ) -> EngineComparison {
-    let index = |s: &Selection| -> BTreeMap<String, SelectionGroup> {
-        s.groups
-            .iter()
-            .map(|g| (g.group.clone(), g.clone()))
-            .collect()
+    compare_within(
+        bundled,
+        builtin,
+        bundled_warnings,
+        builtin_warnings,
+        Budget::default(),
+    )
+    .expect("an unlimited comparison finishes")
+}
+
+/// How much a comparison may do: until `deadline`, and at most `work` steps, one per group and one per release
+/// either engine placed in it.
+#[derive(Debug, Clone, Copy)]
+pub struct Budget {
+    pub deadline: Option<Instant>,
+    pub work: u64,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Budget {
+            deadline: None,
+            work: u64::MAX,
+        }
+    }
+}
+
+/// `compare`, giving up with the reason once it has spent `budget`.
+pub fn compare_within(
+    bundled: &Selection,
+    builtin: &Selection,
+    bundled_warnings: &[String],
+    builtin_warnings: &[String],
+    mut budget: Budget,
+) -> Result<EngineComparison, String> {
+    let index = |s| -> BTreeMap<&str, &SelectionGroup> {
+        let s: &Selection = s;
+        s.groups.iter().map(|g| (g.group.as_str(), g)).collect()
     };
     let (a, b) = (index(bundled), index(builtin));
-    let names: BTreeSet<&String> = a.keys().chain(b.keys()).collect();
+    let names: BTreeSet<&str> = a.keys().chain(b.keys()).copied().collect();
     let mut comparison = EngineComparison {
         groups: names.len(),
         ..Default::default()
     };
+    let size = |g: Option<&&SelectionGroup>| {
+        g.map_or(0, |g| {
+            g.winners.len() + g.alternatives.len() + g.exclusions.len()
+        }) as u64
+    };
     for name in names {
-        if let Some(difference) = compare_group(name, a.get(name), b.get(name)) {
+        let (x, y) = (a.get(name), b.get(name));
+        let cost = 1 + size(x) + size(y);
+        budget.work = budget.work.checked_sub(cost).ok_or_else(|| {
+            "comparing the two selections took more work than a comparison may".to_owned()
+        })?;
+        if budget.deadline.is_some_and(|d| Instant::now() >= d) {
+            return Err("comparing the two selections didn't finish in time".to_owned());
+        }
+        if let Some(difference) = compare_group(name, x.copied(), y.copied()) {
             if difference.explanation_only {
                 comparison.explained_differently += 1;
             } else {
@@ -40,7 +87,7 @@ pub fn compare(
     if bundled_warnings != builtin_warnings {
         comparison.warnings = Some([bundled_warnings.to_vec(), builtin_warnings.to_vec()]);
     }
-    comparison
+    Ok(comparison)
 }
 
 /// Where each engine put each release of a group.
@@ -194,6 +241,22 @@ mod tests {
         let mut mirrored = bundled.clone();
         mirrored.groups[0].alternatives[0].rule.reference = Some("REF0002".into());
         assert!(compare(&bundled, &mirrored, &[], &[]).is_identical());
+    }
+
+    #[test]
+    fn a_comparison_stops_once_it_has_spent_its_budget() {
+        let one = selection(vec![
+            group("a", "A (USA)", "A (Japan)", "Region order"),
+            group("b", "B (USA)", "B (Japan)", "Region order"),
+        ]);
+        let within =
+            |work, deadline| compare_within(&one, &one, &[], &[], Budget { deadline, work });
+        // Each group costs one step, and one for each of the two releases each engine placed.
+        assert!(within(10, None).unwrap().is_identical());
+        let error = within(9, None).unwrap_err();
+        assert!(error.contains("more work"), "{error}");
+        let error = within(10, Some(Instant::now())).unwrap_err();
+        assert!(error.contains("in time"), "{error}");
     }
 
     #[test]
