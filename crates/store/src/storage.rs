@@ -2,7 +2,7 @@
 //! and whether a
 //! conversion deletes each original once its converted file is verified.
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use title_select_api::storage::{
     ScopePolicy, Storage, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
 };
@@ -48,6 +48,70 @@ fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
 /// Sets. Every writer of a Game into a folder asks here.
 pub(crate) fn policy(c: &Connection, scope: StorageScope, system: &str) -> Result<Storage> {
     Ok(load_scope(c, scope)?.of(scope, system))
+}
+
+/// Respells each system override whose provider the store now spells otherwise, as [`crate::dats::canonical_dat`]:
+/// one saved before its provider's first DAT was imported keeps the spelling it was given until then. Two overrides
+/// that become one system merge, the more cautious winning: an override that keeps originals over one that follows
+/// the default, and that over one that deletes them; the format of the one already under the kept spelling, else the
+/// first by name, unless it sets none.
+pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
+    let rows = c
+        .prepare(
+            "SELECT scope, system, format, delete_originals FROM storage_policy WHERE system <> ''
+             ORDER BY scope, system",
+        )?
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<bool>>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (scope, system, format, delete_originals) in rows {
+        let canonical = crate::dats::canonical_dat(c, &system)?;
+        if canonical == system {
+            continue;
+        }
+        let kept: Option<(Option<String>, Option<bool>)> = c
+            .query_row(
+                "SELECT format, delete_originals FROM storage_policy WHERE scope = ?1 AND system = ?2",
+                params![scope, canonical],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        match kept {
+            None => {
+                c.execute(
+                    "UPDATE storage_policy SET system = ?3 WHERE scope = ?1 AND system = ?2",
+                    params![scope, system, canonical],
+                )?;
+            }
+            Some((kept_format, kept_delete)) => {
+                let caution = |d: Option<bool>| match d {
+                    Some(false) => 0,
+                    None => 1,
+                    Some(true) => 2,
+                };
+                let delete = if caution(delete_originals) < caution(kept_delete) {
+                    delete_originals
+                } else {
+                    kept_delete
+                };
+                c.execute(
+                    "UPDATE storage_policy SET format = ?3, delete_originals = ?4 WHERE scope = ?1 AND system = ?2",
+                    params![scope, canonical, kept_format.or(format), delete],
+                )?;
+                c.execute(
+                    "DELETE FROM storage_policy WHERE scope = ?1 AND system = ?2",
+                    params![scope, system],
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn check(policy: &StoragePolicy) -> Result<()> {
@@ -115,7 +179,15 @@ impl Store {
                         at
                     ],
                 )?;
+                let mut kept = std::collections::BTreeMap::new();
                 for (system, s) in &own.systems {
+                    let canonical = crate::dats::canonical_dat(tx, system)?;
+                    if let Some(other) = kept.insert(canonical.clone(), system) {
+                        return Err(Error::Refused(format!(
+                            "{other} and {system} are one system, {canonical}: set it once"
+                        )));
+                    }
+                    let system = &canonical;
                     tx.execute(
                         "INSERT INTO storage_policy (scope, system, format, delete_originals, updated_by,
                                                      updated_at)
@@ -134,5 +206,51 @@ impl Store {
             Ok(())
         })?;
         self.storage_policy()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_override_saved_before_its_dat_is_imported_follows_the_spelling_the_import_keeps() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let mut policy = StoragePolicy::default();
+        let own = |format, delete_originals| SystemStorage {
+            format,
+            delete_originals,
+        };
+        let systems = &mut policy.source_sets.systems;
+        systems.insert("redump/PSX".into(), own(None, Some(false)));
+        systems.insert(
+            "REDUMP/PSX".into(),
+            own(Some(StorageFormat::Loose), Some(true)),
+        );
+        systems.insert("redump/PS2".into(), own(None, Some(true)));
+        store.set_storage_policy(&policy, "Operator").unwrap();
+
+        for name in ["PSX", "PS2"] {
+            let dat = format!(
+                "<?xml version=\"1.0\"?><datafile><header><name>{name}</name><version>1</version></header></datafile>"
+            );
+            store
+                .import_dat_bytes(dat.as_bytes(), "x.dat", "Redump", None)
+                .unwrap();
+        }
+
+        let systems = store.storage_policy().unwrap().source_sets.systems;
+        // Of two overrides now of one system, the one that keeps originals wins.
+        assert_eq!(
+            systems.into_iter().collect::<Vec<_>>(),
+            [
+                ("Redump/PS2".to_owned(), own(None, Some(true))),
+                (
+                    "Redump/PSX".to_owned(),
+                    own(Some(StorageFormat::Loose), Some(false))
+                ),
+            ]
+        );
     }
 }

@@ -307,7 +307,7 @@ fn timestamp(s: &str) -> Result<jiff::Timestamp> {
 }
 
 /// The DAT Revision an Audit of `set` uses: the one whose SHA-256 starts with `prefix`; else the latest
-/// Audit's; else the newest imported revision of the bound DAT.
+/// Audit's; else the newest revision of the bound DAT.
 pub(super) fn choose_revision(
     c: &Connection,
     set: &SourceSetRow,
@@ -354,7 +354,7 @@ pub(super) fn choose_revision(
         return Ok(found);
     }
     c.query_row(
-        &format!("{base} WHERE r.dat_id = ?1 ORDER BY r.id DESC LIMIT 1"),
+        &format!("{base} WHERE r.dat_id = ?1 ORDER BY r.header_order DESC LIMIT 1"),
         [set.dat_id],
         revision_from_row,
     )
@@ -676,7 +676,7 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
 
 impl Store {
     /// Audits the registered Source Set `name` against the DAT Revision chosen by `revision` (a SHA-256 prefix),
-    /// or by default the latest Audit's, else the newest imported revision of its DAT, getting checksums as
+    /// or by default the latest Audit's, else the newest revision of its DAT, getting checksums as
     /// `evidence` says. Each file's payload read is recorded as it finishes, for later Audits to reuse. The Audit is
     /// recorded in one transaction when it finishes; older Audits are then pruned and unheld DAT blobs dropped.
     pub fn audit_source_set(

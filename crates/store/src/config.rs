@@ -35,6 +35,8 @@ pub struct Config {
     pub path_templates: PathTemplates,
     #[serde(default)]
     pub source_sets: SourceSets,
+    #[serde(default)]
+    pub fetch: Fetch,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -147,6 +149,26 @@ pub struct SourceSets {
 
 fn default_check_every_minutes() -> u64 {
     DEFAULT_CHECK_EVERY_MINUTES
+}
+
+/// Which DAT Providers Title Select fetches newer DAT Revisions from, for the systems a Source Set Follows. Each is
+/// off until the Operator turns it on (ADR 0012). No-Intro is never fetched from.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Fetch {
+    #[serde(default)]
+    pub redump: bool,
+    #[serde(default)]
+    pub mame: bool,
+}
+
+impl Fetch {
+    pub fn enabled(&self, provider: title_select_api::fetch::FetchProvider) -> bool {
+        match provider {
+            title_select_api::fetch::FetchProvider::Redump => self.redump,
+            title_select_api::fetch::FetchProvider::Mame => self.mame,
+        }
+    }
 }
 
 impl Default for SourceSets {
@@ -271,7 +293,7 @@ impl Pace {
 }
 
 impl Default for Config {
-    /// No Roots, the default Audit history, Job limits and Path Templates, and no auth.
+    /// No Roots, the default Audit history, Job limits and Path Templates, no auth, and no fetching.
     fn default() -> Self {
         Config {
             roots: BTreeMap::new(),
@@ -281,6 +303,7 @@ impl Default for Config {
             jobs: Jobs::default(),
             path_templates: PathTemplates::default(),
             source_sets: SourceSets::default(),
+            fetch: Fetch::default(),
         }
     }
 }

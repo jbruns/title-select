@@ -4,6 +4,7 @@
 pub mod additions;
 pub mod build;
 pub mod discs;
+pub mod fetch;
 pub mod ingest;
 pub mod lifecycle;
 pub mod paths;
@@ -53,7 +54,7 @@ pub struct Root {
     pub ingest: bool,
 }
 
-/// A DAT, identified by its provider and header name, with its DAT Revisions, oldest import first.
+/// A DAT, identified by its provider and header name, with its DAT Revisions, oldest first by header version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dat {
     /// `<provider>/<name>`.

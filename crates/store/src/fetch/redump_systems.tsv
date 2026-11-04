@@ -1,0 +1,61 @@
+# Verified from http://redump.org/downloads/ (one request). Columns: code, system, cues, datfile, sbi
+arch	Acorn Archimedes	y	y	n
+mac	Apple Macintosh	y	y	y
+ajcd	Atari Jaguar CD Interactive Multimedia System	y	y	n
+pippin	Bandai Pippin	y	y	n
+qis	Bandai Playdia Quick Interactive System	y	y	n
+acd	Commodore Amiga CD	y	y	n
+cd32	Commodore Amiga CD32	y	y	n
+cdtv	Commodore Amiga CDTV	y	y	n
+fmt	Fujitsu FM Towns series	y	y	n
+fpp	funworld Photo Play	y	y	n
+pc	IBM PC compatible	y	y	y
+ite	Incredible Technologies Eagle	y	y	n
+kea	Konami e-Amusement	y	y	n
+kfb	Konami FireBeat	y	y	n
+ks573	Konami System 573	y	y	n
+ksgv	Konami System GV	y	y	n
+kt	Konami Twinkle	n	n	n
+ixl	Mattel Fisher-Price iXL	y	y	n
+hs	Mattel HyperScan	y	y	n
+vis	Memorex Visual Information System	y	y	n
+xbox	Microsoft Xbox	y	y	n
+xbox360	Microsoft Xbox 360	y	y	n
+trf	Namco - Sega - Nintendo Triforce	y	y	n
+ns12	Namco System 12	n	n	n
+ns246	Namco System 246	y	y	n
+pce	NEC PC Engine CD & TurboGrafx CD	y	y	n
+pc-88	NEC PC-88 series	y	y	n
+pc-98	NEC PC-98 series	y	y	n
+pc-fx	NEC PC-FX & PC-FXGA	y	y	n
+ngcd	Neo Geo CD	y	y	n
+gc	Nintendo GameCube	n	y	n
+wii	Nintendo Wii	n	y	n
+palm	Palm OS	y	y	n
+3do	Panasonic 3DO Interactive Multiplayer	y	y	n
+cdi	Philips CD-i	y	y	n
+photo-cd	Photo CD	y	y	n
+psxgs	PlayStation GameShark Updates	y	y	n
+ppc	Pocket PC	y	y	n
+chihiro	Sega Chihiro	y	y	n
+dc	Sega Dreamcast	y	y	n
+lindbergh	Sega Lindbergh	n	y	n
+mcd	Sega Mega CD & Sega CD	y	y	n
+naomi	Sega Naomi	y	y	n
+naomi2	Sega Naomi 2	y	y	n
+sp21	Sega Prologue 21 Multimedia Karaoke System	y	y	n
+sre	Sega RingEdge	n	y	n
+sre2	Sega RingEdge 2	n	y	n
+ss	Sega Saturn	y	y	n
+stv	Sega Titan Video	n	n	n
+x68k	Sharp X68000	y	y	n
+psx	Sony PlayStation	y	y	y
+ps2	Sony PlayStation 2	y	y	n
+ps3	Sony PlayStation 3	y	y	n
+psp	Sony PlayStation Portable	n	y	n
+quizard	TAB-Austria Quizard	y	y	n
+iktv	Tao iKTV	n	n	n
+ksite	Tomy Kiss-Site	y	y	n
+nuon	VM Labs NUON	n	y	n
+vflash	VTech V.Flash & V.Smile Pro	y	y	n
+gamewave	ZAPiT Games Game Wave Family Entertainment System	n	y	n

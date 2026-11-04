@@ -53,7 +53,7 @@ enum Command {
         #[arg(long)]
         set: Option<String>,
         /// With `--set`, the DAT revision to audit against, by a prefix of its SHA-256. Defaults to the latest
-        /// audit's DAT revision, else the newest imported revision of the source set's DAT.
+        /// audit's DAT revision, else the newest revision of the source set's DAT.
         #[arg(long, requires = "set")]
         revision: Option<String>,
         /// The service to run the audit, such as `http://127.0.0.1:8080`. Sends your operator token.

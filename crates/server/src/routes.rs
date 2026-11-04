@@ -22,6 +22,7 @@ use title_select_api::build::{
     FolderCheck, Incomplete, KeptDeletion, KeptFile, LibraryFolder, Plan, PlanBuild, PlanCleanup,
     PlanKeptDeletion,
 };
+use title_select_api::fetch::{FetchProvider, FetchStatus, FetchTrigger};
 use title_select_api::ingest::{
     DismissIngestItems, IngestFolder, IngestItem, IngestKeptFile, IngestPlan, PlanIngest,
     RegisterIngestFolder,
@@ -38,6 +39,7 @@ use title_select_api::{
 };
 use title_select_selection::Engine;
 use title_select_store::config::Config;
+use title_select_store::fetch::Fetcher;
 use title_select_store::{Error, Store, Workers};
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
@@ -65,6 +67,7 @@ pub struct AppState {
     pub workers: Workers,
     pub engine: Option<Arc<Engine>>,
     pub previews: Arc<Previews>,
+    pub fetcher: Arc<Fetcher>,
 }
 
 impl AppState {
@@ -106,6 +109,8 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
             get(followed_revisions),
         )
         .route("/source-sets/{name}/ingests", get(source_set_ingests))
+        .route("/fetch", get(fetch_status))
+        .route("/fetch/{provider}", post(start_fetch))
         .route("/audits", post(start_audit))
         .route("/audits/{id}", get(audit))
         .route("/audits/{id}/report", get(report))
@@ -1235,6 +1240,56 @@ async fn followed_revisions(
     ))
 }
 
+async fn fetch_status(State(state): State<AppState>) -> ApiResult<Json<FetchStatus>> {
+    let (config, fetcher) = (state.config.clone(), state.fetcher.clone());
+    Ok(Json(
+        blocking(&state, move |store| store.fetch_status(&config, &fetcher)).await?,
+    ))
+}
+
+/// How long a fetch you start is waited for before it is left to run on: long enough to report a refusal, which
+/// comes before any request.
+const FETCH_ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Fetches from a DAT Provider now, by hand: still at most once a day per system. Answers with where fetching stands
+/// once the fetch ends, or while it runs on after a moment. A fetch never starts an Audit.
+async fn start_fetch(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    provider: Result<Path<String>, PathRejection>,
+) -> ApiResult<(StatusCode, Json<FetchStatus>)> {
+    let Path(provider) = provider?;
+    let provider = FetchProvider::parse(&provider).ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_FOUND,
+            format!("{provider:?} is not a provider Title Select fetches from"),
+            None,
+        )
+    })?;
+    let (store, config, fetcher) = (
+        state.store.clone(),
+        state.config.clone(),
+        state.fetcher.clone(),
+    );
+    let fetch = tokio::task::spawn_blocking(move || {
+        crate::jobs::log_fetch(
+            provider,
+            store.fetch(&config, &fetcher, provider, FetchTrigger::Manual, &actor),
+        )
+    });
+    let status = match tokio::time::timeout(FETCH_ANSWER_WITHIN, fetch).await {
+        Ok(ended) => {
+            ended
+                .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string(), None))??;
+            StatusCode::OK
+        }
+        Err(_) => StatusCode::ACCEPTED,
+    };
+    let (config, fetcher) = (state.config.clone(), state.fetcher.clone());
+    let now = blocking(&state, move |store| store.fetch_status(&config, &fetcher)).await?;
+    Ok((status, Json(now)))
+}
+
 async fn history(
     State(state): State<AppState>,
     name: Result<Path<String>, PathRejection>,
@@ -1917,6 +1972,9 @@ mod tests {
             },
             engine: None,
             previews: Arc::default(),
+            fetcher: Arc::new(Fetcher::new(title_select_store::fetch::Endpoints::at(
+                "http://127.0.0.1:9",
+            ))),
         }
     }
 

@@ -582,6 +582,94 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     assert!(changed("Beta").is_empty(), "another DAT's set is untouched");
 }
 
+/// The only way a No-Intro DAT Revision arrives: the Operator drops it in, and it is recognized from its header.
+#[test]
+fn a_dropped_in_dat_is_recognized_as_a_newer_revision_and_makes_the_following_source_set_stale() {
+    let env = Env::new();
+    env.store.set_follow("Alpha", true).unwrap();
+    assert_eq!(env.store.source_set("Alpha").unwrap().stale, []);
+    write_named_dat(
+        &env.dir("in"),
+        "whatever I downloaded.dat",
+        "Alpha System",
+        "2",
+        &alpha_games(),
+    );
+    env.scan();
+    env.scan();
+    let dat = env
+        .item("whatever I downloaded.dat")
+        .assessment
+        .dat
+        .unwrap();
+    assert_eq!(
+        (dat.name.as_str(), dat.providers.as_slice(), dat.imported),
+        ("Alpha System", &["Test".to_string()][..], false),
+        "recognized from its header, not its file name"
+    );
+
+    let plan = env.plan(IngestAction::DatImport, &["whatever I downloaded.dat"]);
+    env.store
+        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let stale = env.store.source_set("Alpha").unwrap().stale;
+    assert!(
+        matches!(&stale[..], [title_select_api::SourceSetStale::NewerRevision { version, .. }] if version == "2"),
+        "{stale:?}"
+    );
+    assert_eq!(env.store.source_set("Beta").unwrap().stale, []);
+}
+
+/// Revisions are ordered by their header's version, not by when they arrived.
+#[test]
+fn an_older_dat_dropped_in_is_recorded_but_never_becomes_the_newest_revision() {
+    let env = Env::new();
+    env.store.set_follow("Alpha", true).unwrap();
+    for (file, version) in [("old.dat", "0.9"), ("older.dat", "0.10-beta")] {
+        write_named_dat(
+            &env.dir("in"),
+            file,
+            "Alpha System",
+            version,
+            &alpha_games(),
+        );
+    }
+    env.scan();
+    env.scan();
+    let jobs = env.store.jobs(100).unwrap();
+
+    let plan = env.plan(IngestAction::DatImport, &["old.dat", "older.dat"]);
+    env.store
+        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let alpha: Vec<(String, bool)> = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.name == "Alpha System")
+        .map(|r| (r.version, r.blob_present))
+        .collect();
+    assert_eq!(
+        alpha,
+        [
+            ("0.9".into(), false),
+            ("0.10-beta".into(), false),
+            ("1".into(), true)
+        ],
+        "both are recorded, ordered by version, and only version 1, the newest, is kept as the current revision"
+    );
+    assert_eq!(env.store.source_set("Alpha").unwrap().stale, []);
+    assert_eq!(env.store.followed_revisions("Alpha").unwrap(), []);
+    assert_eq!(
+        env.store.jobs(100).unwrap(),
+        jobs,
+        "an older revision queues no audit"
+    );
+}
+
 #[test]
 fn a_dat_import_of_many_uses_each_dats_own_provider_and_the_one_you_chose_only_for_the_rest() {
     let env = Env::new();

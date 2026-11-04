@@ -279,6 +279,7 @@ pub fn DatRevisions() -> impl IntoView {
             detail=Callback::new(revision_detail)
             legend=move || view! { <Legend statuses list="dat-revisions" /> }
         />
+        <super::fetching::Fetching />
         <Drawer open=importing title="Import a DAT">
             <Upload on_done=Callback::new(move |_| uploaded.update(|n| *n += 1)) />
         </Drawer>

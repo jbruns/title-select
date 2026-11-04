@@ -2296,3 +2296,44 @@ fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
+
+/// Fetching is off until you turn it on, and refuses before any request when nothing can be fetched. No test sends a
+/// request to a DAT Provider.
+#[test]
+fn fetching_reports_its_state_and_refuses_before_any_request() {
+    use title_select_api::fetch::{FetchProvider, FetchStatus};
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let status: FetchStatus = client.json("/fetch");
+    let providers: Vec<_> = status
+        .providers
+        .iter()
+        .map(|p| (p.provider, p.enabled, p.running))
+        .collect();
+    assert_eq!(
+        providers,
+        [
+            (FetchProvider::Redump, false, false),
+            (FetchProvider::Mame, false, false)
+        ]
+    );
+    let mut off = client.post("/fetch/redump").send_empty().unwrap();
+    assert_eq!(off.status(), 400);
+    let body: ErrorBody = off.body_mut().read_json().unwrap();
+    assert!(body.error.contains("redump = true"), "{}", body.error);
+    let no_intro = client.post("/fetch/no-intro").send_empty().unwrap();
+    assert_eq!(no_intro.status(), 404);
+    drop(service);
+
+    let service = title_select_server::spawn(env.settings("[fetch]\nredump = true\n")).unwrap();
+    let client = Client::new(&service);
+    let mut nothing = client.post("/fetch/redump").send_empty().unwrap();
+    assert_eq!(nothing.status(), 400);
+    let body: ErrorBody = nothing.body_mut().read_json().unwrap();
+    assert!(
+        body.error.contains("no source set follows"),
+        "{}",
+        body.error
+    );
+}

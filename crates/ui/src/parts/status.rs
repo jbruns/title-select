@@ -920,6 +920,61 @@ impl Status for DatFileStatus {
     }
 }
 
+/// Where fetching one system's DATs and packs from a DAT provider stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FetchState {
+    Running,
+    Failed,
+    Off,
+    NotFetched,
+    Fetched,
+}
+
+impl Status for FetchState {
+    const ALL: &'static [Self] = &[
+        FetchState::Running,
+        FetchState::Failed,
+        FetchState::Off,
+        FetchState::NotFetched,
+        FetchState::Fetched,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            FetchState::Running => look(
+                Glyph::LoaderCircle,
+                Tone::Active,
+                "Fetching",
+                "A fetch is running now.",
+            ),
+            FetchState::Failed => look(
+                Glyph::CircleX,
+                Tone::Failed,
+                "Fetch failed",
+                "The last fetch failed; the last good DAT revision stays, and it's tried again a day later.",
+            ),
+            FetchState::Off => look(
+                Glyph::CircleOff,
+                Tone::Neutral,
+                "Fetching off",
+                "Fetching from this provider is off until you turn it on in your configuration.",
+            ),
+            FetchState::NotFetched => look(
+                Glyph::Clock,
+                Tone::Neutral,
+                "Not fetched",
+                "Nothing has been fetched for it yet.",
+            ),
+            FetchState::Fetched => look(
+                Glyph::CircleCheck,
+                Tone::Good,
+                "Fetched",
+                "The last fetch worked.",
+            ),
+        }
+    }
+}
+
 impl Status for JobState {
     const ALL: &'static [Self] = &JobState::ALL;
 
@@ -1004,6 +1059,7 @@ mod tests {
             ("ingest plan kinds", vocabulary::<IngestPlanKind>()),
             ("jobs", vocabulary::<JobState>()),
             ("DAT files", vocabulary::<DatFileStatus>()),
+            ("fetching", vocabulary::<FetchState>()),
             ("selection groups", vocabulary::<GroupStatus>()),
         ]
     }

@@ -202,7 +202,7 @@ pub(crate) fn check_no_active(
 
 impl Store {
     /// Queues an Audit of the Source Set `name`, started by `actor`, pinned now to the DAT Revision `revision` (a
-    /// SHA-256 prefix) or by default the latest Audit's, else the newest imported revision of its DAT, getting
+    /// SHA-256 prefix) or by default the latest Audit's, else the newest revision of its DAT, getting
     /// checksums as `evidence` says. Refused, naming the Job, while the Source Set already has an Audit Job Queued or
     /// Running.
     pub fn enqueue_audit(

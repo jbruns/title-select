@@ -442,8 +442,8 @@ pub fn parse_ndjson(text: &str) -> Result<Vec<EntryRow>, String> {
 }
 
 /// The DAT Revisions an Audit of a Source Set can be started against: the one `POST /audits` defaults to, which is the
-/// latest Audit's DAT Revision or else the newest imported, and those imported after it. `revisions` are the bound
-/// DAT's, oldest import first.
+/// latest Audit's DAT Revision or else the newest, and those newer than it. `revisions` are the bound DAT's, oldest
+/// first by header version.
 pub fn audit_choices<'a>(
     history: &[AuditSummary],
     revisions: &'a [DatRevisionRecord],

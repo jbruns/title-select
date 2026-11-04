@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use super::{CUE_PACKS, DATS, Result, Store, io_error};
+use super::{CUE_PACKS, DATS, Result, SBI_PACKS, Store, io_error};
 
 /// Writes a blob to a temp file in the blob directory, fsyncs it, renames it into place and fsyncs the
 /// directory, so it is durable before any row refers to it.
@@ -42,8 +42,8 @@ pub(super) fn remove_blob(path: &Path) -> Result<()> {
 impl Store {
     /// Deletes every file in the blob directory that is not the blob of a DAT Revision whose row holds it,
     /// including temp files left by an interrupted write, and every file in the cue pack directory that is not the
-    /// file of a cue pack whose row holds it, including one whose deletion was recorded but not finished. Returns the
-    /// names it deleted, a cue pack's under `cue_packs/`.
+    /// file of a cue pack whose row holds it, including one whose deletion was recorded but not finished, and SBI packs
+    /// alike. Returns the names it deleted, a cue pack's under `cue_packs/` and an SBI pack's under `sbi_packs/`.
     ///
     /// It holds the writer throughout, so no import in this process is between writing a blob and inserting its
     /// row; the store's lock excludes every other process.
@@ -66,6 +66,11 @@ impl Store {
                     CUE_PACKS,
                     "SELECT sha256 FROM cue_packs WHERE blob_dropped_at IS NULL",
                     "cue_packs/",
+                ),
+                (
+                    SBI_PACKS,
+                    "SELECT sha256 FROM sbi_packs WHERE blob_dropped_at IS NULL",
+                    "sbi_packs/",
                 ),
             ] {
                 let dir = self.dir.join(dir);

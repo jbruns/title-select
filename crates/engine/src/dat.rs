@@ -1,4 +1,5 @@
-//! Reading a Logiqx XML DAT into a DAT Revision.
+//! Reading a DAT into a DAT Revision: Logiqx XML, MAME's ListXML (`<mame>`, named `MAME` and versioned by its build),
+//! or a MAME software list (`<softwarelist>`, named by its list name, unversioned).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,16 +19,37 @@ pub struct Rom {
     pub sha256: Option<String>,
 }
 
+/// The root element a DAT is read by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Root {
+    Logiqx,
+    ListXml,
+    SoftwareList,
+}
+
 pub struct Dat {
     pub sha256: String,
     pub name: String,
     pub version: String,
+    /// The header's date, as the provider writes it; empty if it gives none.
+    pub date: String,
     pub games: Vec<String>,
     pub roms: Vec<Rom>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
     /// ROMs the DAT lists without a CRC, which the size-and-CRC index cannot find.
     by_size_without_crc: HashMap<u64, Vec<usize>>,
+    /// Where a software list's last ROM is read to, and the furthest any read of it reached, while unnamed ROMs that
+    /// follow may still read on in its file.
+    extent: Option<(u64, u64)>,
+}
+
+/// A size as DATs write it: decimal, or hexadecimal after `0x`.
+fn parse_size(text: &str) -> Option<u64> {
+    match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        Some(hex) => u64::from_str_radix(hex, 16).ok(),
+        None => text.parse().ok(),
+    }
 }
 
 fn attrs(e: &BytesStart) -> Result<HashMap<String, String>, Error> {
@@ -59,32 +81,54 @@ impl Dat {
             sha256,
             name: String::new(),
             version: String::new(),
+            date: String::new(),
             games: Vec::new(),
             roms: Vec::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
             by_size_without_crc: HashMap::new(),
+            extent: None,
         };
         let mut stack: Vec<String> = Vec::new();
-        let mut saw_root = false;
+        let mut root = None;
         loop {
             let event = reader
                 .read_event_into(&mut buf)
                 .map_err(|err| Error::Dat(format!("{}: {err}", path.display())))?;
             match event {
+                Event::Start(e) if stack.is_empty() => {
+                    let tag = e.local_name().as_ref().to_string();
+                    let a = attrs(&e)?;
+                    root = match tag.as_str() {
+                        "datafile" => Some(Root::Logiqx),
+                        "mame" => {
+                            dat.name = "MAME".into();
+                            dat.version = a.get("build").cloned().unwrap_or_default();
+                            Some(Root::ListXml)
+                        }
+                        "softwarelist" => {
+                            dat.name = a.get("name").cloned().unwrap_or_default();
+                            Some(Root::SoftwareList)
+                        }
+                        _ => None,
+                    };
+                    stack.push(tag);
+                }
                 Event::Start(e) => {
-                    let tag = dat.open(&e)?;
-                    saw_root |= tag == "datafile";
+                    let tag = dat.open(&e, root)?;
                     stack.push(tag);
                 }
                 Event::Empty(e) => {
-                    dat.open(&e)?;
+                    dat.open(&e, root)?;
                 }
                 Event::Text(t) => {
-                    let in_header = stack.len() >= 2 && stack[stack.len() - 2] == "header";
+                    let in_header = root == Some(Root::Logiqx)
+                        && stack.len() >= 2
+                        && stack[stack.len() - 2] == "header";
                     match stack.last().map(String::as_str) {
                         Some("name") if in_header => dat.name.push_str(&t.xml10_content()),
                         Some("version") if in_header => dat.version.push_str(&t.xml10_content()),
+                        Some("date") if in_header => dat.date.push_str(&t.xml10_content()),
                         _ => {}
                     }
                 }
@@ -96,21 +140,81 @@ impl Dat {
             }
             buf.clear();
         }
-        if !saw_root {
+        if root.is_none() {
             return Err(Error::Dat(format!(
-                "{}: not a Logiqx XML DAT",
+                "{}: not a Logiqx XML DAT, MAME ListXML or MAME software list",
                 path.display()
             )));
         }
         Ok(dat)
     }
 
-    /// Handles an opening or empty tag and returns its name.
-    fn open(&mut self, e: &BytesStart) -> Result<String, Error> {
+    /// The date in the Logiqx header at the start of `bytes`, read no further than the header's end: empty if there is
+    /// none, or the header is not whole in `bytes`.
+    pub fn header_date(bytes: &[u8]) -> String {
+        let mut reader = quick_xml::Reader::from_reader(bytes);
+        let mut buf = Vec::new();
+        let mut stack: Vec<String> = Vec::new();
+        let mut date = String::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => {
+                    let tag = e.local_name().as_ref().to_string();
+                    if stack.is_empty() && tag != "datafile" {
+                        return String::new();
+                    }
+                    stack.push(tag);
+                }
+                Ok(Event::Text(t))
+                    if stack.len() == 3 && stack[1] == "header" && stack[2] == "date" =>
+                {
+                    date.push_str(&t.xml10_content());
+                }
+                Ok(Event::End(_)) => {
+                    if stack.pop().is_some_and(|t| t == "header") {
+                        return date;
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => return String::new(),
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+
+    /// Handles an opening or empty tag inside the root and returns its name.
+    fn open(&mut self, e: &BytesStart, root: Option<Root>) -> Result<String, Error> {
         let tag = e.local_name().as_ref().to_string();
-        match tag.as_str() {
-            "game" | "machine" => self.start_game(e)?,
-            "rom" => self.add_rom(e)?,
+        match (root, tag.as_str()) {
+            (Some(Root::Logiqx | Root::ListXml), "game" | "machine") => self.start_game(e)?,
+            (Some(Root::SoftwareList), "software") => self.start_game(e)?,
+            // A software list's unnamed ROM has no file of its own: it reads on in the file of the named ROM before
+            // it. As MAME's rom_file_size measures that file, one that continues or skips reads on from where the
+            // last read ended, and one that reloads reads again from the start; the file is as large as the
+            // furthest any read reaches. Any other, such as a fill, reads no file, and ends the run.
+            (Some(Root::SoftwareList), "rom") if !attrs(e)?.contains_key("name") => {
+                let a = attrs(e)?;
+                let read = |pos: u64| -> Result<u64, Error> {
+                    a.get("size")
+                        .and_then(|s| parse_size(s))
+                        .map(|size| pos + size)
+                        .ok_or_else(|| {
+                            Error::Dat("a rom read in its file has no valid size".into())
+                        })
+                };
+                self.extent = match (self.extent, a.get("loadflag").map(String::as_str)) {
+                    (Some((pos, max)), Some("continue" | "ignore")) => Some((read(pos)?, max)),
+                    (Some((_, max)), Some("reload" | "reload_plain")) => Some((read(0)?, max)),
+                    _ => None,
+                };
+                if let Some((pos, max)) = self.extent
+                    && pos > max
+                {
+                    self.extent = Some((pos, pos));
+                    self.resize_last_rom(pos);
+                }
+            }
+            (Some(_), "rom") => self.add_rom(e)?,
             _ => {}
         }
         Ok(tag)
@@ -122,6 +226,7 @@ impl Dat {
             .get("name")
             .ok_or_else(|| Error::Dat("a game has no name".into()))?;
         self.games.push(name.clone());
+        self.extent = None;
         Ok(())
     }
 
@@ -151,6 +256,7 @@ impl Dat {
             sha256: lower("sha256"),
         };
         let idx = self.roms.len();
+        self.extent = Some((rom.size, rom.size));
         self.by_name.entry(rom.name.clone()).or_default().push(idx);
         match &rom.crc {
             Some(crc) => self
@@ -166,6 +272,35 @@ impl Dat {
         }
         self.roms.push(rom);
         Ok(())
+    }
+
+    /// Makes the last ROM read `size` bytes.
+    fn resize_last_rom(&mut self, size: u64) {
+        let Some(idx) = self.roms.len().checked_sub(1) else {
+            return;
+        };
+        let rom = &self.roms[idx];
+        let bucket = match &rom.crc {
+            Some(crc) => self.by_size_crc.get_mut(&(rom.size, crc.clone())),
+            None => self.by_size_without_crc.get_mut(&rom.size),
+        };
+        if let Some(bucket) = bucket {
+            bucket.retain(|&i| i != idx);
+        }
+        let rom = &mut self.roms[idx];
+        rom.size = size;
+        match &rom.crc {
+            Some(crc) => self
+                .by_size_crc
+                .entry((rom.size, crc.clone()))
+                .or_default()
+                .push(idx),
+            None => self
+                .by_size_without_crc
+                .entry(rom.size)
+                .or_default()
+                .push(idx),
+        }
     }
 
     pub fn roms_named(&self, name: &str) -> &[usize] {

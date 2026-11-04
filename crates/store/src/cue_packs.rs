@@ -1,8 +1,8 @@
 //! Redump cue packs: ZIPs of `.cue` sheets for one DAT, kept unmodified under `cue_packs/<sha256>` in the store with
 //! where they came from. A repair fills or replaces a `.cue` ROM from one, matched by the DAT's checksums. Each sheet is
 //! hashed once, when its pack is imported, and indexed, so planning reads no pack; a repair reads only the sheet it
-//! writes. A pack no repair plan refers to that is no longer the latest for its DAT has its file deleted, as an
-//! unheld DAT blob is.
+//! writes. A pack no repair plan refers to has its file deleted, as an unheld DAT blob is, once it is no longer the
+//! latest imported for its DAT or, if it was fetched, the one the latest fetch of its system brought.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 use super::blobs::{remove_blob, write_blob};
 use super::dats::split_dat;
+use super::fetch::{NOT_HELD, hold_pack};
 use super::repairs::planning::CueSheet;
 use super::{Error, Result, Store, io_error, now};
 
@@ -93,19 +94,30 @@ impl Store {
         source_url: Option<&str>,
         origin: CuePackOrigin,
     ) -> Result<(CuePackRecord, ImportOutcome)> {
+        self.import_cue_pack_held(bytes, file, dat, source_url, origin, None)
+    }
+
+    /// As [`Store::import_cue_pack_bytes`], recording the unfinished fetch `fetch`, if given, as bringing the pack as
+    /// it is kept, so that no retention between deletes it before that fetch finishes.
+    pub(crate) fn import_cue_pack_held(
+        &self,
+        bytes: &[u8],
+        file: &str,
+        dat: &str,
+        source_url: Option<&str>,
+        origin: CuePackOrigin,
+        fetch: Option<i64>,
+    ) -> Result<(CuePackRecord, ImportOutcome)> {
+        split_dat(dat)?;
+        let canonical = self.read(|c| super::dats::canonical_dat(c, dat))?;
+        let dat = canonical.as_str();
         let (provider, name) = split_dat(dat)?;
         if bytes.len() as u64 > CUE_PACK_LIMIT {
             return Err(Error::Refused(format!(
                 "{file}: a cue pack is at most {CUE_PACK_LIMIT} bytes"
             )));
         }
-        let known: bool = self.read(|c| {
-            Ok(c.query_row(
-                "SELECT EXISTS (SELECT 1 FROM dats WHERE provider = ?1 AND name = ?2)",
-                params![provider, name],
-                |r| r.get(0),
-            )?)
-        })?;
+        let known: bool = self.read(|c| Ok(super::dats::find_dat(c, provider, name)?.is_some()))?;
         if !known {
             return Err(Error::Refused(format!(
                 "{dat}: import the DAT before a cue pack for it"
@@ -125,6 +137,9 @@ impl Store {
         let _ = std::fs::remove_file(&tmp);
         let sheets = sheets?;
         let imported = self.with_writer(|conn| {
+            if let Some(fetch) = fetch {
+                hold_pack(conn, fetch, &sha)?;
+            }
             if let Some(existing) = pack_by_sha(conn, &sha)? {
                 if existing.dat != dat {
                     return Err(Error::Refused(format!(
@@ -189,20 +204,39 @@ impl Store {
         Ok(imported)
     }
 
-    /// Deletes the file of every cue pack that no repair plan or step refers to and that is neither the latest
-    /// imported for its DAT nor held as restored. The row stays, and importing the pack again restores its file.
-    /// Returns the SHA-256s whose files were deleted.
+    /// Deletes the file of every cue pack that no repair plan or step refers to and that its origin no longer holds.
+    /// An imported pack is held while it is the latest added for its DAT or held as restored. A fetched pack is held
+    /// while it is the one the latest successful fetch of its system's cue pack brought, or while no fetch names it
+    /// yet, as it is being fetched. Either is held while a running fetch brings it. The row stays, and importing the pack again restores its file. Returns the
+    /// SHA-256s whose files were deleted.
     pub fn retain_cue_packs(&self) -> Result<Vec<String>> {
         self.with_writer(|conn| {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let shas = tx
                 .prepare(
+                    &format!(
                     "SELECT c.sha256 FROM cue_packs c
-                     WHERE c.blob_dropped_at IS NULL AND c.restored_at IS NULL
-                       AND c.id <> (SELECT max(n.id) FROM cue_packs n WHERE n.dat = c.dat)
+                     WHERE c.blob_dropped_at IS NULL
+                       AND CASE c.origin
+                           WHEN 'fetch' THEN
+                               EXISTS (SELECT 1 FROM fetches f
+                                       WHERE f.artifact = 'cues' AND f.pack_sha256 = c.sha256)
+                               AND c.sha256 NOT IN (
+                                   SELECT f.pack_sha256 FROM fetches f
+                                   WHERE f.artifact = 'cues' AND f.pack_sha256 IS NOT NULL
+                                     AND f.id = (SELECT max(g.id) FROM fetches g
+                                                 WHERE g.provider = f.provider AND g.system = f.system
+                                                   AND g.artifact = 'cues'
+                                                   AND g.outcome IN ('added', 'unchanged')))
+                           ELSE c.restored_at IS NULL
+                               AND c.id <> (SELECT max(n.id) FROM cue_packs n WHERE n.dat = c.dat)
+                           END
+                       AND {not_held}
                        AND NOT EXISTS (SELECT 1 FROM repair_plans p WHERE instr(p.content, c.sha256) > 0)
                        AND NOT EXISTS (SELECT 1 FROM repair_steps s WHERE instr(s.detail, c.sha256) > 0)
                      ORDER BY c.id",
+                    not_held = NOT_HELD.replace("{pack}", "c.sha256")
+                ),
                 )?
                 .query_map([], |r| r.get(0))?
                 .collect::<Result<Vec<String>, _>>()?;

@@ -200,25 +200,33 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
 ## Store
 
 The store is one directory: a SQLite database (`title-select.sqlite`), the unmodified DAT files under `dats/<sha256>`,
-the cue packs you import under `cue_packs/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
+the cue packs you import or fetch under `cue_packs/<sha256>`, the SBI packs you fetch under `sbi_packs/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
 first use. Only one Title Select process may have a store open at a time: it holds an exclusive lock on
 `<store>/lock`, and another process fails at once with "the store is in use by another Title Select process".
 
 - The database runs in WAL mode. Every connection uses `synchronous=FULL`, `foreign_keys=ON`, a busy timeout and
   `temp_store=MEMORY`, so SQLite never writes temporary files outside the store.
 - A DAT file is written to a temp file, fsynced and renamed into place before its row is inserted. Files under
-  `dats/` that no DAT revision holds, and under `cue_packs/` that no cue pack holds, are deleted each time the store
+  `dats/` that no DAT revision holds, under `cue_packs/` that no cue pack holds, and under `sbi_packs/` that no SBI
+  pack holds, are deleted each time the store
   opens.
 - Migrations are embedded and forward-only. Before one runs on a store that already has a schema, the database is
   copied with `VACUUM INTO` to `backups/schema-<version>-<time>.sqlite`. A store from a newer Title Select is refused.
-- A DAT revision's file is kept while a retained or running audit refers to it or while it is the newest imported
-  revision of its DAT. Otherwise the file is deleted after the next import or audit; the DAT revision's row stays, so
+- A DAT revision's file is kept while a retained or running audit refers to it or while it is the newest revision
+  of its DAT. Otherwise the file is deleted after the next import or audit; the DAT revision's row stays, so
   history still names it. Importing the same file again restores it and keeps it until an audit using it finishes or a
   newer revision of its DAT is imported.
-- A cue pack's file is kept while it is the newest imported for its DAT or while a repair plan refers to it.
+- A cue pack's file is kept while it is the newest imported for its DAT or while a repair plan refers to it. A
+  fetched cue pack is kept instead while it is the one the latest successful fetch of its system brought.
   Otherwise the file is deleted after the next import or audit; its row stays, and so does the index of its cue
   sheets, so the cue pack still lists, without its file. Importing the same file again restores it and keeps it until
   a newer cue pack for its DAT is imported.
+- An SBI pack's file is kept the same way: while it is the one the latest successful fetch of its system brought,
+  or while a repair plan refers to it.
+- A DAT's revisions are ordered by their headers, not by when they were imported: first by when each was made, the
+  date its version writes (as No-Intro and Redump versions do) or else its header's date, then by its version's
+  numbers. An undated revision counts as older than a dated one, and a version without digits as older than one with.
+  Of revisions whose headers don't tell them apart, the one imported last counts as newest.
 
 ## Configuration
 
@@ -266,6 +274,10 @@ pace = "default"            # gentle | default | unthrottled
 # readers = 2               # overrides the pace's payload readers
 # hashers = 2               # overrides the pace's hash workers
 
+[fetch]                     # fetch newer DATs for the systems you follow; see "Fetching DATs"
+redump = false              # the default
+mame = false                # the default
+
 [path_templates]            # the paths registration proposes; see "Path templates"
 source_set = "{provider}/{dat}"     # the default
 library_folder = "{platform}"       # the default
@@ -306,7 +318,12 @@ title-select dat import <DAT file> --provider <name> [--source-url <url>]
 
 Imports an unmodified DAT file as a DAT revision, recording its SHA-256, header `name` and `version`, original
 filename, import time, provider and source URL. A DAT is identified by its provider and header name, written
-`<provider>/<name>`; each import of new bytes adds a DAT revision of it. Importing the same bytes again changes
+`<provider>/<name>`; each import of new bytes adds a DAT revision of it. The store keeps one spelling of each provider, the
+first you imported under: if you have DATs from `Redump`, importing under `redump` adds a revision of
+`Redump/<name>`, and registering a source set, importing a cue pack or setting a storage policy for
+`redump/<name>` means `Redump/<name>`. If your store holds one DAT under two spellings of its provider, upgrading
+it merges them into the first spelling, with every revision and source set; if each spelling had an additions set,
+the earlier stays registered and the other is unregistered, its folder left as it is. Importing the same bytes again changes
 nothing and prints the existing DAT revision, restoring its file if the store had dropped it.
 
 ```sh
@@ -344,7 +361,7 @@ title-select audit --set <source set> [--revision <sha256 prefix>] [--evidence <
 
 Audits a registered source set, read-only, and records it. Unlike the stateless audit, it does not follow a symlink
 that resolves outside the root: such a file or folder is an unreadable entry with that reason. Without `--revision`,
-the DAT revision is the latest audit's, else the newest imported revision of the bound DAT, so a newer DAT revision is
+the DAT revision is the latest audit's, else the newest revision of the bound DAT, so a newer DAT revision is
 adopted only when you name it. The entries and game statuses are written in one transaction when the audit finishes,
 and the report below is generated from them. Afterwards, audits beyond the newest `audits.keep` are pruned to a
 one-row summary; the latest audit, and any audit cited as provenance, are never pruned.
@@ -467,6 +484,42 @@ clears both:
   never goes stale on a newer revision. Its history keeps each revision that made it stale, after an audit clears it
   or you stop following.
 
+### Fetching DATs
+
+A newer DAT revision reaches the store in one of two ways: you drop it in, or the service fetches it.
+
+**Dropping in.** Put a DAT file into an ingest folder, or import it on the DATs screen or with `dat import`. It is
+recognized from its header, whatever its file name: a DAT whose header names a DAT you already have is assessed as a
+DAT you may import, and once you approve the import, the source sets that follow that DAT become stale. A DAT older than the newest
+revision you have is recorded, but it doesn't become the newest revision and makes nothing stale. This is the
+only way to bring in No-Intro DATs. Title Select never contacts No-Intro, not even to check for a newer version, and
+refuses any address there: download its DATs yourself and drop them in.
+
+**Fetching.** The service can fetch newer DAT revisions from Redump and from MAME's releases. Each provider is off
+until you turn it on under `[fetch]` (`redump = true`, `mame = true`) and restart the service. Then it fetches only
+for the systems a registered source set follows, and only those DATs:
+
+- **Redump**: the system's DAT, and its cue pack and SBI pack where Redump publishes them; nothing Redump doesn't
+  publish for a system is asked for. A source set follows a
+  Redump DAT when it is bound to one imported with provider `Redump`, in any case, under the DAT's own header name (such as
+  `Sony - PlayStation`).
+- **MAME**: it checks for MAME's latest release, then fetches the ListXML (the DAT named `MAME`) and the software
+  lists your source sets follow (imported with provider `MAME`, each named as its list, such as `nes`) from that
+  release. A software list takes the release's version, such as `mame0270`. A system already fetched from the latest release is not fetched again.
+
+Each system's DAT, cue pack and SBI pack is fetched at most once a day, counting every attempt, whether scheduled or
+yours, and each request is sent once, even when two fetches start together. The service checks every hour for
+anything due. Requests to a provider are made one at a time, at least a second apart, even across a restart of the
+service, and say what Title Select is and why it asks. **Fetch now** fetches what is due at once; with nothing
+due it says when the next fetch may run. A fetch stops at its first error and keeps the last good DAT revision; the
+error shows on the DATs screen until a later fetch succeeds. Nothing is fetched from anywhere but the provider itself:
+requests, and any redirect, go only to that provider's own hosts, and a redirect anywhere else fails the fetch. While
+a fetch runs, the DATs screen updates as each request finishes.
+
+Fetching never starts an audit. A newer DAT revision it brings makes the source sets that follow its DAT stale, as an
+imported one does, and you choose when to audit against it. Fetched cue packs join the cue packs you import, and SBI packs
+are kept beside them; each is tied to the fetch that brought it.
+
 ### Selection profiles
 
 A selection profile is named, and every save is a new version, numbered from 1, that is never changed or deleted.
@@ -486,7 +539,10 @@ ROM itself under the name the DAT gives it; or as a loose folder, `<game>/` hold
 the DAT gives them. It has two scopes, source sets and play libraries (library folders), each with a global setting
 and settings for each system, a DAT as `<provider>/<name>`, as a selection profile has. The default is TorrentZip
 everywhere, except for disc systems' source sets, which default to loose folders: a disc system is one whose DAT's
-provider is Redump. A system's own setting overrides that default. Only a game with one ROM can be stored loose: a
+provider is Redump. A system's own setting overrides that default. A system's setting follows the
+spelling the store keeps of its provider: one you save for `redump/<name>` before importing any Redump DAT becomes
+`Redump/<name>` when you import under `Redump`. If two settings become one system that way, the more cautious wins:
+keeping originals wins over following the default, and that wins over deleting them. Only a game with one ROM can be stored loose: a
 game with more stays TorrentZip, and so does a game whose ROM's name isn't a plain file name; a plan says which games
 and why. Any game can be stored as a loose folder, a single `.iso` as well as a `.cue` sheet and its tracks, unless
 its name or a ROM's name isn't a plain file name, is a name Title Select keeps its own work under (one starting
@@ -865,6 +921,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/dat-revisions`                       | import a DAT: multipart `provider`, `source_url`?, `file`    |
 | `GET /api/v1/cue-packs`                            | every cue pack: `{"sha256", "dat", "file", "source_url", "origin", "cues", "imported_at"}` |
 | `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
+| `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at` |
+| `POST /api/v1/fetch/{provider}`                    | fetch what is due now from `redump` or `mame`: the status above, `200` when the fetch ended within 2 seconds and `202` while it runs on; `400` when it is off, follows nothing or nothing is due, `409` while it is already fetching |
 | `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}` |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
 | `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat"}`; with no `path`, the path `template`, else the default, proposes |
@@ -1081,9 +1139,11 @@ Its screens:
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and
   what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; a past audit opens read-only. **Kept files** lists what its repairs kept aside, where you pick some
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
-- **DATs** (`/dats`) lists every DAT revision, newest import first within each DAT, with its provenance (provider,
+- **DATs** (`/dats`) lists every DAT revision, newest first within each DAT, with its provenance (provider,
   source URL, file, SHA-256, import time), whether its file is kept, and the audits that refer to it, and the cue packs imported for its DAT. It uploads a DAT
-  file as a new DAT revision, and a cue pack for a DAT.
+  file as a new DAT revision, and a cue pack for a DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
+  system you follow: when its DAT and packs were last fetched, when they may be fetched next, and why a fetch failed.
+  **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.
 - **Audit** shows the audit's source set, DAT revision, times and evidence, exports its JSON report and re-audits. Its summary
   counts each finding and game status, and two derived states: an entry is verified when it is matched with payload
   evidence, and needs review when it is misnamed, conflicting, mismatched, unmatched or unreadable. Its entries load in

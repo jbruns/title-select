@@ -197,8 +197,10 @@ pub(crate) fn note_followed_revisions(tx: &Transaction) -> Result<()> {
          SELECT s.id, n.id, ?1 FROM source_sets s
          JOIN audits a ON a.id = (SELECT id FROM audits WHERE source_set_id = s.id AND status = 'finished'
                                   ORDER BY finish_seq DESC LIMIT 1)
-         JOIN dat_revisions n ON n.id = (SELECT max(id) FROM dat_revisions WHERE dat_id = s.dat_id)
-         WHERE s.follow AND n.id > a.dat_revision_id AND s.unregistered_at IS NULL",
+         JOIN dat_revisions n ON n.id = (SELECT id FROM dat_revisions WHERE dat_id = s.dat_id
+                                         ORDER BY header_order DESC LIMIT 1)
+         JOIN dat_revisions v ON v.id = a.dat_revision_id
+         WHERE s.follow AND n.header_order > v.header_order AND s.unregistered_at IS NULL",
         [now()],
     )?;
     Ok(())
@@ -212,7 +214,7 @@ impl Store {
             let mut rows = c.prepare(
                 "SELECT r.sha256, r.version, r.imported_at, f.found_at FROM followed_revisions f
                  JOIN dat_revisions r ON r.id = f.dat_revision_id
-                 WHERE f.source_set_id = ?1 ORDER BY r.id DESC",
+                 WHERE f.source_set_id = ?1 ORDER BY r.header_order DESC, r.id DESC",
             )?;
             let found = rows
                 .query_map([set.id], |r| {

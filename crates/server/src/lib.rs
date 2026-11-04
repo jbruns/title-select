@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use title_select_api::JobKind;
 use title_select_store::config::Config;
+use title_select_store::fetch::{Endpoints, Fetcher};
 use title_select_store::{Store, Workers};
 
 pub use auth::TOKEN_ACTOR;
@@ -168,6 +169,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         workers,
         engine,
         previews: Arc::default(),
+        fetcher: Arc::new(Fetcher::new(Endpoints::official())),
     };
     let app = routes::router(state.clone(), Arc::new(auth), ui.as_deref());
     Ok(Prepared {
@@ -196,6 +198,11 @@ impl Prepared {
                 state.store.clone(),
                 state.config.clone(),
                 state.jobs.clone(),
+            ));
+            tokio::spawn(jobs::schedule_fetches(
+                state.store.clone(),
+                state.config.clone(),
+                state.fetcher.clone(),
             ));
             tokio::spawn(jobs::run(
                 state.store,

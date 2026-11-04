@@ -4,6 +4,7 @@ pub mod audit;
 #[cfg(feature = "bench")]
 mod bench;
 mod dats;
+mod fetching;
 mod ingest_folders;
 mod ingest_plan;
 mod jobs;
