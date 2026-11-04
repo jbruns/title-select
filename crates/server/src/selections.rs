@@ -14,28 +14,17 @@ use title_select_store::{Store, TMP};
 pub const UNAVAILABLE: &str = "the selection engine is not installed on this server, so selections and previews \
     are unavailable; start the server with --retool, or set TITLE_SELECT_RETOOL";
 
-/// Which engine runs, and whether the other runs in its shadow.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Engines {
-    pub engine: SelectionEngine,
-    pub shadow: bool,
+/// The DAT blob `blob` staged under its imported file name `file`, in a scratch folder under the store's `tmp`.
+struct Staged {
+    _dir: tempfile::TempDir,
+    dat: std::path::PathBuf,
 }
 
-/// Runs the engine on the DAT blob `blob`, staged under its imported file name `file`, with the shadow run when
-/// `engines` asks for one.
-pub fn select(
-    store: &Store,
-    engine: &Engine,
-    blob: &Path,
-    file: &str,
-    profile: &SelectionProfile,
-    engines: Engines,
-    cancel: Option<Arc<AtomicBool>>,
-) -> Result<(Selection, Option<ShadowRun>), Error> {
+fn stage(store: &Store, blob: &Path, file: &str) -> Result<Staged, Error> {
     let work = store.dir().join(TMP);
     let io = |context: String| move |source| Error::Io { context, source };
     std::fs::create_dir_all(&work).map_err(io(work.display().to_string()))?;
-    let staged = tempfile::Builder::new()
+    let dir = tempfile::Builder::new()
         .prefix("dat-")
         .tempdir_in(&work)
         .map_err(io(work.display().to_string()))?;
@@ -43,23 +32,64 @@ pub fn select(
         .file_name()
         .filter(|n| !n.is_empty())
         .unwrap_or(std::ffi::OsStr::new("input.dat"));
-    let dat = staged.path().join(name);
+    let dat = dir.path().join(name);
     if std::fs::hard_link(blob, &dat).is_err() {
         std::fs::copy(blob, &dat).map_err(io(blob.display().to_string()))?;
     }
-    let mut options = RunOptions::new(&work);
+    Ok(Staged { _dir: dir, dat })
+}
+
+/// Runs `engine_choice` on the DAT blob `blob`, staged under its imported file name `file`. Returns the Selection
+/// and the engine's warnings.
+pub fn select(
+    store: &Store,
+    engine: &Engine,
+    blob: &Path,
+    file: &str,
+    profile: &SelectionProfile,
+    engine_choice: SelectionEngine,
+    cancel: Option<Arc<AtomicBool>>,
+) -> Result<(Selection, Vec<String>), Error> {
+    let staged = stage(store, blob, file)?;
+    let mut options = RunOptions::new(store.dir().join(TMP));
     options.cancel = cancel;
-    options.engine = engines.engine;
-    options.shadow = engines.shadow;
-    let outcome = engine.run(&dat, profile, &options)?;
+    options.engine = engine_choice;
+    let outcome = engine.run(&staged.dat, profile, &options)?;
     for warning in &outcome.warnings {
         eprintln!("title-select: selection engine warning for {file}: {warning}");
     }
-    if let Some(shadow) = &outcome.shadow {
-        eprintln!("title-select: {}", shadow_summary(file, shadow));
-    }
-    drop(staged);
-    Ok((outcome.selection, outcome.shadow))
+    Ok((outcome.selection, outcome.warnings))
+}
+
+/// Runs the engine other than `engine_choice` on the same DAT blob in a child process, and compares its Selection
+/// with `selection`, which `engine_choice` made with `warnings`. Logs a line on how they compare. Run it after the
+/// Selection is recorded: it can take as long again, and whatever goes wrong is the shadow run's error.
+#[allow(clippy::too_many_arguments)]
+pub fn shadow(
+    store: &Store,
+    engine: &Engine,
+    blob: &Path,
+    file: &str,
+    profile: &SelectionProfile,
+    engine_choice: SelectionEngine,
+    selection: &Selection,
+    warnings: &[String],
+) -> ShadowRun {
+    let shadow = match stage(store, blob, file) {
+        Ok(staged) => {
+            let mut options = RunOptions::new(store.dir().join(TMP));
+            options.engine = engine_choice;
+            engine.shadow(&staged.dat, profile, &options, selection, warnings)
+        }
+        Err(e) => ShadowRun::new(
+            engine_choice,
+            engine_choice.other(),
+            None,
+            Some(e.to_string()),
+        ),
+    };
+    eprintln!("title-select: {}", shadow_summary(file, &shadow));
+    shadow
 }
 
 /// One line on how a shadow run compared, for the Service log.

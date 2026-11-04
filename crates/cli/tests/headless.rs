@@ -51,6 +51,7 @@ impl Env {
             ui: None,
             retool: None,
             hold_jobs: false,
+            shadow_command: None,
         })
         .unwrap();
         Env { fx, service }

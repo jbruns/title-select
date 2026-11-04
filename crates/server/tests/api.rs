@@ -59,6 +59,11 @@ impl Env {
             ui: None,
             retool: None,
             hold_jobs: false,
+            shadow_command: Some(title_select_selection::ShadowCommand {
+                program: std::env::current_exe().unwrap(),
+                args: vec!["--exact".into(), "shadow_child".into(), "--quiet".into()],
+                envs: vec![(SHADOW_CHILD.into(), "1".into())],
+            }),
         }
     }
 
@@ -256,6 +261,20 @@ impl Events {
                 return (names, *job);
             }
         }
+    }
+}
+
+const SHADOW_CHILD: &str = "TITLE_SELECT_TEST_SHADOW_CHILD";
+
+/// The Service's shadow runs: this test binary, re-run as `title-select selection-shadow`.
+#[test]
+fn shadow_child() {
+    if std::env::var_os(SHADOW_CHILD).is_some() {
+        let args: Vec<String> = std::env::args().collect();
+        let [.., request, response] = &args[..] else {
+            panic!("{args:?}")
+        };
+        title_select_selection::serve_shadow(request.as_ref(), response.as_ref()).unwrap();
     }
 }
 
@@ -1845,8 +1864,17 @@ mod selections {
             title_select_server::spawn(env.settings("[selections]\nshadow = true\n")).unwrap();
         let client = Client::new(&service);
         let (_, made) = save(&client, json!({"region_order": ["Europe", "USA"]}));
-        let shadow: Option<ShadowRun> = client.json(&format!("/selections/{}/shadow", made.id));
-        let shadow = shadow.expect("a shadow run is recorded beside the selection");
+        // The shadow run follows the recorded selection.
+        let shadow = (0..600)
+            .find_map(|_| {
+                let shadow: Option<ShadowRun> =
+                    client.json(&format!("/selections/{}/shadow", made.id));
+                shadow.or_else(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    None
+                })
+            })
+            .expect("a shadow run is recorded beside the selection");
         assert_eq!(
             (shadow.engine, shadow.shadow),
             (SelectionEngine::Bundled, SelectionEngine::Builtin)
@@ -1859,6 +1887,39 @@ mod selections {
             winners(&selection(&client, made.id), "pong"),
             ["Pong (Europe)"]
         );
+    }
+
+    #[test]
+    fn a_shadow_run_that_fails_is_recorded_as_its_error_and_the_selection_stands() {
+        let env = Env::new();
+        drop(ready(&env));
+        let service = title_select_server::spawn(Settings {
+            shadow_command: Some(title_select_selection::ShadowCommand {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "echo 'ran out of memory' >&2; exit 1".into()],
+                envs: Vec::new(),
+            }),
+            ..env.settings("[selections]\nshadow = true\n")
+        })
+        .unwrap();
+        let client = Client::new(&service);
+        let (_, made) = save(&client, json!({"region_order": ["Europe", "USA"]}));
+        assert_eq!(
+            winners(&selection(&client, made.id), "pong"),
+            ["Pong (Europe)"]
+        );
+        let shadow = (0..600)
+            .find_map(|_| {
+                let shadow: Option<ShadowRun> =
+                    client.json(&format!("/selections/{}/shadow", made.id));
+                shadow.or_else(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    None
+                })
+            })
+            .expect("the failed shadow run is recorded");
+        assert_eq!(shadow.comparison, None);
+        assert!(shadow.error.unwrap().contains("ran out of memory"));
     }
 
     #[test]

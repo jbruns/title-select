@@ -71,7 +71,6 @@ impl Engine {
         let run = |engine: SelectionEngine, set_order: Option<u64>| {
             let options = RunOptions {
                 engine,
-                shadow: false,
                 set_order,
                 ..options.clone()
             };

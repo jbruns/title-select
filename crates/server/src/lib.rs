@@ -40,6 +40,10 @@ pub struct Settings {
     /// Leaves queued Jobs queued, so tests can observe them.
     #[doc(hidden)]
     pub hold_jobs: bool,
+    /// Starts shadow runs with this command instead of this binary's hidden subcommand, for tests whose binary
+    /// isn't `title-select`.
+    #[doc(hidden)]
+    pub shadow_command: Option<title_select_selection::ShadowCommand>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -71,9 +75,13 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         ui,
         retool,
         hold_jobs,
+        shadow_command,
     } = settings;
     let engine = match title_select_selection::Engine::locate(retool.as_deref()) {
-        Ok(engine) => Some(Arc::new(engine)),
+        Ok(engine) => Some(Arc::new(match shadow_command {
+            Some(command) => engine.with_shadow_command(command),
+            None => engine,
+        })),
         Err(err) => {
             eprintln!("title-select: selections are unavailable: {err}");
             None

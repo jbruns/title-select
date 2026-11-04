@@ -182,6 +182,9 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Run one selection engine for a shadow run, from a request file the service writes.
+    #[command(hide = true, name = title_select_selection::SHADOW_SUBCOMMAND)]
+    SelectionShadow { request: PathBuf, response: PathBuf },
     /// Check that the service is up, for a container healthcheck. Prints nothing on success; exits 1 with the
     /// reason on stderr otherwise.
     Health {
@@ -584,6 +587,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 ui,
                 retool,
                 hold_jobs: false,
+                shadow_command: None,
             })
             .map_err(|e| e.to_string())
         }
@@ -633,6 +637,9 @@ fn run(cli: Cli) -> Result<(), String> {
                 ..title_select_selection::RunOptions::new(selection_work_dir(store))
             };
             conformance::run(&engine, &dats_in(&paths)?, &profile, &options, orders, json)
+        }
+        Command::SelectionShadow { request, response } => {
+            title_select_selection::serve_shadow(&request, &response).map_err(|e| e.to_string())
         }
         Command::Health { url, timeout } => {
             client::health(&url, std::time::Duration::from_secs(timeout))

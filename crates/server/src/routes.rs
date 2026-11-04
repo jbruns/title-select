@@ -309,7 +309,7 @@ impl From<title_select_selection::Error> for ApiError {
     fn from(err: title_select_selection::Error) -> ApiError {
         use title_select_selection::Error as E;
         let status = match &err {
-            E::Profile(_) | E::Patterns(_) => StatusCode::BAD_REQUEST,
+            E::Profile(_) | E::Patterns(_) | E::Unsupported(_) => StatusCode::BAD_REQUEST,
             E::Cancelled => StatusCode::CONFLICT,
             E::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             E::Install(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -1629,10 +1629,7 @@ async fn preview(
             &blob,
             &revision.file,
             &request.profile,
-            crate::selections::Engines {
-                engine: config.selections.engine,
-                shadow: false,
-            },
+            config.selections.engine,
             Some(cancel),
         )?;
         let against = store.latest_selection(&request.source_set, &revision.sha256)?;

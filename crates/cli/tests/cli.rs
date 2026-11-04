@@ -440,6 +440,25 @@ fn the_built_in_engine_selects_alike_and_conformance_compares_the_engines_on_eac
 }
 
 #[test]
+fn a_shadow_run_runs_the_other_engine_in_this_binary() {
+    let (f, dat) = pong_fixture();
+    let work = f.dat_dir.path().join("work");
+    let engine = title_select_selection::Engine::locate(None).unwrap();
+    let profile = title_select_api::selection::SelectionProfile::default();
+    let options = title_select_selection::RunOptions::new(&work);
+    let ran = engine.run(&dat, &profile, &options).unwrap();
+    let shadow = engine
+        .with_shadow_command(title_select_selection::ShadowCommand {
+            program: env!("CARGO_BIN_EXE_title-select").into(),
+            args: vec![title_select_selection::SHADOW_SUBCOMMAND.into()],
+            envs: Vec::new(),
+        })
+        .shadow(&dat, &profile, &options, &ran.selection, &ran.warnings);
+    assert_eq!(shadow.error, None);
+    assert!(shadow.comparison.unwrap().is_identical());
+}
+
+#[test]
 fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     let f = Fixture::new();
     let inbox = f.dat_dir.path().join("in");

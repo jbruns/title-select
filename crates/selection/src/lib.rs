@@ -9,6 +9,7 @@ pub mod choices;
 mod compare;
 mod config;
 mod conformance;
+mod isolated;
 mod native;
 mod patterns;
 mod systems;
@@ -24,11 +25,12 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use title_select_api::selection::{
-    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile, ShadowRun, SystemSettings,
+    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile, SystemSettings,
 };
 
 pub use compare::compare;
 pub use conformance::Conformance;
+pub use isolated::{DEFAULT_SHADOW_MEMORY, SHADOW_SUBCOMMAND, ShadowCommand, serve_shadow};
 pub use title_select_api::selection::SelectionEngine;
 pub use trace::stable_trace;
 
@@ -89,8 +91,8 @@ pub struct RunOptions {
     pub cancel: Option<Arc<AtomicBool>>,
     /// The engine whose Selection the run returns.
     pub engine: SelectionEngine,
-    /// Also run the other engine and report how its Selection compares (`Outcome::shadow`).
-    pub shadow: bool,
+    /// The most address space a shadow run's child process may use (`Engine::shadow`), where the system enforces it.
+    pub shadow_memory: Option<u64>,
     /// Runs the bundled engine with its sets of releases iterated in another order, chosen by this seed. Retool's
     /// sets of releases hash by identity, so the order they iterate in, and with it a few of its tie-breaks and
     /// explanations, follows the memory addresses CPython happens to allocate; a seed shows which results depend on
@@ -105,7 +107,7 @@ impl RunOptions {
             timeout: DEFAULT_TIMEOUT,
             cancel: None,
             engine: SelectionEngine::default(),
-            shadow: false,
+            shadow_memory: Some(DEFAULT_SHADOW_MEMORY),
             set_order: None,
         }
     }
@@ -125,8 +127,6 @@ pub struct Outcome {
     pub trace: String,
     /// What Retool warned about on a run that succeeded, one line each.
     pub warnings: Vec<String>,
-    /// The other engine's run and how it compares, in shadow mode.
-    pub shadow: Option<ShadowRun>,
 }
 
 /// A verified Retool install.
@@ -135,6 +135,7 @@ pub struct Engine {
     root: PathBuf,
     data: PathBuf,
     pins: SelectionPins,
+    shadow_command: Option<ShadowCommand>,
 }
 
 impl Engine {
@@ -192,6 +193,7 @@ impl Engine {
             root: root.to_path_buf(),
             data: root.join("retool"),
             pins: expected,
+            shadow_command: None,
         })
     }
 
@@ -199,6 +201,12 @@ impl Engine {
     /// it to run Retool's own fixtures.
     pub fn with_data_dir(mut self, dir: &Path) -> Self {
         self.data = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+        self
+    }
+
+    /// Starts shadow runs with `command` instead of this binary's hidden subcommand. Tests use it.
+    pub fn with_shadow_command(mut self, command: ShadowCommand) -> Self {
+        self.shadow_command = Some(command);
         self
     }
 
@@ -289,8 +297,7 @@ impl Engine {
     }
 
     /// Selects from `dat` with `profile` with the engine `options` names, applies the Profile's choices for the DAT's
-    /// system, and keeps the trace. In shadow mode it also runs the other engine and reports the comparison; the
-    /// other engine failing fails only the shadow run.
+    /// system, and keeps the trace. `shadow` runs the other engine beside it.
     pub fn run(
         &self,
         dat: &Path,
@@ -302,42 +309,17 @@ impl Engine {
         patterns::check(&self.python(), profile)?;
         let dat = std::path::absolute(dat).map_err(io(dat.display().to_string()))?;
         let dat_sha256 = sha256_file(&dat)?;
-        let mut outcome = self.run_engine(
+        self.run_engine(
             options.engine,
             &dat,
             &dat_sha256,
             profile,
             options,
             &vocabulary,
-        )?;
-        if options.shadow {
-            let shadow = options.engine.other();
-            let ran = self.run_engine(shadow, &dat, &dat_sha256, profile, options, &vocabulary);
-            let (comparison, error) = match ran {
-                Ok(other) => {
-                    let (bundled, builtin) = match options.engine {
-                        SelectionEngine::Bundled => (&outcome, &other),
-                        SelectionEngine::Builtin => (&other, &outcome),
-                    };
-                    (
-                        Some(compare(
-                            &bundled.selection,
-                            &builtin.selection,
-                            &bundled.warnings,
-                            &builtin.warnings,
-                        )),
-                        None,
-                    )
-                }
-                Err(Error::Cancelled) => return Err(Error::Cancelled),
-                Err(e) => (None, Some(e.to_string())),
-            };
-            outcome.shadow = Some(ShadowRun::new(options.engine, shadow, comparison, error));
-        }
-        Ok(outcome)
+        )
     }
 
-    /// Selects like `run` with the built-in engine, without a shadow run.
+    /// Selects like `run` with the built-in engine.
     pub fn run_builtin(
         &self,
         dat: &Path,
@@ -346,7 +328,6 @@ impl Engine {
     ) -> Result<Outcome, Error> {
         let options = RunOptions {
             engine: SelectionEngine::Builtin,
-            shadow: false,
             ..options.clone()
         };
         self.run(dat, profile, &options)
@@ -416,7 +397,6 @@ impl Engine {
             selection,
             trace,
             warnings,
-            shadow: None,
         })
     }
 
