@@ -31,8 +31,9 @@ const SET_QUERY: &str =
      LEFT JOIN stat_walks w ON w.id = (SELECT id FROM stat_walks WHERE source_set_id = s.id ORDER BY id DESC LIMIT 1)
                            AND w.audit_id = a.id AND w.changed + w.added + w.removed > 0
      LEFT JOIN dat_revisions n ON s.follow AND a.id IS NOT NULL
-                               AND n.id = (SELECT max(id) FROM dat_revisions WHERE dat_id = s.dat_id)
-                               AND n.id > a.dat_revision_id";
+                               AND n.id = (SELECT id FROM dat_revisions WHERE dat_id = s.dat_id
+                                           ORDER BY header_order DESC LIMIT 1)
+                               AND n.header_order > r.header_order";
 
 fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
     let sha256: Option<String> = row.get(7)?;

@@ -1960,9 +1960,13 @@ impl Store {
         let provider = item.provider.as_deref().ok_or_else(|| {
             Error::Refused(format!("{} has no provider to import it under", item.name))
         })?;
-        let name = Dat::parse(&bytes, Path::new(&item.name))?.name;
+        let parsed = Dat::parse(&bytes, Path::new(&item.name))?;
+        let name = parsed.name;
         self.write(|tx| {
-            let newer: bool = tx.query_row(
+            // An older revision dropped in is recorded, but is not the newest, so it owes no Audit.
+            let newest =
+                crate::dats::would_be_newest(tx, provider, &name, &parsed.version)?;
+            let newer: bool = newest && tx.query_row(
                 "SELECT EXISTS (SELECT 1 FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
                                 WHERE d.provider = ?1 AND d.name = ?2)
                  AND NOT EXISTS (SELECT 1 FROM dat_revisions WHERE sha256 = ?3)",
