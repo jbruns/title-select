@@ -7,6 +7,7 @@
 
 pub mod choices;
 mod config;
+mod native;
 mod patterns;
 mod systems;
 mod trace;
