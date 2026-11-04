@@ -1014,8 +1014,8 @@ mod profiles_and_selections {
     use super::*;
     use std::collections::BTreeSet;
     use title_select_api::selection::{
-        Alternative, ChoiceStatus, CoverageDrift, GroupChoice, Rule, Selection, SelectionGroup,
-        SelectionPins, SelectionProfile, SelectionSummary, Winner,
+        Alternative, ChoiceStatus, CoverageDrift, GroupChoice, Rule, Selection, SelectionEngine,
+        SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, ShadowRun, Winner,
     };
     use title_select_api::{GameStatus, JobKind, JobState, StartSelectionFor};
 
@@ -1265,6 +1265,15 @@ mod profiles_and_selections {
 
         assert_eq!(env.store.selection(id).unwrap(), made);
         assert_eq!(env.store.selection_rows(id).unwrap(), made.rows());
+        assert_eq!(env.store.selection_shadow(id).unwrap(), None);
+        let shadow = ShadowRun::new(
+            SelectionEngine::Bundled,
+            SelectionEngine::Builtin,
+            None,
+            Some("too many combinations".into()),
+        );
+        env.store.record_shadow(id, &shadow).unwrap();
+        assert_eq!(env.store.selection_shadow(id).unwrap(), Some(shadow));
         let record = env.store.selection_record(id).unwrap();
         assert_eq!(
             (record.profile.version, record.latest_profile_version),
@@ -1314,6 +1323,12 @@ mod profiles_and_selections {
         let (old, _) = env.import(1);
         save(&env, &SelectionProfile::default(), None);
         let mut ids = Vec::new();
+        let shadow = ShadowRun::new(
+            SelectionEngine::Bundled,
+            SelectionEngine::Builtin,
+            None,
+            Some("failed".into()),
+        );
         for _ in 0..2 {
             let job = env
                 .store
@@ -1325,6 +1340,9 @@ mod profiles_and_selections {
                 .record_selection(&env.config, job.id, &selection(&old))
                 .unwrap();
             ids.push(done.selection.unwrap());
+            env.store
+                .record_shadow(done.selection.unwrap(), &shadow)
+                .unwrap();
             // A newer revision would drop the old blob, were it not held.
             env.import(2);
             assert!(env.blob_present(&old));
@@ -1335,6 +1353,18 @@ mod profiles_and_selections {
             Err(Error::Refused(_))
         ));
         assert!(!env.store.selection_record(ids[1]).unwrap().pruned);
+        assert_eq!(
+            env.store.selection_shadow(ids[0]).unwrap(),
+            None,
+            "pruning drops the shadow run"
+        );
+        env.store.record_shadow(ids[0], &shadow).unwrap();
+        assert_eq!(
+            env.store.selection_shadow(ids[0]).unwrap(),
+            None,
+            "a shadow run that ends after its selection is pruned isn't kept"
+        );
+        assert_eq!(env.store.selection_shadow(ids[1]).unwrap(), Some(shadow));
     }
 
     /// Reading a Selection while a newer one prunes it gives the whole Selection or a refusal, never a Selection

@@ -7,6 +7,7 @@ mod auth;
 mod jobs;
 mod routes;
 mod selections;
+mod shadows;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -40,6 +41,10 @@ pub struct Settings {
     /// Leaves queued Jobs queued, so tests can observe them.
     #[doc(hidden)]
     pub hold_jobs: bool,
+    /// Starts shadow runs with this command instead of this binary's hidden subcommand, for tests whose binary
+    /// isn't `title-select`.
+    #[doc(hidden)]
+    pub shadow_command: Option<title_select_selection::ShadowCommand>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -71,9 +76,13 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         ui,
         retool,
         hold_jobs,
+        shadow_command,
     } = settings;
     let engine = match title_select_selection::Engine::locate(retool.as_deref()) {
-        Ok(engine) => Some(Arc::new(engine)),
+        Ok(engine) => Some(Arc::new(match shadow_command {
+            Some(command) => engine.with_shadow_command(command),
+            None => engine,
+        })),
         Err(err) => {
             eprintln!("title-select: selections are unavailable: {err}");
             None
@@ -185,6 +194,13 @@ impl Prepared {
         self.listener.local_addr().expect("a bound listener")
     }
 
+    fn shadows(&self) -> StopShadows {
+        StopShadows {
+            waiting: self.state.jobs.shadows.clone(),
+            engine: self.state.engine.clone(),
+        }
+    }
+
     /// Serves until the process ends; must run inside the runtime.
     async fn serve(self) -> std::io::Result<()> {
         let state = self.state;
@@ -220,6 +236,27 @@ impl Prepared {
     }
 }
 
+/// Stops the Service's shadow runs: skips the waiting one and kills and reaps the running one's child processes.
+struct StopShadows {
+    waiting: Arc<shadows::Shadows>,
+    engine: Option<Arc<title_select_selection::Engine>>,
+}
+
+impl StopShadows {
+    fn stop(&self) {
+        self.waiting.stop();
+        if let Some(engine) = &self.engine
+            && !engine.stop_shadows(std::time::Duration::from_secs(10))
+        {
+            eprintln!("title-select: a shadow run's processes were not reaped in time");
+        }
+        // The running shadow run holds the store until it has recorded how it ended.
+        if !self.waiting.join(std::time::Duration::from_secs(30)) {
+            eprintln!("title-select: a shadow run did not end in time");
+        }
+    }
+}
+
 fn runtime() -> Result<tokio::runtime::Runtime, StartError> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -231,6 +268,7 @@ fn runtime() -> Result<tokio::runtime::Runtime, StartError> {
 pub fn run(settings: Settings) -> Result<(), StartError> {
     let prepared = prepare(settings)?;
     let addr = prepared.addr();
+    let shadows = prepared.shadows();
     let runtime = runtime()?;
     let served = runtime.block_on(async {
         eprintln!(
@@ -242,6 +280,7 @@ pub fn run(settings: Settings) -> Result<(), StartError> {
             () = stop_signal() => Ok(()),
         }
     });
+    shadows.stop();
     runtime.shutdown_background();
     served.map_err(|e| StartError::Listen(addr, e))
 }
@@ -279,6 +318,7 @@ pub struct Handle {
 pub fn spawn(settings: Settings) -> Result<Handle, StartError> {
     let prepared = prepare(settings)?;
     let addr = prepared.addr();
+    let shadows = prepared.shadows();
     let runtime = runtime()?;
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let thread = std::thread::spawn(move || {
@@ -292,6 +332,7 @@ pub fn spawn(settings: Settings) -> Result<Handle, StartError> {
                 _ = stopped => {}
             }
         });
+        shadows.stop();
         // Lets a running Audit finish and release the store, so it can be opened again.
         runtime.shutdown_timeout(std::time::Duration::from_secs(60));
     });

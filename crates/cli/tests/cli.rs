@@ -400,6 +400,87 @@ fn select_prints_the_selection_and_refuses_a_profile_it_cannot_read() {
 }
 
 #[test]
+fn the_built_in_engine_selects_alike_and_conformance_compares_the_engines_on_each_dat() {
+    let (f, dat) = pong_fixture();
+    let profile = f.dat_dir.path().join("profile.json");
+    std::fs::write(&profile, r#"{"region_order": ["USA"]}"#).unwrap();
+    let select = |engine: &str| {
+        run_ok(
+            title_select()
+                .args(["select", "--engine", engine, "--dat"])
+                .arg(&dat)
+                .arg("--profile")
+                .arg(&profile),
+        )
+    };
+    assert_eq!(select("builtin"), select("bundled"));
+
+    let stdout = run_ok(
+        title_select()
+            .args(["conformance", "--profile"])
+            .arg(&profile)
+            .arg(f.dat_dir.path()),
+    );
+    assert!(stdout.contains("The same: "), "{stdout}");
+    assert!(stdout.contains("1 DAT compared: 1 the same"), "{stdout}");
+
+    let stdout = run_ok(title_select().args(["conformance", "--json"]).arg(&dat));
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report[0]["conforms"], true);
+    assert_eq!(report[0]["groups"], 1);
+    assert_eq!(report[0]["differences"], serde_json::json!([]));
+
+    std::fs::write(
+        &profile,
+        r#"{"overrides": {"exclude": ["/\\N{LATIN SMALL LETTER A}"], "include": []}}"#,
+    )
+    .unwrap();
+    let out = title_select()
+        .args(["conformance", "--json", "--profile"])
+        .arg(&profile)
+        .arg(&dat)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report[0]["verdict"], "unsupported");
+    assert!(
+        report[0]["builtin_error"]
+            .as_str()
+            .unwrap()
+            .contains("LATIN SMALL LETTER A"),
+        "{report}"
+    );
+
+    let out = title_select()
+        .arg("conformance")
+        .arg(f.dat_dir.path().join("missing.dat"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no such file or folder"));
+}
+
+#[test]
+fn a_shadow_run_runs_the_other_engine_in_this_binary() {
+    let (f, dat) = pong_fixture();
+    let work = f.dat_dir.path().join("work");
+    let engine = title_select_selection::Engine::locate(None).unwrap();
+    let profile = title_select_api::selection::SelectionProfile::default();
+    let options = title_select_selection::RunOptions::new(&work);
+    let ran = engine.run(&dat, &profile, &options).unwrap();
+    let shadow = engine
+        .with_shadow_command(title_select_selection::ShadowCommand {
+            program: env!("CARGO_BIN_EXE_title-select").into(),
+            args: vec![title_select_selection::SHADOW_SUBCOMMAND.into()],
+            envs: Vec::new(),
+        })
+        .shadow(&dat, &profile, &options, &ran.selection, &ran.warnings);
+    assert_eq!(shadow.error, None);
+    assert!(shadow.comparison.unwrap().is_identical());
+}
+
+#[test]
 fn an_ingest_folder_is_registered_scanned_and_its_items_listed() {
     let f = Fixture::new();
     let inbox = f.dat_dir.path().join("in");

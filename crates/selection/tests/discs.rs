@@ -120,11 +120,16 @@ fn write_dat(dir: &Path, file: &str, games: &[&str]) -> PathBuf {
     path
 }
 
+/// Selects with the bundled engine, checking the built-in engine selects alike.
 fn select(dir: &Path, dat: &Path, profile: &SelectionProfile) -> Selection {
-    support::engine()
-        .with_data_dir(&dir.join("data"))
-        .select(dat, profile, &support::options(dir))
+    let engine = support::engine().with_data_dir(&dir.join("data"));
+    let selection = engine.select(dat, profile, &support::options(dir)).unwrap();
+    let builtin = engine
+        .run_builtin(dat, profile, &support::options(dir))
         .unwrap()
+        .selection;
+    assert_eq!(builtin, selection, "the built-in engine selects alike");
+    selection
 }
 
 fn titles<'a>(titles: impl IntoIterator<Item = &'a String>) -> BTreeSet<&'a str> {

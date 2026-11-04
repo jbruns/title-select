@@ -9,6 +9,7 @@ use title_select_api::Workers;
 use title_select_api::paths::{
     DEFAULT_LIBRARY_FOLDER_TEMPLATE, DEFAULT_SOURCE_SET_TEMPLATE, PathTemplate, relative_path,
 };
+use title_select_api::selection::SelectionEngine;
 
 /// How many full Audits a Source Set keeps when the configuration does not say.
 pub const DEFAULT_AUDITS_KEPT: usize = 20;
@@ -153,6 +154,23 @@ pub struct Selections {
     /// The latest full Selections kept per Source Set; older ones are pruned to their record.
     #[serde(default = "default_selections_keep")]
     pub keep: usize,
+    /// The engine that makes Selections and previews.
+    #[serde(default)]
+    pub engine: SelectionEngine,
+    /// Also run the other engine for each Selection Job, and record how its Selection compares.
+    #[serde(default)]
+    pub shadow: bool,
+    /// The largest result, in MiB, a shadow run may return; a larger one is recorded as the shadow run's error.
+    #[serde(default = "default_shadow_result_mib")]
+    pub shadow_result_mib: u64,
+}
+
+/// Comfortably above the largest Selection the fixture DATs make, about 3 MB; see
+/// `title_select_selection::DEFAULT_SHADOW_RESULT`.
+pub const DEFAULT_SHADOW_RESULT_MIB: u64 = 64;
+
+fn default_shadow_result_mib() -> u64 {
+    DEFAULT_SHADOW_RESULT_MIB
 }
 
 fn default_selections_keep() -> usize {
@@ -163,6 +181,9 @@ impl Default for Selections {
     fn default() -> Self {
         Selections {
             keep: DEFAULT_SELECTIONS_KEPT,
+            engine: SelectionEngine::default(),
+            shadow: false,
+            shadow_result_mib: DEFAULT_SHADOW_RESULT_MIB,
         }
     }
 }
@@ -484,6 +505,28 @@ mod tests {
         let off = Config::parse("[source_sets]\ncheck_every_minutes = 0").unwrap();
         assert_eq!(off.source_sets.check_every_minutes, 0);
         assert!(Config::parse("[source_sets]\ncheck_every = 5").is_err());
+    }
+
+    #[test]
+    fn selections_use_the_bundled_engine_without_a_shadow_unless_configured() {
+        let default = Config::default().selections;
+        assert_eq!(
+            (default.engine, default.shadow),
+            (SelectionEngine::Bundled, false)
+        );
+        let config = Config::parse(
+            "[selections]\nengine = \"builtin\"\nshadow = true\nshadow_result_mib = 8",
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                config.selections.engine,
+                config.selections.shadow,
+                config.selections.shadow_result_mib
+            ),
+            (SelectionEngine::Builtin, true, 8)
+        );
+        assert!(Config::parse("[selections]\nengine = \"python\"").is_err());
     }
 
     #[test]

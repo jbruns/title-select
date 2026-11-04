@@ -23,6 +23,8 @@ const RETRY: Duration = Duration::from_secs(1);
 pub struct Jobs {
     wake: Notify,
     events: broadcast::Sender<JobEvent>,
+    /// Shadow runs of the Selections Jobs make, in shadow mode.
+    pub shadows: Arc<crate::shadows::Shadows>,
 }
 
 impl Jobs {
@@ -30,6 +32,7 @@ impl Jobs {
         Jobs {
             wake: Notify::new(),
             events: broadcast::channel(1024).0,
+            shadows: Arc::default(),
         }
     }
 
@@ -104,7 +107,7 @@ pub async fn run(
                         run_one(&store, &config, &jobs, kind, id, version)
                     }
                     JobKind::Additions => run_additions(&store, &config, id),
-                    JobKind::Selection => run_selection(&store, &config, engine.as_deref(), id),
+                    JobKind::Selection => run_selection(&store, &config, &jobs, engine, id),
                     JobKind::IngestScan => run_ingest_scan(&store, &config, id),
                     JobKind::StatWalk => run_stat_walk(&store, &config, id),
                 })
@@ -390,24 +393,83 @@ pub async fn schedule_ingest_scans(store: Arc<Store>, config: Arc<Config>, jobs:
 }
 
 /// Runs one claimed Selection Job: the engine on its DAT Revision with its Profile version. Returns the Job as it
-/// ended.
-fn run_selection(store: &Store, config: &Config, engine: Option<&Engine>, id: i64) -> Option<Job> {
+/// ended. In shadow mode, once the Selection is recorded, the other engine's run is handed to `jobs.shadows`, and its
+/// comparison, or why there is none, is recorded beside the Selection.
+fn run_selection(
+    store: &Arc<Store>,
+    config: &Config,
+    jobs: &Jobs,
+    engine: Option<Arc<Engine>>,
+    id: i64,
+) -> Option<Job> {
     let made = (|| {
-        let engine = engine.ok_or_else(|| crate::selections::UNAVAILABLE.to_owned())?;
+        let engine = engine
+            .clone()
+            .ok_or_else(|| crate::selections::UNAVAILABLE.to_owned())?;
         let input = store.selection_input(id).map_err(|e| e.to_string())?;
-        crate::selections::select(
+        let (selection, warnings) = crate::selections::select(
             store,
-            engine,
+            &engine,
             &input.dat,
             &input.dat_revision.file,
             &input.profile,
+            config.selections.engine,
             None,
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+        Ok::<_, String>((engine, input, selection, warnings))
     })();
     let ended = match made {
-        Ok(selection) => store
+        Ok((engine, input, selection, warnings)) => store
             .record_selection(config, id, &selection)
+            .inspect(|job| {
+                if let (true, Some(recorded)) = (config.selections.shadow, job.selection) {
+                    let record = {
+                        let store = store.clone();
+                        move |shadow: &title_select_api::selection::ShadowRun| {
+                            if let Err(e) = store.record_shadow(recorded, shadow) {
+                                eprintln!(
+                                    "title-select: cannot record the shadow run of job {id}: {e}"
+                                );
+                            }
+                        }
+                    };
+                    let skip = {
+                        let (record, file) = (record.clone(), input.dat_revision.file.clone());
+                        let engine = config.selections.engine;
+                        move |why: &'static str| {
+                            let shadow = title_select_api::selection::ShadowRun::new(
+                                engine,
+                                engine.other(),
+                                None,
+                                Some(why.to_owned()),
+                            );
+                            eprintln!(
+                                "title-select: {}",
+                                crate::selections::shadow_summary(&file, &shadow)
+                            );
+                            record(&shadow);
+                        }
+                    };
+                    let (store, selections) = (store.clone(), config.selections.clone());
+                    jobs.shadows.submit(crate::shadows::Task {
+                        run: Box::new(move || {
+                            let shadow = crate::selections::shadow(
+                                &store,
+                                &engine,
+                                &input.dat,
+                                &input.dat_revision.file,
+                                &input.profile,
+                                &selections,
+                                &selection,
+                                &warnings,
+                            );
+                            record(&shadow);
+                        }),
+                        skip: Box::new(skip),
+                    });
+                }
+            })
             .map_err(|e| e.to_string()),
         Err(message) => Err(message),
     };

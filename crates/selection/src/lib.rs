@@ -6,7 +6,11 @@
 //! the pinned clone lists, metadata, MIA and RetroAchievements files beside it.
 
 pub mod choices;
+mod compare;
 mod config;
+mod conformance;
+mod isolated;
+mod native;
 mod patterns;
 mod systems;
 mod trace;
@@ -24,6 +28,12 @@ use title_select_api::selection::{
     SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile, SystemSettings,
 };
 
+pub use compare::compare;
+pub use conformance::{Component, Conformance, Verdict, failure_category};
+pub use isolated::{
+    DEFAULT_SHADOW_MEMORY, DEFAULT_SHADOW_RESULT, SHADOW_SUBCOMMAND, ShadowCommand, serve_shadow,
+};
+pub use title_select_api::selection::SelectionEngine;
 pub use trace::stable_trace;
 
 /// The environment variable that points at a Retool install, for `Engine::locate`.
@@ -60,6 +70,12 @@ pub enum Error {
     Cancelled,
     #[error("the selection engine's trace: {0}")]
     Trace(String),
+    #[error("the built-in selection engine: {0}")]
+    Builtin(String),
+    /// Something the bundled engine accepts that the built-in engine doesn't support, such as a regular expression
+    /// it can't compile.
+    #[error("the built-in selection engine doesn't support {0}")]
+    Unsupported(String),
 }
 
 fn io(context: impl Into<String>) -> impl FnOnce(std::io::Error) -> Error {
@@ -75,6 +91,17 @@ pub struct RunOptions {
     pub timeout: Duration,
     /// Set to stop the run: the subprocess is killed and the run fails with `Error::Cancelled`.
     pub cancel: Option<Arc<AtomicBool>>,
+    /// The engine whose Selection the run returns.
+    pub engine: SelectionEngine,
+    /// The most address space a shadow run's child process may use (`Engine::shadow`), where the system enforces it.
+    pub shadow_memory: Option<u64>,
+    /// The largest result, in bytes, a shadow run's child may return; a larger one is the shadow run's error.
+    pub shadow_result: u64,
+    /// Runs the bundled engine with its sets of releases iterated in another order, chosen by this seed. Retool's
+    /// sets of releases hash by identity, so the order they iterate in, and with it a few of its tie-breaks and
+    /// explanations, follows the memory addresses CPython happens to allocate; a seed shows which results depend on
+    /// it. For conformance only.
+    pub set_order: Option<u64>,
 }
 
 impl RunOptions {
@@ -83,7 +110,17 @@ impl RunOptions {
             work_dir: work_dir.into(),
             timeout: DEFAULT_TIMEOUT,
             cancel: None,
+            engine: SelectionEngine::default(),
+            shadow_memory: Some(DEFAULT_SHADOW_MEMORY),
+            shadow_result: DEFAULT_SHADOW_RESULT,
+            set_order: None,
         }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
     }
 }
 
@@ -103,6 +140,8 @@ pub struct Engine {
     root: PathBuf,
     data: PathBuf,
     pins: SelectionPins,
+    shadow_command: Option<ShadowCommand>,
+    shadows: Arc<isolated::Shadows>,
 }
 
 impl Engine {
@@ -160,6 +199,8 @@ impl Engine {
             root: root.to_path_buf(),
             data: root.join("retool"),
             pins: expected,
+            shadow_command: None,
+            shadows: Arc::default(),
         })
     }
 
@@ -167,6 +208,12 @@ impl Engine {
     /// it to run Retool's own fixtures.
     pub fn with_data_dir(mut self, dir: &Path) -> Self {
         self.data = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+        self
+    }
+
+    /// Starts shadow runs with `command` instead of this binary's hidden subcommand. Tests use it.
+    pub fn with_shadow_command(mut self, command: ShadowCommand) -> Self {
+        self.shadow_command = Some(command);
         self
     }
 
@@ -256,19 +303,119 @@ impl Engine {
         )
     }
 
-    /// Selects from `dat` with `profile`, applies the Profile's choices for the DAT's system, and keeps the trace.
+    /// Selects from `dat` with `profile` with the engine `options` names, applies the Profile's choices for the DAT's
+    /// system, and keeps the trace. `shadow` runs the other engine beside it.
     pub fn run(
         &self,
         dat: &Path,
         profile: &SelectionProfile,
         options: &RunOptions,
     ) -> Result<Outcome, Error> {
-        let retool = self.root.join("retool");
         let vocabulary = self.vocabulary()?;
         vocabulary.check(profile)?;
         patterns::check(&self.python(), profile)?;
         let dat = std::path::absolute(dat).map_err(io(dat.display().to_string()))?;
         let dat_sha256 = sha256_file(&dat)?;
+        self.run_engine(
+            options.engine,
+            &dat,
+            &dat_sha256,
+            profile,
+            options,
+            &vocabulary,
+        )
+    }
+
+    /// Selects like `run` with the built-in engine.
+    pub fn run_builtin(
+        &self,
+        dat: &Path,
+        profile: &SelectionProfile,
+        options: &RunOptions,
+    ) -> Result<Outcome, Error> {
+        let options = RunOptions {
+            engine: SelectionEngine::Builtin,
+            ..options.clone()
+        };
+        self.run(dat, profile, &options)
+    }
+
+    fn run_engine(
+        &self,
+        engine: SelectionEngine,
+        dat: &Path,
+        dat_sha256: &str,
+        profile: &SelectionProfile,
+        options: &RunOptions,
+        vocabulary: &config::Vocabulary,
+    ) -> Result<Outcome, Error> {
+        if options.cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let (trace, warnings) = match engine {
+            SelectionEngine::Bundled => self.run_bundled(dat, profile, options, vocabulary)?,
+            SelectionEngine::Builtin => {
+                let internal = self.internal_config()?;
+                let limits = native::Limits {
+                    cancel: options.cancel.clone(),
+                    deadline: Some((Instant::now() + options.timeout, options.timeout)),
+                };
+                let ran = native::run(dat, profile, &internal, &self.data, &limits)?;
+                (ran.trace, ran.warnings)
+            }
+        };
+        self.outcome(trace, warnings, dat_sha256.to_owned(), profile)
+    }
+
+    fn internal_config(&self) -> Result<Vec<u8>, Error> {
+        let path = self
+            .root
+            .join("retool")
+            .join("config")
+            .join("internal-config.json");
+        std::fs::read(&path).map_err(io(path.display().to_string()))
+    }
+
+    fn outcome(
+        &self,
+        trace: String,
+        warnings: Vec<String>,
+        dat_sha256: String,
+        profile: &SelectionProfile,
+    ) -> Result<Outcome, Error> {
+        let derived = trace::derive(&trace)?;
+        let mut selection = Selection {
+            pins: self.pins.clone(),
+            dat_sha256,
+            system_settings: profile.systems.contains_key(&derived.system),
+            summary: derived.summary,
+            coverage_drift: derived.coverage_drift,
+            groups: derived.groups,
+            stale_choices: Default::default(),
+            system: derived.system,
+        };
+        // Separate passes over the engine's result: before choices, so that a choice settles what the first flags;
+        // after, so that a choice that leaves a disc uncovered is flagged again.
+        title_select_api::discs::mark_unresolved(&mut selection);
+        let choices = profile.choices.get(&selection.system);
+        choices::apply(&mut selection, choices);
+        title_select_api::discs::mark_uncovered_choices(&mut selection);
+        Ok(Outcome {
+            selection,
+            trace,
+            warnings,
+        })
+    }
+
+    /// Runs the bundled engine, for the trace and the warnings.
+    fn run_bundled(
+        &self,
+        dat: &Path,
+        profile: &SelectionProfile,
+        options: &RunOptions,
+        vocabulary: &config::Vocabulary,
+    ) -> Result<(String, Vec<String>), Error> {
+        let retool = self.root.join("retool");
 
         let work_dir = std::path::absolute(&options.work_dir)
             .map_err(io(options.work_dir.display().to_string()))?;
@@ -283,7 +430,7 @@ impl Engine {
         };
         write(
             run_dir.join("user-config.yaml"),
-            config::user_config(profile, &vocabulary),
+            config::user_config(profile, vocabulary),
         )?;
         let systems = run_dir.join("systems");
         std::fs::create_dir(&systems).map_err(io(systems.display().to_string()))?;
@@ -298,7 +445,7 @@ impl Engine {
             }
             write(
                 systems.join(format!("{name}.yaml")),
-                config::system_config(system, &vocabulary),
+                config::system_config(system, vocabulary),
             )?;
         }
         let trace_path = run_dir.join("trace.jsonl");
@@ -306,9 +453,14 @@ impl Engine {
         let stderr_path = run_dir.join("stderr.txt");
 
         let mut command = Command::new(self.python());
+        if let Some(seed) = options.set_order {
+            let launcher = run_dir.join("set_order.py");
+            write(launcher.clone(), set_order_launcher(&retool, seed))?;
+            command.arg(launcher);
+        }
         command
             .arg(retool.join("retool.py"))
-            .arg(&dat)
+            .arg(dat)
             .arg("--config")
             .arg(run_dir.join("user-config.yaml"))
             .arg("--clonelist-dir")
@@ -343,6 +495,8 @@ impl Engine {
             .stdin(Stdio::null())
             .stdout(File::create(&stdout_path).map_err(io(stdout_path.display().to_string()))?)
             .stderr(File::create(&stderr_path).map_err(io(stderr_path.display().to_string()))?);
+        // A shadow run's child dies with its parent; so must the bundled engine it runs.
+        isolated::die_with_parent(&mut command);
         let mut child = command
             .spawn()
             .map_err(io(format!("starting {}", self.python().display())))?;
@@ -387,31 +541,32 @@ impl Engine {
         }
         let trace =
             std::fs::read_to_string(&trace_path).map_err(io(trace_path.display().to_string()))?;
-        let derived = trace::derive(&trace)?;
         let warnings = warnings(&std::fs::read_to_string(&stderr_path).unwrap_or_default());
         run.close().map_err(io("removing the run folder"))?;
-        let mut selection = Selection {
-            pins: self.pins.clone(),
-            dat_sha256,
-            system_settings: profile.systems.contains_key(&derived.system),
-            summary: derived.summary,
-            coverage_drift: derived.coverage_drift,
-            groups: derived.groups,
-            stale_choices: Default::default(),
-            system: derived.system,
-        };
-        // Separate passes over the engine's result: before choices, so that a choice settles what the first flags;
-        // after, so that a choice that leaves a disc uncovered is flagged again.
-        title_select_api::discs::mark_unresolved(&mut selection);
-        let choices = profile.choices.get(&selection.system);
-        choices::apply(&mut selection, choices);
-        title_select_api::discs::mark_uncovered_choices(&mut selection);
-        Ok(Outcome {
-            selection,
-            trace,
-            warnings,
-        })
+        Ok((trace, warnings))
     }
+}
+
+/// A launcher that runs Retool with its `DatNode`s and `TitleData`s hashed by a seeded scramble of their identity
+/// instead of by it, so that sets of them iterate in another order. The order of the DAT's titles decides the order
+/// of the groups too.
+fn set_order_launcher(retool: &Path, seed: u64) -> String {
+    format!(
+        r#"import runpy, sys
+sys.path.insert(0, {retool:?})
+sys.argv = sys.argv[1:]
+from modules.dat.parse_dat import TitleData
+from modules.dat.process_dat import DatNode
+def _hash(self, _seed={seed}):
+    x = ((id(self) >> 4) * 0x9E3779B97F4A7C15 + _seed) & 0xFFFFFFFFFFFFFFFF
+    x ^= x >> 29
+    return hash(x)
+DatNode.__hash__ = _hash
+TitleData.__hash__ = _hash
+runpy.run_path(sys.argv[0], run_name="__main__")
+"#,
+        retool = retool.display().to_string(),
+    )
 }
 
 /// The warnings and errors in Retool's console output, a line each and without their colours. Retool colours

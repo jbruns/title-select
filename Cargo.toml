@@ -17,11 +17,14 @@ title-select-server = { path = "crates/server" }
 title-select-selection = { path = "crates/selection" }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 crc32fast = "1.5.3"
+# The built-in Selection engine: Python-compatible regular expressions (lookaround) and ordered sets.
+fancy-regex = "0.20.0"
 # TorrentZip output (ADR 0007): deflate through zlib, built from the pinned libz-sys source and linked statically.
 flate2 = { version = "1.1.10", default-features = false, features = ["zlib"] }
 libz-sys = { version = "=1.1.31", default-features = false, features = ["libc", "static"] }
 # Library Folder writes: directory-relative `*at` calls with no-follow opens and no-replace renames.
 rustix = { version = "1.1.6", features = ["fs", "process"] }
+indexmap = { version = "2.14.2", features = ["serde"] }
 jiff = { version = "0.2.38", features = ["serde"] }
 md-5 = "0.11.0"
 quick-xml = "0.42.0"

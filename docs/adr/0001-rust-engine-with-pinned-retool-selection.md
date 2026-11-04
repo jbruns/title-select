@@ -4,7 +4,9 @@ Date: 2026-10-28
 
 ## Status
 
-Accepted. The Rust port is planned for a milestone after the pilot. It is still gated on the conformance suite.
+Accepted. The Rust port has landed behind a flag (#94): `[selections] engine = "builtin"` or `select --engine
+builtin` selects with it, `title-select conformance` and shadow mode compare it with pinned Retool, and pinned Retool
+stays authoritative until the cutover (#95).
 
 ## Context
 

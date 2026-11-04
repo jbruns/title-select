@@ -99,6 +99,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```sh
 title-select select --dat <DAT file> --profile <selection profile file> [--output <file>] [--timeout <seconds>]
+  [--engine bundled|builtin]
 ```
 
 Chooses releases from a DAT with your selection profile and prints the explained selection as JSON on stdout, or to
@@ -108,6 +109,37 @@ seconds (600 by default). The selection is derived from the engine's trace of ev
 DAT the engine writes. The engine install is `--retool`, else `TITLE_SELECT_RETOOL`, else `/opt/retool`; an install
 built from other pins than this binary's is refused. `title-select --version` prints the pins, and the workbench's
 About page says where the engine comes from.
+
+`--engine builtin` selects with the built-in selection engine instead: a port of the bundled engine into Title Select
+itself, which reads the same pinned clone lists and metadata from the same install and runs in-process, with the same
+timeout. It is meant to make the same selections, explained the same way; until it replaces the bundled engine, the
+bundled engine stays the default, and `conformance` checks the two against each other.
+
+```sh
+title-select conformance <DAT file or folder>... [--profile <selection profile file>] [--orders <n>] [--json]
+  [--timeout <seconds>]
+```
+
+Runs both engines over DATs you hold, offline, and reports, DAT by DAT, the groups where their selections or their
+explanations differ: a different winner, alternative or exclusion, a different rule, or a different warning. A folder
+is searched for `*.dat` files. Without `--profile`, the profile is empty: every region and language, no filters.
+
+Some of the bundled engine's tie-breaks follow the order in which it happens to meet titles, which no other engine can
+reproduce. Where the engines differ, the bundled engine runs again, up to `--orders` times (128 by default), meeting
+titles in other orders. Differences that depend on each other, in one group or in groups linked by a compilation or a
+clone list, are judged together: they are order-sensitive only when a single one of those runs gives the built-in
+engine's whole result for them, and the report names that run's order (its seed), since that result is one the
+bundled engine can give. Each DAT is reported as:
+
+- the same, or the same apart from order-sensitive differences;
+- different, with each remaining difference;
+- inconclusive: some reruns matched only part of the built-in engine's result, or both engines failed for
+  different or unrecognised reasons;
+- unsupported: your selection profile uses a pattern the built-in engine can't read, which it names. It never skips a
+  pattern.
+
+Both engines failing for the same reason, such as a file that isn't a DAT, counts as the same. The command exits 1 when
+any DAT is different, inconclusive or unsupported, and `--json` prints the report as JSON.
 
 Your selection profile is JSON; every field is optional, and an unknown field, region, language or video standard is
 refused:
@@ -259,6 +291,9 @@ keep = 20                   # full audits kept per source set (the default)
 
 [selections]
 keep = 20                   # full selections kept per source set (the default)
+# engine = "bundled"        # the engine that makes selections: "bundled" (the default) or "builtin"
+# shadow = false            # also run the other engine on each selection and record how it compares
+# shadow_result_mib = 64    # the largest result, in MiB, a shadow run may return (the default)
 
 [source_sets]
 check_every_minutes = 360   # check each source set for changes this often (the default); 0 checks only when you ask
@@ -468,6 +503,23 @@ A selection is a job too, of kind `selection`. It runs one version of a selectio
 DAT revision, chosen as for an audit, and records the selection in the transaction that ends the job. A source set
 may have one audit job and one selection job queued or running at once. Afterwards, selections beyond the newest
 `selections.keep` are pruned to their summary; the latest is never pruned.
+
+`[selections] engine` chooses the engine that makes selections and previews, as `select --engine` does. With
+`[selections] shadow = true`, each selection job also runs the other engine on the same DAT revision and selection
+profile, after the selection is recorded, and records how the two compare beside the selection: the groups they place
+differently or explain differently, and their warnings where those differ. The shadow run is a separate process with
+the job's timeout and an 8 GiB memory limit; it is stopped when it overruns either. Its result may be at most
+`shadow_result_mib` MiB: 64 by default, many times the largest selection the test DATs make (about 3 MB for 11,000
+releases). One shadow run runs at a time and one waits; when another selection is recorded meanwhile, its shadow run
+takes the waiting one's place, and the one it replaced is recorded as `skipped: busy`. Stopping the service stops a
+running shadow run and everything it started, and records it as failed before the service exits, so you can start the
+service again at once; a shadow run's process also stops if the service dies. A shadow run
+never changes or delays the selection, and a shadow run that fails for any reason, including a pattern the built-in
+engine can't read, is recorded as failed without failing the job. Pruning a selection also deletes its shadow
+comparison. The server's log gets one line per shadow run saying whether the engines agreed, and naming the first groups where they didn't;
+`GET /api/v1/selections/{id}/shadow` returns the full comparison. A shadow run compares one run of each engine, so
+its differences are unclassified: some may come only from the order the bundled engine meets titles in. The log line
+and the comparison's `"classification": "unclassified"` say so; run `conformance` on the DAT to classify them.
 
 ### Stale source sets
 
@@ -1023,6 +1075,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
+| `GET /api/v1/selections/{id}/shadow`               | the shadow run beside a selection: `{"engine", "shadow", "comparison"?, "error"?, "classification"?}`, or `null` when shadow mode was off |
 | `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}` |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
@@ -1405,6 +1458,14 @@ or a patch; the tests fail, rather than skip, without it.
 - **Goldens:** `crates/selection/tests/goldens/` holds each conformance case's Selection and trace (its records that
   don't depend on set order). After a deliberate change to a patch, a pin or the derivation, regenerate them with
   `TITLE_SELECT_REGENERATE_GOLDENS=1 cargo test -p title-select-selection --test conformance` and review the diff.
+- **Built-in engine conformance:** `crates/selection/tests/builtin.rs` runs both engines over Retool's fixture DATs
+  with its test configs. Pull-request CI checks every feature DAT and two system DATs; the `conformance` workflow
+  checks every DAT nightly and on demand. The oracle is `crates/selection/src/conformance.rs`: dependent differing
+  units form components, a component is order-sensitive only with a single witness seed reproducing all of it, and a
+  component no rerun reproduces is different; one reruns reproduce only partly, or a mismatched failure, is
+  inconclusive. Both fail the test.
+  Profile patterns go through `native/userre.rs`, which rewrites Python `re` syntax for `fancy-regex` or refuses it. Run the full set locally with
+  `CONFORMANCE_FULL=1 cargo test -p title-select-selection --test builtin`.
 - **A real DAT:** `TITLE_SELECT_ATARI_DAT=<DAT file> cargo test -p title-select-selection --test selection --
   --ignored --nocapture` selects from it, checks every group has a rule and prints the counts. Never commit the DAT.
 
