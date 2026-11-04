@@ -54,11 +54,12 @@ pub struct Component {
 
 impl Component {
     /// Takes the rerun with set order `seed`, whose units are `rerun`, as the witness if it gives `builtin`'s
-    /// result for every unit; a rerun that reproduces some differing units but changes others, or changes a unit
-    /// that agreed, is no witness.
+    /// result for the component's whole projection under `links`: every unit linked to it in the original runs or
+    /// in the rerun, including units only the rerun has, and units of groups only the rerun links to it.
     fn consider(
         &mut self,
         seed: u64,
+        links: &Links,
         rerun: &BTreeMap<String, String>,
         builtin: &BTreeMap<String, String>,
         differing: &BTreeMap<String, [Option<String>; 2]>,
@@ -66,8 +67,8 @@ impl Component {
         if self.witness.is_some() {
             return;
         }
-        let reproduces = |unit: &String| rerun.get(unit) == builtin.get(unit);
-        if self.units.iter().all(reproduces) {
+        let reproduces = |unit: &str| rerun.get(unit) == builtin.get(unit);
+        if links.projection(&self.units).all(reproduces) {
             self.witness = Some(seed);
         } else if self
             .units
@@ -252,7 +253,7 @@ impl Engine {
                     .insert(key.clone(), [x.cloned(), y.cloned()]);
             }
         }
-        conformance.components = components(&keys, &a, &b, &conformance.differing);
+        conformance.components = components(&a, &b, &conformance.differing);
         for seed in 1..=u64::from(set_orders) {
             if conformance.components.iter().all(|c| c.witness.is_some()) {
                 break;
@@ -262,19 +263,17 @@ impl Engine {
                 continue;
             };
             let p = units(&reordered)?;
+            let links = Links::new(&[&a, &b, &p]);
             for component in &mut conformance.components {
-                component.consider(seed, &p, &b, &conformance.differing);
+                component.consider(seed, &links, &p, &b, &conformance.differing);
             }
         }
         Ok(conformance)
     }
 }
 
-/// The components of the units that differ: units join when they're about the same group, or when one names
-/// titles of several groups (a step without a group names the titles it kept and removed). An excluded title's
-/// units join each other instead.
+/// The components of the units that differ between `a` and `b`, as `Links` joins them.
 fn components(
-    keys: &BTreeSet<&String>,
     a: &BTreeMap<String, String>,
     b: &BTreeMap<String, String>,
     differing: &BTreeMap<String, [Option<String>; 2]>,
@@ -282,78 +281,190 @@ fn components(
     if differing.is_empty() {
         return Vec::new();
     }
-    let mut parent: Vec<usize> = (0..keys.len()).collect();
-    fn root(parent: &mut [usize], mut i: usize) -> usize {
-        while parent[i] != i {
-            parent[i] = parent[parent[i]];
-            i = parent[i];
+    let links = Links::new(&[a, b]);
+    let mut by_root: BTreeMap<usize, Component> = BTreeMap::new();
+    for unit in differing.keys() {
+        if let Some(root) = links.root_of(unit) {
+            by_root.entry(root).or_default();
         }
-        i
     }
-    fn join(parent: &mut [usize], x: usize, y: usize) {
-        let (x, y) = (root(parent, x), root(parent, y));
-        parent[x] = y;
+    for (root, component) in &mut by_root {
+        component.units = links.members[root]
+            .iter()
+            .map(|&i| links.keys[i].to_owned())
+            .collect();
     }
-    // An excluded title takes no part in choosing, and the run reports it under whichever of its groups it met
-    // first, title by title: its exclusion units depend only on each other, so they join by title, not by group.
-    let is_exclusion = |key: &str| {
-        key.starts_with(GROUP)
-            && key.contains('\t')
-            && [a.get(key), b.get(key)].into_iter().flatten().all(|v| {
-                serde_json::from_str::<serde_json::Value>(v).is_ok_and(|v| v["role"] == "exclusion")
-            })
-    };
-    let mut excluded: HashMap<&str, usize> = HashMap::new();
-    for (i, key) in keys.iter().enumerate() {
-        let title = match key.strip_prefix(TRACE_EXCLUDED) {
-            Some(title) => title,
-            None if is_exclusion(key) => key.split_once('\t').map_or("", |(_, t)| t),
-            None => continue,
-        };
-        match excluded.get(title) {
-            Some(&first) => join(&mut parent, first, i),
-            None => {
-                excluded.insert(title, i);
+    by_root.into_values().collect()
+}
+
+/// The units of some versions of a run (the two engines', and a rerun's), joined where they depend on each other:
+/// units about the same group, and a unit that names titles of several groups (a step without a group names the
+/// titles it kept and removed; a title's exclusion record names the group it was reported under).
+///
+/// One exception: an excluded title the bundled engine reports under whichever of its groups it met first, title by
+/// title. Its units join each other, not its groups, but only where that provably doesn't depend on choosing or
+/// filtering: every version excludes it alike apart from the group, every group reporting it exists in every
+/// version, and no choosing record names it.
+struct Links<'k> {
+    /// Every unit any version has, sorted.
+    keys: Vec<&'k str>,
+    /// The component each unit is in, by unit index.
+    root: Vec<usize>,
+    /// Each component's units, by unit index.
+    members: HashMap<usize, Vec<usize>>,
+}
+
+impl<'k> Links<'k> {
+    fn new(versions: &[&'k BTreeMap<String, String>]) -> Links<'k> {
+        let keys: Vec<&str> = versions
+            .iter()
+            .flat_map(|v| v.keys().map(String::as_str))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut parent: Vec<usize> = (0..keys.len()).collect();
+        fn root(parent: &mut [usize], mut i: usize) -> usize {
+            while parent[i] != i {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
             }
+            i
         }
-    }
-    // Each group's first unit, and the group each title is placed in.
-    let mut groups: HashMap<&str, usize> = HashMap::new();
-    let mut title_groups: HashMap<&str, Vec<&str>> = HashMap::new();
-    for (i, key) in keys.iter().enumerate() {
-        if is_exclusion(key) {
-            continue;
+        fn join(parent: &mut [usize], x: usize, y: usize) {
+            let (x, y) = (root(parent, x), root(parent, y));
+            parent[x] = y;
         }
-        if let Some(group) = Conformance::group_of(key) {
-            match groups.get(group) {
-                Some(&first) => join(&mut parent, first, i),
-                None => {
-                    groups.insert(group, i);
+        let values = |key: &'k str| versions.iter().filter_map(move |v| v.get(key));
+        let records = |key: &'k str| {
+            values(key).flat_map(|v| {
+                v.lines()
+                    .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            })
+        };
+        let release = |key: &'k str| {
+            key.strip_prefix(GROUP)
+                .and_then(|rest| rest.split_once('\t'))
+        };
+
+        // The titles choosing records name: in a step's lists, or in a group's clone structure.
+        let mut chosen: BTreeSet<String> = BTreeSet::new();
+        for &key in &keys {
+            if let Some((_, title)) = key
+                .strip_prefix(TRACE_GROUP)
+                .and_then(|rest| rest.split_once('\t'))
+            {
+                chosen.insert(title.to_owned());
+            } else if key.starts_with(TRACE) && !key.starts_with(TRACE_EXCLUDED) {
+                for record in records(key) {
+                    for field in ["before", "after", "kept", "removed"] {
+                        for title in record[field].as_array().into_iter().flatten() {
+                            if let Some(title) = title.as_str() {
+                                chosen.insert(title.to_owned());
+                            }
+                        }
+                    }
                 }
             }
-            if let Some((_, title)) = key.split_once('\t') {
-                title_groups.entry(title).or_default().push(group);
+        }
+        // Each title's release units.
+        let mut releases: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (i, &key) in keys.iter().enumerate() {
+            if let Some((_, title)) = release(key) {
+                releases.entry(title).or_default().push(i);
             }
         }
-    }
-    for (i, key) in keys.iter().enumerate() {
-        if Conformance::group_of(key).is_some()
-            || key.as_str() == WARNINGS
-            || key.starts_with(TRACE_EXCLUDED)
-        {
-            continue;
+        let stands_alone = |title: &str| -> bool {
+            if chosen.contains(title) {
+                return false;
+            }
+            let record = format!("{TRACE_EXCLUDED}{title}");
+            let without_group = |v: &String| {
+                serde_json::from_str::<serde_json::Value>(v)
+                    .ok()
+                    .map(|mut v| {
+                        v.as_object_mut().map(|o| o.remove("group"));
+                        v
+                    })
+            };
+            let reports: Vec<_> = versions.iter().map(|v| v.get(&record)).collect();
+            if reports.iter().any(Option::is_none) {
+                return false;
+            }
+            let first = without_group(reports[0].unwrap());
+            if first.is_none() || reports.iter().any(|r| without_group(r.unwrap()) != first) {
+                return false;
+            }
+            let mut exclusion: Option<&String> = None;
+            for &i in releases.get(title).map(Vec::as_slice).unwrap_or_default() {
+                let (group, _) = release(keys[i]).expect("a release unit");
+                if versions
+                    .iter()
+                    .any(|v| !v.contains_key(&format!("{GROUP}{group}")))
+                {
+                    return false;
+                }
+                for value in values(keys[i]) {
+                    let is_exclusion = serde_json::from_str::<serde_json::Value>(value)
+                        .is_ok_and(|v| v["role"] == "exclusion");
+                    if !is_exclusion || exclusion.is_some_and(|e| e != value) {
+                        return false;
+                    }
+                    exclusion = Some(value);
+                }
+            }
+            true
+        };
+        let alone: BTreeSet<&str> = keys
+            .iter()
+            .filter_map(|k| k.strip_prefix(TRACE_EXCLUDED))
+            .filter(|t| stands_alone(t))
+            .collect();
+
+        let mut excluded: HashMap<&str, usize> = HashMap::new();
+        let mut groups: HashMap<&str, usize> = HashMap::new();
+        let mut title_groups: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (i, &key) in keys.iter().enumerate() {
+            let title = key
+                .strip_prefix(TRACE_EXCLUDED)
+                .or_else(|| release(key).map(|(_, t)| t));
+            if let Some(title) = title.filter(|t| alone.contains(t)) {
+                match excluded.get(title) {
+                    Some(&first) => join(&mut parent, first, i),
+                    None => {
+                        excluded.insert(title, i);
+                    }
+                }
+                continue;
+            }
+            if let Some(group) = Conformance::group_of(key) {
+                match groups.get(group) {
+                    Some(&first) => join(&mut parent, first, i),
+                    None => {
+                        groups.insert(group, i);
+                    }
+                }
+                if let Some((_, title)) = release(key) {
+                    title_groups.entry(title).or_default().push(group);
+                }
+            }
         }
-        for version in [a.get(*key), b.get(*key)].into_iter().flatten() {
-            for line in version.lines() {
-                let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-                    continue;
-                };
+        for (i, &key) in keys.iter().enumerate() {
+            if Conformance::group_of(key).is_some() || key == WARNINGS {
+                continue;
+            }
+            if key
+                .strip_prefix(TRACE_EXCLUDED)
+                .is_some_and(|t| alone.contains(t))
+            {
+                continue;
+            }
+            for record in records(key) {
                 let mut named: Vec<&str> = Vec::new();
-                if let Some(group) = value["group"].as_str() {
-                    named.push(group);
+                if let Some(group) = record["group"].as_str() {
+                    named.extend(groups.get_key_value(group).map(|(g, _)| *g));
                 }
                 for field in ["before", "after", "kept", "removed"] {
-                    for title in value[field].as_array().into_iter().flatten() {
+                    for title in record[field].as_array().into_iter().flatten() {
                         if let Some(in_groups) = title.as_str().and_then(|t| title_groups.get(t)) {
                             named.extend(in_groups.iter().copied());
                         }
@@ -366,16 +477,29 @@ fn components(
                 }
             }
         }
+        let root: Vec<usize> = (0..keys.len()).map(|i| root(&mut parent, i)).collect();
+        let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (i, &r) in root.iter().enumerate() {
+            members.entry(r).or_default().push(i);
+        }
+        Links {
+            keys,
+            root,
+            members,
+        }
     }
-    let mut by_root: BTreeMap<usize, Component> = BTreeMap::new();
-    for (i, key) in keys.iter().enumerate() {
-        let r = root(&mut parent, i);
-        by_root.entry(r).or_default().units.insert((*key).clone());
+
+    fn root_of(&self, key: &str) -> Option<usize> {
+        self.keys.binary_search(&key).ok().map(|i| self.root[i])
     }
-    by_root
-        .into_values()
-        .filter(|c| c.units.iter().any(|u| differing.contains_key(u)))
-        .collect()
+
+    /// Every unit in the components `units` fall in.
+    fn projection<'a>(&'a self, units: &'a BTreeSet<String>) -> impl Iterator<Item = &'k str> + 'a {
+        let roots: BTreeSet<usize> = units.iter().filter_map(|u| self.root_of(u)).collect();
+        roots
+            .into_iter()
+            .flat_map(|r| self.members[&r].iter().map(|&i| self.keys[i]))
+    }
 }
 
 /// An outcome as units that compare independently: each group's flags and each release's placement, each group's
@@ -491,10 +615,11 @@ mod tests {
     ) -> Conformance {
         let keys: BTreeSet<&String> = a.keys().chain(b.keys()).collect();
         let differing = differing(a, b);
-        let mut components = components(&keys, a, b, &differing);
+        let mut components = components(a, b, &differing);
         for (seed, rerun) in reruns.iter().enumerate() {
+            let links = Links::new(&[a, b, rerun]);
             for c in &mut components {
-                c.consider(seed as u64 + 1, rerun, b, &differing);
+                c.consider(seed as u64 + 1, &links, rerun, b, &differing);
             }
         }
         Conformance {
@@ -547,6 +672,12 @@ mod tests {
         let exclusion = r#"{"role":"exclusion"}"#;
         let reported = |fallout: &str, oblivion: &str| {
             let mut m = map(&[
+                ("group fallout", "{}"),
+                ("group fallout dlc", "{}"),
+                (
+                    "group fallout dlc\tFallout DLC (Japan)",
+                    "{\"role\":\"winner\"}",
+                ),
                 ("group fallout\tFallout (USA)", "{\"role\":\"winner\"}"),
                 (
                     "group fallout\tFallout (Japan)",
@@ -580,6 +711,129 @@ mod tests {
             c.witness("group fallout dlc\tFallout GOTY (Europe)"),
             Some(2)
         );
+    }
+
+    fn excluded(title: &str, group: &str, reason: &str) -> String {
+        format!(r#"{{"group":"{group}","reason":"{reason}","title":"{title}","type":"excluded"}}"#)
+    }
+
+    /// A title in groups `pong` and `pong dlc`, excluded for `reason` and reported under `group`.
+    fn superset(group: &str, reason: &str) -> BTreeMap<String, String> {
+        let mut m = map(&[
+            ("group pong", "{}"),
+            ("group pong dlc", "{}"),
+            ("group pong\tPong (USA)", r#"{"role":"winner"}"#),
+            ("group pong dlc\tPong DLC (USA)", r#"{"role":"winner"}"#),
+        ]);
+        let title = "Pong Pack (USA)";
+        m.insert(
+            format!("group {group}\t{title}"),
+            format!(r#"{{"reason":"{reason}","role":"exclusion"}}"#),
+        );
+        m.insert(
+            format!("trace excluded\t{title}"),
+            excluded(title, group, reason),
+        );
+        m
+    }
+
+    #[test]
+    fn a_rerun_that_matches_every_original_unit_but_adds_a_clone_is_no_witness() {
+        let a = map(&[
+            ("group pong", "{}"),
+            ("group pong\tPong (USA)", "winner"),
+            ("group pong\tPong (Europe)", "alternative"),
+        ]);
+        let mut b = a.clone();
+        b.insert("group pong\tPong (USA)".into(), "alternative".into());
+        b.insert("group pong\tPong (Europe)".into(), "winner".into());
+        let mut clone = b.clone();
+        clone.insert(
+            "trace group pong\tPong (Brazil)".into(),
+            "clone of Pong (USA)".into(),
+        );
+        let c = conformance_of(&a, &b, &[clone]);
+        assert_eq!(c.verdict(), Verdict::Inconclusive);
+        assert_eq!(c.order_sensitive(), Vec::<&String>::new());
+        let c = conformance_of(&a, &b, &[b.clone()]);
+        assert_eq!(c.verdict(), Verdict::OrderSensitive);
+    }
+
+    #[test]
+    fn a_rerun_that_links_an_agreeing_group_must_reproduce_it_too() {
+        let a = map(&[
+            ("group pong", "{}"),
+            ("group combo", "{}"),
+            ("group pong\tPong (USA)", "winner"),
+            ("group pong\tPong (Europe)", "alternative"),
+            ("group combo\tCombo (USA)", "winner"),
+        ]);
+        let mut b = a.clone();
+        b.insert("group pong\tPong (USA)".into(), "alternative".into());
+        b.insert("group pong\tPong (Europe)".into(), "winner".into());
+        // The rerun reproduces group pong, but a compilation step it runs links combo, which it changes.
+        let mut linked = b.clone();
+        linked.insert("trace compilations global".into(), STEP.into());
+        linked.insert("group combo\tCombo (USA)".into(), "alternative".into());
+        let c = conformance_of(&a, &b, &[linked]);
+        assert_eq!(c.witness("group pong\tPong (USA)"), None);
+        assert!(!c.conforms());
+    }
+
+    #[test]
+    fn an_excluded_title_stays_with_its_groups_unless_its_exclusion_provably_stands_alone() {
+        // The same exclusion, reported under either group: the title's units stand alone.
+        let a = superset("pong", "Language remove");
+        let b = superset("pong dlc", "Language remove");
+        let mut moved = b.clone();
+        moved.insert(
+            "group pong\tPong (USA)".into(),
+            r#"{"role":"alternative"}"#.into(),
+        );
+        let c = conformance_of(&a, &b, &[moved.clone()]);
+        assert_eq!(c.components.len(), 1);
+        assert_eq!(c.verdict(), Verdict::OrderSensitive);
+
+        // Excluded for different reasons: the exclusion depends on filtering, so the title joins its groups, and the
+        // rerun that changed group pong is no witness.
+        let b = superset("pong dlc", "Region remove");
+        let mut moved = b.clone();
+        moved.insert(
+            "group pong\tPong (USA)".into(),
+            r#"{"role":"alternative"}"#.into(),
+        );
+        let c = conformance_of(&a, &b, &[moved]);
+        assert_eq!(c.components.len(), 1);
+        assert!(c.components[0].units.contains("group pong\tPong (USA)"));
+        assert_eq!(c.verdict(), Verdict::Inconclusive);
+
+        // A group that exists only to report it: the title joins that group.
+        let mut a = superset("pong", "Language remove");
+        a.remove("group pong dlc");
+        a.remove("group pong dlc\tPong DLC (USA)");
+        let b = superset("pong dlc", "Language remove");
+        let c = conformance_of(&a, &b, &[]);
+        assert_eq!(c.components.len(), 1);
+        assert!(
+            c.components[0]
+                .units
+                .contains("group pong dlc\tPong DLC (USA)")
+        );
+
+        // A title a choosing step names depends on choosing.
+        let mut a = superset("pong", "Language remove");
+        a.insert(
+            "trace compilations global".into(),
+            r#"{"type":"step","removed":["Pong Pack (USA)","Pong (USA)"]}"#.into(),
+        );
+        let mut b = superset("pong dlc", "Language remove");
+        b.insert(
+            "trace compilations global".into(),
+            a["trace compilations global"].clone(),
+        );
+        let c = conformance_of(&a, &b, &[]);
+        assert_eq!(c.components.len(), 1);
+        assert!(c.components[0].units.contains("group pong\tPong (USA)"));
     }
 
     #[test]
