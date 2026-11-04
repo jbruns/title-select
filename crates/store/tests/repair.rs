@@ -3246,6 +3246,42 @@ fn a_disc_is_not_converted_while_another_disc_of_its_game_is_an_unreadable_folde
     );
 }
 
+#[test]
+fn a_shared_original_stays_in_place_while_a_disc_written_from_it_could_not_be_put_in_place() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    // One ZIP holds both discs, so their repairs share it and are carried out together.
+    let members: Vec<(&str, &[u8])> = games[1..]
+        .iter()
+        .flat_map(|(_, roms)| roms.iter().map(|r| (r.name, r.payload.as_slice())))
+        .collect();
+    let shared = env.set().join("Saga (USA).zip");
+    write_zip(&shared, &members);
+    let before = std::fs::read(&shared).unwrap();
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    for disc in ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"] {
+        let it = item(&plan, &format!("game:{disc}"));
+        assert_eq!(it.chosen, RepairChoice::Apply, "{it:?}");
+    }
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    // A file appears where Disc 2's track would be put in place.
+    let folder = env.set().join("Saga (USA) (Disc 2)");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("Saga (USA) (Disc 2).bin"), b"in the way").unwrap();
+    env.run_repair_job(&approved);
+
+    assert_eq!(
+        std::fs::read(&shared).ok().as_deref(),
+        Some(before.as_slice()),
+        "the original Disc 2 was read from stays where it was"
+    );
+}
+
 /// Plans converting both discs of Saga, zipped, into loose folders, and stops the repair once the first disc's
 /// conversion has changed something, then cancels the job a restart queued again.
 fn cancelled_once_one_disc_converted(env: &Env, before_rerun: impl FnOnce()) -> RepairPlan {

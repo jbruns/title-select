@@ -1459,8 +1459,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     })
 }
 
-/// The steps that carry out what each item chosen does: every Build first, then every Keep, every Rename, every
-/// Publish and every Fill. A conversion that shares no file with another item then follows, each in turn: its Builds,
+/// The steps that carry out what each item chosen does: every Build first, then every Keep of a file in the way of a
+/// new one, every Rename, every Publish, every Fill, and then every Keep of an original, once all its item put in place
+/// is there. A conversion that shares no file with another item then follows, each in turn: its Builds,
 /// the Keep of what it displaces from its new files' names, its Publishes, the Keep of each original and, when the
 /// Storage Policy deletes originals, the Delete of each original, so that a folder being converted holds at most one
 /// converted Game more than it did at any time.
@@ -1563,12 +1564,32 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
     }
     let built_by =
         |key: &str| -> Vec<u32> { builds.iter().filter(|b| b.0 == key).map(|b| b.1).collect() };
+    // Every name a file is put in place under: what is there now is in the way, and is kept aside first. Any other
+    // file an item displaces, an original it reads, is kept aside only once all the item puts in place is there.
+    let mut destinations: BTreeSet<&str> = builds.iter().map(|b| b.2.as_str()).collect();
+    for p in &together {
+        if let Some((target, _)) = &p.target {
+            destinations.insert(target);
+        }
+        if let Some(Proposal::Folder { parts }) = &p.proposal {
+            for part in parts {
+                match part {
+                    Part::Build { target, .. } | Part::Fill { target, .. } => {
+                        destinations.insert(target);
+                    }
+                    Part::Rename { to, .. } => {
+                        destinations.insert(to);
+                    }
+                }
+            }
+        }
+    }
     let mut keeps: Vec<PlannedStep> = Vec::new();
     for p in &together {
         keeps_of(
             i,
             p,
-            |_| true,
+            |path| destinations.contains(path),
             built_by(&p.item.key),
             &mut names,
             &mut keeps,
@@ -1641,6 +1662,33 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
             _ => {}
         }
     }
+    let mut originals: Vec<PlannedStep> = Vec::new();
+    for p in &together {
+        let placed: Vec<u32> = steps
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                s.item == p.item.key
+                    && matches!(
+                        s.step,
+                        RepairStep::Build { .. }
+                            | RepairStep::Rename { .. }
+                            | RepairStep::Publish { .. }
+                            | RepairStep::Fill { .. }
+                    )
+            })
+            .map(|(n, _)| n as u32)
+            .collect();
+        keeps_of(
+            i,
+            p,
+            |path| !destinations.contains(path),
+            placed,
+            &mut names,
+            &mut originals,
+        );
+    }
+    steps.extend(originals);
     for p in turns {
         let originals = &p.converts;
         // What you approved keeping aside from the new files' names goes first; the new files are in place before

@@ -151,7 +151,8 @@ pub enum RepairStep {
         loose: bool,
     },
     /// Moves `path` into the kept files as `kept_name` in this repair's generation, without replacing anything; only
-    /// once each Build step it `needs`, which reads it or replaces it, has staged its file. Besides the item it
+    /// once each step it `needs` is done: each Build step that reads it or replaces it has staged its file, and, for
+    /// an original rather than a file in the way, each step that puts its replacement in place has done so. Besides the item it
     /// belongs to, it displaces `path` for each item it `affects`, whose steps a cancellation then never skips once it
     /// has run.
     Keep {
