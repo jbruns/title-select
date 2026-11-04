@@ -233,28 +233,50 @@ pub(crate) fn split_release(items: &[RepairItem]) -> Option<String> {
     None
 }
 
-/// How the files holding game `game`'s ROMs, by the Audit, are stored.
-fn stored_formats(by_path: &BTreeMap<&str, Vec<&Entry>>, game: &str) -> HashSet<StorageFormat> {
+/// How the files holding game `game`'s ROMs, by the Audit, are stored; `None` for a file of it whose format can't
+/// be told, as an unreadable one where the Game's ZIP, loose folder or a ROM of it would be.
+fn stored_formats(
+    by_path: &BTreeMap<&str, Vec<&Entry>>,
+    dat: &Dat,
+    index: usize,
+) -> HashSet<Option<StorageFormat>> {
+    let game = dat.games[index].as_str();
+    let zip = format!("{game}.zip");
+    let folder = format!("{game}/");
+    let roms = roms_of(dat, index);
     by_path
         .iter()
-        .filter(|(_, entries)| {
-            entries.iter().any(|e| match e.finding {
+        .filter_map(|(path, entries)| {
+            let holds = entries.iter().any(|e| match e.finding {
                 Finding::Matched | Finding::Misnamed => e.roms.iter().any(|r| r.game == game),
                 Finding::Mismatched => e.named_rom.as_ref().is_some_and(|r| r.game == game),
                 _ => false,
-            })
-        })
-        .map(|(path, entries)| {
-            match (
-                path.contains('/'),
-                entries.iter().any(|e| e.member.is_some()),
-            ) {
-                (true, _) => StorageFormat::LooseFolder,
-                (false, true) => StorageFormat::TorrentZip,
-                (false, false) => StorageFormat::Loose,
+            });
+            if !holds {
+                let name = base_name(path);
+                let unreadable = entries.iter().any(|e| e.finding == Finding::Unreadable)
+                    && (name == zip
+                        || path.starts_with(&folder)
+                        || roms.iter().any(|r| r.name == name));
+                return unreadable.then_some(None);
             }
+            // An archive is a ZIP wherever it is; a file nested in a folder is a loose folder's only when it is
+            // the Game's.
+            let archive = entries.iter().any(|e| e.member.is_some()) || name_is_zip(path);
+            Some(Some(match (archive, path.contains('/')) {
+                (true, _) => StorageFormat::TorrentZip,
+                (false, true) if path.starts_with(&folder) => StorageFormat::LooseFolder,
+                (false, true) => return Some(None),
+                (false, false) => StorageFormat::Loose,
+            }))
         })
         .collect()
+}
+
+/// Whether `path` names a ZIP archive.
+fn name_is_zip(path: &str) -> bool {
+    path.rsplit_once('.')
+        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("zip"))
 }
 
 /// A game item, by its index in `proposed`, that would store its disc otherwise than another disc of its release no
@@ -274,13 +296,15 @@ fn release_split_by_unrepaired(
         .filter_map(|(n, p)| Some((p.produces.as_deref()?, n)))
         .collect();
     // Each disc of each release: the item repairing it, if any, its name, and how it is stored once repaired.
-    type Disc<'a> = (Option<usize>, &'a str, HashSet<StorageFormat>);
+    type Disc<'a> = (Option<usize>, &'a str, HashSet<Option<StorageFormat>>);
     let mut releases: BTreeMap<String, Vec<Disc>> = BTreeMap::new();
     for (index, game) in i.dat.games.iter().enumerate() {
         let formats = match (repaired.get(game.as_str()), &placements[index]) {
-            (Some(_), Some((placed, _))) => HashSet::from([placed.format()]),
-            (None, Some((placed, _))) if good.contains(game) => HashSet::from([placed.format()]),
-            _ => stored_formats(by_path, game),
+            (Some(_), Some((placed, _))) => HashSet::from([Some(placed.format())]),
+            (None, Some((placed, _))) if good.contains(game) => {
+                HashSet::from([Some(placed.format())])
+            }
+            _ => stored_formats(by_path, i.dat, index),
         };
         if !formats.is_empty() {
             releases.entry(release_of(game)).or_default().push((
