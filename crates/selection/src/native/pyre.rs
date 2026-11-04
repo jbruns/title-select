@@ -126,6 +126,24 @@ impl Re {
             .unwrap_or_default()
     }
 
+    /// The byte span of the first match.
+    pub fn span(&self, text: &str) -> Option<(usize, usize)> {
+        self.regex
+            .find(text)
+            .ok()
+            .flatten()
+            .map(|m| (m.start(), m.end()))
+    }
+
+    /// The groups of the first match, with `None` for a group that didn't take part.
+    pub fn captures_all(&self, text: &str) -> Option<Vec<Option<String>>> {
+        self.captures(text).map(|c| {
+            (0..c.len())
+                .map(|i| c.get(i).map(|m| m.as_str().to_owned()))
+                .collect()
+        })
+    }
+
     /// The matches, as `re.finditer` finds them.
     fn spans<'t>(&self, text: &'t str) -> Vec<Captures<'t, str>> {
         let mut out: Vec<Captures<'t, str>> = Vec::new();

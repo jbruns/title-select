@@ -4,8 +4,6 @@
 //! The bundled engine reads YAML that `config.rs` writes from the Profile; this module reads the Profile directly
 //! and reaches the same values, override markers resolved.
 
-use std::collections::HashMap;
-
 use indexmap::IndexMap;
 use title_select_api::selection::{
     Category, Compilations, SelectionOptions, SelectionProfile, SystemSettings,
@@ -177,8 +175,8 @@ pub(crate) struct Settings {
     pub languages: IndexMap<String, String>,
     /// With `United Kingdom` after `UK`.
     pub region_order_default: Vec<String>,
-    pub languages_filter: HashMap<String, Vec<String>>,
-    pub languages_implied: HashMap<String, Vec<String>>,
+    pub languages_filter: IndexMap<String, Vec<String>>,
+    pub languages_implied: IndexMap<String, Vec<String>>,
     /// `ignoreTags`, then the budget, promote, demote and modern editions.
     pub tags_ignore: Vec<Tag>,
     pub tags_budget_editions: Vec<Tag>,
@@ -226,8 +224,8 @@ impl Settings {
         let internal: Internal = serde_json::from_slice(internal_config)
             .map_err(|e| Error::Install(format!("internal-config.json: {e}")))?;
         let languages = internal.languages;
-        let mut languages_filter: HashMap<String, Vec<String>> = HashMap::new();
-        let mut languages_implied: HashMap<String, Vec<String>> = HashMap::new();
+        let mut languages_filter: IndexMap<String, Vec<String>> = IndexMap::new();
+        let mut languages_implied: IndexMap<String, Vec<String>> = IndexMap::new();
         let strip_implied = Re::of(r"[^-\w].*");
         for (region, implied) in &internal.default_region_order {
             let mut filter = Vec::new();
