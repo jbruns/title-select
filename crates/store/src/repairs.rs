@@ -26,7 +26,7 @@ use title_select_api::repair::{
     KeptFileReviewed, PlanRepair, PlannedStep, RepairChoice, RepairOutcome, RepairPlan,
     RepairPlanContent, RepairRom, RepairStep, SeenFile, SourceSetMarker,
 };
-use title_select_api::storage::StorageScope;
+use title_select_api::storage::{StorageScope, release_of};
 use title_select_api::{AuditEvidence, Job, JobKind, JobState, OpenRepair, Workers};
 use title_select_engine::build::{
     FromSource, repack_sources, verify, verify_loose, write_loose, write_loose_members,
@@ -1574,6 +1574,22 @@ impl Store {
                     }
                 }
             }
+            // Every disc of a game is stored alike: once one disc's repair has changed something, the others
+            // finish too.
+            let releases: std::collections::HashSet<String> = committed
+                .iter()
+                .filter_map(|item| item.strip_prefix("game:"))
+                .map(release_of)
+                .collect();
+            for step in &steps {
+                if step
+                    .item
+                    .strip_prefix("game:")
+                    .is_some_and(|game| releases.contains(&release_of(game)))
+                {
+                    committed.insert(step.item.as_str());
+                }
+            }
             if committed.len() == before {
                 break;
             }
@@ -1701,6 +1717,31 @@ impl Store {
                 }
             }
             outcome.detail.extend(step.note.clone());
+        }
+        let done_releases: std::collections::HashSet<String> = outcomes
+            .iter()
+            .filter(|o| o.done)
+            .filter_map(|o| o.item.strip_prefix("game:"))
+            .map(release_of)
+            .collect();
+        // A disc is stored apart when what stores it anew is not all in place.
+        let unplaced = |item: &str| {
+            steps.iter().any(|s| {
+                s.item == item
+                    && matches!(s.step, RepairStep::Publish { .. } | RepairStep::Fill { .. })
+                    && s.state != "done"
+            })
+        };
+        for outcome in outcomes.iter_mut().filter(|o| !o.done) {
+            if let Some(game) = outcome.item.strip_prefix("game:")
+                && done_releases.contains(&release_of(game))
+                && unplaced(&outcome.item)
+            {
+                outcome.detail.push(format!(
+                    "{game} was not repaired while another disc of the same game was, so the discs of this \
+                     game are stored apart until a repair makes them alike"
+                ));
+            }
         }
         Ok(outcomes)
     }

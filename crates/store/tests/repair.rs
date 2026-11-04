@@ -3174,6 +3174,147 @@ fn a_disc_is_not_converted_while_another_disc_of_its_game_cannot_be_repaired() {
     );
 }
 
+#[test]
+fn a_disc_zipped_in_a_subfolder_is_not_taken_for_a_loose_folder() {
+    let mut games = disc_games();
+    let env = Env::with("Redump", &games);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 1)"]);
+    // Disc 2, a ZIP lacking a track no folder holds, in a subfolder.
+    games[2].1.truncate(1);
+    let members: Vec<(&str, &[u8])> = games[2]
+        .1
+        .iter()
+        .map(|r| (r.name, r.payload.as_slice()))
+        .collect();
+    write_zip(&env.set().join("region/Saga (USA) (Disc 2).zip"), &members);
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+}
+
+#[test]
+fn a_disc_is_not_converted_while_another_disc_of_its_game_is_unreadable() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 1)"]);
+    env.put("Saga (USA) (Disc 2).zip", b"PK\x03\x04 not a whole ZIP");
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+    assert!(
+        first
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Saga (USA) (Disc 2)")),
+        "{first:?}"
+    );
+}
+
+/// Plans converting both discs of Saga, zipped, into loose folders, and stops the repair once the first disc's
+/// conversion has changed something, then cancels the job a restart queued again.
+fn cancelled_once_one_disc_converted(env: &Env, before_rerun: impl FnOnce()) -> RepairPlan {
+    let plan = env.plan();
+    let first = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| {
+            s.item.starts_with("game:Saga") && !matches!(s.step, RepairStep::Build { .. })
+        })
+        .unwrap();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store
+        .inject_fault(Some(Fault::RepairStepDone(first as u32)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+    env.store.cancel_job(requeued.id).unwrap();
+    before_rerun();
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    env.store.repair_plan(plan.id).unwrap()
+}
+
+#[test]
+fn a_cancelled_repair_converts_every_disc_of_a_game_once_one_is_converted() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    let discs = ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"];
+    write_games_zipped(&env, &games, &discs);
+    env.audit(AuditEvidence::Full);
+
+    let done = cancelled_once_one_disc_converted(&env, || {});
+    for disc in discs {
+        let outcome = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == format!("game:{disc}"))
+            .unwrap();
+        assert!(outcome.done, "{:#?}", done.outcomes);
+        assert!(env.set().join(disc).is_dir(), "{:?}", env.listing());
+    }
+}
+
+#[test]
+fn a_disc_left_converted_alone_says_its_game_is_stored_apart_and_the_next_plan_converts_it() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    let discs = ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"];
+    write_games_zipped(&env, &games, &discs);
+    env.audit(AuditEvidence::Full);
+
+    let set = env.set();
+    // Disc 2's ZIP is written again after the plan is made, so it stays where it is, and a file appears where its
+    // track would be put in place, so its conversion can't finish.
+    let done = cancelled_once_one_disc_converted(&env, || {
+        let roms: Vec<(&str, &[u8])> = games[2]
+            .1
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        let zip = set.join("Saga (USA) (Disc 2).zip");
+        std::fs::remove_file(&zip).unwrap();
+        write_zip(&zip, &roms);
+        let folder = set.join("Saga (USA) (Disc 2)");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("Saga (USA) (Disc 2).bin"), b"in the way").unwrap();
+    });
+    let second = done
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Saga (USA) (Disc 2)")
+        .unwrap();
+    assert!(!second.done, "{second:?}");
+    assert!(
+        second.detail.iter().any(|d| d.contains("stored apart")),
+        "{second:?}"
+    );
+
+    env.store.fulfil_repair_audits().unwrap();
+    env.run_queued_audit(&env.store.repair_plan(done.id).unwrap());
+    let next = env.plan();
+    let again = item(&next, "game:Saga (USA) (Disc 2)");
+    assert_eq!(again.chosen, RepairChoice::Apply, "{again:?}");
+    assert_eq!(
+        again.path.as_deref(),
+        Some("Saga (USA) (Disc 2)"),
+        "{again:?}"
+    );
+}
+
 /// Imports a cue pack holding `cues` for the disc system's DAT.
 fn import_cue_pack(env: &Env, cues: &[(&str, &[u8])]) {
     let pack = env.tmp.path().join("Test - System (cues).zip");

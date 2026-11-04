@@ -495,7 +495,10 @@ A game's ROMs are never split between formats, and every disc of a game released
 for its `(Disc …)` tag, is stored the same way: if one disc has to stay TorrentZip, so do the others, and the plan
 says why. This holds whatever the format: a repair proposes, and you choose, alike for every disc of a game. Leaving
 one disc as it is leaves every disc, and a plan made with choices that would store the discs differently is refused.
-A disc that can't be repaired now stays stored as it is, so no other disc of its game is converted until it can be.
+A disc that can't be repaired now stays stored as it is, so no other disc of its game is converted until it can be;
+so does a disc whose file can't be read. If you cancel a repair after one disc of a game has been converted, the
+repair still converts the game's other discs. If one of them can't be converted, the repair says the game's discs are
+stored apart, and the next plan proposes converting it too.
 
 Every write of a game into a folder follows it: a build writes each system's play library in that system's format,
 and a repair, including a fill from an ingest folder, writes a source set in its system's format. Saving the policy
