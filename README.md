@@ -580,8 +580,10 @@ empty only if a build made it and it is still that folder: one you made stays.
 Every file of a game, across all its discs, goes in place together: each disc, each track, its `.m3u` and its SBI
 files. If any of them can't be built, the plan builds none of them and names the one in the way; if one fails or you
 cancel before they go in place, none does, and the files they replace stay where they are. The files they replace go
-to your kept files only once every new file is in place. Changing a game from one layout to the other rebuilds it from
-its source set the same way, and keeps its old files aside.
+to your kept files only once every new file is in place, and while any of them can't be built, its `.m3u` and SBI
+files stay too. Changing a game from one layout to the other rebuilds it from its source set the same way, and keeps
+its old files aside. A `<game>.cue/` folder you made yourself is never replaced by a file: the plan builds none of that
+game's files and names the folder, so you can move it.
 
 A disc system's own setting can also put each disc's SBI file beside it: with "Put SBI files beside discs" on, a build
 writes each disc's `.sbi` from the system's latest fetched SBI pack, named for and beside its `.cue` or `.chd`. A disc
