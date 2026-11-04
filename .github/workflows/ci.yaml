@@ -18,6 +18,11 @@ jobs:
   rust:
     name: fmt, clippy, test
     runs-on: ubuntu-24.04
+    # Keeps target/ within the runner's disk: a one-shot build gains nothing from incremental artifacts, and line
+    # tables still give panics their file and line.
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # rustup on the runner installs the toolchain rust-toolchain.toml pins.
