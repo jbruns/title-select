@@ -3451,6 +3451,38 @@ fn tracks_arriving_one_by_one_are_moved_into_the_loose_folder_and_the_plan_says_
 }
 
 #[test]
+fn one_loose_ingest_file_fills_every_track_it_is_and_goes_only_after_the_last() {
+    let mut games = disc_games();
+    // Tracks 2 and 3 of Quest read alike, so one file is both.
+    games[0].1[3].payload = games[0].1[2].payload.clone();
+    let env = Env::with("Redump", &games);
+    let quest = &games[0].1;
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[..2]);
+    env.audit(AuditEvidence::Full);
+    env.ingest("track.bin", |p| write_file(p, &quest[2].payload));
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    let done = env.approve(&plan);
+    assert_eq!(done.outcomes[0].error, None, "{:#?}", done.outcomes);
+
+    for r in &quest[2..] {
+        assert_eq!(
+            std::fs::read(env.set().join("Quest (USA)").join(r.name)).unwrap(),
+            r.payload
+        );
+    }
+    assert!(
+        env.ingest_listing().is_empty(),
+        "{:?}",
+        env.ingest_listing()
+    );
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
 fn a_mismatched_track_is_replaced_from_ingest_and_kept_aside() {
     let env = Env::with("Redump", &disc_games());
     let quest = disc_of("Quest (USA)");

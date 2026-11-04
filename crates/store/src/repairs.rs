@@ -3306,9 +3306,10 @@ impl Store {
                         name: target.clone(),
                         generation,
                     },
-                    // A loose file of the one ROM is moved as it is; anything else is written as the policy stores it.
+                    // A loose file of the one ROM is moved as it is, unless a later fill still reads it; anything else
+                    // is written as the policy stores it.
                     repack: match (loose, roms.as_slice()) {
-                        (true, [only]) if only.member.is_none() => None,
+                        (true, [only]) if only.member.is_none() && !*leave => None,
                         _ => Some(
                             roms.iter()
                                 .map(|rom| (rom.rom.clone(), rom.member.clone()))

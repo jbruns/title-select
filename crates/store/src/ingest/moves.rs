@@ -79,8 +79,8 @@ pub(crate) struct Move<'a> {
     pub exact: Option<ExpectedRom>,
     /// Whether the one ROM of `repack` is written as a loose file, extracted from its ZIP, rather than a TorrentZip.
     pub loose: bool,
-    /// Whether the original is left where it is once the copy is published, and its item still to move: a ZIP that
-    /// several ROMs of a loose folder are extracted from, one move each, until the last disposes of it.
+    /// Whether the original is left where it is once the copy is published, and its item still to move: a ZIP, or a
+    /// loose file, that several ROMs of a loose folder are written from, one move each, until the last disposes of it.
     pub leave: bool,
 }
 
