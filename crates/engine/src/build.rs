@@ -427,6 +427,35 @@ pub fn write_loose_members(
         .map_err(|e| e.to_string())
 }
 
+/// Writes `rom` into `dest`, a new, empty file the caller created, as a loose file: its payload, read from member
+/// `member` of the ZIP `source`, reading only the archive's directory and that member. The caller trusts what else
+/// `source` holds by its stamp; a payload of the wrong size is refused, and checksums are checked by [`verify_loose`]
+/// afterwards.
+pub fn write_loose_member(
+    dest: &File,
+    rom: &ExpectedRom,
+    member: &str,
+    source: &File,
+) -> Result<(), String> {
+    let mut archive = archive(source, || Ok(BufReader::new(source)))?;
+    let mut out = BufWriter::new(dest);
+    let copied = {
+        let mut payload = archive
+            .by_name(member)
+            .map_err(|e| format!("{member}: {e}"))?;
+        io::copy(&mut (&mut payload).take(rom.size + 1), &mut out)
+            .map_err(|e| format!("{}: {e}", rom.name))?
+    };
+    if copied != rom.size {
+        return Err(format!(
+            "{}: its payload is {copied} bytes, not the DAT's {}",
+            rom.name, rom.size
+        ));
+    }
+    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    file.sync_all().map_err(|e| e.to_string())
+}
+
 /// Writes the one ROM of `roms` into `dest`, a new, empty file the caller created, as a loose file: its payload,
 /// read from its source in `sources`, a member of a ZIP archive or a whole loose file. Returns the SHA-256 and size
 /// of each source, as [`repack_sources`] does. A payload of the wrong size is refused; checksums are checked by

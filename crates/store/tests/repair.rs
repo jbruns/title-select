@@ -3478,6 +3478,35 @@ fn a_disc_game_arriving_as_one_zip_is_extracted_into_its_loose_folder_and_the_zi
 }
 
 #[test]
+fn a_disc_game_arriving_as_one_zip_is_read_once_as_its_tracks_are_extracted() {
+    let env = Env::with("Redump", &disc_games());
+    env.audit(AuditEvidence::Full);
+    let quest = disc_of("Quest (USA)");
+    env.ingest("quest.zip", |p| {
+        let members: Vec<(&str, &[u8])> = quest
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(p, &members)
+    });
+    let plan = env.plan();
+    let whole = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = whole.clone();
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::IngestReadWhole {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })));
+    let done = env.approve(&plan);
+    env.store.hook_faults(None);
+
+    // Each track is read from the ZIP's member alone, trusting the rest by the stamp the scan hashed it under.
+    assert_eq!(whole.load(std::sync::atomic::Ordering::SeqCst), 0);
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
 fn tracks_arriving_one_by_one_are_moved_into_the_loose_folder_and_the_plan_says_what_is_missing() {
     let env = Env::with("Redump", &disc_games());
     let quest = disc_of("Quest (USA)");

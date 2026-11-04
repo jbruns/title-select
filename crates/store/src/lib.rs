@@ -209,6 +209,8 @@ pub enum Fault {
     IngestSetAside,
     /// After a move records that what it set aside to delete is kept instead, before it is moved into the kept files.
     IngestKeeping,
+    /// Before a move reads the entry it copies or repacks whole, hashing it as it goes.
+    IngestReadWhole,
     /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
     IngestDatOwed,
     /// After a repair plan is made, before it is recorded.

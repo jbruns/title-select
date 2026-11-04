@@ -29,7 +29,7 @@ use title_select_api::build::{ExpectedRom, FileStat, kept_name};
 use title_select_api::ingest::IngestMarker;
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_engine::build::{
-    FromSource, repack_sources, sole_payload, verify, verify_loose, write_loose,
+    FromSource, repack_sources, sole_payload, verify, verify_loose, write_loose, write_loose_member,
 };
 use title_select_engine::payload::{Checksums, Hasher};
 
@@ -1170,8 +1170,24 @@ impl Store {
             Ok(source) => source,
             Err(why) => return fail(why),
         };
-        let written = match &m.roms {
-            Some(roms) => {
+        let written = match (&m.roms, m.sha256.as_deref()) {
+            // One ROM of a ZIP written loose reads only its member: the rest of the ZIP is trusted to be what the
+            // scan hashed while its stamp, change time included, holds still from before it is opened until after
+            // it is read. Each ROM of a disc read from one ZIP, one move each, so reads that ZIP once.
+            (Some(roms), Some(planned)) if m.loose && matches!(roms.as_slice(), [(_, Some(_))]) => {
+                let [(rom, Some(member))] = roms.as_slice() else {
+                    unreachable!("one ROM of a ZIP");
+                };
+                write_loose_member(&file, rom, member, &source).and_then(|()| {
+                    let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
+                    match Seen::of(&st) == m.seen {
+                        true => Ok(planned.to_owned()),
+                        false => Err(format!("{} changed while it was read", m.name)),
+                    }
+                })
+            }
+            (Some(roms), _) => {
+                self.fault_point(Fault::IngestReadWhole);
                 let named: Vec<FromSource> = roms
                     .iter()
                     .map(|(rom, member)| (rom, 0, member.as_deref()))
@@ -1182,7 +1198,10 @@ impl Store {
                 }
                 .map(|mut read| read.remove(0).0)
             }
-            None => copy_hashing(&source, &file).map_err(|e| e.to_string()),
+            (None, _) => {
+                self.fault_point(Fault::IngestReadWhole);
+                copy_hashing(&source, &file).map_err(|e| e.to_string())
+            }
         };
         let source_sha = match written {
             Ok(sha) => sha,
