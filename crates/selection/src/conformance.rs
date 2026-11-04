@@ -190,6 +190,7 @@ pub fn failure_category(error: &Error) -> Option<&'static str> {
 const GROUP: &str = "group ";
 const TRACE_GROUP: &str = "trace group ";
 const TRACE: &str = "trace ";
+const TRACE_EXCLUDED: &str = "trace excluded\t";
 const WARNINGS: &str = "warnings";
 
 impl Engine {
@@ -270,8 +271,8 @@ impl Engine {
 }
 
 /// The components of the units that differ: units join when they're about the same group, or when one names
-/// titles of several groups (an excluded title's record names its group; a step without a group names the titles
-/// it kept and removed).
+/// titles of several groups (a step without a group names the titles it kept and removed). An excluded title's
+/// units join each other instead.
 fn components(
     keys: &BTreeSet<&String>,
     a: &BTreeMap<String, String>,
@@ -293,10 +294,36 @@ fn components(
         let (x, y) = (root(parent, x), root(parent, y));
         parent[x] = y;
     }
+    // An excluded title takes no part in choosing, and the run reports it under whichever of its groups it met
+    // first, title by title: its exclusion units depend only on each other, so they join by title, not by group.
+    let is_exclusion = |key: &str| {
+        key.starts_with(GROUP)
+            && key.contains('\t')
+            && [a.get(key), b.get(key)].into_iter().flatten().all(|v| {
+                serde_json::from_str::<serde_json::Value>(v).is_ok_and(|v| v["role"] == "exclusion")
+            })
+    };
+    let mut excluded: HashMap<&str, usize> = HashMap::new();
+    for (i, key) in keys.iter().enumerate() {
+        let title = match key.strip_prefix(TRACE_EXCLUDED) {
+            Some(title) => title,
+            None if is_exclusion(key) => key.split_once('\t').map_or("", |(_, t)| t),
+            None => continue,
+        };
+        match excluded.get(title) {
+            Some(&first) => join(&mut parent, first, i),
+            None => {
+                excluded.insert(title, i);
+            }
+        }
+    }
     // Each group's first unit, and the group each title is placed in.
     let mut groups: HashMap<&str, usize> = HashMap::new();
     let mut title_groups: HashMap<&str, Vec<&str>> = HashMap::new();
     for (i, key) in keys.iter().enumerate() {
+        if is_exclusion(key) {
+            continue;
+        }
         if let Some(group) = Conformance::group_of(key) {
             match groups.get(group) {
                 Some(&first) => join(&mut parent, first, i),
@@ -310,7 +337,10 @@ fn components(
         }
     }
     for (i, key) in keys.iter().enumerate() {
-        if Conformance::group_of(key).is_some() || key.as_str() == WARNINGS {
+        if Conformance::group_of(key).is_some()
+            || key.as_str() == WARNINGS
+            || key.starts_with(TRACE_EXCLUDED)
+        {
             continue;
         }
         for version in [a.get(*key), b.get(*key)].into_iter().flatten() {
@@ -401,7 +431,7 @@ fn units(outcome: &Outcome) -> Result<BTreeMap<String, String>, Error> {
         if value["type"] == "excluded" {
             // One record per title: the group it names is that of whichever copy of the title the run met first.
             out.insert(
-                format!("{TRACE}excluded\t{}", text("title")),
+                format!("{TRACE_EXCLUDED}{}", text("title")),
                 line.to_owned(),
             );
             continue;
@@ -510,6 +540,49 @@ mod tests {
     }
 
     #[test]
+    fn each_excluded_title_is_its_own_component_whichever_group_reports_it() {
+        let excluded = |title: &str, group: &str| {
+            format!(r#"{{"group":"{group}","title":"{title}","type":"excluded"}}"#)
+        };
+        let exclusion = r#"{"role":"exclusion"}"#;
+        let reported = |fallout: &str, oblivion: &str| {
+            let mut m = map(&[
+                ("group fallout\tFallout (USA)", "{\"role\":\"winner\"}"),
+                (
+                    "group fallout\tFallout (Japan)",
+                    "{\"role\":\"alternative\"}",
+                ),
+            ]);
+            for (title, group) in [
+                ("Fallout GOTY (USA)", fallout),
+                ("Fallout GOTY (Europe)", oblivion),
+            ] {
+                m.insert(format!("group {group}\t{title}"), exclusion.into());
+                m.insert(format!("trace excluded\t{title}"), excluded(title, group));
+            }
+            m
+        };
+        let a = reported("fallout", "fallout");
+        let b = reported("fallout dlc", "fallout dlc");
+        // Each rerun moves one title's report, so no single one moves both.
+        let c = conformance_of(
+            &a,
+            &b,
+            &[
+                reported("fallout dlc", "fallout"),
+                reported("fallout", "fallout dlc"),
+            ],
+        );
+        assert_eq!(c.components.len(), 2);
+        assert_eq!(c.verdict(), Verdict::OrderSensitive);
+        assert_eq!(c.witness("trace excluded\tFallout GOTY (USA)"), Some(1));
+        assert_eq!(
+            c.witness("group fallout dlc\tFallout GOTY (Europe)"),
+            Some(2)
+        );
+    }
+
+    #[test]
     fn only_a_single_rerun_reproducing_a_whole_component_witnesses_it() {
         let a = map(&[
             ("group pong\tPong (USA)", "winner"),
@@ -547,7 +620,7 @@ mod tests {
         assert_eq!(c.verdict(), Verdict::OrderSensitive);
         assert_eq!(c.witness("group pong\tPong (USA)"), Some(4));
 
-        let c = conformance_of(&a, &b, &[a.clone()]);
+        let c = conformance_of(&a, &b, std::slice::from_ref(&a));
         assert_eq!(c.verdict(), Verdict::Different);
         assert_eq!(conformance_of(&a, &a, &[]).verdict(), Verdict::Same);
     }

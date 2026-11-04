@@ -1,6 +1,7 @@
 //! The built-in engine against the bundled one: both run over the same DATs with the same Selection Profiles, and
 //! must leave the same trace, Selection and warnings. By default this checks a subset that runs every stage (see
-//! `in_run`); `CONFORMANCE_FULL=1` checks every fixture DAT.
+//! `in_run`); `CONFORMANCE_FULL=1` checks every fixture DAT. `ONLY_DAT=<file name>` and `ONLY_PROFILE=<index>` narrow
+//! a run to one case.
 
 mod support;
 
@@ -36,6 +37,9 @@ const REPRESENTATIVE_SYSTEMS: &[&str] = &[
 
 /// Whether a run checks this DAT.
 fn in_run(dat: &Path) -> bool {
+    if let Ok(only) = std::env::var("ONLY_DAT") {
+        return dat.file_name().is_some_and(|f| f == only.as_str());
+    }
     std::env::var_os("CONFORMANCE_FULL").is_some()
         || dat.parent().is_some_and(|p| p.ends_with("features"))
         || REPRESENTATIVE_SYSTEMS.contains(&dat.file_name().unwrap().to_str().unwrap())
