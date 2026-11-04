@@ -6,7 +6,7 @@ use title_select_api::fetch::{FetchProviderStatus, FetchStatus, FetchSystem};
 use crate::api;
 use crate::events::use_live;
 use crate::fetch_model::{
-    artifact_name, failures, last_fetched, next_fetch, provider_state, system_state,
+    artifact_name, failures, last_fetched, next_fetch, provider_state, refresh_after, system_state,
 };
 use crate::model::when;
 use crate::parts::pending::{ActionPending, Pending};
@@ -32,6 +32,20 @@ pub fn Fetching() -> impl IntoView {
             let now: Result<FetchStatus, String> = api::post(&path, &()).await;
             fetched.update(|n| *n += 1);
             now
+        }
+    });
+    // The event stream carries jobs only, so a fetch that the schedule starts, or one still running after its POST
+    // returned, shows up by polling.
+    Effect::new(move |_| {
+        let after = status
+            .get()
+            .and_then(Result::ok)
+            .as_ref()
+            .and_then(refresh_after);
+        if let Some(after) = after
+            && let Ok(handle) = set_timeout_with_handle(move || fetched.update(|n| *n += 1), after)
+        {
+            on_cleanup(move || handle.clear());
         }
     });
     let problem = Signal::derive(move || status.get().and_then(Result::err));

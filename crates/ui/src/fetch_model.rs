@@ -1,7 +1,9 @@
 //! Fetching newer DAT Revisions from DAT Providers, as the workbench shows it: pure, and tested on the host.
 
+use std::time::Duration;
+
 use title_select_api::fetch::{
-    FetchArtifact, FetchArtifactStatus, FetchOutcome, FetchProviderStatus, FetchSystem,
+    FetchArtifact, FetchArtifactStatus, FetchOutcome, FetchProviderStatus, FetchStatus, FetchSystem,
 };
 
 use crate::parts::status::{FetchState, highest};
@@ -88,6 +90,23 @@ pub fn failures(system: &FetchSystem) -> Vec<(FetchArtifact, String)> {
         .filter(|a| a.outcome == Some(FetchOutcome::Failed))
         .map(|a| (a.artifact, a.error.clone().unwrap_or_default()))
         .collect()
+}
+
+/// How soon the panel refreshes while a provider is fetching, so it shows each request as it finishes.
+pub const RUNNING_REFRESH: Duration = Duration::from_secs(3);
+/// How soon the panel refreshes while a provider may fetch on its schedule.
+pub const IDLE_REFRESH: Duration = Duration::from_secs(60);
+
+/// How soon the panel should load `status` again: quickly while any provider is fetching, slowly while any is on,
+/// and never when none is.
+pub fn refresh_after(status: &FetchStatus) -> Option<Duration> {
+    if status.providers.iter().any(|p| p.running) {
+        Some(RUNNING_REFRESH)
+    } else if status.providers.iter().any(|p| p.enabled) {
+        Some(IDLE_REFRESH)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -221,6 +240,23 @@ mod tests {
         assert_eq!(
             system_state(&stopped, &stopped.systems[0]),
             FetchState::NotFetched
+        );
+    }
+
+    #[test]
+    fn the_panel_refreshes_quickly_while_a_fetch_runs_slowly_while_one_may_and_never_when_none_can()
+    {
+        let at = |enabled, running| FetchStatus {
+            providers: vec![
+                provider(false, false, vec![]),
+                provider(enabled, running, vec![]),
+            ],
+        };
+        assert_eq!(refresh_after(&at(true, true)), Some(RUNNING_REFRESH));
+        assert_eq!(refresh_after(&at(true, false)), Some(IDLE_REFRESH));
+        assert_eq!(refresh_after(&at(false, false)), None);
+        assert!(
+            RUNNING_REFRESH >= Duration::from_secs(2) && RUNNING_REFRESH <= Duration::from_secs(5)
         );
     }
 }

@@ -220,11 +220,11 @@ first use. Only one Title Select process may have a store open at a time: it hol
   Otherwise the file is deleted after the next import or audit; its row stays, and so does the index of its cue
   sheets, so the cue pack still lists, without its file. Importing the same file again restores it and keeps it until
   a newer cue pack for its DAT is imported.
-- An SBI pack's file is kept the same way: while it is the newest fetched for its DAT or while a repair plan refers
-  to it.
+- An SBI pack's file is kept the same way: while it is the one the latest successful fetch of its system brought,
+  or while a repair plan refers to it.
 - A DAT's revisions are ordered by the version in their headers, not by when they were imported, so the newest
-  revision is the one with the highest version. A revision whose version has no digits counts as newest when it is
-  imported.
+  revision is the one with the highest version, and of two with the same version, the one with the latest date. A
+  revision whose version and date don't tell it apart counts as newest when it is imported.
 
 ## Configuration
 
@@ -501,10 +501,13 @@ for the systems a registered source set follows, and only those DATs:
   release. A software list takes the release's version, such as `mame0270`. A system already fetched from the latest release is not fetched again.
 
 Each system's DAT, cue pack and SBI pack is fetched at most once a day, counting every attempt, whether scheduled or
-yours. The service checks every hour for anything due. Requests to a provider are made one at a time, at least a
-second apart, and say what Title Select is and why it asks. **Fetch now** fetches what is due at once; with nothing
+yours, and each request is sent once, even when two fetches start together. The service checks every hour for
+anything due. Requests to a provider are made one at a time, at least a second apart, even across a restart of the
+service, and say what Title Select is and why it asks. **Fetch now** fetches what is due at once; with nothing
 due it says when the next fetch may run. A fetch stops at its first error and keeps the last good DAT revision; the
-error shows on the DATs screen until a later fetch succeeds. Nothing is fetched from anywhere but the provider itself.
+error shows on the DATs screen until a later fetch succeeds. Nothing is fetched from anywhere but the provider itself:
+requests, and any redirect, go only to that provider's own hosts, and a redirect anywhere else fails the fetch. While
+a fetch runs, the DATs screen updates as each request finishes.
 
 Fetching never starts an audit. A newer DAT revision it brings makes the source sets that follow its DAT stale, as an
 imported one does, and you choose when to audit against it. Fetched cue packs join the cue packs you import, and SBI packs
