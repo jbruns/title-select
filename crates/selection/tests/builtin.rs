@@ -47,7 +47,9 @@ fn in_run(dat: &Path) -> bool {
 
 /// Set orders the bundled engine is retried with, to tell order-sensitive differences from real ones. A title in
 /// many groups (a superset, say) needs many: which copy of it the run meets first decides the group it is reported in.
-const SET_ORDERS: u32 = 32;
+/// A compilation component needs one rerun to match all of it: on Mega Drive with regions-4 about one order in twelve
+/// does, so 32 missed it about one run in sixteen. The loop stops at the first witness, so only such cases pay.
+const SET_ORDERS: u32 = 128;
 
 /// Cases the bundled engine itself doesn't finish in reasonable time or memory: its compilation step traces every
 /// combination of a contention group's compilations, which is exponential in the group's size.

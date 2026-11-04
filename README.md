@@ -125,7 +125,7 @@ explanations differ: a different winner, alternative or exclusion, a different r
 is searched for `*.dat` files. Without `--profile`, the profile is empty: every region and language, no filters.
 
 Some of the bundled engine's tie-breaks follow the order in which it happens to meet titles, which no other engine can
-reproduce. Where the engines differ, the bundled engine runs again, up to `--orders` times (32 by default), meeting
+reproduce. Where the engines differ, the bundled engine runs again, up to `--orders` times (128 by default), meeting
 titles in other orders. Differences that depend on each other, in one group or in groups linked by a compilation or a
 clone list, are judged together: they are order-sensitive only when a single one of those runs gives the built-in
 engine's whole result for them, and the report names that run's order (its seed), since that result is one the

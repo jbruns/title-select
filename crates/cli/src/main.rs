@@ -176,7 +176,7 @@ enum Command {
         #[arg(long, default_value_t = title_select_selection::DEFAULT_TIMEOUT.as_secs(), value_parser = clap::value_parser!(u64).range(1..))]
         timeout: u64,
         /// The most other orders the bundled engine tries where the engines differ, from 0 to 1000.
-        #[arg(long, default_value_t = 32, value_parser = clap::value_parser!(u32).range(0..=1000))]
+        #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u32).range(0..=1000))]
         orders: u32,
         /// Print the report as JSON instead of text.
         #[arg(long)]
