@@ -6,7 +6,6 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use title_select_api::selection::{Category, SelectionProfile};
-use title_select_selection::stable_trace;
 
 /// Every DAT under Retool's `tests/source/`.
 fn fixture_dats() -> Vec<PathBuf> {
@@ -26,80 +25,67 @@ fn fixture_dats() -> Vec<PathBuf> {
     dats
 }
 
-/// The differences between the two engines' runs, empty when they agree.
-fn differences(dat: &Path, profile: &SelectionProfile) -> Vec<String> {
+/// Set orders the bundled engine is retried with, to tell order-sensitive differences from real ones. A title in
+/// many groups (a superset, say) needs many: which copy of it the run meets first decides the group it is reported in.
+const SET_ORDERS: u32 = 32;
+
+/// Cases the bundled engine itself doesn't finish in reasonable time or memory: its compilation step traces every
+/// combination of a contention group's compilations, which is exponential in the group's size.
+const INTRACTABLE: &[(&str, &str)] = &[(
+    "user-config-overrides.yaml",
+    "Nintendo - Nintendo Entertainment System (Headered) (Private).dat",
+)];
+
+/// Totals over the cases run.
+#[derive(Default)]
+struct Totals {
+    cases: usize,
+    groups: usize,
+    units: usize,
+    differing: usize,
+    order_sensitive: usize,
+}
+
+/// Where the engines' runs differ other than by set order, empty when they conform.
+fn check(dat: &Path, profile: &SelectionProfile, totals: &std::sync::Mutex<Totals>) -> Vec<String> {
     let engine = support::fixture_engine();
     let work = tempfile::tempdir().unwrap();
     let options = support::options(work.path());
-    let bundled = engine.run(dat, profile, &options);
-    let builtin = engine.run_builtin(dat, profile, &options);
+    let conformance = engine
+        .conformance(dat, profile, &options, SET_ORDERS)
+        .unwrap();
+    {
+        let mut totals = totals.lock().unwrap();
+        totals.cases += 1;
+        totals.groups += conformance.comparison.as_ref().map_or(0, |c| c.groups);
+        totals.units += conformance.units;
+        totals.differing += conformance.differing.len();
+        totals.order_sensitive += conformance.order_sensitive.len();
+    }
     let mut out = Vec::new();
-    match (bundled, builtin) {
-        (Ok(a), Ok(b)) => {
-            eprintln!(
-                "{}: {} trace lines, {} groups",
-                dat.display(),
-                a.trace.lines().count(),
-                a.selection.groups.len()
-            );
-            let (ta, tb) = (
-                stable_trace(&a.trace).unwrap(),
-                stable_trace(&b.trace).unwrap(),
-            );
-            if ta != tb {
-                let la: Vec<&str> = ta.lines().collect();
-                let lb: Vec<&str> = tb.lines().collect();
-                for l in &la {
-                    if !lb.contains(l) {
-                        out.push(format!("- {l}"));
-                    }
-                }
-                for l in &lb {
-                    if !la.contains(l) {
-                        out.push(format!("+ {l}"));
-                    }
-                }
-            }
-            if out.is_empty() {
-                let mut la: Vec<&str> = a.trace.lines().collect();
-                let mut lb: Vec<&str> = b.trace.lines().collect();
-                la.sort();
-                lb.sort();
-                if la != lb {
-                    let i = la
-                        .iter()
-                        .zip(&lb)
-                        .position(|(x, y)| x != y)
-                        .unwrap_or(la.len().min(lb.len()));
-                    out.push(format!(
-                        "sorted raw traces differ at line {i}:\n- {}\n+ {}",
-                        la.get(i).unwrap_or(&""),
-                        lb.get(i).unwrap_or(&"")
-                    ));
-                }
-            }
-            if a.warnings != b.warnings {
-                out.push(format!("warnings:\n  {:?}\n  {:?}", a.warnings, b.warnings));
-            }
-            let (sa, sb) = (
-                serde_json::to_string_pretty(&a.selection).unwrap(),
-                serde_json::to_string_pretty(&b.selection).unwrap(),
-            );
-            if sa != sb && out.is_empty() {
-                out.push("the Selections differ".into());
-            }
-        }
-        (Err(a), Err(b)) => {
-            eprintln!("{}: both failed: {a} / {b}", dat.display());
-            if !matches!(a, title_select_selection::Error::Retool { .. }) {
-                out.push(format!("bundled failed: {a}; built-in failed: {b}"));
-            }
-        }
-        (a, b) => out.push(format!(
+    if let [Some(_), None] | [None, Some(_)] = &conformance.failures {
+        out.push(format!(
             "bundled: {:?}; built-in: {:?}",
-            a.err().map(|e| e.to_string()),
-            b.err().map(|e| e.to_string())
-        )),
+            conformance.failures[0], conformance.failures[1]
+        ));
+    }
+    for unit in conformance.unexplained() {
+        let [a, b] = &conformance.differing[unit];
+        out.push(format!("unit {unit}:"));
+        let (la, lb): (Vec<&str>, Vec<&str>) = (
+            a.as_deref().unwrap_or_default().lines().collect(),
+            b.as_deref().unwrap_or_default().lines().collect(),
+        );
+        out.extend(
+            la.iter()
+                .filter(|l| !lb.contains(l))
+                .map(|l| format!("- {l}")),
+        );
+        out.extend(
+            lb.iter()
+                .filter(|l| !la.contains(l))
+                .map(|l| format!("+ {l}")),
+        );
     }
     out
 }
@@ -118,25 +104,46 @@ fn report(failures: Vec<(String, Vec<String>)>) {
     panic!("{} case(s) differ:{text}", failures.len());
 }
 
-fn run_all(profile: &SelectionProfile) {
+fn run_all(profiles: &[(&str, SelectionProfile)]) {
     let dats = fixture_dats();
-    let failures: Vec<(String, Vec<String>)> = std::thread::scope(|scope| {
-        let handles: Vec<_> = dats
-            .iter()
-            .map(|dat| (dat, scope.spawn(move || differences(dat, profile))))
-            .collect();
-        handles
-            .into_iter()
-            .filter_map(|(dat, h)| {
-                let d = h.join().unwrap();
-                (!d.is_empty()).then(|| (dat.display().to_string(), d))
-            })
-            .collect()
-    });
+    let totals = std::sync::Mutex::new(Totals::default());
+    let mut failures = Vec::new();
+    let only: Option<usize> = std::env::var("ONLY_PROFILE")
+        .ok()
+        .map(|p| p.parse().unwrap());
+    for (index, (name, profile)) in profiles.iter().enumerate() {
+        if only.is_some_and(|o| o != index) {
+            continue;
+        }
+        let totals = &totals;
+        failures.extend(std::thread::scope(|scope| {
+            let handles: Vec<_> = dats
+                .iter()
+                .filter(|dat| {
+                    let file = dat.file_name().unwrap().to_str().unwrap();
+                    profile.options.disable_1g1r || !INTRACTABLE.contains(&(name, file))
+                })
+                .map(|dat| (dat, scope.spawn(move || check(dat, profile, totals))))
+                .collect();
+            handles
+                .into_iter()
+                .filter_map(|(dat, h)| {
+                    let d = h.join().unwrap();
+                    let file = dat.file_name().unwrap().to_string_lossy();
+                    (!d.is_empty()).then(|| (format!("{name}: {file}"), d))
+                })
+                .collect::<Vec<_>>()
+        }));
+    }
+    let totals = totals.into_inner().unwrap();
+    eprintln!(
+        "{} cases, {} groups, {} units compared: {} differ, {} of them order-sensitive",
+        totals.cases, totals.groups, totals.units, totals.differing, totals.order_sensitive
+    );
     report(failures);
 }
 
-fn profiles(disable_1g1r: bool) -> Vec<SelectionProfile> {
+fn profiles(disable_1g1r: bool) -> Vec<(&'static str, SelectionProfile)> {
     let mut out = Vec::new();
     for config in [
         "user-config-regions-1.yaml",
@@ -150,7 +157,7 @@ fn profiles(disable_1g1r: bool) -> Vec<SelectionProfile> {
         let mut profile = support::profile_from_upstream_config(config);
         profile.options.disable_1g1r = disable_1g1r;
         profile.options.filter_languages = config.contains("languages");
-        out.push(profile);
+        out.push((config, profile));
     }
     let mut profile = support::profile_from_upstream_config("user-config-regions-1.yaml");
     profile.options.disable_1g1r = disable_1g1r;
@@ -158,13 +165,46 @@ fn profiles(disable_1g1r: bool) -> Vec<SelectionProfile> {
         .into_iter()
         .filter(|c| *c != Category::Games)
         .collect();
-    out.push(profile);
+    out.push(("games only", profile));
     out
 }
 
 #[test]
 fn early_stages_match_on_retools_fixtures() {
-    for profile in profiles(true) {
-        run_all(&profile);
-    }
+    run_all(&profiles(true));
+}
+
+#[test]
+fn parent_selection_matches_on_retools_fixtures() {
+    run_all(&profiles(false));
+}
+
+/// Debugging aid: `DUMP_DAT=<path> DUMP_PROFILE=<index> DUMP_TO=<dir> cargo test --test builtin dump -- --ignored`
+/// writes both engines' traces for one case.
+#[test]
+#[ignore]
+fn dump() {
+    let dat = PathBuf::from(std::env::var("DUMP_DAT").unwrap());
+    let index: usize = std::env::var("DUMP_PROFILE").unwrap().parse().unwrap();
+    let to = PathBuf::from(std::env::var("DUMP_TO").unwrap());
+    let profile = &profiles(false)[index].1;
+    let engine = support::fixture_engine();
+    let work = tempfile::tempdir().unwrap();
+    let options = support::options(work.path());
+    let options = title_select_selection::RunOptions {
+        set_order: std::env::var("DUMP_SET_ORDER")
+            .ok()
+            .map(|s| s.parse().unwrap()),
+        ..options
+    };
+    std::fs::write(
+        to.join("bundled.jsonl"),
+        engine.run(&dat, profile, &options).unwrap().trace,
+    )
+    .unwrap();
+    std::fs::write(
+        to.join("builtin.jsonl"),
+        engine.run_builtin(&dat, profile, &options).unwrap().trace,
+    )
+    .unwrap();
 }

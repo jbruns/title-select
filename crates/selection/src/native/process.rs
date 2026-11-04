@@ -287,7 +287,11 @@ pub(crate) fn process_dat(
 }
 
 pub(crate) fn crash(c: Crash) -> Error {
-    Error::Builtin(format!("stopped: {}", c.0))
+    match c.0.as_str() {
+        super::CANCELLED => Error::Cancelled,
+        super::TIMED_OUT => Error::Timeout(Default::default()),
+        _ => Error::Builtin(format!("stopped: {}", c.0)),
+    }
 }
 
 pub(crate) fn read_text(path: &Path) -> Result<String, Error> {

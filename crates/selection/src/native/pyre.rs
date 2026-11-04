@@ -10,6 +10,8 @@ pub(crate) struct Re {
     regex: Regex,
     /// The pattern as Retool wrote it, for messages and identity.
     pub source: String,
+    /// Whether Retool compiled it with `re.IGNORECASE`.
+    pub ignore_case: bool,
 }
 
 impl PartialEq for Re {
@@ -79,6 +81,7 @@ impl Re {
         Ok(Re {
             regex,
             source: pattern.to_owned(),
+            ignore_case: case_insensitive,
         })
     }
 
@@ -89,6 +92,19 @@ impl Re {
 
     pub fn of_i(pattern: &str) -> Re {
         Self::new_i(pattern).unwrap_or_else(|e| panic!("{pattern}: {e}"))
+    }
+
+    /// `str(pattern)`: CPython's `re.compile(...)` repr, which cuts the pattern's repr at 200 characters.
+    pub fn py_str(&self) -> String {
+        let repr: String = super::json::py_repr(&self.source)
+            .chars()
+            .take(200)
+            .collect();
+        if self.ignore_case {
+            format!("re.compile({repr}, re.IGNORECASE)")
+        } else {
+            format!("re.compile({repr})")
+        }
     }
 
     fn captures<'t>(&self, text: &'t str) -> Option<Captures<'t, str>> {

@@ -6,7 +6,9 @@
 //! the pinned clone lists, metadata, MIA and RetroAchievements files beside it.
 
 pub mod choices;
+mod compare;
 mod config;
+mod conformance;
 mod native;
 mod patterns;
 mod systems;
@@ -22,9 +24,12 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use title_select_api::selection::{
-    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile, SystemSettings,
+    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile, ShadowRun, SystemSettings,
 };
 
+pub use compare::compare;
+pub use conformance::Conformance;
+pub use title_select_api::selection::SelectionEngine;
 pub use trace::stable_trace;
 
 /// The environment variable that points at a Retool install, for `Engine::locate`.
@@ -78,6 +83,15 @@ pub struct RunOptions {
     pub timeout: Duration,
     /// Set to stop the run: the subprocess is killed and the run fails with `Error::Cancelled`.
     pub cancel: Option<Arc<AtomicBool>>,
+    /// The engine whose Selection the run returns.
+    pub engine: SelectionEngine,
+    /// Also run the other engine and report how its Selection compares (`Outcome::shadow`).
+    pub shadow: bool,
+    /// Runs the bundled engine with its sets of releases iterated in another order, chosen by this seed. Retool's
+    /// sets of releases hash by identity, so the order they iterate in, and with it a few of its tie-breaks and
+    /// explanations, follows the memory addresses CPython happens to allocate; a seed shows which results depend on
+    /// it. For conformance only.
+    pub set_order: Option<u64>,
 }
 
 impl RunOptions {
@@ -86,7 +100,16 @@ impl RunOptions {
             work_dir: work_dir.into(),
             timeout: DEFAULT_TIMEOUT,
             cancel: None,
+            engine: SelectionEngine::default(),
+            shadow: false,
+            set_order: None,
         }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
     }
 }
 
@@ -98,6 +121,8 @@ pub struct Outcome {
     pub trace: String,
     /// What Retool warned about on a run that succeeded, one line each.
     pub warnings: Vec<String>,
+    /// The other engine's run and how it compares, in shadow mode.
+    pub shadow: Option<ShadowRun>,
 }
 
 /// A verified Retool install.
@@ -259,7 +284,9 @@ impl Engine {
         )
     }
 
-    /// Selects from `dat` with `profile`, applies the Profile's choices for the DAT's system, and keeps the trace.
+    /// Selects from `dat` with `profile` with the engine `options` names, applies the Profile's choices for the DAT's
+    /// system, and keeps the trace. In shadow mode it also runs the other engine and reports the comparison; the
+    /// other engine failing fails only the shadow run.
     pub fn run(
         &self,
         dat: &Path,
@@ -271,32 +298,86 @@ impl Engine {
         patterns::check(&self.python(), profile)?;
         let dat = std::path::absolute(dat).map_err(io(dat.display().to_string()))?;
         let dat_sha256 = sha256_file(&dat)?;
-        let (trace, warnings) = self.run_bundled(&dat, profile, options, &vocabulary)?;
-        self.outcome(trace, warnings, dat_sha256, profile)
+        let mut outcome = self.run_engine(
+            options.engine,
+            &dat,
+            &dat_sha256,
+            profile,
+            options,
+            &vocabulary,
+        )?;
+        if options.shadow {
+            let shadow = options.engine.other();
+            let ran = self.run_engine(shadow, &dat, &dat_sha256, profile, options, &vocabulary);
+            let (comparison, error) = match ran {
+                Ok(other) => {
+                    let (bundled, builtin) = match options.engine {
+                        SelectionEngine::Bundled => (&outcome, &other),
+                        SelectionEngine::Builtin => (&other, &outcome),
+                    };
+                    (
+                        Some(compare(
+                            &bundled.selection,
+                            &builtin.selection,
+                            &bundled.warnings,
+                            &builtin.warnings,
+                        )),
+                        None,
+                    )
+                }
+                Err(Error::Cancelled) => return Err(Error::Cancelled),
+                Err(e) => (None, Some(e.to_string())),
+            };
+            outcome.shadow = Some(ShadowRun {
+                engine: options.engine,
+                shadow,
+                comparison,
+                error,
+            });
+        }
+        Ok(outcome)
     }
 
-    /// Selects from `dat` with `profile` like `run`, with the built-in engine.
+    /// Selects like `run` with the built-in engine, without a shadow run.
     pub fn run_builtin(
         &self,
         dat: &Path,
         profile: &SelectionProfile,
         options: &RunOptions,
     ) -> Result<Outcome, Error> {
-        let vocabulary = self.vocabulary()?;
-        vocabulary.check(profile)?;
-        patterns::check(&self.python(), profile)?;
-        let dat = std::path::absolute(dat).map_err(io(dat.display().to_string()))?;
-        let dat_sha256 = sha256_file(&dat)?;
-        if options
-            .cancel
-            .as_ref()
-            .is_some_and(|c| c.load(Ordering::Relaxed))
-        {
+        let options = RunOptions {
+            engine: SelectionEngine::Builtin,
+            shadow: false,
+            ..options.clone()
+        };
+        self.run(dat, profile, &options)
+    }
+
+    fn run_engine(
+        &self,
+        engine: SelectionEngine,
+        dat: &Path,
+        dat_sha256: &str,
+        profile: &SelectionProfile,
+        options: &RunOptions,
+        vocabulary: &config::Vocabulary,
+    ) -> Result<Outcome, Error> {
+        if options.cancelled() {
             return Err(Error::Cancelled);
         }
-        let internal = self.internal_config()?;
-        let ran = native::run(&dat, profile, &internal, &self.data)?;
-        self.outcome(ran.trace, ran.warnings, dat_sha256, profile)
+        let (trace, warnings) = match engine {
+            SelectionEngine::Bundled => self.run_bundled(dat, profile, options, vocabulary)?,
+            SelectionEngine::Builtin => {
+                let internal = self.internal_config()?;
+                let limits = native::Limits {
+                    cancel: options.cancel.clone(),
+                    deadline: Some((Instant::now() + options.timeout, options.timeout)),
+                };
+                let ran = native::run(dat, profile, &internal, &self.data, &limits)?;
+                (ran.trace, ran.warnings)
+            }
+        };
+        self.outcome(trace, warnings, dat_sha256.to_owned(), profile)
     }
 
     fn internal_config(&self) -> Result<Vec<u8>, Error> {
@@ -336,6 +417,7 @@ impl Engine {
             selection,
             trace,
             warnings,
+            shadow: None,
         })
     }
 
@@ -385,6 +467,11 @@ impl Engine {
         let stderr_path = run_dir.join("stderr.txt");
 
         let mut command = Command::new(self.python());
+        if let Some(seed) = options.set_order {
+            let launcher = run_dir.join("set_order.py");
+            write(launcher.clone(), set_order_launcher(&retool, seed))?;
+            command.arg(launcher);
+        }
         command
             .arg(retool.join("retool.py"))
             .arg(dat)
@@ -470,6 +557,28 @@ impl Engine {
         run.close().map_err(io("removing the run folder"))?;
         Ok((trace, warnings))
     }
+}
+
+/// A launcher that runs Retool with its `DatNode`s and `TitleData`s hashed by a seeded scramble of their identity
+/// instead of by it, so that sets of them iterate in another order. The order of the DAT's titles decides the order
+/// of the groups too.
+fn set_order_launcher(retool: &Path, seed: u64) -> String {
+    format!(
+        r#"import runpy, sys
+sys.path.insert(0, {retool:?})
+sys.argv = sys.argv[1:]
+from modules.dat.parse_dat import TitleData
+from modules.dat.process_dat import DatNode
+def _hash(self, _seed={seed}):
+    x = ((id(self) >> 4) * 0x9E3779B97F4A7C15 + _seed) & 0xFFFFFFFFFFFFFFFF
+    x ^= x >> 29
+    return hash(x)
+DatNode.__hash__ = _hash
+TitleData.__hash__ = _hash
+runpy.run_path(sys.argv[0], run_name="__main__")
+"#,
+        retool = retool.display().to_string(),
+    )
 }
 
 /// The warnings and errors in Retool's console output, a line each and without their colours. Retool colours

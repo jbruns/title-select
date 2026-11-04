@@ -511,9 +511,8 @@ fn run(cli: Cli) -> Result<(), String> {
                         &dat,
                         &profile,
                         &title_select_selection::RunOptions {
-                            work_dir,
                             timeout: std::time::Duration::from_secs(timeout),
-                            cancel: None,
+                            ..title_select_selection::RunOptions::new(work_dir)
                         },
                     )
                 })

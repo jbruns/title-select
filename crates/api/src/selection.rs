@@ -237,6 +237,22 @@ pub struct Selection {
     pub stale_choices: BTreeMap<String, BTreeSet<String>>,
 }
 
+/// A shadow run: the other engine selected from the same DAT Revision with the same Profile, and how its Selection
+/// compares. It never changes the Selection it is recorded beside.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShadowRun {
+    /// The engine that made the Selection.
+    pub engine: SelectionEngine,
+    /// The engine run in its shadow.
+    pub shadow: SelectionEngine,
+    /// The comparison, `[bundled, builtin]`; absent when the shadow run failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comparison: Option<EngineComparison>,
+    /// Why the shadow run failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// What a Selection was made with, so that it can be reproduced.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionPins {
@@ -569,6 +585,93 @@ pub struct Rule {
     #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     pub message: String,
+}
+
+/// Which engine makes Selections: the pinned Retool run as a subprocess (`bundled`, authoritative until the cutover),
+/// or its Rust port (`builtin`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SelectionEngine {
+    #[default]
+    Bundled,
+    Builtin,
+}
+
+impl SelectionEngine {
+    pub fn other(self) -> SelectionEngine {
+        match self {
+            SelectionEngine::Bundled => SelectionEngine::Builtin,
+            SelectionEngine::Builtin => SelectionEngine::Bundled,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SelectionEngine::Bundled => "bundled",
+            SelectionEngine::Builtin => "builtin",
+        }
+    }
+}
+
+/// How two engines' Selections from the same DAT Revision and Profile differ, group by group.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EngineComparison {
+    /// The groups either engine reported.
+    pub groups: usize,
+    /// Groups whose releases the engines placed differently: a different winner, clone or exclusion, or a different
+    /// unresolved flag.
+    pub differing: usize,
+    /// Groups the engines placed alike but explained with a different rule.
+    pub explained_differently: usize,
+    /// Every group that differs in any way, sorted by group name.
+    pub differences: Vec<GroupDifference>,
+    /// The engines' warnings, where they differ.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<[Vec<String>; 2]>,
+}
+
+impl EngineComparison {
+    /// No difference at all, explanations included.
+    pub fn is_identical(&self) -> bool {
+        self.differences.is_empty() && self.warnings.is_none()
+    }
+}
+
+/// One group the engines disagree on. Each pair is `[bundled, builtin]`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupDifference {
+    pub group: String,
+    /// The engines placed the group's releases alike; only the rules that explain them differ.
+    pub explanation_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unresolved: Option<[bool; 2]>,
+    /// The releases placed or explained differently, sorted by title.
+    pub releases: Vec<ReleaseDifference>,
+}
+
+/// One release the engines disagree on: where each put it, `None` where an engine doesn't report it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseDifference {
+    pub title: String,
+    pub placements: [Option<Placement>; 2],
+}
+
+/// Where an engine put a release: its role, the winner it is a clone of, and the rule that decided it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Placement {
+    pub role: PlacementRole,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clone_of: Option<String>,
+    pub stage: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlacementRole {
+    Winner,
+    Alternative,
+    Exclusion,
 }
 
 #[cfg(test)]

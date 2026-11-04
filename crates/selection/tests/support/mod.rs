@@ -27,9 +27,8 @@ pub fn fixture_engine() -> Engine {
 
 pub fn options(work_dir: &Path) -> RunOptions {
     RunOptions {
-        work_dir: work_dir.to_path_buf(),
         timeout: Duration::from_secs(300),
-        cancel: None,
+        ..RunOptions::new(work_dir)
     }
 }
 

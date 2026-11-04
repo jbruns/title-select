@@ -5,6 +5,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use title_select_api::selection::SelectionProfile;
 
+use super::Limits;
 use super::clone_lists::{self, Lookup};
 use super::dat;
 use super::filters;
@@ -12,6 +13,7 @@ use super::json::{J, dict};
 use super::node::{Groups, Run};
 use super::overrides;
 use super::process::{self, crash};
+use super::select;
 use super::settings::Settings;
 use crate::Error;
 
@@ -28,6 +30,21 @@ pub(crate) fn run(
     profile: &SelectionProfile,
     internal_config: &[u8],
     data: &Path,
+    limits: &Limits,
+) -> Result<Ran, Error> {
+    let stop = |e: Error| match e {
+        Error::Timeout(_) => Error::Timeout(limits.deadline.map(|(_, t)| t).unwrap_or_default()),
+        e => e,
+    };
+    run_within(dat_path, profile, internal_config, data, limits).map_err(stop)
+}
+
+fn run_within(
+    dat_path: &Path,
+    profile: &SelectionProfile,
+    internal_config: &[u8],
+    data: &Path,
+    limits: &Limits,
 ) -> Result<Ran, Error> {
     let text = process::read_text(dat_path)?;
     let header = dat::read_header(
@@ -38,6 +55,7 @@ pub(crate) fn run(
     let settings = Settings::new(internal_config, profile, &header.search_name)?;
     let dat = dat::read_header(dat_path, &text, &settings)?;
     let mut run = Run::new(settings);
+    run.limits = limits.clone();
     let processed = process::process_dat(&mut run, dat_path, dat, data, false)?;
     let mut clone_list = processed.clone_list;
     let mut groups = processed.titles;
@@ -66,7 +84,7 @@ pub(crate) fn run(
     filters::filter_regions(&mut run, &mut groups);
     run.trace.context(Some("Parent selection"), "", "");
     if !run.s.options.no_1g1r {
-        return Err(Error::Builtin("parent selection isn't ported yet".into()));
+        groups = select::orchestrator(&mut run, groups).map_err(crash)?;
     }
     run.trace.context(Some("Includes"), "", "");
     if !run.s.global_include.is_empty() || !run.s.system_include.is_empty() {

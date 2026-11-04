@@ -40,6 +40,8 @@ pub(crate) struct Node {
     pub languages_implied: Vec<String>,
     pub languages_online: Vec<String>,
     pub languages_title: Vec<String>,
+    /// `languages_title_orig_str`: the title's language tag as written, with `+` between a compilation's titles.
+    pub languages_title_orig: String,
     pub languages: Vec<String>,
     pub languages_original: Vec<String>,
     pub regions: Vec<String>,
@@ -107,6 +109,7 @@ pub(crate) struct Run {
     pub trace: Trace,
     pub removes: IndexMap<&'static str, Titles>,
     pub numbered: bool,
+    pub limits: super::Limits,
     patterns: HashMap<String, Re>,
 }
 
@@ -118,6 +121,7 @@ impl Run {
             trace: Trace::new(),
             removes: REMOVES.iter().map(|r| (*r, Titles::new())).collect(),
             numbered: false,
+            limits: Default::default(),
             patterns: HashMap::new(),
         }
     }
@@ -462,6 +466,7 @@ impl Run {
             languages_implied,
             languages_online,
             languages_title,
+            languages_title_orig: languages_title_orig_str,
             languages,
             languages_original,
             regions,

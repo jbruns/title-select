@@ -312,7 +312,9 @@ impl From<title_select_selection::Error> for ApiError {
             E::Cancelled => StatusCode::CONFLICT,
             E::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             E::Install(_) => StatusCode::SERVICE_UNAVAILABLE,
-            E::Io { .. } | E::Retool { .. } | E::Trace(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            E::Io { .. } | E::Retool { .. } | E::Trace(_) | E::Builtin(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         };
         let message = match &err {
             E::Cancelled => "a newer preview replaced this one".to_owned(),
