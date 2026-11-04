@@ -1599,3 +1599,25 @@ fn built_files_are_removed_while_the_source_set_folder_is_unavailable() {
     assert_eq!(job.state, JobState::Succeeded, "{job:?}");
     assert_eq!(env.store.kept_files(folder.id).unwrap().len(), 2);
 }
+
+#[test]
+fn a_registered_ingest_folder_repointed_at_a_source_set_is_refused_when_registered_again() {
+    let env = Env::new();
+    let config = Config::parse(&format!(
+        "[roots.sets]\npath = {:?}\nwritable_paths = [\"{SET}\"]\n\n[roots.in]\npath = {:?}\nwritable = true\n\
+         kind = \"ingest\"\nsettle_secs = 0\n",
+        env.tmp.path().join("sets").display().to_string(),
+        env.set().display().to_string(),
+    ))
+    .unwrap();
+
+    let refused = env.store.register_ingest_folder(&config, "in");
+    assert!(
+        matches!(&refused, Err(Error::Refused(why)) if why.contains("source set")),
+        "{refused:?}"
+    );
+    assert!(
+        !env.set().join(".title-select").exists(),
+        "no marker written"
+    );
+}

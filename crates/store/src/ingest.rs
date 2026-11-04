@@ -1105,6 +1105,25 @@ impl Store {
         let _lifecycle = self.lifecycle_lock();
         let dir = open_ingest(config, root).map_err(Error::Refused)?;
         let store = self.read(store_id)?;
+        // Checked for a registration made before too, whose root may since point somewhere else. Registrations
+        // that could come to overlap it take the lifecycle lock held here.
+        let canonical = dir
+            .path()
+            .canonicalize()
+            .map_err(|e| Error::Refused(format!("{}: {e}", dir.path().display())))?;
+        if let Some((what, other)) = self.read(|c| {
+            crate::folders::overlapping(
+                c,
+                config,
+                &canonical,
+                crate::folders::Registering::IngestFolder,
+            )
+        })? {
+            return Err(Error::Refused(format!(
+                "ingest folder {root} would overlap {what} at {}; nothing in it was changed",
+                other.display()
+            )));
+        }
         let existing = self.read(|c| ingest_by_root(c, root))?;
         let row = match existing {
             Some(row) => row,
@@ -1118,22 +1137,7 @@ impl Store {
                         dir.path().display()
                     )));
                 }
-                let canonical = dir
-                    .path()
-                    .canonicalize()
-                    .map_err(|e| Error::Refused(format!("{}: {e}", dir.path().display())))?;
                 self.write(|tx| {
-                    if let Some((what, other)) = crate::folders::overlapping(
-                        tx,
-                        config,
-                        &canonical,
-                        crate::folders::Registering::IngestFolder,
-                    )? {
-                        return Err(Error::Refused(format!(
-                            "ingest folder {root} would overlap {what} at {}; nothing in it was changed",
-                            other.display()
-                        )));
-                    }
                     tx.execute(
                         "INSERT INTO ingest_folders (root, created_at) VALUES (?1, ?2)",
                         params![root, now()],
