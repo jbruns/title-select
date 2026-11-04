@@ -36,6 +36,24 @@ const DVD: &str = "Atlas (USA)";
 const ODD: &str = "Ragged (USA)";
 /// A CD whose cue sheet names its first track twice and its second never.
 const ECHO: &str = "Echo (USA)";
+/// A game released on two CDs.
+const SAGA: [&str; 2] = ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"];
+
+/// Disc `n` of Saga: a cue sheet and one data track.
+fn saga(n: usize) -> Vec<RomSpec> {
+    let game = SAGA[n - 1];
+    let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+    let cue = format!(
+        "FILE \"{game} (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n"
+    );
+    vec![
+        rom(leak(format!("{game}.cue")), cue.as_bytes()),
+        rom(
+            leak(format!("{game} (Track 1).bin")),
+            &noise(10 + n as u64, 2352 * 100),
+        ),
+    ]
+}
 
 /// A CD of a data track and an audio track, each whole 2352-byte sectors, with its cue sheet.
 fn cd() -> Vec<RomSpec> {
@@ -71,6 +89,8 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
         (DVD, vec![rom("Atlas (USA).iso", &noise(3, 2048 * 400))]),
         (ODD, disc(ODD, 1, 2352 * 4 + 1, 4)),
         (ECHO, echo()),
+        (SAGA[0], saga(1)),
+        (SAGA[1], saga(2)),
     ]
 }
 
@@ -197,6 +217,28 @@ impl Env {
             .collect();
         kept.sort();
         kept
+    }
+
+    /// Reopens the store as after a crash, and recovers what it left unfinished.
+    fn restart(self) -> Env {
+        let Env {
+            tmp,
+            store,
+            config,
+            sha256,
+        } = self;
+        let path = store.dir().to_path_buf();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        store.recover_jobs(WORKERS).unwrap();
+        let blocked = store.recover_builds(&config).unwrap();
+        assert!(blocked.is_empty(), "{blocked:?}");
+        Env {
+            tmp,
+            store,
+            config,
+            sha256,
+        }
     }
 
     fn dir(&self) -> PathBuf {
@@ -663,6 +705,170 @@ fn a_chd_damaged_once_in_place_never_lets_its_original_be_deleted() {
             "{said:?}"
         );
     }
+}
+
+/// A chdman that runs `real`, except as `disc2` says for Disc 2 of Saga: its shell commands, run in place of
+/// chdman's createcd, or after its extractcd, in the scratch directory.
+#[cfg(unix)]
+fn saga_chdman(dir: &Path, real: &Path, create2: &str, extract2: &str) -> PathBuf {
+    fake_chdman(
+        dir,
+        &format!(
+            "real={real:?}\n\
+             case \"$1:$3\" in\n\
+             createcd:*\"Disc 2\"*) touch disc2; {create2} ;;\n\
+             extractcd:*) \"$real\" \"$@\" || exit $?; if [ -f disc2 ]; then {extract2}; fi ;;\n\
+             *) exec \"$real\" \"$@\" ;;\n\
+             esac",
+            real = real.display().to_string()
+        ),
+    )
+}
+
+/// An Env with both of Saga's discs built as TorrentZips, and then stored as CHD: the folder, the selection, and the
+/// plan converting them.
+fn saga_converting(env: &Env) -> (LibraryFolder, i64, Plan) {
+    env.set_format(None, false);
+    let (folder, selection) = env.folder(&SAGA);
+    assert_eq!(
+        env.build(&env.plan(&folder, selection)).state,
+        JobState::Succeeded
+    );
+    env.set_format(Some(StorageFormat::Chd), false);
+    let plan = env.plan(&folder, selection);
+    let converting = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.chd && i.converts.is_some())
+        .count();
+    assert_eq!(converting, 2, "{:?}", plan.content.items);
+    (folder, selection, plan)
+}
+
+/// Which formats Saga's discs are in the folder as.
+fn saga_files(env: &Env) -> Vec<String> {
+    let mut found: Vec<String> = std::fs::read_dir(env.dir())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("Saga"))
+        .collect();
+    found.sort();
+    found
+}
+
+const SAGA_ZIPS: [&str; 2] = ["Saga (USA) (Disc 1).zip", "Saga (USA) (Disc 2).zip"];
+const SAGA_CHDS: [&str; 2] = ["Saga (USA) (Disc 1).chd", "Saga (USA) (Disc 2).chd"];
+
+#[cfg(unix)]
+#[test]
+fn when_one_disc_fails_to_verify_no_disc_of_its_game_changes_format() {
+    let Some(real) = chdman() else { return };
+    let root = tempfile::tempdir().unwrap();
+    // Disc 2's CHD gives back other bytes.
+    let fake = saga_chdman(
+        root.path(),
+        &real,
+        "exec \"$real\" \"$@\"",
+        "printf XXXX | dd of=x/t1.bin conv=notrunc 2>/dev/null",
+    );
+    let env = Env::new(Some(&fake));
+    let (folder, _, plan) = saga_converting(&env);
+    let ended = env.build(&plan);
+
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    assert_eq!(saga_files(&env), SAGA_ZIPS);
+    assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
+    assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
+    let build = env.store.build_of_job(ended.id).unwrap().unwrap();
+    let detail = env.store.build(build.id).unwrap();
+    for disc in SAGA_CHDS {
+        let item = detail.items.iter().find(|i| i.target == disc).unwrap();
+        assert_eq!(item.state, ItemState::Failed, "{item:?}");
+    }
+    let disc1 = detail
+        .items
+        .iter()
+        .find(|i| i.target == SAGA_CHDS[0])
+        .unwrap();
+    assert!(
+        disc1.error.as_deref().unwrap().contains(SAGA_CHDS[1]),
+        "{disc1:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_build_you_cancel_while_chdman_makes_disc_2_changes_no_disc_of_its_game() {
+    let Some(real) = chdman() else { return };
+    let root = tempfile::tempdir().unwrap();
+    let slow = root.path().join("slow");
+    let fake = saga_chdman(
+        root.path(),
+        &real,
+        &format!("touch {:?}; exec sleep 30", slow.display().to_string()),
+        "true",
+    );
+    let env = Env::new(Some(&fake));
+    let (folder, _, plan) = saga_converting(&env);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let ended = std::thread::scope(|scope| {
+        let running = scope.spawn(|| env.store.run_build_job(&env.config, job.id, None));
+        while !slow.exists() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        env.store.cancel_job(job.id).unwrap();
+        running.join().unwrap().unwrap()
+    });
+
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert_eq!(saga_files(&env), SAGA_ZIPS);
+    assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
+    assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
+    assert!(!env.dir().join(title_select_api::build::STAGING).exists());
+}
+
+#[test]
+fn a_build_that_stops_while_putting_a_games_discs_in_place_finishes_them_on_recovery() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(None);
+    let (folder, _, plan) = saga_converting(&env);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    // Killed once the first disc is renamed into place, before the second is.
+    env.store.hook_faults(Some(std::sync::Arc::new(|fault| {
+        if let title_select_store::Fault::PublishedUnsynced(_) = fault {
+            panic!("killed at {fault:?}");
+        }
+    })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(&env.config, job.id, None)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+    let published = saga_files(&env)
+        .iter()
+        .filter(|n| n.ends_with(".chd"))
+        .count();
+    assert_eq!(published, 1, "{:?}", saga_files(&env));
+
+    let env = env.restart();
+    let found = saga_files(&env);
+    for chd in SAGA_CHDS {
+        assert!(found.iter().any(|n| n == chd), "{found:?}");
+    }
+    let built = env.store.built_files(folder.id).unwrap();
+    for chd in SAGA_CHDS {
+        assert!(built.iter().any(|b| b.target == chd), "{built:?}");
+    }
+    assert!(!env.dir().join(title_select_api::build::STAGING).exists());
 }
 
 /// The single item of the Build that ended as `job`.

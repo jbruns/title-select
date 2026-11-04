@@ -33,3 +33,8 @@ ALTER TABLE build_items ADD COLUMN chd_raw_sha1 TEXT;
 -- The modification time of the file an item verified and is putting in place, with its SHA-256, size, device and
 -- inode: the stamp a CHD's converted original is deleted against, since a CHD is not read again whole once verified.
 ALTER TABLE build_items ADD COLUMN mtime_ns INTEGER;
+
+-- The release whose discs an item is put in place with, as one unit: once any is renamed into place, recovery puts the
+-- rest in place from their staged files, so that a release is never left split across formats. NULL for an item
+-- put in place alone.
+ALTER TABLE build_items ADD COLUMN unit TEXT;
