@@ -588,6 +588,32 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
 }
 
 #[test]
+fn files_named_alike_but_for_case_are_set_aside_under_kept_names_that_differ_beyond_case() {
+    let env = Env::new();
+    for dir in ["one", "two"] {
+        std::fs::create_dir(env.set().join(dir)).unwrap();
+    }
+    write_file(&env.set().join("one/Readme.txt"), b"one");
+    write_file(&env.set().join("two/readme.txt"), b"two");
+    env.audit();
+
+    let plan = env.store.plan_set_aside(&env.config, SET).unwrap();
+    // A case-insensitive file system takes two names differing only in case for one file.
+    let kept: Vec<String> = plan
+        .content
+        .steps
+        .iter()
+        .filter_map(|s| match &s.step {
+            RepairStep::Keep { kept_name, .. } => Some(kept_name.to_lowercase()),
+            _ => None,
+        })
+        .collect();
+    let unique: std::collections::BTreeSet<&String> = kept.iter().collect();
+    assert_eq!(kept.len(), 4, "{kept:?}");
+    assert_eq!(unique.len(), 4, "{kept:?}");
+}
+
+#[test]
 fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
     let env = Env::new();
     let folder = env.folder();

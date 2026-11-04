@@ -77,6 +77,11 @@ enum Command {
         #[command(subcommand)]
         command: DatCommand,
     },
+    /// Manage Redump cue packs: the `.cue` sheets a repair fills or replaces a disc's cue sheet from.
+    CuePack {
+        #[command(subcommand)]
+        command: CuePackCommand,
+    },
     /// Manage the source set registry.
     Set {
         #[command(subcommand)]
@@ -172,6 +177,24 @@ enum DatCommand {
         #[arg(long)]
         source_url: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum CuePackCommand {
+    /// Import an unmodified cue pack, a ZIP of `.cue` sheets, for a DAT you imported. A repair then fills a
+    /// missing cue sheet, or replaces one that doesn't match, from it. Importing the same bytes again changes
+    /// nothing.
+    Import {
+        file: PathBuf,
+        /// The DAT its cue sheets are for, as `<provider>/<name>`, for example `Redump/Sony - PlayStation`.
+        #[arg(long)]
+        dat: String,
+        /// Where the file was downloaded from.
+        #[arg(long)]
+        source_url: Option<String>,
+    },
+    /// List the cue packs you imported.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -527,6 +550,50 @@ fn run(cli: Cli) -> Result<(), String> {
             );
             Ok(())
         }
+        Command::CuePack {
+            command:
+                CuePackCommand::Import {
+                    file,
+                    dat,
+                    source_url,
+                },
+        } => {
+            let (pack, outcome) = open_store(store)?
+                .import_cue_pack(&file, &dat, source_url.as_deref())
+                .map_err(|e| e.to_string())?;
+            let what = match outcome {
+                ImportOutcome::Added => "imported",
+                ImportOutcome::AlreadyImported => "already imported",
+                ImportOutcome::Restored => "already imported; its file is restored",
+            };
+            println!(
+                "{}: cue pack {} ({}) {what}",
+                pack.dat,
+                pack.sha256,
+                cue_sheets(pack.cues)
+            );
+            Ok(())
+        }
+        Command::CuePack {
+            command: CuePackCommand::List,
+        } => {
+            for pack in open_store(store)?.cue_packs().map_err(|e| e.to_string())? {
+                println!(
+                    "{}\t{}\t{}\t{}\t{}{}",
+                    pack.dat,
+                    pack.file,
+                    cue_sheets(pack.cues),
+                    pack.imported_at,
+                    pack.sha256,
+                    if pack.blob_present {
+                        ""
+                    } else {
+                        "\tfile deleted; import it again to use it"
+                    }
+                );
+            }
+            Ok(())
+        }
         Command::Set {
             command:
                 SetCommand::Add {
@@ -871,5 +938,13 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
+    }
+}
+
+/// "1 cue sheet", "2 cue sheets".
+fn cue_sheets(n: u64) -> String {
+    match n {
+        1 => "1 cue sheet".into(),
+        n => format!("{n} cue sheets"),
     }
 }

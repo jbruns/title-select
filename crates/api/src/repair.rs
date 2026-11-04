@@ -26,9 +26,10 @@ pub enum RepairKind {
     Rename,
     /// A Game whose ROMs are present but not stored as the format repairs store Games in: repacked.
     Repack,
-    /// A Missing Game filled from an Ingest Folder.
+    /// A Missing Game filled from an Ingest Folder, or a Game's missing `.cue` filled from a cue pack.
     Fill,
-    /// A Game with a Mismatched or Unreadable Entry, replaced from an Ingest Folder.
+    /// A Game with a Mismatched or Unreadable Entry, replaced from an Ingest Folder; or a Game's Mismatched `.cue`
+    /// replaced from a cue pack.
     Replace,
     /// An Entry whose payload is one ROM while its name gives another.
     Conflict,
@@ -44,8 +45,8 @@ impl RepairKind {
         match self {
             RepairKind::Rename => "rename",
             RepairKind::Repack => "repack",
-            RepairKind::Fill => "fill from ingest",
-            RepairKind::Replace => "replace from ingest",
+            RepairKind::Fill => "fill",
+            RepairKind::Replace => "replace",
             RepairKind::Conflict => "conflict",
             RepairKind::KeepAside => "keep aside",
             RepairKind::Convert => "convert",
@@ -128,6 +129,10 @@ pub struct RepairRom {
     /// The member of `from` it is read from; none for a loose file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member: Option<String>,
+    /// The SHA-256 of the cue pack in the store it is read from, as its `member`, rather than a file of the Source
+    /// Set; `from` then names the cue pack.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cue_pack: Option<String>,
 }
 
 /// One change a repair makes, in the order it is made. Externally tagged: a buffered (internally tagged or flattened)
@@ -146,7 +151,8 @@ pub enum RepairStep {
         loose: bool,
     },
     /// Moves `path` into the kept files as `kept_name` in this repair's generation, without replacing anything; only
-    /// once each Build step it `needs`, which reads it or replaces it, has staged its file. Besides the item it
+    /// once each step it `needs` is done: each Build step that reads it or replaces it has staged its file, and, for
+    /// an original rather than a file in the way, each step that puts its replacement in place has done so. Besides the item it
     /// belongs to, it displaces `path` for each item it `affects`, whose steps a cancellation then never skips once it
     /// has run.
     Keep {
@@ -187,15 +193,23 @@ pub enum RepairStep {
         /// Written as a loose file, its one ROM, rather than a TorrentZip.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         loose: bool,
+        /// The item is left where it is once this file is written: a ZIP more files of a loose folder are extracted
+        /// from, by later Fill steps, the last of which disposes of it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        leave: bool,
     },
     /// Deletes `path`, the original a conversion read, kept aside by the Keep step `keep`, once the file the Build
     /// step `build` wrote and the Publish step `publish` put in place is verified, and only while the original still
-    /// reads as the conversion read it. Otherwise it stays in the kept files.
+    /// reads as the conversion read it. Otherwise it stays in the kept files. A conversion into a loose folder
+    /// writes a file for each ROM: each other Build step and the Publish step that put its file in place are in
+    /// `also`, and every one must verify.
     Delete {
         path: String,
         build: u32,
         keep: u32,
         publish: u32,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        also: Vec<(u32, u32)>,
     },
 }
 

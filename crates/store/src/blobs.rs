@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use super::{DATS, Result, Store, io_error};
+use super::{CUE_PACKS, DATS, Result, Store, io_error};
 
 /// Writes a blob to a temp file in the blob directory, fsyncs it, renames it into place and fsyncs the
 /// directory, so it is durable before any row refers to it.
@@ -41,29 +41,55 @@ pub(super) fn remove_blob(path: &Path) -> Result<()> {
 
 impl Store {
     /// Deletes every file in the blob directory that is not the blob of a DAT Revision whose row holds it,
-    /// including temp files left by an interrupted write. Returns the names it deleted.
+    /// including temp files left by an interrupted write, and every file in the cue pack directory that is not the
+    /// file of a cue pack whose row holds it, including one whose deletion was recorded but not finished. Returns the
+    /// names it deleted, a cue pack's under `cue_packs/`.
     ///
     /// It holds the writer throughout, so no import in this process is between writing a blob and inserting its
     /// row; the store's lock excludes every other process.
     pub fn collect_garbage(&self) -> Result<Vec<String>> {
         self.with_writer(|conn| {
-            let mut stmt =
-                conn.prepare("SELECT sha256 FROM dat_revisions WHERE blob_dropped_at IS NULL")?;
-            let held = stmt
-                .query_map([], |r| r.get(0))?
-                .collect::<Result<HashSet<String>, _>>()?;
-            let dats = self.dir.join(DATS);
+            let held = |sql: &str| -> Result<HashSet<String>> {
+                let mut stmt = conn.prepare(sql)?;
+                Ok(stmt
+                    .query_map([], |r| r.get(0))?
+                    .collect::<Result<HashSet<String>, _>>()?)
+            };
             let mut removed = Vec::new();
-            for item in std::fs::read_dir(&dats).map_err(|e| io_error(&dats, e))? {
-                let item = item.map_err(|e| io_error(&dats, e))?;
-                let name = item.file_name().to_string_lossy().into_owned();
-                let is_file = item.file_type().is_ok_and(|t| t.is_file());
-                if is_file && !held.contains(&name) {
-                    remove_blob(&item.path())?;
-                    removed.push(name);
+            for (dir, sql, prefix) in [
+                (
+                    DATS,
+                    "SELECT sha256 FROM dat_revisions WHERE blob_dropped_at IS NULL",
+                    "",
+                ),
+                (
+                    CUE_PACKS,
+                    "SELECT sha256 FROM cue_packs WHERE blob_dropped_at IS NULL",
+                    "cue_packs/",
+                ),
+            ] {
+                let dir = self.dir.join(dir);
+                // The cue pack directory is made by the first import.
+                let items = match std::fs::read_dir(&dir) {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound && !prefix.is_empty() => {
+                        continue;
+                    }
+                    items => items.map_err(|e| io_error(&dir, e))?,
+                };
+                let held = held(sql)?;
+                let mut gone = Vec::new();
+                for item in items {
+                    let item = item.map_err(|e| io_error(&dir, e))?;
+                    let name = item.file_name().to_string_lossy().into_owned();
+                    let is_file = item.file_type().is_ok_and(|t| t.is_file());
+                    if is_file && !held.contains(&name) {
+                        remove_blob(&item.path())?;
+                        gone.push(format!("{prefix}{name}"));
+                    }
                 }
+                gone.sort();
+                removed.extend(gone);
             }
-            removed.sort();
             Ok(removed)
         })
     }

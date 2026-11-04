@@ -158,7 +158,7 @@ impl Store {
 
     /// Drops the blob of every DAT Revision that no retained or running Audit, no Queued or Running Job, and no
     /// Audit a DAT import from an Ingest Folder still owes refers to, that is not the newest imported revision of its DAT (ADR 0003), and that is not held as restored. The row
-    /// stays. Returns the SHA-256s whose blobs were dropped.
+    /// stays. Cue packs are retained alike ([`Store::retain_cue_packs`]). Returns the SHA-256s whose DAT blobs were dropped.
     pub fn retain_blobs(&self) -> Result<Vec<String>> {
         self.with_writer(|conn| {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -203,6 +203,10 @@ impl Store {
                     dropped.push(sha);
                 }
             }
+            Ok(dropped)
+        })
+        .and_then(|dropped| {
+            self.retain_cue_packs()?;
             Ok(dropped)
         })
     }

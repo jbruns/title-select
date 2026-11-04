@@ -10,9 +10,9 @@
 //! Folder is moved with the one move out of an Ingest Folder there is.
 
 pub(crate) mod deletion;
-mod planning;
+pub(crate) mod planning;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io;
 
@@ -26,9 +26,11 @@ use title_select_api::repair::{
     KeptFileReviewed, PlanRepair, PlannedStep, RepairChoice, RepairOutcome, RepairPlan,
     RepairPlanContent, RepairRom, RepairStep, SeenFile, SourceSetMarker,
 };
-use title_select_api::storage::StorageScope;
+use title_select_api::storage::{StorageScope, release_of};
 use title_select_api::{AuditEvidence, Job, JobKind, JobState, OpenRepair, Workers};
-use title_select_engine::build::{FromSource, repack_sources, verify, verify_loose, write_loose};
+use title_select_engine::build::{
+    FromSource, repack_sources, verify, verify_loose, write_loose, write_loose_members,
+};
 use title_select_engine::dat::Dat;
 use title_select_engine::{FileStamp, Progress};
 
@@ -41,10 +43,11 @@ use crate::ingest::OwedAudits;
 use crate::ingest::fill_candidates;
 use crate::ingest::moves::{Destination, Move};
 use crate::jobs::{finish_running, job_by_id};
-use crate::kept::{Scope, open_area_deleting, open_retention, settle_dir_temps, unique};
+use crate::kept::{Scope, name_key, open_area_deleting, open_retention, settle_dir_temps, unique};
 use crate::plans::{json, to_json};
 use crate::sets::{set_by_id, set_by_name};
 use crate::{Error, Fault, Result, Store, now};
+use planning::base_name;
 
 /// What a Source Set's marker must be for a repair to go on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +160,38 @@ fn parent_of<'a>(dir: &FolderDir, rel: &'a str) -> io::Result<(Option<FolderDir>
         found = found.sub(part)?;
     }
     Ok((Some(found), name))
+}
+
+/// Opens the folder holding `rel`, a path relative to `dir`, as [`parent_of`] does, making each folder of it that
+/// is missing first: a loose folder a repair writes a Game into.
+fn parent_made<'a>(dir: &FolderDir, rel: &'a str) -> io::Result<(Option<FolderDir>, &'a str)> {
+    let Some((parents, name)) = rel.rsplit_once('/') else {
+        return Ok((None, rel));
+    };
+    let mut found: Option<FolderDir> = None;
+    for part in parents.split('/') {
+        let at = found.as_ref().unwrap_or(dir);
+        match at.mkdir(part) {
+            Ok(()) => at.sync()?,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+        found = Some(at.sub(part)?);
+    }
+    Ok((found, name))
+}
+
+/// Removes the folder holding `rel`, a path relative to `dir`, if it is now empty: a loose folder a repair emptied.
+/// Best effort; a folder still holding anything stays.
+fn remove_emptied(dir: &FolderDir, rel: &str) {
+    if let Some((parents, _)) = rel.rsplit_once('/')
+        && let Ok((parent, name)) = parent_of(dir, parents)
+    {
+        let parent = parent.as_ref().unwrap_or(dir);
+        if parent.rmdir(name).is_ok() {
+            let _ = parent.sync();
+        }
+    }
 }
 
 /// Every entry under `dir` but Title Select's own, by path relative to it, and the regular files among them as seen.
@@ -436,6 +471,7 @@ pub(crate) fn queue_repair_job(tx: &Transaction, plan: i64, last: Option<i64>) -
 }
 
 /// One step of an approved repair, as recorded.
+#[derive(Clone)]
 struct StepRow {
     id: i64,
     seq: u32,
@@ -450,6 +486,15 @@ struct StepRow {
     aside_name: Option<String>,
     aside_why: Option<String>,
     discard_slot: Option<String>,
+}
+
+/// One Build step of an [extraction](Store::run_extraction): the ROM it writes loose to `target`, read from
+/// `member` of the ZIP every step of it reads.
+struct Extracting {
+    step: StepRow,
+    target: String,
+    rom: ExpectedRom,
+    member: String,
 }
 
 const STEP_QUERY: &str = "SELECT id, seq, item, detail, state, staged_name, staged_dev, staged_ino, move_id, \
@@ -572,6 +617,7 @@ impl Store {
         };
         let storage =
             self.read(|c| crate::storage::policy(c, StorageScope::SourceSets, &record.dat))?;
+        let cues = self.cue_sheets(&record.dat)?;
         let planned = planning::plan(&planning::Inputs {
             report: &report,
             dat: &dat,
@@ -583,6 +629,7 @@ impl Store {
             choices: &request.choices,
             storage,
             additions: &request.additions,
+            cues: &cues,
         })?;
         let mut planned = planned;
         // Each file added as an Addition is read now, through a descriptor held on it while it is the file
@@ -656,14 +703,45 @@ impl Store {
             set_aside: false,
         };
         let digest = digest(&content);
-        self.write(|tx| {
+        let packs: BTreeSet<&str> = content
+            .steps
+            .iter()
+            .filter_map(|s| match &s.step {
+                RepairStep::Build { roms, .. } => Some(roms),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|r| r.cue_pack.as_deref())
+            .collect();
+        self.fault_point(crate::Fault::RepairPlanned);
+        // The plan is recorded only while every cue pack it reads is still kept: once recorded, it holds them.
+        let recorded = self.write(|tx| {
+            for pack in &packs {
+                let kept: bool = tx
+                    .query_row(
+                        "SELECT blob_dropped_at IS NULL FROM cue_packs WHERE sha256 = ?1",
+                        [pack],
+                        |r| r.get(0),
+                    )
+                    .optional()?
+                    .unwrap_or(false);
+                if !kept {
+                    return Ok(None);
+                }
+            }
             tx.execute(
                 "INSERT INTO repair_plans (source_set_id, audit_id, content, digest, created_at, readers, hashers)
                  VALUES (?1, ?2, ?3, ?4, ?5, 0, 0)",
                 params![set.id, audit.id, to_json(&content), digest, now()],
             )?;
-            plan_by_id(tx, tx.last_insert_rowid())
-        })
+            plan_by_id(tx, tx.last_insert_rowid()).map(Some)
+        })?;
+        match recorded {
+            Some(plan) => Ok(plan),
+            // A cue pack it reads was deleted as it was made, and stays deleted until imported again, so planning
+            // again reads only the packs still kept.
+            None => self.plan_repair(config, name, request),
+        }
     }
 
     /// Proposes setting Source Set `name` aside whole: a repair that keeps every file in it aside where it is, in
@@ -716,9 +794,9 @@ impl Store {
             let base = path.rsplit('/').next().unwrap_or(path);
             let kept = (1..)
                 .map(|n| kept_name(base, n))
-                .find(|kept| !names.contains(kept))
+                .find(|kept| !names.contains(&name_key(kept)))
                 .expect("a free name");
-            names.insert(kept.clone());
+            names.insert(name_key(&kept));
             items.push(title_select_api::repair::RepairItem {
                 key: key.clone(),
                 kind: title_select_api::repair::RepairKind::KeepAside,
@@ -820,6 +898,11 @@ impl Store {
             )));
         }
         let content = &plan.content;
+        if let Some(why) = planning::split_release(&content.items) {
+            return Err(Error::Refused(format!(
+                "{why}; nothing was changed. Plan the repair again and review the new plan"
+            )));
+        }
         let set = self.read(|c| set_by_id(c, content.set_id))?;
         if set.record.root != content.root || set.record.path != content.path {
             return Err(Error::Conflict(format!(
@@ -1491,6 +1574,22 @@ impl Store {
                     }
                 }
             }
+            // Every disc of a game is stored alike: once one disc's repair has changed something, the others
+            // finish too.
+            let releases: std::collections::HashSet<String> = committed
+                .iter()
+                .filter_map(|item| item.strip_prefix("game:"))
+                .map(release_of)
+                .collect();
+            for step in &steps {
+                if step
+                    .item
+                    .strip_prefix("game:")
+                    .is_some_and(|game| releases.contains(&release_of(game)))
+                {
+                    committed.insert(step.item.as_str());
+                }
+            }
             if committed.len() == before {
                 break;
             }
@@ -1619,6 +1718,31 @@ impl Store {
             }
             outcome.detail.extend(step.note.clone());
         }
+        let done_releases: std::collections::HashSet<String> = outcomes
+            .iter()
+            .filter(|o| o.done)
+            .filter_map(|o| o.item.strip_prefix("game:"))
+            .map(release_of)
+            .collect();
+        // A disc is stored apart when what stores it anew is not all in place.
+        let unplaced = |item: &str| {
+            steps.iter().any(|s| {
+                s.item == item
+                    && matches!(s.step, RepairStep::Publish { .. } | RepairStep::Fill { .. })
+                    && s.state != "done"
+            })
+        };
+        for outcome in outcomes.iter_mut().filter(|o| !o.done) {
+            if let Some(game) = outcome.item.strip_prefix("game:")
+                && done_releases.contains(&release_of(game))
+                && unplaced(&outcome.item)
+            {
+                outcome.detail.push(format!(
+                    "{game} was not repaired while another disc of the same game was, so the discs of this \
+                     game are stored apart until a repair makes them alike"
+                ));
+            }
+        }
         Ok(outcomes)
     }
 
@@ -1715,7 +1839,8 @@ impl Store {
                 build,
                 keep,
                 publish,
-            } => self.run_delete(r, step, path, *build, *keep, *publish),
+                also,
+            } => self.run_delete(r, step, path, *build, *keep, *publish, also),
         }
     }
 
@@ -1746,7 +1871,7 @@ impl Store {
                     if checks_as(&file, &expected, loose).is_ok() && file.sync_all().is_ok() {
                         dir.sync().map_err(io_err)?;
                         // Its source was not read now, so no hash of it is trusted, and a conversion keeps it.
-                        return self.build_staged(step, &file, None);
+                        return self.build_staged(step, &file, None, None);
                     }
                     drop(file);
                     if let Err(why) = self.discard_staged(r, step, staged_name, id)? {
@@ -1767,7 +1892,10 @@ impl Store {
                 None => {}
             }
         }
-        let staged_name = format!(".{target}.title-select-new-{}", unique());
+        if let Some(batch) = self.extraction_of(r, step, roms, sources, loose)? {
+            return self.run_extraction(r, &batch, sources);
+        }
+        let staged_name = format!(".{}.title-select-new-{}", base_name(target), unique());
         self.write(|tx| {
             tx.execute(
                 "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL, staged_ino = NULL,
@@ -1790,7 +1918,8 @@ impl Store {
             )?;
             Ok(())
         })?;
-        let written = (|| -> std::result::Result<Option<String>, String> {
+        type Written = (Option<String>, Option<String>);
+        let written = (|| -> std::result::Result<Written, String> {
             let mut opened: Vec<File> = Vec::new();
             let mut index: HashMap<&str, usize> = HashMap::new();
             for (path, seen) in sources {
@@ -1809,9 +1938,28 @@ impl Store {
                 index.insert(path, opened.len());
                 opened.push(file);
             }
+            // A `.cue` sheet from a cue pack is read from the pack kept in the store, after every file of the
+            // Source Set.
+            let mut packs: HashMap<&str, usize> = HashMap::new();
+            for pack in roms.iter().filter_map(|r| r.cue_pack.as_deref()) {
+                if packs.contains_key(pack) {
+                    continue;
+                }
+                let path = self.cue_pack_path(pack);
+                let file = File::open(&path)
+                    .map_err(|e| format!("the cue pack {pack} is no longer in the store: {e}"))?;
+                packs.insert(pack, opened.len());
+                opened.push(file);
+            }
             let from: Vec<FromSource> = roms
                 .iter()
-                .map(|rom| (&rom.rom, index[rom.from.as_str()], rom.member.as_deref()))
+                .map(|rom| {
+                    let at = match &rom.cue_pack {
+                        Some(pack) => packs[pack.as_str()],
+                        None => index[rom.from.as_str()],
+                    };
+                    (&rom.rom, at, rom.member.as_deref())
+                })
                 .collect();
             let refs: Vec<&File> = opened.iter().collect();
             let read = match loose {
@@ -1830,19 +1978,24 @@ impl Store {
                 }
             }
             file.sync_all().map_err(|e| e.to_string())?;
-            // What the one file a conversion reads was, hashed as it was read while its stamp, ctime included,
-            // held still: the hash its original must still have to be deleted.
-            Ok(match read.as_slice() {
-                [(sha, size)] if sources.len() == 1 => sources
-                    .values()
-                    .next()
-                    .filter(|seen| seen.file.size == *size)
-                    .map(|_| sha.clone()),
+            // What each file a conversion reads was, hashed as it was read while its stamp, ctime included, held
+            // still: the hash its original must still have to be deleted.
+            let reads: BTreeMap<&str, &str> = sources
+                .iter()
+                .zip(&read)
+                .filter(|((_, seen), (_, size))| seen.file.size == *size)
+                .map(|((path, _), (sha, _))| (path.as_str(), sha.as_str()))
+                .collect();
+            let single = match (reads.values().next(), sources.len(), packs.len()) {
+                (Some(sha), 1, 0) => Some(sha.to_string()),
                 _ => None,
-            })
+            };
+            let reads = (!reads.is_empty())
+                .then(|| serde_json::to_string(&reads).expect("a map of strings"));
+            Ok((single, reads))
         })();
-        let source_sha = match written {
-            Ok(sha) => sha,
+        let (source_sha, reads) = match written {
+            Ok(read) => read,
             Err(why) => {
                 self.stamp_staged(step, &file)?;
                 // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
@@ -1853,18 +2006,197 @@ impl Store {
             }
         };
         dir.sync().map_err(io_err)?;
-        self.build_staged(step, &file, source_sha)
+        self.build_staged(step, &file, source_sha, reads)
+    }
+
+    /// The Build steps, `step` first, that extract a Game's ROMs from one ZIP of the Source Set into loose files, one
+    /// each: `step` and the steps right after it of the same item, each reading only that ZIP as the plan saw it, none
+    /// started. None when there is just `step`, which is then run alone.
+    fn extraction_of(
+        &self,
+        r: &Repairing,
+        step: &StepRow,
+        roms: &[RepairRom],
+        sources: &BTreeMap<String, SeenFile>,
+        loose: bool,
+    ) -> Result<Option<Vec<Extracting>>> {
+        let one = |state: &str, staged: &Option<String>, roms: &[RepairRom]| match roms {
+            [rom] if state == "pending" && staged.is_none() && rom.cue_pack.is_none() => {
+                rom.member.clone().map(|member| (rom.rom.clone(), member))
+            }
+            _ => None,
+        };
+        if !loose || sources.len() != 1 {
+            return Ok(None);
+        }
+        let Some((rom, member)) = one(&step.state, &step.staged_name, roms) else {
+            return Ok(None);
+        };
+        let RepairStep::Build { target, .. } = &step.step else {
+            return Ok(None);
+        };
+        let mut batch = vec![Extracting {
+            step: step.clone(),
+            target: target.clone(),
+            rom,
+            member,
+        }];
+        for next in self.read(|c| steps_of(c, r.plan.id))? {
+            if next.seq <= step.seq {
+                continue;
+            }
+            let RepairStep::Build {
+                target,
+                roms,
+                sources: theirs,
+                loose: true,
+            } = &next.step
+            else {
+                break;
+            };
+            if next.item != step.item || theirs != sources {
+                break;
+            }
+            let Some((rom, member)) = one(&next.state, &next.staged_name, roms) else {
+                break;
+            };
+            batch.push(Extracting {
+                target: target.clone(),
+                step: next.clone(),
+                rom,
+                member,
+            });
+        }
+        Ok((batch.len() > 1).then_some(batch))
+    }
+
+    /// Runs the Build steps of `batch` together: their staged files are recorded and created first, then written in
+    /// one pass over the one ZIP they read, opened once and hashed as it is read while its stamp holds still, and
+    /// each checked against the DAT. Each step records the hash that one read gave, which a conversion deletes its
+    /// original by, as a step run alone would. When any fails, none is written.
+    fn run_extraction(
+        &self,
+        r: &Repairing,
+        batch: &[Extracting],
+        sources: &BTreeMap<String, SeenFile>,
+    ) -> Ran {
+        let dir = &r.dir;
+        let (path, seen) = sources.iter().next().expect("one source");
+        let mut staged: Vec<(&Extracting, String, File, Identity)> = Vec::new();
+        let mut failed: Option<String> = None;
+        for one in batch {
+            let staged_name = format!(".{}.title-select-new-{}", base_name(&one.target), unique());
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE repair_steps SET state = 'staging', staged_name = ?2, staged_dev = NULL,
+                         staged_ino = NULL, staged_size = NULL, staged_mtime_ns = NULL, staged_sha256 = NULL
+                     WHERE id = ?1",
+                    params![one.step.id, staged_name],
+                )?;
+                Ok(())
+            })?;
+            let file = match dir.create_new(&staged_name) {
+                Ok(file) => file,
+                Err(e) => {
+                    failed = Some(e.to_string());
+                    break;
+                }
+            };
+            let id = Identity::of_fd(&file).map_err(io_err)?;
+            let (dev, ino) = id.to_sql();
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE repair_steps SET staged_dev = ?2, staged_ino = ?3 WHERE id = ?1",
+                    params![one.step.id, dev, ino],
+                )?;
+                Ok(())
+            })?;
+            staged.push((one, staged_name, file, id));
+        }
+        let written = match failed {
+            Some(why) => Err(why),
+            None => (|| -> std::result::Result<(String, u64), String> {
+                let (parent, name) = parent_of(dir, path).map_err(|e| e.to_string())?;
+                let source = parent
+                    .as_ref()
+                    .unwrap_or(dir)
+                    .open_file(name)
+                    .map_err(|e| e.to_string())?;
+                let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
+                if Seen::of(&st) != seen_of(seen) {
+                    return Err(format!(
+                        "{path} changed since the plan was made; it was left as it is"
+                    ));
+                }
+                let dests: Vec<&File> = staged.iter().map(|(_, _, file, _)| file).collect();
+                let roms: Vec<(&ExpectedRom, &str)> = staged
+                    .iter()
+                    .map(|(one, ..)| (&one.rom, one.member.as_str()))
+                    .collect();
+                let read = write_loose_members(&dests, &roms, &source)?;
+                for (one, _, file, _) in &staged {
+                    verify_loose(file, &one.rom)
+                        .map_err(|why| format!("the new {} did not check: {why}", one.target))?;
+                }
+                let st = rustix::fs::fstat(&source).map_err(|e| e.to_string())?;
+                if Seen::of(&st) != seen_of(seen) {
+                    return Err(format!(
+                        "{path} changed while it was read; it was left as it is"
+                    ));
+                }
+                Ok(read)
+            })(),
+        };
+        match written {
+            Ok((sha, size)) => {
+                // What the ZIP was, hashed as it was read while its stamp, ctime included, held still.
+                let single = (seen.file.size == size).then_some(sha);
+                let reads = single.as_ref().map(|sha| {
+                    serde_json::to_string(&BTreeMap::from([(path.as_str(), sha.as_str())]))
+                        .expect("a map of strings")
+                });
+                dir.sync().map_err(io_err)?;
+                for (one, _, file, _) in &staged {
+                    if let Err(why) =
+                        self.build_staged(&one.step, file, single.clone(), reads.clone())?
+                    {
+                        return Ok(Err(why));
+                    }
+                }
+                Ok(Ok(()))
+            }
+            Err(why) => {
+                for (one, staged_name, file, id) in &staged {
+                    self.stamp_staged(&one.step, file)?;
+                    // The step stays unfinished until what it staged is deleted, so nothing is left behind untracked.
+                    if let Err(left) = self.discard_staged(r, &one.step, staged_name, *id)? {
+                        return Ok(Err(format!("{why}; {left}")));
+                    }
+                }
+                for one in batch {
+                    self.fail_step(&one.step, "failed", why.clone())?;
+                }
+                Ok(Ok(()))
+            }
+        }
     }
 
     /// Records a Build step done, with the stamp of what it staged read through `file`, the descriptor that wrote or
-    /// checked it.
-    fn build_staged(&self, step: &StepRow, file: &File, source_sha: Option<String>) -> Ran {
+    /// checked it, and what it read its sources as, recorded only with the step done so a stop before then leaves no
+    /// read of them trusted.
+    fn build_staged(
+        &self,
+        step: &StepRow,
+        file: &File,
+        source_sha: Option<String>,
+        reads: Option<String>,
+    ) -> Ran {
         let sha = self.stamp_staged(step, file)?;
         self.write(|tx| {
             tx.execute(
-                "UPDATE repair_steps SET state = 'done', sha256 = ?2, finished_at = ?3, source_sha256 = ?4
-                 WHERE id = ?1",
-                params![step.id, sha, now(), source_sha],
+                "UPDATE repair_steps SET state = 'done', sha256 = ?2, finished_at = ?3, source_sha256 = ?4,
+                 source_reads = ?5 WHERE id = ?1",
+                params![step.id, sha, now(), source_sha, reads],
             )?;
             Ok(())
         })?;
@@ -2191,6 +2523,7 @@ impl Store {
         };
         match self.keep_file(r, step, path, kept, reason, seen, &done)? {
             Ok(Some(_)) => {
+                remove_emptied(&r.dir, path);
                 self.fault_point(Fault::RepairStepDone(step.seq));
                 Ok(Ok(()))
             }
@@ -2457,7 +2790,10 @@ impl Store {
             }
             self.step_state(step, "moving")?;
             _pin = parent.pin(name, seen.identity);
-            if let Err(e) = parent.rename_new(name, &r.dir, to) {
+            let renamed = parent_made(&r.dir, to).and_then(|(to_parent, to_name)| {
+                parent.rename_new(name, to_parent.as_ref().unwrap_or(&r.dir), to_name)
+            });
+            if let Err(e) = renamed {
                 return self.step_failed(
                     step,
                     "failed",
@@ -2468,8 +2804,20 @@ impl Store {
         }
         parent.sync().map_err(io_err)?;
         r.dir.sync().map_err(io_err)?;
-        if !is_file(&r.dir, to, seen.identity).map_err(io_err)? {
-            if r.dir.stat(to).map_err(io_err)?.is_none() {
+        let (to_parent, to_name) = match parent_of(&r.dir, to) {
+            Ok(found) => found,
+            Err(e) => {
+                return self.step_failed(
+                    step,
+                    "failed",
+                    format!("{from} is neither where it was nor at {to}: {e}"),
+                );
+            }
+        };
+        let to_dir = to_parent.as_ref().unwrap_or(&r.dir);
+        to_dir.sync().map_err(io_err)?;
+        if !is_file(to_dir, to_name, seen.identity).map_err(io_err)? {
+            if to_dir.stat(to_name).map_err(io_err)?.is_none() {
                 return self.step_failed(
                     step,
                     "failed",
@@ -2477,10 +2825,10 @@ impl Store {
                 );
             }
             // Something else was renamed in place of the file planned: it is put back, never left under the name.
-            let why = match r.dir.rename_new(to, parent, name) {
+            let why = match to_dir.rename_new(to_name, parent, name) {
                 Ok(()) => {
                     parent.sync().map_err(io_err)?;
-                    r.dir.sync().map_err(io_err)?;
+                    to_dir.sync().map_err(io_err)?;
                     format!(
                         "{from} was replaced by another file as it was renamed; that file was put back as {from}"
                     )
@@ -2492,6 +2840,7 @@ impl Store {
             };
             return self.step_failed(step, "failed", why);
         }
+        remove_emptied(&r.dir, from);
         self.step_done(step, None)?;
         self.fault_point(Fault::RepairStepDone(step.seq));
         Ok(Ok(()))
@@ -2530,7 +2879,10 @@ impl Store {
             }
             self.step_state(step, "moving")?;
             _pin = dir.pin(staged_name, staged);
-            if let Err(e) = dir.rename_new(staged_name, dir, target) {
+            let published = parent_made(dir, target).and_then(|(parent, name)| {
+                dir.rename_new(staged_name, parent.as_ref().unwrap_or(dir), name)
+            });
+            if let Err(e) = published {
                 let why = format!("the new {target} could not be put in place: {e}");
                 let kept = match self.record_aside(r, step, staged_name, staged, target, &why)? {
                     Ok(kept) => kept,
@@ -2541,7 +2893,15 @@ impl Store {
             self.fault_point(Fault::RepairMoved(step.seq));
         }
         dir.sync().map_err(io_err)?;
-        if !is_file(dir, target, staged).map_err(io_err)? {
+        let in_place = match parent_of(dir, target) {
+            Ok((parent, name)) => {
+                let parent = parent.as_ref().unwrap_or(dir);
+                parent.sync().map_err(io_err)?;
+                is_file(parent, name, staged).map_err(io_err)?
+            }
+            Err(_) => false,
+        };
+        if !in_place {
             return self.step_failed(
                 step,
                 "failed",
@@ -2554,7 +2914,7 @@ impl Store {
     }
 
     /// Records the intent to keep the staged file `staged_name`, `staged`, that could not be published as `target`,
-    /// aside under the first name free in this repair's generation, and why. Returns that name, or why the file was
+    /// aside under the first name free in this repair's generation and reserved by no other step of it, and why. Returns that name, or why the file was
     /// left where it is.
     fn record_aside(
         &self,
@@ -2570,9 +2930,26 @@ impl Store {
                 Ok(Some(retention)) => retention.generation,
                 _ => return Ok(Err(format!("{why}; it was left at {staged_name}"))),
             };
+        // Neither a name a Keep step of this repair keeps a file as, nor one another step means to keep a new file
+        // aside as, though nothing is there yet.
+        let reserved: BTreeSet<String> = self
+            .read(|c| steps_of(c, r.plan.id))?
+            .into_iter()
+            .filter(|s| s.id != step.id)
+            .flat_map(|s| {
+                let keep = match s.step {
+                    RepairStep::Keep { kept_name, .. } => Some(kept_name),
+                    _ => None,
+                };
+                keep.into_iter().chain(s.aside_name)
+            })
+            .map(|name| name_key(&name))
+            .collect();
         let kept = (1..)
-            .map(|n| kept_name(target, n))
-            .find(|name| matches!(generation.stat(name), Ok(None)))
+            .map(|n| kept_name(base_name(target), n))
+            .find(|name| {
+                !reserved.contains(&name_key(name)) && matches!(generation.stat(name), Ok(None))
+            })
             .expect("a free name");
         let (dev, ino) = staged.to_sql();
         self.write(|tx| {
@@ -2737,6 +3114,9 @@ impl Store {
     /// file the Build step `build` wrote and stamped, as the Publish step `publish` put it in place, and exactly the
     /// Game's ROMs as stored. The original is deleted only while it still reads as the Build read it, through the
     /// stamp kept with it by the Keep step `keep`; without that stamp, or with anything else amiss, it stays kept.
+    /// A conversion into a loose folder writes several files: each other Build and Publish pair in `also` is
+    /// verified too.
+    #[allow(clippy::too_many_arguments)]
     fn run_delete(
         &self,
         r: &Repairing,
@@ -2745,6 +3125,7 @@ impl Store {
         build: u32,
         keep: u32,
         publish: u32,
+        also: &[(u32, u32)],
     ) -> Ran {
         let kept = |why: String| Some(format!("{path} stays in the kept files: {why}"));
         let (keep_state, kept_id): (String, Option<i64>) = self.read(|c| {
@@ -2769,13 +3150,18 @@ impl Store {
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                 )?)
             })?;
-        let (source_sha, staged_sha): (Option<String>, Option<String>) = self.read(|c| {
+        let (source_sha, reads): (Option<String>, Option<String>) = self.read(|c| {
             Ok(c.query_row(
-                "SELECT source_sha256, staged_sha256 FROM repair_steps WHERE plan_id = ?1 AND seq = ?2",
+                "SELECT source_sha256, source_reads FROM repair_steps WHERE plan_id = ?1 AND seq = ?2",
                 params![r.plan.id, build as i64],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?)
         })?;
+        // What the Build read this original as: by its path when it read several files.
+        let source_sha = reads
+            .and_then(|json| serde_json::from_str::<BTreeMap<String, String>>(&json).ok())
+            .and_then(|mut reads| reads.remove(path))
+            .or(source_sha);
         match (state.as_str(), step.state.as_str()) {
             ("deleted", _) => {
                 self.step_done(
@@ -2825,12 +3211,14 @@ impl Store {
             }
         };
         if state == "kept" {
-            if let Err(why) = self.converted_verified(r, build, publish, staged_sha.as_deref())? {
-                self.step_done(
-                    step,
-                    kept(format!("its converted file did not verify: {why}")),
-                )?;
-                return Ok(Ok(()));
+            for &(build, publish) in std::iter::once(&(build, publish)).chain(also) {
+                if let Err(why) = self.converted_verified(r, build, publish)? {
+                    self.step_done(
+                        step,
+                        kept(format!("its converted file did not verify: {why}")),
+                    )?;
+                    return Ok(Ok(()));
+                }
             }
             self.fault_point(Fault::ConversionVerified(step.seq));
             self.write(|tx| {
@@ -2869,8 +3257,15 @@ impl Store {
         r: &Repairing,
         build: u32,
         publish: u32,
-        staged_sha: Option<&str>,
     ) -> Result<std::result::Result<(), String>> {
+        let staged_sha: Option<String> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT staged_sha256 FROM repair_steps WHERE plan_id = ?1 AND seq = ?2",
+                params![r.plan.id, build as i64],
+                |r| r.get(0),
+            )?)
+        })?;
+        let staged_sha = staged_sha.as_deref();
         let built = self.other_step(r.plan.id, build)?;
         let published = self.other_step(r.plan.id, publish)?;
         let (
@@ -2893,7 +3288,9 @@ impl Store {
         ) else {
             return Ok(Err("it has no stamp recorded as it was written".into()));
         };
-        let file = match r.dir.open_file(target) {
+        let file = match parent_of(&r.dir, target)
+            .and_then(|(parent, name)| parent.as_ref().unwrap_or(&r.dir).open_file(name))
+        {
             Ok(file) => file,
             Err(e) => return Ok(Err(format!("{target} could not be read: {e}"))),
         };
@@ -2922,6 +3319,7 @@ impl Store {
             roms,
             exact,
             loose,
+            leave,
         } = &step.step
         else {
             unreachable!("a fill step");
@@ -2970,6 +3368,19 @@ impl Store {
                         format!("ingest folder {ingest_root} is no longer registered"),
                     );
                 };
+                // A file of a loose folder goes into the folder, made first if it is missing.
+                if target.contains('/')
+                    && let Err(e) = parent_made(&r.dir, target)
+                {
+                    return self.step_failed(
+                        step,
+                        "failed",
+                        format!(
+                            "the folder of {target} could not be made ({e}); {name} in ingest folder {ingest_root} \
+                             was left as it is"
+                        ),
+                    );
+                }
                 let content = &r.plan.content;
                 let mv = Move {
                     folder,
@@ -2984,9 +3395,10 @@ impl Store {
                         name: target.clone(),
                         generation,
                     },
-                    // A loose file of the one ROM is moved as it is; anything else is written as the policy stores it.
+                    // A loose file of the one ROM is moved as it is, unless a later fill still reads it; anything else
+                    // is written as the policy stores it.
                     repack: match (loose, roms.as_slice()) {
-                        (true, [only]) if only.member.is_none() => None,
+                        (true, [only]) if only.member.is_none() && !*leave => None,
                         _ => Some(
                             roms.iter()
                                 .map(|rom| (rom.rom.clone(), rom.member.clone()))
@@ -2995,6 +3407,7 @@ impl Store {
                     },
                     exact: exact.clone(),
                     loose: *loose,
+                    leave: *leave,
                 };
                 let recorded = self.record_move(config, mv, &mut |tx, move_id| {
                     tx.execute(

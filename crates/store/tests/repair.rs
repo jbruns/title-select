@@ -10,7 +10,7 @@ use common::*;
 use title_select_api::build::PlanKeptDeletion;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
 use title_select_api::storage::{StorageFormat, SystemStorage};
-use title_select_api::{AuditEvidence, Finding, GameStatus, JobKind, JobState};
+use title_select_api::{AuditEvidence, Finding, GameStatus, ImportOutcome, JobKind, JobState};
 use title_select_engine::build::is_torrentzip;
 use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
@@ -45,6 +45,11 @@ struct Env {
 
 impl Env {
     fn new() -> Env {
+        Env::with("Test", &alpha_games())
+    }
+
+    /// Alpha and Gamma bound to the DAT of `games` from `provider`.
+    fn with(provider: &str, games: &[(&str, Vec<RomSpec>)]) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         for dir in ["roots/sets/Alpha", "roots/ro/Gamma", "in", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
@@ -58,13 +63,14 @@ impl Env {
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let dat = write_dat_version(&tmp.path().join("dats"), "alpha.dat", "1", &alpha_games());
-        store.import_dat(&dat, "Test", None).unwrap();
+        let dat = write_dat_version(&tmp.path().join("dats"), "alpha.dat", "1", games);
+        store.import_dat(&dat, provider, None).unwrap();
+        let system = format!("{provider}/Test - System");
         store
-            .add_source_set(&config, "sets", "Alpha", "Test/Test - System")
+            .add_source_set(&config, "sets", "Alpha", &system)
             .unwrap();
         store
-            .add_source_set(&config, "ro", "Gamma", "Test/Test - System")
+            .add_source_set(&config, "ro", "Gamma", &system)
             .unwrap();
         let env = Env { tmp, store, config };
         env.store.register_ingest_folder(&env.config, "in").unwrap();
@@ -787,6 +793,144 @@ fn a_file_read_only_by_its_claim_is_never_touched() {
             .any(|n| n.contains("Combat (USA).zip")),
         "{:?}",
         plan.content.notes
+    );
+}
+
+#[test]
+fn a_new_file_kept_aside_never_takes_the_kept_name_of_an_original_kept_after_it() {
+    let adventure = &alpha_games()[3].1;
+    // Adventure's ROMs are in old.zip; Pong's is in a file named as Adventure's, so both originals are kept aside
+    // once their new files are in place, and the name the second one is kept as is Adventure's new file's name.
+    let publish_of = |target: &'static str| move |s: &RepairStep| matches!(s, RepairStep::Publish { target: t, .. } if t == target);
+    // The name differs from Adventure's new file's only in case, which a case-insensitive file system ignores.
+    for (original, stop) in [
+        ("Adventure (USA).zip", None),
+        ("Adventure (USA).zip", Some("moved")),
+        ("Adventure (USA).zip", Some("done")),
+        ("adventure (usa).zip", None),
+        ("adventure (usa).zip", Some("moved")),
+    ] {
+        let incoming = format!("incoming/{original}");
+        let env = Env::new();
+        let members: Vec<(&str, &[u8])> = adventure
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(&env.set().join("old.zip"), &members);
+        std::fs::create_dir(env.set().join("incoming")).unwrap();
+        write_zip(&env.set().join(&incoming), &[("Pong (USA).a26", b"pong")]);
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan();
+        let fault = match stop {
+            Some("moved") => Some(Fault::RepairMoved(step_seq(
+                &plan,
+                publish_of("Adventure (USA).zip"),
+            ))),
+            Some(_) => Some(Fault::RepairStepDone(step_seq(
+                &plan,
+                publish_of("Pong (USA).zip"),
+            ))),
+            None => None,
+        };
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        // A file appears where Adventure's new file goes, so that new file is kept aside instead.
+        env.put("Adventure (USA).zip", b"in the way");
+        if fault.is_some() {
+            env.store.inject_fault(fault);
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                env.run_repair_job(&approved)
+            }));
+            assert!(ran.is_err(), "{stop:?}: {ran:?}");
+            env.store.inject_fault(None);
+            let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+                .requeued
+                .clone()
+                .expect("a repair runs on");
+            assert_eq!(requeued.repair, Some(plan.id));
+            env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+        } else {
+            env.run_repair_job(&approved);
+        }
+
+        let done = env.store.repair_plan(plan.id).unwrap();
+        let pong = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == "game:Pong (USA)")
+            .unwrap();
+        assert!(pong.done, "{stop:?}: {pong:?}");
+        let listing = env.listing();
+        assert!(!listing.contains(&incoming), "{stop:?}: {listing:?}");
+        assert!(
+            listing.contains(&"old.zip".to_string()),
+            "{stop:?}: {listing:?}"
+        );
+        assert!(
+            listing.contains(&"Pong (USA).zip".to_string()),
+            "{stop:?}: {listing:?}"
+        );
+        let kept: Vec<&String> = listing
+            .iter()
+            .filter(|p| p.starts_with(".title-select-retained/"))
+            .collect();
+        assert_eq!(
+            kept.len(),
+            2,
+            "{stop:?}: both the new Adventure and the old Pong are kept: {listing:?}"
+        );
+    }
+}
+
+#[test]
+fn originals_named_alike_but_for_case_are_kept_under_names_that_differ_beyond_case() {
+    let env = Env::new();
+    let games = alpha_games();
+    let adventure: Vec<(&str, &[u8])> = games[3]
+        .1
+        .iter()
+        .map(|r| (r.name, r.payload.as_slice()))
+        .collect();
+    for dir in ["one", "two"] {
+        std::fs::create_dir(env.set().join(dir)).unwrap();
+    }
+    write_zip(&env.set().join("one/Adventure (USA).zip"), &adventure);
+    write_zip(
+        &env.set().join("two/adventure (usa).zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+
+    // A case-insensitive file system takes two names differing only in case for one file.
+    let kept: Vec<String> = plan
+        .content
+        .steps
+        .iter()
+        .filter_map(|s| match &s.step {
+            RepairStep::Keep { kept_name, .. } => Some(kept_name.to_lowercase()),
+            _ => None,
+        })
+        .collect();
+    let unique: std::collections::BTreeSet<&String> = kept.iter().collect();
+    assert_eq!(kept.len(), 2, "{:#?}", plan.content.steps);
+    assert_eq!(unique.len(), 2, "{kept:?}");
+
+    let done = env.approve(&plan);
+    assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
+    let listing = env.listing();
+    for path in ["Adventure (USA).zip", "Pong (USA).zip"] {
+        assert!(listing.contains(&path.to_string()), "{listing:?}");
+    }
+    assert_eq!(
+        listing
+            .iter()
+            .filter(|p| p.starts_with(".title-select-retained/"))
+            .count(),
+        2,
+        "{listing:?}"
     );
 }
 
@@ -2803,4 +2947,1019 @@ fn a_fill_is_refused_when_its_ingest_folder_is_registered_anew_while_the_repair_
     );
     assert!(env.store.claim_job().unwrap().is_none(), "nothing queued");
     assert_eq!(env.ingest_listing(), ["pong.a26"]);
+}
+
+const DISC_SYSTEM: &str = "Redump/Test - System";
+
+/// A Redump DAT of disc games: one of two tracks, a game on two discs, and a disc with no tracks of its own.
+fn disc_games() -> Vec<(&'static str, Vec<RomSpec>)> {
+    vec![
+        ("Quest (USA)", disc("Quest (USA)", 3, 70_000, 1)),
+        (
+            "Saga (USA) (Disc 1)",
+            disc("Saga (USA) (Disc 1)", 1, 9_000, 20),
+        ),
+        (
+            "Saga (USA) (Disc 2)",
+            disc("Saga (USA) (Disc 2)", 1, 9_000, 30),
+        ),
+    ]
+}
+
+fn disc_of(game: &str) -> Vec<RomSpec> {
+    disc_games()
+        .into_iter()
+        .find(|(name, _)| *name == game)
+        .unwrap()
+        .1
+}
+
+/// Sets the storage policy's format for the disc system's Source Sets.
+fn set_disc_policy(env: &Env, format: StorageFormat, delete_originals: bool) {
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.systems.insert(
+        DISC_SYSTEM.into(),
+        SystemStorage {
+            format: Some(format),
+            delete_originals: Some(delete_originals),
+        },
+    );
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+}
+
+fn status_of(env: &Env, game: &str) -> GameStatus {
+    env.latest_report()
+        .games
+        .iter()
+        .find(|g| g.name == game)
+        .unwrap_or_else(|| panic!("no game {game}"))
+        .status
+}
+
+#[test]
+fn a_disc_systems_loose_tracks_are_moved_into_loose_folders_by_default() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    for r in &quest {
+        env.put(r.name, &r.payload);
+    }
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let item = item(&plan, "game:Quest (USA)");
+    assert_eq!(item.kind, RepairKind::Rename, "{item:?}");
+    assert!(
+        item.summary.contains("into Quest (USA)/"),
+        "{}",
+        item.summary
+    );
+    let done = env.approve(&plan);
+
+    let mut wanted = vec![".title-select".to_string()];
+    wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
+    wanted.sort();
+    assert_eq!(env.listing(), wanted);
+    for r in &quest {
+        assert_eq!(
+            std::fs::read(env.set().join("Quest (USA)").join(r.name)).unwrap(),
+            r.payload
+        );
+    }
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+    assert!(
+        !env.plan()
+            .content
+            .items
+            .iter()
+            .any(|i| i.key == "game:Quest (USA)"),
+        "a loose folder as the DAT names it is left as it is"
+    );
+}
+
+#[test]
+fn a_loose_folder_converts_to_torrentzip_and_back_deleting_each_original_once_verified() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    env.audit(AuditEvidence::Full);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+    set_disc_policy(&env, StorageFormat::TorrentZip, true);
+
+    let to_zip = env.plan();
+    let item_zip = item(&to_zip, "game:Quest (USA)");
+    assert_eq!(item_zip.kind, RepairKind::Convert, "{item_zip:?}");
+    assert!(
+        item_zip.summary.contains("Quest (USA)/") && item_zip.summary.contains("TorrentZip"),
+        "{}",
+        item_zip.summary
+    );
+    let deletes = to_zip
+        .content
+        .steps
+        .iter()
+        .filter(|s| matches!(s.step, RepairStep::Delete { .. }))
+        .count();
+    assert_eq!(deletes, quest.len(), "{:#?}", to_zip.content.steps);
+    let zipped = env.approve(&to_zip);
+    assert_eq!(env.listing(), [".title-select", "Quest (USA).zip"]);
+    assert!(is_torrentzip(&env.set().join("Quest (USA).zip")));
+    assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
+    env.run_queued_audit(&zipped);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+
+    set_disc_policy(&env, StorageFormat::LooseFolder, true);
+    let to_folder = env.plan();
+    let item_folder = item(&to_folder, "game:Quest (USA)");
+    assert_eq!(item_folder.kind, RepairKind::Convert, "{item_folder:?}");
+    assert!(
+        item_folder.summary.contains("loose folder"),
+        "{}",
+        item_folder.summary
+    );
+    // Every track is extracted in one pass over the ZIP: when the first is staged, every other is too.
+    let build = step_seq(&to_folder, |s| matches!(s, RepairStep::Build { .. }));
+    let set = env.set();
+    let staged_together = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let seen = staged_together.clone();
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::RepairStaged(build) {
+            let staged = Env::files(&set)
+                .iter()
+                .filter(|p| p.contains(".title-select-new-"))
+                .count();
+            *seen.lock().unwrap() = Some(staged);
+        }
+    })));
+    let foldered = env.approve(&to_folder);
+    env.store.hook_faults(None);
+    assert_eq!(*staged_together.lock().unwrap(), Some(quest.len()));
+    let mut wanted = vec![".title-select".to_string()];
+    wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
+    wanted.sort();
+    assert_eq!(env.listing(), wanted);
+    let outcome = foldered
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Quest (USA)")
+        .unwrap();
+    assert!(
+        outcome.detail.iter().any(|d| d.contains("was deleted")),
+        "{outcome:?}"
+    );
+    env.run_queued_audit(&foldered);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_conversion_stopped_once_its_tracks_were_extracted_together_finishes_them_all() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    env.audit(AuditEvidence::Full);
+    set_disc_policy(&env, StorageFormat::TorrentZip, true);
+    let zipped = env.approve(&env.plan());
+    env.run_queued_audit(&zipped);
+    set_disc_policy(&env, StorageFormat::LooseFolder, true);
+    let plan = env.plan();
+    let build = step_seq(&plan, |s| matches!(s, RepairStep::Build { .. }));
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.inject_fault(Some(Fault::RepairStaged(build)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    assert_eq!(ended.id, requeued.id);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+
+    // The tracks staged with the first are checked and put in place. The ZIP's one read was recorded with the
+    // finished first track, so it is still trusted, and the original goes once the folder verifies.
+    for r in &quest {
+        assert_eq!(
+            std::fs::read(env.set().join("Quest (USA)").join(r.name)).unwrap(),
+            r.payload
+        );
+    }
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(
+        done.outcomes[0]
+            .detail
+            .iter()
+            .any(|d| d.contains("was deleted once its converted file was verified")),
+        "{:#?}",
+        done.outcomes
+    );
+}
+
+#[test]
+fn every_disc_of_a_game_stays_torrentzip_when_one_cannot_be_a_loose_folder() {
+    let mut games = disc_games();
+    // A ROM named under a folder of its own can't be a file directly in a loose folder.
+    games[2].1[1].name = "tracks/Saga (USA) (Disc 2).bin";
+    let env = Env::with("Redump", &games);
+    write_games_zipped(
+        &env,
+        &games,
+        &["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"],
+    );
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    for game in ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"] {
+        let saga = item(&plan, &format!("game:{game}"));
+        assert_eq!(
+            saga.path.as_deref(),
+            Some(format!("{game}.zip").as_str()),
+            "{saga:?}"
+        );
+    }
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Saga (USA) (Disc 1)") && n.contains("another disc")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+/// Writes each game of `games` named `names` as a ZIP of its ROMs, as the DAT names them.
+fn write_games_zipped(env: &Env, games: &[(&str, Vec<RomSpec>)], names: &[&str]) {
+    for (game, roms) in games.iter().filter(|(g, _)| names.contains(g)) {
+        let members: Vec<(&str, &[u8])> = roms
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(&env.set().join(format!("{game}.zip")), &members);
+    }
+}
+
+#[test]
+fn leaving_one_disc_of_a_game_leaves_every_disc_and_a_split_choice_is_refused() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    let discs = ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"];
+    write_games_zipped(&env, &games, &discs);
+    env.audit(AuditEvidence::Full);
+    let both = env.plan();
+    for disc in discs {
+        let saga = item(&both, &format!("game:{disc}"));
+        assert_eq!(saga.chosen, RepairChoice::Apply, "{saga:?}");
+        assert_eq!(saga.path.as_deref(), Some(disc));
+    }
+
+    let left = env.plan_with(&[("game:Saga (USA) (Disc 2)", RepairChoice::Leave)]);
+    let first = item(&left, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+    assert!(
+        first
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Saga (USA) (Disc 2)") && n.contains("every disc")),
+        "{first:?}"
+    );
+    assert!(
+        !left
+            .content
+            .steps
+            .iter()
+            .any(|s| s.item.starts_with("game:Saga")),
+        "{:#?}",
+        left.content.steps
+    );
+
+    let request = PlanRepair {
+        choices: [
+            ("game:Saga (USA) (Disc 1)".to_string(), RepairChoice::Apply),
+            ("game:Saga (USA) (Disc 2)".to_string(), RepairChoice::Leave),
+        ]
+        .into(),
+        additions: Default::default(),
+    };
+    let split = env.store.plan_repair(&env.config, "Alpha", &request);
+    assert!(
+        matches!(&split, Err(Error::Refused(why)) if why.contains("every disc")),
+        "{split:?}"
+    );
+}
+
+#[test]
+fn under_a_loose_policy_every_disc_stays_torrentzip_when_one_has_more_than_one_rom() {
+    let mut games = disc_games();
+    // Disc 1 is one ROM, which alone could be loose; Disc 2 has two.
+    games[1].1.remove(0);
+    let env = Env::with("Redump", &games);
+    set_disc_policy(&env, StorageFormat::Loose, false);
+    let track = &games[1].1[0];
+    env.put(track.name, &track.payload);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 2)"]);
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(
+        first.path.as_deref(),
+        Some("Saga (USA) (Disc 1).zip"),
+        "{first:?}"
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Saga (USA) (Disc 1)") && n.contains("another disc")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+#[test]
+fn a_disc_is_not_converted_while_another_disc_of_its_game_cannot_be_repaired() {
+    let mut games = disc_games();
+    let env = Env::with("Redump", &games);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 1)"]);
+    // Disc 2 lacks a track no folder holds, so it stays the ZIP it is.
+    games[2].1.truncate(1);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 2)"]);
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+    assert!(
+        first
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Saga (USA) (Disc 2)") && n.contains("every disc")),
+        "{first:?}"
+    );
+    assert!(
+        !plan
+            .content
+            .steps
+            .iter()
+            .any(|s| s.item.starts_with("game:Saga")),
+        "{:#?}",
+        plan.content.steps
+    );
+}
+
+#[test]
+fn a_disc_zipped_in_a_subfolder_is_not_taken_for_a_loose_folder() {
+    let mut games = disc_games();
+    let env = Env::with("Redump", &games);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 1)"]);
+    // Disc 2, a ZIP lacking a track no folder holds, in a subfolder.
+    games[2].1.truncate(1);
+    let members: Vec<(&str, &[u8])> = games[2]
+        .1
+        .iter()
+        .map(|r| (r.name, r.payload.as_slice()))
+        .collect();
+    write_zip(&env.set().join("region/Saga (USA) (Disc 2).zip"), &members);
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+}
+
+#[test]
+fn a_disc_is_not_converted_while_another_disc_of_its_game_is_unreadable() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 1)"]);
+    env.put("Saga (USA) (Disc 2).zip", b"PK\x03\x04 not a whole ZIP");
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+    assert!(
+        first
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Saga (USA) (Disc 2)")),
+        "{first:?}"
+    );
+}
+
+#[test]
+fn a_disc_is_not_converted_while_another_disc_of_its_game_is_an_unreadable_folder() {
+    use std::os::unix::fs::PermissionsExt;
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 1)"]);
+    let folder = env.set().join("Saga (USA) (Disc 2)");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
+    env.audit(AuditEvidence::Full);
+    // A plan reads the source set again, so the folder is readable once more by then, though still empty.
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let plan = env.plan();
+
+    assert!(
+        env.latest_report()
+            .entries
+            .iter()
+            .any(|e| e.path == "Saga (USA) (Disc 2)" && e.finding == Finding::Unreadable),
+        "the audit reports the folder as unreadable"
+    );
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+    assert!(
+        first
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Saga (USA) (Disc 2)")),
+        "{first:?}"
+    );
+}
+
+#[test]
+fn a_shared_original_stays_in_place_while_a_disc_written_from_it_could_not_be_put_in_place() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    // One ZIP holds both discs, so their repairs share it and are carried out together.
+    let members: Vec<(&str, &[u8])> = games[1..]
+        .iter()
+        .flat_map(|(_, roms)| roms.iter().map(|r| (r.name, r.payload.as_slice())))
+        .collect();
+    let shared = env.set().join("Saga (USA).zip");
+    write_zip(&shared, &members);
+    let before = std::fs::read(&shared).unwrap();
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    for disc in ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"] {
+        let it = item(&plan, &format!("game:{disc}"));
+        assert_eq!(it.chosen, RepairChoice::Apply, "{it:?}");
+    }
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    // A file appears where Disc 2's track would be put in place.
+    let folder = env.set().join("Saga (USA) (Disc 2)");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("Saga (USA) (Disc 2).bin"), b"in the way").unwrap();
+    env.run_repair_job(&approved);
+
+    assert_eq!(
+        std::fs::read(&shared).ok().as_deref(),
+        Some(before.as_slice()),
+        "the original Disc 2 was read from stays where it was"
+    );
+}
+
+/// Plans converting both discs of Saga, zipped, into loose folders, and stops the repair once the first disc's
+/// conversion has changed something, then cancels the job a restart queued again.
+fn cancelled_once_one_disc_converted(env: &Env, before_rerun: impl FnOnce()) -> RepairPlan {
+    let plan = env.plan();
+    let first = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| {
+            s.item.starts_with("game:Saga") && !matches!(s.step, RepairStep::Build { .. })
+        })
+        .unwrap();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store
+        .inject_fault(Some(Fault::RepairStepDone(first as u32)));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+        .requeued
+        .clone()
+        .unwrap();
+    env.store.cancel_job(requeued.id).unwrap();
+    before_rerun();
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    env.store.repair_plan(plan.id).unwrap()
+}
+
+#[test]
+fn a_cancelled_repair_converts_every_disc_of_a_game_once_one_is_converted() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    let discs = ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"];
+    write_games_zipped(&env, &games, &discs);
+    env.audit(AuditEvidence::Full);
+
+    let done = cancelled_once_one_disc_converted(&env, || {});
+    for disc in discs {
+        let outcome = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == format!("game:{disc}"))
+            .unwrap();
+        assert!(outcome.done, "{:#?}", done.outcomes);
+        assert!(env.set().join(disc).is_dir(), "{:?}", env.listing());
+    }
+}
+
+#[test]
+fn a_disc_left_converted_alone_says_its_game_is_stored_apart_and_the_next_plan_converts_it() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    let discs = ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"];
+    write_games_zipped(&env, &games, &discs);
+    env.audit(AuditEvidence::Full);
+
+    let set = env.set();
+    // Disc 2's ZIP is written again after the plan is made, so it stays where it is, and a file appears where its
+    // track would be put in place, so its conversion can't finish.
+    let done = cancelled_once_one_disc_converted(&env, || {
+        let roms: Vec<(&str, &[u8])> = games[2]
+            .1
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        let zip = set.join("Saga (USA) (Disc 2).zip");
+        std::fs::remove_file(&zip).unwrap();
+        write_zip(&zip, &roms);
+        let folder = set.join("Saga (USA) (Disc 2)");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("Saga (USA) (Disc 2).bin"), b"in the way").unwrap();
+    });
+    let second = done
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Saga (USA) (Disc 2)")
+        .unwrap();
+    assert!(!second.done, "{second:?}");
+    assert!(
+        second.detail.iter().any(|d| d.contains("stored apart")),
+        "{second:?}"
+    );
+
+    env.store.fulfil_repair_audits().unwrap();
+    env.run_queued_audit(&env.store.repair_plan(done.id).unwrap());
+    let next = env.plan();
+    let again = item(&next, "game:Saga (USA) (Disc 2)");
+    assert_eq!(again.chosen, RepairChoice::Apply, "{again:?}");
+    assert_eq!(
+        again.path.as_deref(),
+        Some("Saga (USA) (Disc 2)"),
+        "{again:?}"
+    );
+}
+
+/// Imports a cue pack holding `cues` for the disc system's DAT.
+fn import_cue_pack(env: &Env, cues: &[(&str, &[u8])]) {
+    let pack = env.tmp.path().join("Test - System (cues).zip");
+    write_zip(&pack, cues);
+    env.store
+        .import_cue_pack(&pack, DISC_SYSTEM, Some("https://example.invalid/cues"))
+        .unwrap();
+}
+
+#[test]
+fn a_plan_never_reads_a_cue_pack_deleted_while_it_was_made() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    let cue = ("Quest (USA).cue", quest[0].payload.as_slice());
+    import_cue_pack(&env, &[cue]);
+    let older = env.store.cue_packs().unwrap()[0].sha256.clone();
+
+    // While the plan is made from the older pack, a newer one is imported, which deletes the older.
+    let (paused, pause) = std::sync::mpsc::channel::<()>();
+    let (resume, resumed) = std::sync::mpsc::channel::<()>();
+    let gate = std::sync::Mutex::new(Some((paused, resumed)));
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::RepairPlanned
+            && let Some((paused, resumed)) = gate.lock().unwrap().take()
+        {
+            paused.send(()).unwrap();
+            resumed.recv().unwrap();
+        }
+    })));
+    let plan = std::thread::scope(|s| {
+        let planning = s.spawn(|| env.plan());
+        pause.recv().unwrap();
+        import_cue_pack(
+            &env,
+            &[
+                cue,
+                ("Other (USA).cue", b"FILE \"Other (USA).bin\" BINARY\n"),
+            ],
+        );
+        resume.send(()).unwrap();
+        planning.join().unwrap()
+    });
+    env.store.hook_faults(None);
+    let packs = env.store.cue_packs().unwrap();
+    assert!(!packs[0].blob_present, "{packs:?}");
+
+    let read: Vec<&str> = plan
+        .content
+        .steps
+        .iter()
+        .filter_map(|s| match &s.step {
+            RepairStep::Build { roms, .. } => Some(roms),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|r| r.cue_pack.as_deref())
+        .collect();
+    assert_eq!(read, [packs[1].sha256.as_str()], "not {older}");
+    env.approve(&plan);
+    assert_eq!(
+        std::fs::read(env.set().join("Quest (USA)/Quest (USA).cue")).unwrap(),
+        quest[0].payload
+    );
+}
+
+#[test]
+fn a_missing_cue_sheet_is_filled_from_a_cue_pack() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    assert_ne!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+    import_cue_pack(
+        &env,
+        &[
+            ("Quest (USA).cue", quest[0].payload.as_slice()),
+            ("Other (USA).cue", b"FILE \"Other (USA).bin\" BINARY\n"),
+        ],
+    );
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    assert!(fill.summary.contains("cue pack"), "{}", fill.summary);
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        std::fs::read(env.set().join("Quest (USA)/Quest (USA).cue")).unwrap(),
+        quest[0].payload
+    );
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_mismatched_cue_sheet_is_replaced_from_a_cue_pack_and_kept() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    env.put(
+        "Quest (USA)/Quest (USA).cue",
+        b"FILE \"wrong.bin\" BINARY\n",
+    );
+    env.audit(AuditEvidence::Full);
+    import_cue_pack(
+        &env,
+        &[("cues/Quest (USA).cue", quest[0].payload.as_slice())],
+    );
+
+    let plan = env.plan();
+    let replace = item(&plan, "game:Quest (USA)");
+    assert_eq!(replace.kind, RepairKind::Replace, "{replace:?}");
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        std::fs::read(env.set().join("Quest (USA)/Quest (USA).cue")).unwrap(),
+        quest[0].payload
+    );
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].name, "Quest (USA)/Quest (USA).cue");
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_cue_pack_for_a_dat_not_imported_or_without_cue_sheets_is_refused() {
+    let env = Env::with("Redump", &disc_games());
+    let pack = env.tmp.path().join("pack.zip");
+    write_zip(&pack, &[("Quest (USA).cue", b"FILE")]);
+    let unknown = env.store.import_cue_pack(&pack, "Redump/Other", None);
+    assert!(matches!(unknown, Err(Error::Refused(_))), "{unknown:?}");
+    write_zip(&pack, &[("readme.txt", b"hello")]);
+    let empty = env.store.import_cue_pack(&pack, DISC_SYSTEM, None);
+    assert!(matches!(empty, Err(Error::Refused(_))), "{empty:?}");
+    assert!(env.store.cue_packs().unwrap().is_empty());
+}
+
+#[test]
+fn a_cue_pack_expanding_past_its_budget_or_listing_too_many_members_is_refused() {
+    let env = Env::with("Redump", &disc_games());
+    let pack = env.tmp.path().join("pack.zip");
+    let sheet = vec![b' '; 1 << 20];
+    let names: Vec<String> = (0..65).map(|i| format!("Game {i}.cue")).collect();
+    let members: Vec<(&str, &[u8])> = names
+        .iter()
+        .map(|n| (n.as_str(), sheet.as_slice()))
+        .collect();
+    write_zip(&pack, &members);
+    let expanding = env.store.import_cue_pack(&pack, DISC_SYSTEM, None);
+    assert!(
+        matches!(&expanding, Err(Error::Refused(why)) if why.contains("together")),
+        "{expanding:?}"
+    );
+
+    let names: Vec<String> = (0..32769).map(|i| format!("{i}.txt")).collect();
+    let mut members: Vec<(&str, &[u8])> = names.iter().map(|n| (n.as_str(), &b""[..])).collect();
+    members.push(("Quest (USA).cue", b"FILE"));
+    write_zip(&pack, &members);
+    let crowded = env.store.import_cue_pack(&pack, DISC_SYSTEM, None);
+    assert!(matches!(crowded, Err(Error::Refused(_))), "{crowded:?}");
+    assert!(env.store.cue_packs().unwrap().is_empty());
+}
+
+#[test]
+fn planning_matches_cue_sheets_indexed_at_import_without_reading_the_pack() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    import_cue_pack(&env, &[("Quest (USA).cue", quest[0].payload.as_slice())]);
+    let pack = env.store.cue_packs().unwrap().remove(0);
+    // The pack's file no longer reads as a ZIP: planning matches the sheet's checksums from the index all the same,
+    // and only the repair, reading the sheet, finds it unreadable and writes nothing.
+    std::fs::write(env.store.cue_pack_path(&pack.sha256), b"not a zip").unwrap();
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    assert!(fill.summary.contains("cue pack"), "{}", fill.summary);
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.run_repair_job(&approved);
+    let done = env.store.repair_plan(plan.id).unwrap();
+    let outcome = &done.outcomes[0];
+    assert!(
+        !outcome.done && outcome.error.as_deref() == Some("it is not a ZIP archive"),
+        "{outcome:?}"
+    );
+    assert!(!env.set().join("Quest (USA)/Quest (USA).cue").exists());
+    assert!(
+        env.listing()
+            .iter()
+            .all(|name| !name.contains("title-select-new")),
+        "{:?}",
+        env.listing()
+    );
+}
+
+#[test]
+fn an_older_cue_pack_is_deleted_unless_a_repair_plan_refers_to_it() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    import_cue_pack(&env, &[("Quest (USA).cue", quest[0].payload.as_slice())]);
+    env.plan();
+    import_cue_pack(
+        &env,
+        &[("Other (USA).cue", b"FILE \"Other (USA).bin\" BINARY\n")],
+    );
+    import_cue_pack(
+        &env,
+        &[("Another (USA).cue", b"FILE \"Another (USA).bin\" BINARY\n")],
+    );
+
+    let packs = env.store.cue_packs().unwrap();
+    let present: Vec<(bool, bool)> = packs
+        .iter()
+        .map(|p| (p.blob_present, env.store.cue_pack_path(&p.sha256).is_file()))
+        .collect();
+    assert_eq!(
+        present,
+        [(true, true), (false, false), (true, true)],
+        "the planned pack is kept, the older unplanned one deleted, the latest kept"
+    );
+
+    let older = env.tmp.path().join("older.zip");
+    write_zip(
+        &older,
+        &[("Other (USA).cue", b"FILE \"Other (USA).bin\" BINARY\n")],
+    );
+    let (restored, outcome) = env
+        .store
+        .import_cue_pack(&older, DISC_SYSTEM, None)
+        .unwrap();
+    assert_eq!(outcome, ImportOutcome::Restored);
+    assert!(restored.blob_present);
+    env.store.retain_blobs().unwrap();
+    assert!(env.store.cue_pack_path(&restored.sha256).is_file());
+}
+
+#[test]
+fn garbage_collection_finishes_deleting_a_cue_pack_and_removes_a_stray_file() {
+    let env = Env::with("Redump", &disc_games());
+    import_cue_pack(&env, &[("A (USA).cue", b"FILE \"A (USA).bin\" BINARY\n")]);
+    import_cue_pack(&env, &[("B (USA).cue", b"FILE \"B (USA).bin\" BINARY\n")]);
+    let packs = env.store.cue_packs().unwrap();
+    assert!(!packs[0].blob_present && packs[1].blob_present, "{packs:?}");
+    // A stop after the older pack's deletion was recorded, before its file was deleted, left the file; and a file
+    // no pack is.
+    let dropped = env.store.cue_pack_path(&packs[0].sha256);
+    std::fs::write(&dropped, b"left by a stop").unwrap();
+    let stray = dropped.with_file_name(format!("{:064x}", 1));
+    std::fs::write(&stray, b"no row").unwrap();
+
+    let removed = env.store.collect_garbage().unwrap();
+
+    assert!(!dropped.exists() && !stray.exists(), "{removed:?}");
+    assert!(env.store.cue_pack_path(&packs[1].sha256).is_file());
+}
+
+#[test]
+fn a_disc_game_arriving_as_one_zip_is_extracted_into_its_loose_folder_and_the_zip_kept() {
+    let env = Env::with("Redump", &disc_games());
+    env.audit(AuditEvidence::Full);
+    let quest = disc_of("Quest (USA)");
+    env.ingest("quest.zip", |p| {
+        let members: Vec<(&str, &[u8])> = quest
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(p, &members)
+    });
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    assert!(fill.summary.contains("quest.zip"), "{}", fill.summary);
+    let done = env.approve(&plan);
+
+    let mut wanted = vec![".title-select".to_string()];
+    wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
+    wanted.sort();
+    assert_eq!(env.listing(), wanted);
+    let kept = env.store.ingest_kept_files("in").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].name, "quest.zip");
+    assert_eq!(
+        env.ingest_listing(),
+        [format!(
+            ".title-select-retained/{}/quest.zip.kept",
+            kept[0].generation
+        )]
+    );
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_disc_game_arriving_as_one_zip_is_read_once_as_its_tracks_are_extracted() {
+    let env = Env::with("Redump", &disc_games());
+    env.audit(AuditEvidence::Full);
+    let quest = disc_of("Quest (USA)");
+    env.ingest("quest.zip", |p| {
+        let members: Vec<(&str, &[u8])> = quest
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(p, &members)
+    });
+    let plan = env.plan();
+    let whole = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = whole.clone();
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::IngestReadWhole {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })));
+    let done = env.approve(&plan);
+    env.store.hook_faults(None);
+
+    // Each track is read from the ZIP's member alone, trusting the rest by the stamp the scan hashed it under.
+    assert_eq!(whole.load(std::sync::atomic::Ordering::SeqCst), 0);
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn tracks_arriving_one_by_one_are_moved_into_the_loose_folder_and_the_plan_says_what_is_missing() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    assert_eq!(quest.len(), 4, "a cue sheet and three tracks");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[..2]);
+    env.audit(AuditEvidence::Full);
+    env.ingest("track 2.bin", |p| write_file(p, &quest[2].payload));
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    assert!(
+        fill.summary.contains(quest[3].name) && fill.summary.contains("still missing"),
+        "{}",
+        fill.summary
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains(quest[3].name) && n.contains("still missing")),
+        "{:?}",
+        plan.content.notes
+    );
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        std::fs::read(env.set().join("Quest (USA)").join(quest[2].name)).unwrap(),
+        quest[2].payload
+    );
+    assert!(
+        env.ingest_listing().is_empty(),
+        "a loose track written exactly as its ROM leaves nothing behind: {:?}",
+        env.ingest_listing()
+    );
+    env.run_queued_audit(&done);
+    assert_ne!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+
+    env.ingest("track 3.bin", |p| write_file(p, &quest[3].payload));
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Quest (USA)").kind, RepairKind::Fill);
+    let done = env.approve(&plan);
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+    let mut wanted = vec![".title-select".to_string()];
+    wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
+    wanted.sort();
+    assert_eq!(env.listing(), wanted);
+}
+
+#[test]
+fn one_loose_ingest_file_fills_every_track_it_is_and_goes_only_after_the_last() {
+    let mut games = disc_games();
+    // Tracks 2 and 3 of Quest read alike, so one file is both.
+    games[0].1[3].payload = games[0].1[2].payload.clone();
+    let env = Env::with("Redump", &games);
+    let quest = &games[0].1;
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[..2]);
+    env.audit(AuditEvidence::Full);
+    env.ingest("track.bin", |p| write_file(p, &quest[2].payload));
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    let done = env.approve(&plan);
+    assert_eq!(done.outcomes[0].error, None, "{:#?}", done.outcomes);
+
+    for r in &quest[2..] {
+        assert_eq!(
+            std::fs::read(env.set().join("Quest (USA)").join(r.name)).unwrap(),
+            r.payload
+        );
+    }
+    assert!(
+        env.ingest_listing().is_empty(),
+        "{:?}",
+        env.ingest_listing()
+    );
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_mismatched_track_is_replaced_from_ingest_and_kept_aside() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    let track = format!("Quest (USA)/{}", quest[1].name);
+    env.put(&track, b"not the track");
+    env.audit(AuditEvidence::Full);
+    env.ingest("track.bin", |p| write_file(p, &quest[1].payload));
+
+    let plan = env.plan();
+    let replace = item(&plan, "game:Quest (USA)");
+    assert_eq!(replace.kind, RepairKind::Replace, "{replace:?}");
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        std::fs::read(env.set().join(&track)).unwrap(),
+        quest[1].payload
+    );
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert!(
+        kept.iter().any(|k| k.name.ends_with(quest[1].name)),
+        "{kept:?}"
+    );
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
 }

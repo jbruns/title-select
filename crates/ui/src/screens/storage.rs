@@ -1,12 +1,12 @@
-//! The storage policy: how source sets and play libraries store each game, as TorrentZip or loose, set globally and
-//! for each system, as a selection profile's settings are.
+//! The storage policy: how source sets and play libraries store each game, as TorrentZip, loose or a loose folder,
+//! set globally and for each system, as a selection profile's settings are.
 
 use std::collections::BTreeSet;
 
 use leptos::prelude::*;
 use title_select_api::Dat;
 use title_select_api::storage::{
-    ScopePolicy, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
+    ScopePolicy, StorageFormat, StoragePolicy, StorageScope, SystemStorage, is_disc_system,
 };
 
 use crate::api;
@@ -30,6 +30,19 @@ fn format_label(format: StorageFormat) -> &'static str {
     match format {
         StorageFormat::TorrentZip => "TorrentZip",
         StorageFormat::Loose => "Loose, for games with one ROM",
+        StorageFormat::LooseFolder => "Loose folder: a folder per game",
+    }
+}
+
+/// The formats you can choose for folders of `scope`: play libraries don't store loose folders yet.
+fn formats(scope: StorageScope) -> &'static [StorageFormat] {
+    match scope {
+        StorageScope::SourceSets => &[
+            StorageFormat::TorrentZip,
+            StorageFormat::Loose,
+            StorageFormat::LooseFolder,
+        ],
+        StorageScope::PlayLibraries => &[StorageFormat::TorrentZip, StorageFormat::Loose],
     }
 }
 
@@ -66,7 +79,7 @@ pub fn StoragePolicyScreen() -> impl IntoView {
     view! {
         <h1>"Storage policy"</h1>
         <p class="lede">
-            "The storage policy says how each folder stores a game: as one TorrentZip per game, or loose, as the ROM itself under the name the DAT gives it. Source sets and play libraries each have a global setting, and you can set a system differently."
+            "The storage policy says how each folder stores a game: as one TorrentZip per game; loose, as the ROM itself under the name the DAT gives it; or as a loose folder, a folder named for the game holding each of its ROMs loose. Source sets and play libraries each have a global setting, and you can set a system differently."
         </p>
         {move || match loaded.get() {
             None => view! { <Loading what="the storage policy" /> }.into_any(),
@@ -180,7 +193,7 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
     view! {
         <div class="settings" role="tabpanel" aria-label="Global storage settings">
             <p class="lede">
-                "These apply to every system you haven't set differently. A game with more than one ROM is always stored as TorrentZip, and a plan says so."
+                "These apply to every system you haven't set differently. Stored loose, a game with more than one ROM stays TorrentZip, and a plan says so. Source sets of disc systems, those whose DAT Redump publishes, are stored as loose folders unless you set the system differently."
             </p>
             {SCOPES
                 .iter()
@@ -201,8 +214,9 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
                                     }
                                 }
                             >
-                                {[StorageFormat::TorrentZip, StorageFormat::Loose]
-                                    .map(|f| view! { <option value=f.as_str()>{format_label(f)}</option> })
+                                {formats(scope)
+                                    .iter()
+                                    .map(|&f| view! { <option value=f.as_str()>{format_label(f)}</option> })
                                     .collect_view()}
                             </select>
                             <p>
@@ -270,7 +284,18 @@ fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoV
                     let own = move || {
                         policy.with(|p| p.scope(scope).systems.get(&s.get_value()).cloned().unwrap_or_default())
                     };
-                    let global = move || policy.with(|p| (p.scope(scope).format, p.scope(scope).delete_originals));
+                    // A disc system's source sets follow the loose folder default, not the global format.
+                    let global = move || {
+                        policy.with(|p| {
+                            let format = match scope {
+                                StorageScope::SourceSets if is_disc_system(&s.get_value()) => {
+                                    StorageFormat::LooseFolder
+                                }
+                                _ => p.scope(scope).format,
+                            };
+                            (format, p.scope(scope).delete_originals)
+                        })
+                    };
                     view! {
                         <fieldset class="setting">
                             <legend>{legend}</legend>
@@ -286,10 +311,17 @@ fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoV
                                 }
                             >
                                 <option value="global">
-                                    {move || format!("Global setting: {}", format_label(global().0))}
+                                    {move || {
+                                        if scope == StorageScope::SourceSets && is_disc_system(&s.get_value()) {
+                                            format!("Disc system default: {}", format_label(global().0))
+                                        } else {
+                                            format!("Global setting: {}", format_label(global().0))
+                                        }
+                                    }}
                                 </option>
-                                {[StorageFormat::TorrentZip, StorageFormat::Loose]
-                                    .map(|f| view! { <option value=f.as_str()>{format_label(f)}</option> })
+                                {formats(scope)
+                                    .iter()
+                                    .map(|&f| view! { <option value=f.as_str()>{format_label(f)}</option> })
                                     .collect_view()}
                             </select>
                             <label class="stacked" for=format!("s-{id}-delete")>

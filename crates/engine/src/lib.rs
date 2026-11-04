@@ -129,9 +129,7 @@ pub trait PayloadReads: Sync {
 /// over: its marker, its kept files and private `.deleting` folders, and a file it is writing under a temporary
 /// name.
 pub fn is_own_entry(name: &str) -> bool {
-    name.starts_with(".title-select")
-        || name == ".deleting"
-        || (name.starts_with('.') && name.contains(".title-select-new-"))
+    title_select_api::storage::is_reserved_name(name)
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {

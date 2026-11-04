@@ -6,6 +6,7 @@ mod blobs;
 mod builds;
 mod checks;
 pub mod config;
+mod cue_packs;
 mod dats;
 mod folder_dir;
 mod folder_moves;
@@ -31,6 +32,7 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
+pub use cue_packs::{CUE_PACK_LIMIT, CUE_PACKS};
 pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use selections::SelectionInput;
@@ -207,8 +209,12 @@ pub enum Fault {
     IngestSetAside,
     /// After a move records that what it set aside to delete is kept instead, before it is moved into the kept files.
     IngestKeeping,
+    /// Before a move reads the entry it copies or repacks whole, hashing it as it goes.
+    IngestReadWhole,
     /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
     IngestDatOwed,
+    /// After a repair plan is made, before it is recorded.
+    RepairPlanned,
     /// After a repair's step with this sequence number writes and checks its staged file, before the store records it.
     RepairStaged(u32),
     /// After a repair's step with this sequence number moves its file, before either folder is synced.

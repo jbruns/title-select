@@ -1,4 +1,5 @@
-//! The Storage Policy: the one place that decides how a folder stores a Game, as TorrentZip or loose, and whether a
+//! The Storage Policy: the one place that decides how a folder stores a Game, as TorrentZip, loose or a loose folder,
+//! and whether a
 //! conversion deletes each original once its converted file is verified.
 
 use rusqlite::{Connection, params};
@@ -43,12 +44,24 @@ fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
 }
 
 /// What the Storage Policy says for folders of `scope` bound to `system`, a DAT as `<provider>/<name>`: the
-/// system's override where it has one, else the scope's default. Every writer of a Game into a folder asks here.
+/// system's override where it has one, else the scope's default, which is a loose folder for a disc system's Source
+/// Sets. Every writer of a Game into a folder asks here.
 pub(crate) fn policy(c: &Connection, scope: StorageScope, system: &str) -> Result<Storage> {
-    Ok(load_scope(c, scope)?.of(system))
+    Ok(load_scope(c, scope)?.of(scope, system))
 }
 
 fn check(policy: &StoragePolicy) -> Result<()> {
+    // How a play library lays out a disc system's games is still to come (#100).
+    let play = &policy.play_libraries;
+    let folder = Some(StorageFormat::LooseFolder);
+    if play.format == StorageFormat::LooseFolder
+        || play.systems.values().any(|s| s.format == folder)
+    {
+        return Err(Error::Refused(
+            "play libraries can't store games as loose folders yet: choose TorrentZip or loose"
+                .into(),
+        ));
+    }
     for scope in SCOPES {
         for (system, own) in &policy.scope(scope).systems {
             let Some((provider, name)) = system.split_once('/') else {

@@ -49,6 +49,76 @@ fn archive<R: Read + Seek>(
     }
 }
 
+/// The bounds a cue pack is read within: a cue pack is small, so a ZIP that expands past them is refused rather than
+/// read.
+#[derive(Debug, Clone, Copy)]
+pub struct CueLimits {
+    /// The most bytes one `.cue` sheet expands to.
+    pub sheet: u64,
+    /// The most bytes every member read expands to, together.
+    pub total: u64,
+    /// The most members the pack's central directory lists.
+    pub entries: u64,
+}
+
+/// The `.cue` sheets in `file`, a cue pack: a ZIP archive of them, by member name, each read and hashed. Other
+/// members are passed over unread. A pack listing more than `limits.entries` members, a sheet expanding past
+/// `limits.sheet` bytes, sheets expanding past `limits.total` bytes together, or a pack holding no sheet, is refused.
+pub fn cue_sheets(file: &File, limits: &CueLimits) -> Result<Vec<(String, Checksums)>, String> {
+    let bounds = DirectoryLimits {
+        entries: limits.entries,
+        ..DirectoryLimits::default()
+    };
+    let mut archive = match zipdir::open(file, &bounds, || Ok(BufReader::new(file)))
+        .map_err(|e| e.to_string())?
+    {
+        Gated::Archive(archive) => archive.map_err(|e| e.to_string())?,
+        Gated::Refused(why) => return Err(why),
+        Gated::NotZip => return Err("it is not a ZIP archive".into()),
+    };
+    let mut sheets = Vec::new();
+    let mut total = 0u64;
+    for index in 0..archive.len() {
+        let mut member = archive.by_index(index).map_err(|e| e.to_string())?;
+        let name = member.name().map_err(|e| e.to_string())?.into_owned();
+        let cue = name
+            .rsplit_once('.')
+            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("cue"));
+        if !member.is_file() || !cue {
+            continue;
+        }
+        let mut hasher = Hasher::new();
+        let mut buf = vec![0; CHUNK];
+        let mut read = 0u64;
+        loop {
+            let n = member.read(&mut buf).map_err(|e| format!("{name}: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            read += n as u64;
+            total += n as u64;
+            if read > limits.sheet {
+                return Err(format!(
+                    "{name}: a cue sheet is at most {} bytes",
+                    limits.sheet
+                ));
+            }
+            if total > limits.total {
+                return Err(format!(
+                    "its cue sheets expand to more than {} bytes together",
+                    limits.total
+                ));
+            }
+            hasher.update(&buf[..n]);
+        }
+        sheets.push((name, hasher.finish()));
+    }
+    if sheets.is_empty() {
+        return Err("it holds no .cue sheet".into());
+    }
+    Ok(sheets)
+}
+
 /// Whether the archive at `path` is structurally valid TorrentZip, read from its central directory alone.
 pub fn is_torrentzip(path: &Path) -> bool {
     File::open(path)
@@ -224,10 +294,12 @@ pub fn repack_sources(
                 let Reading::Zip(archive) = slot else {
                     unreachable!("just opened")
                 };
-                let mut payload = archive
+                let payload = archive
                     .by_name(member)
                     .map_err(|e| format!("{member}: {e}"))?;
-                writer.add(&rom.name, rom.size, &mut payload)
+                // Read no further than one byte past the DAT's size, which the writer then refuses, however far
+                // the member expands.
+                writer.add(&rom.name, rom.size, &mut payload.take(rom.size + 1))
             }
             (None, Reading::Unread) => {
                 let mut hashing = Hashing::new(source).map_err(|e| e.to_string())?;
@@ -302,6 +374,86 @@ pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Writes each ROM of `roms` into its own file of `dests`, each a new, empty file the caller created, as a loose file:
+/// its payload read from the named member of the ZIP `source`, an open file read once from its start, members in the
+/// order its directory lists them. Returns the SHA-256 and size of `source`, hashed as it was read, so a Game's ROMs
+/// are extracted from one archive in one pass. A payload of the wrong size is refused; checksums are checked by
+/// [`verify_loose`] afterwards.
+pub fn write_loose_members(
+    dests: &[&File],
+    roms: &[(&ExpectedRom, &str)],
+    source: &File,
+) -> Result<(String, u64), String> {
+    if dests.len() != roms.len() {
+        return Err(format!(
+            "{} files for {} ROMs; each ROM is written to a file of its own",
+            dests.len(),
+            roms.len()
+        ));
+    }
+    let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
+    let mut order: Vec<(usize, &File, &ExpectedRom)> = Vec::with_capacity(roms.len());
+    for (dest, (rom, member)) in dests.iter().zip(roms) {
+        let index = archive
+            .index_for_name(member)
+            .ok_or_else(|| format!("{member}: no such member"))?;
+        order.push((index, dest, rom));
+    }
+    order.sort_by_key(|(index, ..)| *index);
+    for (index, dest, rom) in order {
+        let mut out = BufWriter::new(dest);
+        let copied = {
+            let mut payload = archive
+                .by_index(index)
+                .map_err(|e| format!("{}: {e}", rom.name))?;
+            io::copy(&mut (&mut payload).take(rom.size + 1), &mut out)
+                .map_err(|e| format!("{}: {e}", rom.name))?
+        };
+        if copied != rom.size {
+            return Err(format!(
+                "{}: its payload is {copied} bytes, not the DAT's {}",
+                rom.name, rom.size
+            ));
+        }
+        let file = out.into_inner().map_err(|e| e.error().to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+    }
+    archive
+        .into_inner()
+        .into_inner()
+        .finish()
+        .map_err(|e| e.to_string())
+}
+
+/// Writes `rom` into `dest`, a new, empty file the caller created, as a loose file: its payload, read from member
+/// `member` of the ZIP `source`, reading only the archive's directory and that member. The caller trusts what else
+/// `source` holds by its stamp; a payload of the wrong size is refused, and checksums are checked by [`verify_loose`]
+/// afterwards.
+pub fn write_loose_member(
+    dest: &File,
+    rom: &ExpectedRom,
+    member: &str,
+    source: &File,
+) -> Result<(), String> {
+    let mut archive = archive(source, || Ok(BufReader::new(source)))?;
+    let mut out = BufWriter::new(dest);
+    let copied = {
+        let mut payload = archive
+            .by_name(member)
+            .map_err(|e| format!("{member}: {e}"))?;
+        io::copy(&mut (&mut payload).take(rom.size + 1), &mut out)
+            .map_err(|e| format!("{}: {e}", rom.name))?
+    };
+    if copied != rom.size {
+        return Err(format!(
+            "{}: its payload is {copied} bytes, not the DAT's {}",
+            rom.name, rom.size
+        ));
+    }
+    let file = out.into_inner().map_err(|e| e.error().to_string())?;
+    file.sync_all().map_err(|e| e.to_string())
 }
 
 /// Writes the one ROM of `roms` into `dest`, a new, empty file the caller created, as a loose file: its payload,
