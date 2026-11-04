@@ -53,6 +53,7 @@ impl Store {
         let outcome = self.with_writer(|conn| {
             std::fs::create_dir_all(&packs).map_err(|e| io_error(&packs, e))?;
             hold_pack(conn, fetch, &sha)?;
+            let dat = super::dats::canonical_dat(conn, dat)?;
             let known: Option<bool> = conn
                 .query_row(
                     "SELECT blob_dropped_at IS NULL FROM sbi_packs WHERE sha256 = ?1",
@@ -77,7 +78,7 @@ impl Store {
                     conn.execute(
                         "INSERT INTO sbi_packs (sha256, dat, file_name, source_url, fetched_at)
                          VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![sha, dat, file, source_url, now()],
+                        params![sha, &dat, file, source_url, now()],
                     )?;
                     Ok(ImportOutcome::Added)
                 }

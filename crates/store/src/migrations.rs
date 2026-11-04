@@ -82,13 +82,15 @@ const HEADER_ORDER: usize = 18;
 /// How much of a DAT file is read for its header's date.
 const HEADER_BYTES: u64 = 1 << 20;
 
-/// What a migration needs that SQL can't express, in its transaction. [`HEADER_ORDER`] reads the header date of every
-/// DAT Revision whose file is kept, then numbers each DAT's revisions as an import does.
+/// What a migration needs that SQL can't express, in its transaction. [`HEADER_ORDER`] first keeps one spelling of
+/// each provider, as [`merge_provider_spellings`]; then reads the header date of every DAT Revision whose file is
+/// kept, and numbers each DAT's revisions as an import does.
 fn after(tx: &rusqlite::Transaction, dir: &Path, version: usize) -> Result<()> {
     use std::io::Read;
     if version != HEADER_ORDER {
         return Ok(());
     }
+    merge_provider_spellings(tx)?;
     let kept = tx
         .prepare("SELECT id, sha256 FROM dat_revisions WHERE blob_dropped_at IS NULL")?
         .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
@@ -125,5 +127,98 @@ fn backup(conn: &Connection, dir: &Path, version: usize) -> Result<()> {
     let stamp = jiff::Timestamp::now().strftime("%Y%m%dT%H%M%S%.fZ");
     let path = backups.join(format!("schema-{version}-{stamp}.sqlite"));
     conn.execute("VACUUM INTO ?1", [path.to_string_lossy()])?;
+    Ok(())
+}
+
+/// Keeps one spelling of each provider: that of the first DAT imported from it. A store from before providers were
+/// spelled one way may hold a DAT under two spellings of its provider, each with its own revisions; they become the
+/// first imported of them, which takes the others' revisions, Source Sets and Additions Sets. Of two Additions Sets
+/// registered for the one DAT, the first made stays registered and the others are Unregistered, their folders and
+/// records left as they are. Cue packs, SBI packs and Storage Policy name the DAT as text, rewritten to the kept
+/// spelling; of two policies for one system, the one written under the kept spelling, else the first, stays.
+fn merge_provider_spellings(tx: &rusqlite::Transaction) -> Result<()> {
+    use std::collections::HashMap;
+    use std::collections::hash_map::Entry;
+    let dats = tx
+        .prepare("SELECT id, provider, name FROM dats ORDER BY id")?
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut spelling: HashMap<String, String> = HashMap::new();
+    let mut kept: HashMap<(String, String), i64> = HashMap::new();
+    let mut renamed = Vec::new();
+    for (id, provider, name) in dats {
+        let folded = provider.to_ascii_lowercase();
+        let own = spelling
+            .entry(folded.clone())
+            .or_insert_with(|| provider.clone());
+        match kept.entry((folded, name)) {
+            Entry::Occupied(into) => merge_dat(tx, id, *into.get())?,
+            Entry::Vacant(slot) => {
+                slot.insert(id);
+                if provider != *own {
+                    renamed.push((id, own.clone()));
+                }
+            }
+        }
+    }
+    for (id, provider) in renamed {
+        tx.execute(
+            "UPDATE dats SET provider = ?2 WHERE id = ?1",
+            rusqlite::params![id, provider],
+        )?;
+    }
+    for (table, column) in [
+        ("cue_packs", "dat"),
+        ("sbi_packs", "dat"),
+        ("storage_policy", "system"),
+    ] {
+        let named = tx
+            .prepare(&format!(
+                "SELECT DISTINCT {column} FROM {table} ORDER BY {column}"
+            ))?
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for old in named {
+            let new = crate::dats::canonical_dat(tx, &old)?;
+            if new != old {
+                tx.execute(
+                    &format!("UPDATE OR IGNORE {table} SET {column} = ?2 WHERE {column} = ?1"),
+                    rusqlite::params![old, new],
+                )?;
+                tx.execute(&format!("DELETE FROM {table} WHERE {column} = ?1"), [&old])?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Moves everything of the DAT `dup` to the DAT `into`, then deletes `dup`.
+fn merge_dat(tx: &rusqlite::Transaction, dup: i64, into: i64) -> Result<()> {
+    let registered = tx
+        .prepare(
+            "SELECT id FROM additions_sets WHERE dat_id IN (?1, ?2) AND unregistered_at IS NULL
+             ORDER BY created_at, id",
+        )?
+        .query_map([dup, into], |r| r.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for later in registered.iter().skip(1) {
+        tx.execute(
+            "UPDATE additions_sets SET unregistered_at = ?2 WHERE id = ?1",
+            rusqlite::params![later, crate::now()],
+        )?;
+    }
+    for table in ["dat_revisions", "source_sets", "additions_sets"] {
+        tx.execute(
+            &format!("UPDATE {table} SET dat_id = ?2 WHERE dat_id = ?1"),
+            [dup, into],
+        )?;
+    }
+    tx.execute("DELETE FROM dats WHERE id = ?1", [dup])?;
     Ok(())
 }

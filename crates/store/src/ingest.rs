@@ -1963,12 +1963,13 @@ impl Store {
         let parsed = Dat::parse(&bytes, Path::new(&item.name))?;
         let name = parsed.name;
         self.write(|tx| {
+            let provider = &crate::dats::canonical_provider(tx, provider)?;
             // An older revision dropped in is recorded, but is not the newest, so it owes no Audit.
             let newest =
                 crate::dats::would_be_newest(tx, provider, &name, &parsed.version, &parsed.date)?;
             let newer: bool = newest && tx.query_row(
                 "SELECT EXISTS (SELECT 1 FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
-                                WHERE d.provider = ?1 COLLATE NOCASE AND d.name = ?2)
+                                WHERE d.provider = ?1 AND d.name = ?2)
                  AND NOT EXISTS (SELECT 1 FROM dat_revisions WHERE sha256 = ?3)",
                 params![provider, name, sha],
                 |r| r.get(0),
@@ -1979,7 +1980,7 @@ impl Store {
                          (plan_id, item_id, source_set_id, sha256, actor, readers, hashers, created_at)
                      SELECT ?1, ?2, s.id, ?3, ?4, ?5, ?6, ?7
                      FROM source_sets s JOIN dats d ON d.id = s.dat_id
-                     WHERE d.provider = ?8 COLLATE NOCASE AND d.name = ?9 AND s.unregistered_at IS NULL",
+                     WHERE d.provider = ?8 AND d.name = ?9 AND s.unregistered_at IS NULL",
                     params![
                         plan,
                         item.item,

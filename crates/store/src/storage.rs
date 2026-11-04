@@ -115,7 +115,15 @@ impl Store {
                         at
                     ],
                 )?;
+                let mut kept = std::collections::BTreeMap::new();
                 for (system, s) in &own.systems {
+                    let canonical = crate::dats::canonical_dat(tx, system)?;
+                    if let Some(other) = kept.insert(canonical.clone(), system) {
+                        return Err(Error::Refused(format!(
+                            "{other} and {system} are one system, {canonical}: set it once"
+                        )));
+                    }
+                    let system = &canonical;
                     tx.execute(
                         "INSERT INTO storage_policy (scope, system, format, delete_originals, updated_by,
                                                      updated_at)

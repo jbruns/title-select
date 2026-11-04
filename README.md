@@ -318,8 +318,12 @@ title-select dat import <DAT file> --provider <name> [--source-url <url>]
 
 Imports an unmodified DAT file as a DAT revision, recording its SHA-256, header `name` and `version`, original
 filename, import time, provider and source URL. A DAT is identified by its provider and header name, written
-`<provider>/<name>`; each import of new bytes adds a DAT revision of it. The provider matches whatever its case:
-importing under `redump` adds a revision of `Redump/<name>` if you have it, under that spelling. Importing the same bytes again changes
+`<provider>/<name>`; each import of new bytes adds a DAT revision of it. The store keeps one spelling of each provider, the
+first you imported under: if you have DATs from `Redump`, importing under `redump` adds a revision of
+`Redump/<name>`, and registering a source set, importing a cue pack or setting a storage policy for
+`redump/<name>` means `Redump/<name>`. If your store holds one DAT under two spellings of its provider, upgrading
+it merges them into the first spelling, with every revision and source set; if each spelling had an additions set,
+the earlier stays registered and the other is unregistered, its folder left as it is. Importing the same bytes again changes
 nothing and prints the existing DAT revision, restoring its file if the store had dropped it.
 
 ```sh

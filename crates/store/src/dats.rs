@@ -128,35 +128,43 @@ impl OrderKey {
     }
 }
 
-/// The DAT `<provider>/<name>`, matching the provider whatever its case: one spelled exactly so if there is one, else
-/// the first imported.
+/// The DAT `<provider>/<name>`, spelled exactly so.
 pub(crate) fn find_dat(c: &Connection, provider: &str, name: &str) -> Result<Option<i64>> {
     Ok(c.query_row(
-        "SELECT id FROM dats WHERE name = ?2 AND provider = ?1 COLLATE NOCASE
-         ORDER BY provider = ?1 DESC, id LIMIT 1",
+        "SELECT id FROM dats WHERE provider = ?1 AND name = ?2",
         params![provider, name],
         |r| r.get(0),
     )
     .optional()?)
 }
 
-/// A subquery for the ids of every DAT that is the DAT `dat_id` under a spelling of its provider: a store from before
-/// imports matched providers whatever their case may hold one DAT more than once. Their revisions are ordered
-/// together, so `header_order` compares across them.
-pub(crate) fn same_dat(dat_id: &str) -> String {
-    format!(
-        "(SELECT f.id FROM dats f JOIN dats o ON o.id = {dat_id}
-          WHERE f.name = o.name AND f.provider = o.provider COLLATE NOCASE)"
+/// The one spelling the store keeps of `provider`: that of the DATs already imported from a provider of that name
+/// whatever its case, else `provider` as given. Every provider that comes in, from an import, a registration, a fetch
+/// or a request, is spelled so before it is stored or looked up, so that every other match is exact.
+pub(crate) fn canonical_provider(c: &Connection, provider: &str) -> Result<String> {
+    Ok(c.query_row(
+        "SELECT provider FROM dats WHERE provider = ?1 COLLATE NOCASE ORDER BY id LIMIT 1",
+        [provider],
+        |r| r.get(0),
     )
+    .optional()?
+    .unwrap_or_else(|| provider.to_owned()))
 }
 
-/// Renumbers `header_order` within the DAT `dat_id`, under every spelling of its provider, by [`OrderKey`], then
-/// import.
+/// `dat`, as `<provider>/<name>`, with its provider spelled as [`canonical_provider`] keeps it; as given if it names
+/// no provider.
+pub(crate) fn canonical_dat(c: &Connection, dat: &str) -> Result<String> {
+    Ok(match dat.split_once('/') {
+        Some((provider, name)) => format!("{}/{name}", canonical_provider(c, provider)?),
+        None => dat.to_owned(),
+    })
+}
+
+/// Renumbers `header_order` within the DAT `dat_id` by [`OrderKey`], then import.
 pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
-    let mut stmt = c.prepare(&format!(
-        "SELECT id, version, header_date FROM dat_revisions WHERE dat_id IN {} ORDER BY id",
-        same_dat("?1")
-    ))?;
+    let mut stmt = c.prepare(
+        "SELECT id, version, header_date FROM dat_revisions WHERE dat_id = ?1 ORDER BY id",
+    )?;
     let revisions = stmt
         .query_map([dat_id], |r| {
             Ok((
@@ -180,8 +188,9 @@ pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Whether a revision of the DAT `<provider>/<name>` at `version` and `date`, not yet imported, would be its newest,
-/// as [`reorder_revisions`] places it: true when the DAT has no revision yet.
+/// Whether a revision of the DAT `<provider>/<name>`, its provider spelled as the store keeps it, at `version` and
+/// `date`, not yet imported, would be its newest, as [`reorder_revisions`] places it: true when the DAT has no
+/// revision yet.
 pub(crate) fn would_be_newest(
     c: &Connection,
     provider: &str,
@@ -192,7 +201,7 @@ pub(crate) fn would_be_newest(
     let key = OrderKey::new(version, date);
     let mut stmt = c.prepare(
         "SELECT r.version, r.header_date FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
-         WHERE d.provider = ?1 COLLATE NOCASE AND d.name = ?2",
+         WHERE d.provider = ?1 AND d.name = ?2",
     )?;
     let headers = stmt
         .query_map(params![provider, name], |r| {
@@ -284,7 +293,8 @@ impl Store {
             }
             write_blob(&dats, &dat.sha256, bytes)?;
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let dat_id = match find_dat(&tx, provider, &dat.name)? {
+            let provider = canonical_provider(&tx, provider)?;
+            let dat_id = match find_dat(&tx, &provider, &dat.name)? {
                 Some(id) => id,
                 None => {
                     tx.execute(

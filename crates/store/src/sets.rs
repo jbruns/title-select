@@ -32,10 +32,7 @@ const SET_QUERY: &str =
                            AND w.audit_id = a.id AND w.changed + w.added + w.removed > 0
      LEFT JOIN dat_revisions n ON s.follow AND a.id IS NOT NULL
                                AND n.id = (SELECT id FROM dat_revisions
-                                           WHERE dat_id IN (SELECT f.id FROM dats f
-                                                            WHERE f.name = d.name
-                                                              AND f.provider = d.provider COLLATE NOCASE)
-                                           ORDER BY header_order DESC LIMIT 1)
+                                           WHERE dat_id = s.dat_id ORDER BY header_order DESC LIMIT 1)
                                AND n.header_order > r.header_order";
 
 fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
@@ -165,7 +162,9 @@ impl Store {
             Some(text) => PathTemplate::parse(text).map_err(|e| Error::Refused(e.to_string()))?,
             None => config.path_templates.source_set.clone(),
         };
-        let (provider, dat_name) = split_dat(dat)?;
+        split_dat(dat)?;
+        let dat = self.read(|c| crate::dats::canonical_dat(c, dat))?;
+        let (provider, dat_name) = split_dat(&dat)?;
         self.read(|c| {
             crate::dats::find_dat(c, provider, dat_name)?
                 .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))
@@ -199,7 +198,7 @@ impl Store {
             .map_err(|e| Error::Refused(format!("{}: {e}", resolved.path.display())))?;
         let rel = resolved.rel;
         let name = rel.rsplit('/').next().unwrap_or(&rel).to_owned();
-        let (provider, dat_name) = split_dat(dat)?;
+        split_dat(dat)?;
         self.write(|tx| {
             if let Some((what, other)) = crate::folders::overlapping(
                 tx,
@@ -212,6 +211,8 @@ impl Store {
                     other.display()
                 )));
             }
+            let dat = crate::dats::canonical_dat(tx, dat)?;
+            let (provider, dat_name) = split_dat(&dat)?;
             let dat_id: i64 = crate::dats::find_dat(tx, provider, dat_name)?
                 .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))?;
             let clash: Option<String> = tx

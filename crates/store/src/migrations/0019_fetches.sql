@@ -3,7 +3,8 @@
 
 -- Each DAT Revision's place among its DAT's revisions, by its header's version, then date: the highest is the newest,
 -- whatever order they were imported in. Renumbered within the DAT on each import. Once this has run, the store
--- reads the date of each existing revision whose file it keeps and numbers every DAT's revisions afresh.
+-- keeps one spelling of each provider, merging a DAT held under two, then reads the date of each existing revision
+-- whose file it keeps and numbers every DAT's revisions afresh.
 -- header_date: the header's date as written; empty if it gives none, or its file was gone when this ran.
 ALTER TABLE dat_revisions ADD COLUMN header_order INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE dat_revisions ADD COLUMN header_date TEXT NOT NULL DEFAULT '';

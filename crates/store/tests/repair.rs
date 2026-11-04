@@ -3618,6 +3618,23 @@ fn a_missing_cue_sheet_is_filled_from_a_cue_pack() {
 }
 
 #[test]
+fn a_cue_pack_imported_under_another_spelling_of_its_provider_is_kept_under_its_dat_and_used() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    let pack = env.tmp.path().join("Test - System (cues).zip");
+    write_zip(&pack, &[("Quest (USA).cue", quest[0].payload.as_slice())]);
+    let lower = DISC_SYSTEM.replacen("Redump", "redump", 1);
+    let (record, _) = env.store.import_cue_pack(&pack, &lower, None).unwrap();
+    assert_eq!(record.dat, DISC_SYSTEM);
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+}
+
+#[test]
 fn a_mismatched_cue_sheet_is_replaced_from_a_cue_pack_and_kept() {
     let env = Env::with("Redump", &disc_games());
     let quest = disc_of("Quest (USA)");

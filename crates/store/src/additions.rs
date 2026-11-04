@@ -124,7 +124,8 @@ pub(crate) fn set_of_system(c: &Connection, system: &str) -> Result<SetRow> {
 
 /// The DAT `system` names, as `<provider>/<name>`: its id and name.
 fn dat_of(c: &Connection, system: &str) -> Result<(i64, String)> {
-    let (provider, name) = system.split_once('/').unwrap_or(("", system));
+    let canonical = crate::dats::canonical_dat(c, system)?;
+    let (provider, name) = canonical.split_once('/').unwrap_or(("", system));
     crate::dats::find_dat(c, provider, name)?
         .map(|id| (id, name.to_owned()))
         .ok_or_else(|| {

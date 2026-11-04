@@ -977,6 +977,91 @@ mod tests {
     }
 
     #[test]
+    fn the_fetch_migration_keeps_one_spelling_of_each_provider_merging_dats_imported_under_two() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..18]).unwrap();
+        store
+            .write(|tx| {
+                tx.execute_batch(
+                    "INSERT INTO dats (id, provider, name) VALUES
+                         (1, 'Redump', 'PSX'), (2, 'redump', 'PSX'), (3, 'REDUMP', 'PS2'), (4, 'Other', 'PSX');
+                     INSERT INTO dat_revisions (id, dat_id, sha256, version, file_name, imported_at) VALUES
+                         (1, 1, 'a', '1', 'x.dat', 'then'), (2, 2, 'b', '2', 'x.dat', 'then'),
+                         (3, 3, 'c', '1', 'x.dat', 'then'), (4, 4, 'd', '1', 'x.dat', 'then');
+                     INSERT INTO source_sets (id, name, root, path, dat_id, added_at, follow) VALUES
+                         (1, 'one', 'r', 'one', 1, 'then', 1), (2, 'two', 'r', 'two', 2, 'then', 1);
+                     INSERT INTO additions_sets (id, dat_id, root, path, created_at) VALUES
+                         (1, 2, 'w', 'early', '2024-01-01'), (2, 1, 'w', 'late', '2024-02-01');
+                     INSERT INTO cue_packs (sha256, dat, file_name, origin, cues, imported_at)
+                         VALUES ('p', 'redump/PSX', 'p.zip', 'import', 1, 'then');
+                     INSERT INTO storage_policy (scope, system, format) VALUES
+                         ('source_sets', 'Redump/PSX', 'loose'), ('source_sets', 'redump/PSX', 'torrent_zip'),
+                         ('source_sets', 'redump/PS2', 'loose');",
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+        let rows = |sql: &str| -> Vec<String> {
+            store
+                .read(|c| {
+                    let mut stmt = c.prepare(sql)?;
+                    Ok(stmt
+                        .query_map([], |r| r.get(0))?
+                        .collect::<rusqlite::Result<Vec<String>>>()?)
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            rows("SELECT provider || '/' || name FROM dats ORDER BY id"),
+            ["Redump/PSX", "Redump/PS2", "Other/PSX"]
+        );
+        let revisions: Vec<(String, String)> = store
+            .dat_revisions()
+            .unwrap()
+            .into_iter()
+            .map(|r| (format!("{}/{}", r.provider, r.name), r.sha256))
+            .collect();
+        let psx = |sha: &str| ("Redump/PSX".to_owned(), sha.to_owned());
+        assert_eq!(
+            revisions,
+            [
+                psx("a"),
+                psx("b"),
+                ("Redump/PS2".to_owned(), "c".to_owned()),
+                ("Other/PSX".to_owned(), "d".to_owned())
+            ]
+        );
+        assert_eq!(
+            rows(
+                "SELECT d.provider || '/' || d.name FROM source_sets s JOIN dats d ON d.id = s.dat_id ORDER BY s.id"
+            ),
+            ["Redump/PSX", "Redump/PSX"]
+        );
+        // Two additions sets now of one DAT: the earlier made stays registered.
+        assert_eq!(
+            rows("SELECT path FROM additions_sets WHERE dat_id = 1 AND unregistered_at IS NULL"),
+            ["early"]
+        );
+        assert_eq!(
+            rows(
+                "SELECT path FROM additions_sets WHERE dat_id = 1 AND unregistered_at IS NOT NULL"
+            ),
+            ["late"]
+        );
+        assert_eq!(rows("SELECT dat FROM cue_packs"), ["Redump/PSX"]);
+        // Two policies now of one DAT: the one written under its kept spelling stays.
+        assert_eq!(
+            rows(
+                "SELECT system || '=' || format FROM storage_policy WHERE system <> '' ORDER BY system"
+            ),
+            ["Redump/PS2=loose", "Redump/PSX=loose"]
+        );
+    }
+
+    #[test]
     fn a_store_from_a_newer_schema_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let first = migrations::MIGRATIONS[0];

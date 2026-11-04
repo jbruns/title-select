@@ -108,6 +108,9 @@ impl Store {
         origin: CuePackOrigin,
         fetch: Option<i64>,
     ) -> Result<(CuePackRecord, ImportOutcome)> {
+        split_dat(dat)?;
+        let canonical = self.read(|c| super::dats::canonical_dat(c, dat))?;
+        let dat = canonical.as_str();
         let (provider, name) = split_dat(dat)?;
         if bytes.len() as u64 > CUE_PACK_LIMIT {
             return Err(Error::Refused(format!(

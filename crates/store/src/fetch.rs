@@ -387,29 +387,23 @@ fn artifact_status(
     })
 }
 
-/// The DATs of `provider` that a registered Source Set Follows, by header name, with those Source Sets. A DAT
-/// imported under several spellings of the provider is one: it is fetched for under the provider's own spelling if
-/// it is one of them, else the first.
+/// The DATs of `provider`, under the store's spelling of it, that a registered Source Set Follows, by header name,
+/// with those Source Sets.
 fn followed(c: &Connection, provider: FetchProvider) -> Result<Vec<Followed>> {
+    let spelling = crate::dats::canonical_provider(c, provider.dat_provider())?;
     let mut stmt = c.prepare(
-        "SELECT d.provider, d.name, s.name FROM source_sets s JOIN dats d ON d.id = s.dat_id
-         WHERE s.follow AND s.unregistered_at IS NULL AND d.provider = ?1 COLLATE NOCASE
-         ORDER BY d.name, d.provider, s.name",
+        "SELECT d.name, s.name FROM source_sets s JOIN dats d ON d.id = s.dat_id
+         WHERE s.follow AND s.unregistered_at IS NULL AND d.provider = ?1
+         ORDER BY d.name, s.name",
     )?;
-    let own = provider.dat_provider();
-    let rows = stmt.query_map([own], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    let rows = stmt.query_map([&spelling], |r| Ok((r.get(0)?, r.get(1)?)))?;
     let mut out: Vec<Followed> = Vec::new();
     for row in rows {
-        let (spelling, dat, set): (String, String, String) = row?;
+        let (dat, set): (String, String) = row?;
         match out.last_mut() {
-            Some(last) if last.dat == dat => {
-                if spelling == own {
-                    last.provider = spelling;
-                }
-                last.source_sets.push(set);
-            }
+            Some(last) if last.dat == dat => last.source_sets.push(set),
             _ => out.push(Followed {
-                provider: spelling,
+                provider: spelling.clone(),
                 dat,
                 source_sets: vec![set],
             }),
@@ -642,7 +636,7 @@ impl Store {
             let still = self
                 .read(|c| self::followed(c, provider))?
                 .iter()
-                .any(|f| f.provider.eq_ignore_ascii_case(&step.provider) && f.dat == step.dat);
+                .any(|f| f.provider == step.provider && f.dat == step.dat);
             if !still {
                 continue;
             }
@@ -949,7 +943,7 @@ impl Store {
                     };
                     out.push(FetchSystem {
                         system,
-                        dat: format!("{}/{}", provider.dat_provider(), f.dat),
+                        dat: format!("{}/{}", f.provider, f.dat),
                         source_sets: f.source_sets,
                         artifacts,
                     });
