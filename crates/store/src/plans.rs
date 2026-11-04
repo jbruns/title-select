@@ -192,6 +192,7 @@ fn load(
     choices: &PlanChoices,
 ) -> Result<Inputs> {
     let folder = folder_by_id(c, folder_id)?;
+    folder.check_registered()?;
     let (set_id, revision_id, profile_version, profile_id, pruned): (i64, i64, i64, i64, bool) = c
         .query_row(
             "SELECT sel.source_set_id, sel.dat_revision_id, sel.profile_version_id, v.profile_id,
@@ -1717,6 +1718,7 @@ impl Store {
                 }
             }
             let folder = folder_by_id(tx, content.folder)?;
+            folder.check_registered()?;
             let set = crate::sets::set_by_id(tx, folder.source_set_id)?;
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             let revision_id: i64 = tx.query_row(

@@ -88,7 +88,7 @@ pub(super) fn ingest_by_id(c: &Connection, id: i64) -> Result<IngestRow> {
 
 fn ingest_by_root(c: &Connection, root: &str) -> Result<Option<IngestRow>> {
     Ok(c.query_row(
-        &format!("{FOLDER_QUERY} WHERE root = ?1"),
+        &format!("{FOLDER_QUERY} WHERE root = ?1 AND unregistered_at IS NULL"),
         [root],
         folder_from_row,
     )
@@ -592,7 +592,9 @@ impl SetIndex {
 impl Matcher {
     fn load(store: &Store) -> Result<Matcher> {
         let chosen = store.read(|c| {
-            let mut stmt = c.prepare("SELECT name FROM source_sets ORDER BY name")?;
+            let mut stmt = c.prepare(
+                "SELECT name FROM source_sets WHERE unregistered_at IS NULL ORDER BY name",
+            )?;
             let names = stmt
                 .query_map([], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1943,7 +1945,7 @@ impl Store {
                          (plan_id, item_id, source_set_id, sha256, actor, readers, hashers, created_at)
                      SELECT ?1, ?2, s.id, ?3, ?4, ?5, ?6, ?7
                      FROM source_sets s JOIN dats d ON d.id = s.dat_id
-                     WHERE d.provider = ?8 AND d.name = ?9",
+                     WHERE d.provider = ?8 AND d.name = ?9 AND s.unregistered_at IS NULL",
                     params![
                         plan,
                         item.item,

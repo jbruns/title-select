@@ -98,7 +98,7 @@ fn set_by_id(c: &Connection, id: i64) -> Result<SetRow> {
 /// The Additions Set at the folder `rel` of the Root `root`, if there is one.
 pub(crate) fn set_at(c: &Connection, root: &str, rel: &str) -> Result<Option<i64>> {
     Ok(c.query_row(
-        "SELECT id FROM additions_sets WHERE root = ?1 AND path = ?2",
+        "SELECT id FROM additions_sets WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
         params![root, rel],
         |r| r.get(0),
     )
@@ -112,7 +112,7 @@ pub(crate) fn set_of_system(c: &Connection, system: &str) -> Result<SetRow> {
         e => e,
     })?;
     c.query_row(
-        &format!("{SET_QUERY} WHERE s.dat_id = ?1"),
+        &format!("{SET_QUERY} WHERE s.dat_id = ?1 AND s.unregistered_at IS NULL"),
         [dat],
         set_from_row,
     )
@@ -446,7 +446,7 @@ pub(crate) fn ensure_set(tx: &Transaction, dat: i64) -> Result<i64> {
         params![dat, ADDITIONS_ROOT, name, now()],
     )?;
     Ok(tx.query_row(
-        "SELECT id FROM additions_sets WHERE dat_id = ?1",
+        "SELECT id FROM additions_sets WHERE dat_id = ?1 AND unregistered_at IS NULL",
         [dat],
         |r| r.get(0),
     )?)
@@ -773,7 +773,7 @@ pub(crate) fn additions_kept_reserved(c: &Connection, kept: i64) -> Result<Optio
 
 /// Why an addition of the Additions Set `set` may not be retired now, if it may not: a build that may read it is
 /// queued or running.
-fn build_reading(c: &Connection, set: i64) -> Result<Option<String>> {
+pub(crate) fn build_reading(c: &Connection, set: i64) -> Result<Option<String>> {
     let job: Option<i64> = c
         .query_row(
             "SELECT j.id FROM jobs j JOIN library_folders f ON f.id = j.library_folder_id
@@ -866,7 +866,9 @@ impl Store {
     /// Every Additions Set, with its additions.
     pub fn additions_sets(&self) -> Result<Vec<AdditionsSet>> {
         self.read(|c| {
-            let mut stmt = c.prepare(&format!("{SET_QUERY} ORDER BY 2"))?;
+            let mut stmt = c.prepare(&format!(
+                "{SET_QUERY} WHERE s.unregistered_at IS NULL ORDER BY 2"
+            ))?;
             let sets = stmt
                 .query_map([], set_from_row)?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1043,7 +1045,7 @@ impl Store {
             let (dat, _) = dat_of(c, system)?;
             let set = c
                 .query_row(
-                    &format!("{SET_QUERY} WHERE s.dat_id = ?1"),
+                    &format!("{SET_QUERY} WHERE s.dat_id = ?1 AND s.unregistered_at IS NULL"),
                     [dat],
                     set_from_row,
                 )

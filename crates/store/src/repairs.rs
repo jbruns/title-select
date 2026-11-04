@@ -2788,7 +2788,7 @@ impl Store {
                 let Some((folder, generation)) = self.write(|tx| {
                     let folder: Option<i64> = tx
                         .query_row(
-                            "SELECT id FROM ingest_folders WHERE root = ?1",
+                            "SELECT id FROM ingest_folders WHERE root = ?1 AND unregistered_at IS NULL",
                             [ingest_root],
                             |r| r.get(0),
                         )
@@ -2925,7 +2925,7 @@ pub(super) fn open_repair(
         "SELECT p.id, p.audit_id, p.approved_digest IS NOT NULL,
                 (SELECT j.id FROM jobs j WHERE j.repair_plan_id = p.id ORDER BY j.id DESC LIMIT 1)
          FROM repair_plans p JOIN source_sets s ON s.id = p.source_set_id
-         WHERE s.name = ?1
+         WHERE s.name = ?1 AND s.unregistered_at IS NULL
            AND ((p.approved_digest IS NOT NULL AND p.finished_at IS NULL)
              OR (p.approved_digest IS NULL AND p.audit_id = ?2
                  AND p.id > (SELECT COALESCE(MAX(q.id), 0) FROM repair_plans q

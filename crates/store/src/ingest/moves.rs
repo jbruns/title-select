@@ -1227,7 +1227,7 @@ impl Store {
         }
         let set: Option<i64> = self.read(|c| {
             Ok(c.query_row(
-                "SELECT id FROM source_sets WHERE root = ?1 AND path = ?2",
+                "SELECT id FROM source_sets WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
                 params![root, rel],
                 |r| r.get(0),
             )

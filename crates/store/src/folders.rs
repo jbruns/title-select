@@ -18,7 +18,7 @@ use super::checks::{latest_check, latest_summary, selected_targets};
 use super::dats::split_dat;
 use super::folder_dir::{FolderDir, Identity};
 use super::plans::json;
-use super::profiles::profile_id;
+use super::profiles::active_profile_id;
 use super::sets::{resolve, set_by_id, set_by_name};
 use super::{Error, Result, Store, io_error, now};
 use crate::config::Config;
@@ -42,6 +42,21 @@ pub(super) struct FolderRow {
     pub files: u64,
     pub active_job: Option<i64>,
     pub latest_plan: Option<i64>,
+    /// When it was Unregistered: its history stays readable, but nothing new is done to it.
+    pub unregistered_at: Option<String>,
+}
+
+impl FolderRow {
+    /// Refuses new work on an Unregistered Library Folder.
+    pub(super) fn check_registered(&self) -> Result<()> {
+        match &self.unregistered_at {
+            Some(_) => Err(Error::Refused(format!(
+                "play library folder {}/{} is unregistered; register the folder again to use it",
+                self.root, self.path
+            ))),
+            None => Ok(()),
+        }
+    }
 }
 
 const FOLDER_QUERY: &str =
@@ -51,7 +66,7 @@ const FOLDER_QUERY: &str =
             (SELECT max(j.id) FROM jobs j
              WHERE j.library_folder_id = f.id AND j.kind IN ('build', 'check')
                AND j.state IN ('queued', 'running')),
-            (SELECT max(pl.id) FROM plans pl WHERE pl.folder_id = f.id)
+            (SELECT max(pl.id) FROM plans pl WHERE pl.folder_id = f.id), f.unregistered_at
      FROM library_folders f
      JOIN source_sets s ON s.id = f.source_set_id
      JOIN dats d ON d.id = s.dat_id
@@ -74,6 +89,7 @@ fn folder_from_row(r: &Row) -> rusqlite::Result<FolderRow> {
         files: r.get::<_, i64>(12)? as u64,
         active_job: r.get(13)?,
         latest_plan: r.get(14)?,
+        unregistered_at: r.get(15)?,
     })
 }
 
@@ -683,10 +699,10 @@ impl Store {
         })?;
         let (set, profile, others) = self.read(|c| {
             let set = set_by_name(c, &add.source_set)?;
-            let profile = profile_id(c, &add.profile)?;
+            let profile = active_profile_id(c, &add.profile)?;
             let clash: Option<i64> = c
                 .query_row(
-                    "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2",
+                    "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
                     params![add.root, rel],
                     |r| r.get(0),
                 )
@@ -698,8 +714,9 @@ impl Store {
                 )));
             }
             let mut stmt = c.prepare(
-                "SELECT root, path, 'a source set' FROM source_sets
-                 UNION ALL SELECT root, path, 'another library folder' FROM library_folders",
+                "SELECT root, path, 'a source set' FROM source_sets WHERE unregistered_at IS NULL
+                 UNION ALL SELECT root, path, 'another library folder' FROM library_folders
+                 WHERE unregistered_at IS NULL",
             )?;
             let others = stmt
                 .query_map([], |r| {
@@ -773,6 +790,7 @@ impl Store {
     ) -> Result<LibraryFolder> {
         self.write(|tx| {
             let folder = folder_by_id(tx, id)?;
+            folder.check_registered()?;
             if let Some(job) = folder.active_job {
                 return Err(Error::Conflict(format!(
                     "library folder {id} has a build or check queued or running: job {job}"
@@ -792,7 +810,7 @@ impl Store {
                 )?;
             }
             if let Some(name) = &change.profile {
-                let profile = profile_id(tx, name)?;
+                let profile = active_profile_id(tx, name)?;
                 tx.execute(
                     "UPDATE library_folders SET profile_id = ?2 WHERE id = ?1",
                     params![id, profile],
@@ -805,7 +823,9 @@ impl Store {
     /// Every Library Folder, by root and path.
     pub fn library_folders(&self, config: &Config) -> Result<Vec<LibraryFolder>> {
         self.read(|c| {
-            let mut stmt = c.prepare(&format!("{FOLDER_QUERY} ORDER BY f.root, f.path"))?;
+            let mut stmt = c.prepare(&format!(
+                "{FOLDER_QUERY} WHERE f.unregistered_at IS NULL ORDER BY f.root, f.path"
+            ))?;
             let rows = stmt
                 .query_map([], folder_from_row)?
                 .collect::<Result<Vec<_>, _>>()?;

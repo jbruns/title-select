@@ -12,6 +12,7 @@ mod folders;
 mod ingest;
 mod jobs;
 mod kept;
+mod lifecycle;
 mod migrations;
 mod plans;
 mod profiles;
@@ -833,6 +834,72 @@ mod tests {
         );
         let foreign_keys = store.read(|c| Ok(pragma(c, "foreign_keys"))).unwrap();
         assert_eq!(foreign_keys, "Integer(1)");
+    }
+
+    #[test]
+    fn the_lifecycle_migration_keeps_every_registration_and_frees_the_names_of_unregistered_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..16]).unwrap();
+        store
+            .write(|tx| {
+                tx.execute_batch(
+                    "INSERT INTO dats (provider, name) VALUES ('Test', 'Test');
+                     INSERT INTO source_sets (name, root, path, dat_id, added_at)
+                         SELECT 'Set', 'sets', 'Set', id, 'then' FROM dats;
+                     INSERT INTO profiles (name, created_at) VALUES ('Mine', 'then');
+                     INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)
+                         SELECT 'play', 'atari', s.id, p.id, 'then' FROM source_sets s, profiles p;
+                     INSERT INTO additions_sets (dat_id, root, path, created_at)
+                         SELECT id, 'additions', 'Test', 'then' FROM dats;
+                     INSERT INTO ingest_folders (root, created_at) VALUES ('in', 'then');
+                     INSERT INTO jobs (state, kind, source_set_id, actor, readers, hashers, created_at)
+                         SELECT 'succeeded', 'audit', id, 'Operator', 1, 1, 'then' FROM source_sets;",
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+        let count = |sql: &str| store.read(|c| Ok(c.query_row(sql, [], |r| r.get::<_, i64>(0))?));
+        for table in [
+            "source_sets",
+            "library_folders",
+            "additions_sets",
+            "ingest_folders",
+        ] {
+            assert_eq!(
+                count(&format!(
+                    "SELECT count(*) FROM {table} WHERE unregistered_at IS NULL"
+                ))
+                .unwrap(),
+                1,
+                "{table}"
+            );
+        }
+        let again = |sql: &str| store.write(|tx| Ok(tx.execute_batch(sql)?));
+        let twins = "INSERT INTO source_sets (name, root, path, dat_id, added_at)
+                         SELECT 'Set', 'sets', 'Set', id, 'now' FROM dats;
+                     INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)
+                         SELECT 'play', 'atari', 2, id, 'now' FROM profiles;
+                     INSERT INTO additions_sets (dat_id, root, path, created_at)
+                         SELECT id, 'additions', 'Test', 'now' FROM dats;
+                     INSERT INTO ingest_folders (root, created_at) VALUES ('in', 'now');";
+        assert!(again(twins).is_err(), "a registered name stays unique");
+        again(
+            "UPDATE source_sets SET unregistered_at = 'now'; UPDATE library_folders SET unregistered_at = 'now';
+             UPDATE additions_sets SET unregistered_at = 'now'; UPDATE ingest_folders SET unregistered_at = 'now';",
+        )
+        .unwrap();
+        again(twins).unwrap();
+        assert_eq!(
+            count("SELECT count(*) FROM jobs WHERE source_set_id = 1").unwrap(),
+            1
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM profiles WHERE retired_at IS NULL").unwrap(),
+            1
+        );
     }
 
     #[test]

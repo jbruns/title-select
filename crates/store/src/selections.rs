@@ -364,6 +364,7 @@ impl Store {
         workers: Workers,
     ) -> Result<Job> {
         self.write(|tx| {
+            super::profiles::active_profile_id(tx, profile)?;
             let (version_id, _) = version_row(tx, profile, version)?;
             enqueue(tx, name, revision, version_id, actor, workers)
         })
