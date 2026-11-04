@@ -2682,7 +2682,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "title-select"
-version = "0.4.2"
+version = "0.6.0"
 dependencies = [
  "clap",
  "crc32fast",
@@ -2703,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "title-select-api"
-version = "0.4.2"
+version = "0.6.0"
 dependencies = [
  "jiff",
  "serde",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "title-select-engine"
-version = "0.4.2"
+version = "0.6.0"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -2733,7 +2733,7 @@ dependencies = [
 
 [[package]]
 name = "title-select-selection"
-version = "0.4.2"
+version = "0.6.0"
 dependencies = [
  "fancy-regex",
  "indexmap",
@@ -2750,7 +2750,7 @@ dependencies = [
 
 [[package]]
 name = "title-select-server"
-version = "0.4.2"
+version = "0.6.0"
 dependencies = [
  "axum",
  "crc32fast",
@@ -2778,7 +2778,7 @@ dependencies = [
 
 [[package]]
 name = "title-select-store"
-version = "0.4.2"
+version = "0.6.0"
 dependencies = [
  "crc32fast",
  "ipnet",
@@ -2803,7 +2803,7 @@ dependencies = [
 
 [[package]]
 name = "title-select-ui"
-version = "0.4.2"
+version = "0.6.0"
 dependencies = [
  "codee",
  "gloo-net",
