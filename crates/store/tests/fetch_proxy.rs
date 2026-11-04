@@ -54,7 +54,12 @@ fn a_proxy_named_in_the_environment_is_never_contacted() {
     }
 
     let got = Http::new()
-        .get(&format!("{provider}/datfile/psx/"), &Allowed::origin(&provider), None, 1024)
+        .get(
+            &format!("{provider}/datfile/psx/"),
+            &Allowed::origin(&provider),
+            None,
+            1024,
+        )
         .unwrap();
 
     assert_eq!(got.bytes, b"from the provider");

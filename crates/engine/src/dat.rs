@@ -39,6 +39,9 @@ pub struct Dat {
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
     /// ROMs the DAT lists without a CRC, which the size-and-CRC index cannot find.
     by_size_without_crc: HashMap<u64, Vec<usize>>,
+    /// Where a software list's last ROM is read to, and the furthest any read of it reached, while unnamed ROMs that
+    /// follow may still read on in its file.
+    extent: Option<(u64, u64)>,
 }
 
 /// A size as DATs write it: decimal, or hexadecimal after `0x`.
@@ -84,6 +87,7 @@ impl Dat {
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
             by_size_without_crc: HashMap::new(),
+            extent: None,
         };
         let mut stack: Vec<String> = Vec::new();
         let mut root = None;
@@ -184,20 +188,30 @@ impl Dat {
         match (root, tag.as_str()) {
             (Some(Root::Logiqx | Root::ListXml), "game" | "machine") => self.start_game(e)?,
             (Some(Root::SoftwareList), "software") => self.start_game(e)?,
-            // A software list's unnamed ROM has no file of its own. As MAME loads it, one that continues the ROM
-            // before it, or skips bytes of it, reads on in that ROM's file, which is so much larger; one that
-            // reloads it or fills with a value reads nothing more.
+            // A software list's unnamed ROM has no file of its own: it reads on in the file of the named ROM before
+            // it. As MAME's rom_file_size measures that file, one that continues or skips reads on from where the
+            // last read ended, and one that reloads reads again from the start; the file is as large as the
+            // furthest any read reaches. Any other, such as a fill, reads no file, and ends the run.
             (Some(Root::SoftwareList), "rom") if !attrs(e)?.contains_key("name") => {
                 let a = attrs(e)?;
-                if matches!(
-                    a.get("loadflag").map(String::as_str),
-                    Some("continue" | "ignore")
-                ) {
-                    let size = a
-                        .get("size")
+                let read = |pos: u64| -> Result<u64, Error> {
+                    a.get("size")
                         .and_then(|s| parse_size(s))
-                        .ok_or_else(|| Error::Dat("a continued rom has no valid size".into()))?;
-                    self.grow_last_rom(size);
+                        .map(|size| pos + size)
+                        .ok_or_else(|| {
+                            Error::Dat("a rom read in its file has no valid size".into())
+                        })
+                };
+                self.extent = match (self.extent, a.get("loadflag").map(String::as_str)) {
+                    (Some((pos, max)), Some("continue" | "ignore")) => Some((read(pos)?, max)),
+                    (Some((_, max)), Some("reload" | "reload_plain")) => Some((read(0)?, max)),
+                    _ => None,
+                };
+                if let Some((pos, max)) = self.extent
+                    && pos > max
+                {
+                    self.extent = Some((pos, pos));
+                    self.resize_last_rom(pos);
                 }
             }
             (Some(_), "rom") => self.add_rom(e)?,
@@ -212,6 +226,7 @@ impl Dat {
             .get("name")
             .ok_or_else(|| Error::Dat("a game has no name".into()))?;
         self.games.push(name.clone());
+        self.extent = None;
         Ok(())
     }
 
@@ -241,6 +256,7 @@ impl Dat {
             sha256: lower("sha256"),
         };
         let idx = self.roms.len();
+        self.extent = Some((rom.size, rom.size));
         self.by_name.entry(rom.name.clone()).or_default().push(idx);
         match &rom.crc {
             Some(crc) => self
@@ -258,11 +274,10 @@ impl Dat {
         Ok(())
     }
 
-    /// Adds `extra` bytes to the last ROM read, if it is in the Game being read.
-    fn grow_last_rom(&mut self, extra: u64) {
-        let idx = match self.roms.len().checked_sub(1) {
-            Some(idx) if self.roms[idx].game + 1 == self.games.len() => idx,
-            _ => return,
+    /// Makes the last ROM read `size` bytes.
+    fn resize_last_rom(&mut self, size: u64) {
+        let Some(idx) = self.roms.len().checked_sub(1) else {
+            return;
         };
         let rom = &self.roms[idx];
         let bucket = match &rom.crc {
@@ -273,7 +288,7 @@ impl Dat {
             bucket.retain(|&i| i != idx);
         }
         let rom = &mut self.roms[idx];
-        rom.size += extra;
+        rom.size = size;
         match &rom.crc {
             Some(crc) => self
                 .by_size_crc
