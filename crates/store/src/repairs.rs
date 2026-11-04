@@ -794,9 +794,9 @@ impl Store {
             let base = path.rsplit('/').next().unwrap_or(path);
             let kept = (1..)
                 .map(|n| kept_name(base, n))
-                .find(|kept| !names.contains(kept))
+                .find(|kept| !names.contains(&name_key(kept)))
                 .expect("a free name");
-            names.insert(kept.clone());
+            names.insert(name_key(&kept));
             items.push(title_select_api::repair::RepairItem {
                 key: key.clone(),
                 kind: title_select_api::repair::RepairKind::KeepAside,
