@@ -192,6 +192,7 @@ fn load(
     choices: &PlanChoices,
 ) -> Result<Inputs> {
     let folder = folder_by_id(c, folder_id)?;
+    folder.check_registered()?;
     let (set_id, revision_id, profile_version, profile_id, pruned): (i64, i64, i64, i64, bool) = c
         .query_row(
             "SELECT sel.source_set_id, sel.dat_revision_id, sel.profile_version_id, v.profile_id,
@@ -203,7 +204,24 @@ fn load(
         )
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no selection {selection_id}")))?;
-    if set_id != folder.source_set_id || profile_id != folder.profile_id {
+    // Removing every built file reads the Selection the folder was last built from, whatever it is bound to now.
+    if choices.remove_all {
+        let built_from: Option<i64> = match folder.current_build {
+            Some(build) => Some(c.query_row(
+                "SELECT selection_id FROM builds WHERE id = ?1",
+                [build],
+                |r| r.get(0),
+            )?),
+            None => None,
+        };
+        if built_from != Some(selection_id) {
+            return Err(Error::Refused(format!(
+                "removing every built file of library folder {} reads the selection it was last built from, not \
+                 selection {selection_id}",
+                folder.id
+            )));
+        }
+    } else if set_id != folder.source_set_id || profile_id != folder.profile_id {
         let record = record_by_id(c, selection_id)?;
         return Err(Error::Refused(format!(
             "selection {selection_id} was made for source set {} with profile {}, but library folder {} builds \
@@ -220,17 +238,28 @@ fn load(
     let rows = read_rows(c, selection_id)?;
     let (_, revision) = revision_by_id(c, revision_id)?;
     let set = set_by_id(c, set_id)?;
-    let audit: Option<(i64, i64, String)> = c
-        .query_row(
+    // Removing every built file reads only what the folder's current Build recorded, never a Source Set's latest
+    // Audit, which may since be of another Source Set or DAT Revision.
+    let audit: Option<(i64, i64, String)> = match (choices.remove_all, folder.current_build) {
+        (true, Some(build)) => c
+            .query_row(
+                "SELECT b.audit_id, b.dat_revision_id, r.sha256
+                 FROM builds b JOIN dat_revisions r ON r.id = b.dat_revision_id WHERE b.id = ?1",
+                [build],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?,
+        _ => c.query_row(
             "SELECT a.id, a.dat_revision_id, r.sha256 FROM audits a JOIN dat_revisions r ON r.id = a.dat_revision_id
              WHERE a.source_set_id = ?1 AND a.status = 'finished' AND a.pruned_at IS NULL
              ORDER BY a.finish_seq DESC LIMIT 1",
             [set_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
-        .optional()?;
+        .optional()?,
+    };
     let entries = match &audit {
-        Some((id, audit_revision, _)) if *audit_revision == revision_id => {
+        Some((id, audit_revision, _)) if *audit_revision == revision_id && !choices.remove_all => {
             let mut stmt = c.prepare(&format!(
                 "SELECT {ENTRY_COLUMNS} FROM audit_entries WHERE audit_id = ?1 ORDER BY seq"
             ))?;
@@ -928,7 +957,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     let mut unresolved = BTreeSet::new();
     let mut untouched = BTreeSet::new();
     for group in &inputs.selection.groups {
-        if !group.unresolved {
+        if !group.unresolved || inputs.choices.remove_all {
             continue;
         }
         if inputs.choices.resolved_only {
@@ -965,10 +994,13 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     let folder = check_folder(config, inputs, dat, &mut blockers);
 
     let mut items = Vec::new();
-    if let (Some(dat), Some(_)) = (dat, usable_audit) {
+    if let (Some(dat), Some(_), false) = (dat, usable_audit, inputs.choices.remove_all) {
         items = plan_items(config, inputs, dat, folder.as_ref(), &unresolved);
     }
     let removals = match (&folder, dat, usable_audit) {
+        (Some(folder), _, _) if inputs.choices.remove_all => {
+            removals(inputs, folder, &items, &untouched)
+        }
         (Some(folder), Some(_), Some(_)) => removals(inputs, folder, &items, &untouched),
         _ => Vec::new(),
     };
@@ -1590,7 +1622,7 @@ impl Store {
             None
         };
         let mut planned = compute(config, &inputs, dat.as_ref());
-        if dat.is_none() {
+        if dat.is_none() && !choices.remove_all {
             planned.content.blockers.push(blocker(
                 BlockerKind::RevisionMismatch,
                 format!(
@@ -1652,6 +1684,29 @@ impl Store {
             };
             insert_plan(tx, &planned, check)
         })
+    }
+
+    /// Plans removing every file built in Library Folder `folder`, keeping each aside in its retention area, after
+    /// which the folder is unregistered. It is planned from the Selection of the folder's current Build.
+    pub fn plan_library_removal(&self, config: &Config, folder: i64) -> Result<Plan> {
+        let selection: Option<i64> = self.read(|c| {
+            folder_by_id(c, folder)?.check_registered()?;
+            Ok(c.query_row(
+                "SELECT b.selection_id FROM library_folders f JOIN builds b ON b.id = f.current_build_id
+                 WHERE f.id = ?1",
+                [folder],
+                |r| r.get(0),
+            )
+            .optional()?)
+        })?;
+        let selection = selection.ok_or_else(|| {
+            Error::Refused(
+                "nothing was built in this play library folder; unregister it instead".into(),
+            )
+        })?;
+        let mut request = PlanBuild::new(selection);
+        request.choices.remove_all = true;
+        self.plan_build_with(config, folder, &request)
     }
 
     pub fn plan(&self, id: i64) -> Result<Plan> {
@@ -1717,6 +1772,7 @@ impl Store {
                 }
             }
             let folder = folder_by_id(tx, content.folder)?;
+            folder.check_registered()?;
             let set = crate::sets::set_by_id(tx, folder.source_set_id)?;
             crate::repairs::check_no_repair(tx, set.id, &set.record.name)?;
             let revision_id: i64 = tx.query_row(

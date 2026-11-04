@@ -18,7 +18,7 @@ use super::checks::{latest_check, latest_summary, selected_targets};
 use super::dats::split_dat;
 use super::folder_dir::{FolderDir, Identity};
 use super::plans::json;
-use super::profiles::profile_id;
+use super::profiles::active_profile_id;
 use super::sets::{resolve, set_by_id, set_by_name};
 use super::{Error, Result, Store, io_error, now};
 use crate::config::Config;
@@ -42,6 +42,21 @@ pub(super) struct FolderRow {
     pub files: u64,
     pub active_job: Option<i64>,
     pub latest_plan: Option<i64>,
+    /// When it was Unregistered: its history stays readable, but nothing new is done to it.
+    pub unregistered_at: Option<String>,
+}
+
+impl FolderRow {
+    /// Refuses new work on an Unregistered Library Folder.
+    pub(super) fn check_registered(&self) -> Result<()> {
+        match &self.unregistered_at {
+            Some(_) => Err(Error::Refused(format!(
+                "play library folder {}/{} is unregistered; register the folder again to use it",
+                self.root, self.path
+            ))),
+            None => Ok(()),
+        }
+    }
 }
 
 const FOLDER_QUERY: &str =
@@ -51,7 +66,7 @@ const FOLDER_QUERY: &str =
             (SELECT max(j.id) FROM jobs j
              WHERE j.library_folder_id = f.id AND j.kind IN ('build', 'check')
                AND j.state IN ('queued', 'running')),
-            (SELECT max(pl.id) FROM plans pl WHERE pl.folder_id = f.id)
+            (SELECT max(pl.id) FROM plans pl WHERE pl.folder_id = f.id), f.unregistered_at
      FROM library_folders f
      JOIN source_sets s ON s.id = f.source_set_id
      JOIN dats d ON d.id = s.dat_id
@@ -74,6 +89,7 @@ fn folder_from_row(r: &Row) -> rusqlite::Result<FolderRow> {
         files: r.get::<_, i64>(12)? as u64,
         active_job: r.get(13)?,
         latest_plan: r.get(14)?,
+        unregistered_at: r.get(15)?,
     })
 }
 
@@ -616,6 +632,155 @@ fn overlaps(a: &Path, b: &Path) -> bool {
     a.starts_with(b) || b.starts_with(a)
 }
 
+/// Checks that `rel` in the Root `root_name` may be a Library Folder: a writable Root that is not an Ingest Folder, a
+/// relative path, not a registered Library Folder's, and overlapping no folder Title Select reads or writes nor the
+/// destination of a move under way. Returns it normalized.
+pub(super) fn check_library_path(
+    c: &Connection,
+    config: &Config,
+    root_name: &str,
+    rel: &str,
+) -> Result<String> {
+    let root = config
+        .root(root_name)
+        .ok_or_else(|| Error::Refused(format!("no root named {} is configured", root_name)))?;
+    if !root.writable {
+        return Err(Error::Refused(format!(
+            "root {} is read-only; a library folder needs a root with writable = true",
+            root_name
+        )));
+    }
+    if root.is_ingest() {
+        return Err(Error::Refused(format!(
+            "root {} is an ingest folder; a library folder needs another writable root",
+            root_name
+        )));
+    }
+    let rel = relative_path(rel)
+        .map_err(|e| Error::Refused(format!("{rel}: a library folder's path {e}")))?;
+    if !Path::new(&rel)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_)))
+    {
+        return Err(Error::Refused(format!(
+            "{rel}: a library folder's path must be relative to its root"
+        )));
+    }
+    let canonical_root = root.path.canonicalize().map_err(|e| {
+        Error::Refused(format!("root {} ({}): {e}", root_name, root.path.display()))
+    })?;
+    let clash: Option<i64> = c
+        .query_row(
+            "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
+            params![root_name, rel],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(clash) = clash {
+        return Err(Error::Refused(format!(
+            "library folder {clash} already uses {rel} in root {}",
+            root_name
+        )));
+    }
+    // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
+    // Select reads or writes.
+    let would_be = resolved(&canonical_root, &rel).unwrap_or_else(|| {
+        rel.split('/')
+            .fold(canonical_root.clone(), |p, part| p.join(part))
+    });
+    if let Some((what, other)) = overlapping(c, config, &would_be, Registering::LibraryFolder)? {
+        return Err(Error::Refused(format!(
+            "{rel} in root {} would overlap {what} at {}",
+            root_name,
+            other.display()
+        )));
+    }
+    Ok(rel)
+}
+
+/// What is being registered, which overlaps nothing else Title Select reads or writes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Registering {
+    /// May not overlap another one, nor a Source Set or an Ingest Folder.
+    LibraryFolder,
+    /// May not overlap a Library Folder or an Ingest Folder; Source Sets are checked by their own rules.
+    SourceSet,
+    /// May not overlap a Source Set or a Library Folder.
+    IngestFolder,
+}
+
+/// The first registered folder, or destination reserved by an approved move, that `would_be` overlaps but
+/// `registering` may not: what it is, and where.
+pub(super) fn overlapping(
+    c: &Connection,
+    config: &Config,
+    would_be: &Path,
+    registering: Registering,
+) -> Result<Option<(String, PathBuf)>> {
+    // An approved move that hasn't finished holds its destination, as though the folder were there already.
+    let mut stmt = c.prepare(
+        "SELECT root, path, 'a source set' FROM source_sets WHERE unregistered_at IS NULL AND ?1
+         UNION ALL SELECT root, path, ?2 FROM library_folders WHERE unregistered_at IS NULL
+         UNION ALL SELECT root, to_path, 'a library folder being moved there' FROM library_folder_moves
+         WHERE approved_at IS NOT NULL AND finished_at IS NULL",
+    )?;
+    let others = stmt
+        .query_map(
+            params![
+                registering != Registering::SourceSet,
+                match registering {
+                    Registering::LibraryFolder => "another library folder",
+                    _ => "a library folder",
+                }
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            },
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+    let ingest = config
+        .roots
+        .iter()
+        .filter(|(_, r)| r.is_ingest() && registering != Registering::IngestFolder)
+        .map(|(name, _)| (name.clone(), String::new(), "an ingest folder".to_owned()));
+    for (root, path, what) in others.into_iter().chain(ingest) {
+        // A destination being moved to may not exist yet.
+        let Some(other) = config.root(&root).and_then(|r| resolved(&r.path, &path)) else {
+            continue;
+        };
+        if overlaps(would_be, &other) {
+            return Ok(Some((what, other)));
+        }
+    }
+    Ok(None)
+}
+
+/// `rel` under `base`, through whatever of it exists: its longest existing ancestor resolved, with the rest, each a
+/// plain name, joined on. `None` when a part is not a plain name, or an existing part can't be resolved.
+pub(super) fn resolved(base: &Path, rel: &str) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel.split('/').filter(|part| !part.is_empty()).collect();
+    if parts.iter().any(|part| matches!(*part, "." | "..")) {
+        return None;
+    }
+    for exists in (0..=parts.len()).rev() {
+        let path = parts[..exists]
+            .iter()
+            .fold(base.to_path_buf(), |p, part| p.join(part));
+        match path.canonicalize() {
+            Ok(found) => {
+                return Some(parts[exists..].iter().fold(found, |p, part| p.join(part)));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
 impl Store {
     /// The path a Path Template proposes for a Library Folder of the Source Set `source_set`'s system: `template` if
     /// given, else the configured default.
@@ -636,6 +801,18 @@ impl Store {
             .map_err(|e| Error::Refused(e.to_string()))
     }
 
+    /// Checks that `rel` in the Root `root_name` may be a Library Folder: a writable Root that is not an Ingest
+    /// Folder, a relative path, not a registered Library Folder's and overlapping no folder Title Select reads or
+    /// writes. Returns it normalized.
+    pub(super) fn check_library_path(
+        &self,
+        config: &Config,
+        root_name: &str,
+        rel: &str,
+    ) -> Result<String> {
+        self.read(|c| check_library_path(c, config, root_name, rel))
+    }
+
     /// Registers a Library Folder: `add.path` (or the path its template proposes) in the writable Root `add.root`,
     /// bound to a Source Set and a Selection Profile. The folder is created if absent and must be empty if present;
     /// its marker is written before the registration commits.
@@ -653,95 +830,24 @@ impl Store {
                 self.propose_library_folder_path(config, &add.source_set, template.as_deref())?
             }
         };
-        let root = config
-            .root(&add.root)
-            .ok_or_else(|| Error::Refused(format!("no root named {} is configured", add.root)))?;
-        if !root.writable {
-            return Err(Error::Refused(format!(
-                "root {} is read-only; a library folder needs a root with writable = true",
-                add.root
-            )));
-        }
-        if root.is_ingest() {
-            return Err(Error::Refused(format!(
-                "root {} is an ingest folder; a library folder needs another writable root",
-                add.root
-            )));
-        }
-        let rel = relative_path(&rel)
-            .map_err(|e| Error::Refused(format!("{rel}: a library folder's path {e}")))?;
-        if !Path::new(&rel)
-            .components()
-            .all(|c| matches!(c, Component::Normal(_)))
-        {
-            return Err(Error::Refused(format!(
-                "{rel}: a library folder's path must be relative to its root"
-            )));
-        }
-        let canonical_root = root.path.canonicalize().map_err(|e| {
-            Error::Refused(format!("root {} ({}): {e}", add.root, root.path.display()))
+        // Held from the check of its path until it is recorded, so that nothing registered or reserved meanwhile
+        // overlaps the folders it creates.
+        let _lifecycle = self.lifecycle_lock();
+        let rel = self.check_library_path(config, &add.root, &rel)?;
+        let root = config.root(&add.root).expect("a checked root");
+        self.read(|c| {
+            set_by_name(c, &add.source_set)?;
+            active_profile_id(c, &add.profile)?;
+            Ok(())
         })?;
-        let (set, profile, others) = self.read(|c| {
-            let set = set_by_name(c, &add.source_set)?;
-            let profile = profile_id(c, &add.profile)?;
-            let clash: Option<i64> = c
-                .query_row(
-                    "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2",
-                    params![add.root, rel],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            if let Some(clash) = clash {
-                return Err(Error::Refused(format!(
-                    "library folder {clash} already uses {rel} in root {}",
-                    add.root
-                )));
-            }
-            let mut stmt = c.prepare(
-                "SELECT root, path, 'a source set' FROM source_sets
-                 UNION ALL SELECT root, path, 'another library folder' FROM library_folders",
-            )?;
-            let others = stmt
-                .query_map([], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok((set, profile, others))
-        })?;
-        // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
-        // Select reads or writes.
-        let would_be = rel
-            .split('/')
-            .fold(canonical_root.clone(), |p, part| p.join(part));
-        let ingest = config
-            .roots
-            .iter()
-            .filter(|(_, r)| r.is_ingest())
-            .map(|(name, _)| (name.clone(), String::new(), "an ingest folder".to_owned()));
-        for (root, path, what) in others.into_iter().chain(ingest) {
-            let Some(other) = config.root(&root).and_then(|r| {
-                path.split('/')
-                    .filter(|part| !part.is_empty())
-                    .fold(r.path.clone(), |p, part| p.join(part))
-                    .canonicalize()
-                    .ok()
-            }) else {
-                continue;
-            };
-            if overlaps(&would_be, &other) {
-                return Err(Error::Refused(format!(
-                    "{rel} in root {} would overlap {what} at {}",
-                    add.root,
-                    other.display()
-                )));
-            }
-        }
         let folder = create_or_check_empty(&root.path, &rel)?;
+        self.fault_point(crate::Fault::FolderRegistering);
         self.write(|tx| {
+            // Again where it is recorded, so that nothing registered or reserved since is overlapped, and it is bound
+            // only to a Source Set still registered and a Profile not Retired.
+            check_library_path(tx, config, &add.root, &rel)?;
+            let set = set_by_name(tx, &add.source_set)?;
+            let profile = active_profile_id(tx, &add.profile)?;
             let store = store_id(tx)?;
             tx.execute(
                 "INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)
@@ -773,6 +879,7 @@ impl Store {
     ) -> Result<LibraryFolder> {
         self.write(|tx| {
             let folder = folder_by_id(tx, id)?;
+            folder.check_registered()?;
             if let Some(job) = folder.active_job {
                 return Err(Error::Conflict(format!(
                     "library folder {id} has a build or check queued or running: job {job}"
@@ -792,7 +899,7 @@ impl Store {
                 )?;
             }
             if let Some(name) = &change.profile {
-                let profile = profile_id(tx, name)?;
+                let profile = active_profile_id(tx, name)?;
                 tx.execute(
                     "UPDATE library_folders SET profile_id = ?2 WHERE id = ?1",
                     params![id, profile],
@@ -805,7 +912,9 @@ impl Store {
     /// Every Library Folder, by root and path.
     pub fn library_folders(&self, config: &Config) -> Result<Vec<LibraryFolder>> {
         self.read(|c| {
-            let mut stmt = c.prepare(&format!("{FOLDER_QUERY} ORDER BY f.root, f.path"))?;
+            let mut stmt = c.prepare(&format!(
+                "{FOLDER_QUERY} WHERE f.unregistered_at IS NULL ORDER BY f.root, f.path"
+            ))?;
             let rows = stmt
                 .query_map([], folder_from_row)?
                 .collect::<Result<Vec<_>, _>>()?;

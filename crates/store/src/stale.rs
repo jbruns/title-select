@@ -198,7 +198,7 @@ pub(crate) fn note_followed_revisions(tx: &Transaction) -> Result<()> {
          JOIN audits a ON a.id = (SELECT id FROM audits WHERE source_set_id = s.id AND status = 'finished'
                                   ORDER BY finish_seq DESC LIMIT 1)
          JOIN dat_revisions n ON n.id = (SELECT max(id) FROM dat_revisions WHERE dat_id = s.dat_id)
-         WHERE s.follow AND n.id > a.dat_revision_id",
+         WHERE s.follow AND n.id > a.dat_revision_id AND s.unregistered_at IS NULL",
         [now()],
     )?;
     Ok(())
@@ -364,7 +364,8 @@ impl Store {
                      (SELECT max(w.checked_at) FROM stat_walks w WHERE w.source_set_id = s.id),
                      (SELECT max(a.finished_at) FROM audits a WHERE a.source_set_id = s.id AND a.status = 'finished'))
                  FROM source_sets s
-                 WHERE EXISTS (SELECT 1 FROM audits a WHERE a.source_set_id = s.id AND a.status = 'finished')
+                 WHERE s.unregistered_at IS NULL
+                 AND EXISTS (SELECT 1 FROM audits a WHERE a.source_set_id = s.id AND a.status = 'finished')
                  AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.source_set_id = s.id AND j.kind = 'stat_walk'
                                  AND j.state IN ('queued', 'running'))
                  ORDER BY s.name",

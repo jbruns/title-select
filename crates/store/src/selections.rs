@@ -364,6 +364,7 @@ impl Store {
         workers: Workers,
     ) -> Result<Job> {
         self.write(|tx| {
+            super::profiles::active_profile_id(tx, profile)?;
             let (version_id, _) = version_row(tx, profile, version)?;
             enqueue(tx, name, revision, version_id, actor, workers)
         })
@@ -461,6 +462,17 @@ impl Store {
                 rusqlite::params![set.map(|s| s.id), profile],
                 record_from_row,
             )?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
+    /// Every Selection made for Source Set `id`, newest first, whether it is registered or Unregistered.
+    pub(super) fn selections_by_set_id(&self, id: i64) -> Result<Vec<SelectionRecord>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "{SELECTION_QUERY} WHERE sel.source_set_id = ?1 ORDER BY sel.id DESC"
+            ))?;
+            let rows = stmt.query_map([id], record_from_row)?;
             Ok(rows.collect::<Result<_, _>>()?)
         })
     }

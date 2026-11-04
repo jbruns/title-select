@@ -30,6 +30,7 @@ use crate::parts::status::{IngestStatus, Status, StatusBadge, StatusIcon};
 use crate::parts::url_state::query_string;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::ingest_plan::IngestPlanReview;
+use crate::screens::lifecycle::{LifecycleSection, Paths, UnregisterAction};
 use crate::shell::waiting_on_decision;
 
 fn folder_href(root: &str) -> String {
@@ -393,7 +394,17 @@ fn FolderView(
         <h1>{format!("Ingest folder {root}")}</h1>
         {facts}
         <Items folder=latest base=base.clone() refresh />
-        <KeptFiles base refresh />
+        <KeptFiles base=base.clone() refresh />
+        <LifecycleSection>
+            <UnregisterAction
+                what=format!("the ingest folder {root}")
+                paths=Paths {
+                    holds: format!("{base}/holds"),
+                    unregister: format!("{base}/unregistration"),
+                }
+                left="Its files, kept files included, stay where they are, no longer managed."
+            />
+        </LifecycleSection>
     }
 }
 

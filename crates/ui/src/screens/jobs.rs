@@ -58,7 +58,7 @@ pub(crate) fn state_view(state: JobState) -> AnyView {
         .into_any()
 }
 
-fn kind_label(kind: JobKind) -> &'static str {
+pub(crate) fn kind_label(kind: JobKind) -> &'static str {
     match kind {
         JobKind::Audit => "Audit",
         JobKind::Selection => "Selection",

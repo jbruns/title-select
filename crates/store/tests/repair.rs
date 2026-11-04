@@ -2718,3 +2718,89 @@ fn a_running_stat_walk_stops_for_a_repair_and_records_nothing() {
     assert_eq!(env.store.stat_walks("Alpha").unwrap(), []);
     assert_eq!(env.store.source_set("Alpha").unwrap().stale, []);
 }
+
+/// Runs `call`, and `act` on another thread once `call` reaches `fault`. `call` goes on once `act` returns, or after a
+/// while should `act` wait for `call`.
+fn race<A: Send, B: Send>(
+    store: &Store,
+    fault: Fault,
+    call: impl FnOnce() -> A + Send,
+    act: impl FnOnce() -> B + Send,
+) -> (A, B) {
+    let (reached, wait) = std::sync::mpsc::channel();
+    let (resume, resumed) = std::sync::mpsc::channel::<()>();
+    let (reached, resumed) = (
+        std::sync::Mutex::new(reached),
+        std::sync::Mutex::new(resumed),
+    );
+    store.hook_faults(Some(std::sync::Arc::new(move |f| {
+        if f == fault {
+            let _ = reached.lock().unwrap().send(());
+            let _ = resumed
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_millis(500));
+        }
+    })));
+    let out = std::thread::scope(|s| {
+        let calling = s.spawn(call);
+        wait.recv().unwrap();
+        let acted = s.spawn(act).join().unwrap();
+        let _ = resume.send(());
+        (calling.join().unwrap(), acted)
+    });
+    store.hook_faults(None);
+    out
+}
+
+#[test]
+fn an_approved_fill_holds_its_ingest_folder_against_unregistering() {
+    let env = Env::new();
+    env.audit(AuditEvidence::Full);
+    env.ingest("pong.a26", |p| write_file(p, b"pong"));
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let refused = env.store.unregister_ingest_folder(&env.config, "in");
+    assert!(
+        matches!(&refused, Err(Error::Conflict(why)) if why.contains("repair")),
+        "{refused:?}"
+    );
+    let ended = env.run_repair_job(&approved);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    assert!(env.ingest_listing().is_empty());
+}
+
+#[test]
+fn a_fill_is_refused_when_its_ingest_folder_is_registered_anew_while_the_repair_is_being_approved()
+{
+    let env = Env::new();
+    env.audit(AuditEvidence::Full);
+    env.ingest("pong.a26", |p| write_file(p, b"pong"));
+    let plan = env.plan();
+
+    let (approved, ()) = race(
+        &env.store,
+        Fault::RepairApproving,
+        || {
+            env.store
+                .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        },
+        || {
+            env.store
+                .unregister_ingest_folder(&env.config, "in")
+                .unwrap();
+            env.store.register_ingest_folder(&env.config, "in").unwrap();
+        },
+    );
+
+    assert!(
+        matches!(&approved, Err(Error::Conflict(why)) if why.contains("unregistered")),
+        "{approved:?}"
+    );
+    assert!(env.store.claim_job().unwrap().is_none(), "nothing queued");
+    assert_eq!(env.ingest_listing(), ["pong.a26"]);
+}

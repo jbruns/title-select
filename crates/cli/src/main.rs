@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use title_select_api::JobState;
 use title_select_api::ingest::Proposal;
+use title_select_api::lifecycle::{Holds, RegistrationKind, Unregistration};
 use title_select_api::selection::SelectionProfile;
 use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
 use title_select_server::Settings;
@@ -85,6 +86,31 @@ enum Command {
     Ingest {
         #[command(subcommand)]
         command: IngestCommand,
+    },
+    /// Manage play library folders.
+    Library {
+        #[command(subcommand)]
+        command: LibraryCommand,
+    },
+    /// Manage additions sets.
+    Additions {
+        #[command(subcommand)]
+        command: AdditionsCommand,
+    },
+    /// See what is registered in a root.
+    Root {
+        #[command(subcommand)]
+        command: RootCommand,
+    },
+    /// Retire or restore selection profiles.
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommand,
+    },
+    /// List what you unregistered, whose history stays readable, and forget it.
+    Unregistered {
+        #[command(subcommand)]
+        command: UnregisteredCommand,
     },
     /// Run the service: the `/api/v1` JSON API and the audit and selection jobs. It holds the store until it stops.
     Serve {
@@ -169,6 +195,64 @@ enum SetCommand {
     List,
     /// List a source set's audits, newest first, with time, DAT revision, counts and evidence.
     History { name: String },
+    /// Show what holds a source set registered: each reason it can't be unregistered yet.
+    Holds { name: String },
+    /// Unregister a source set. No game file is touched; its audits and selections stay readable as unregistered.
+    /// Refused while anything holds it.
+    Unregister { name: String },
+}
+
+#[derive(Subcommand)]
+enum LibraryCommand {
+    /// Show what holds a play library folder registered.
+    Holds { id: i64 },
+    /// Unregister a play library folder. What was built in it stays as files Title Select no longer manages.
+    Unregister { id: i64 },
+}
+
+#[derive(Subcommand)]
+enum AdditionsCommand {
+    /// Show what holds the additions set of a system registered.
+    Holds { system: String },
+    /// Unregister the additions set of a system. No addition's file is touched.
+    Unregister { system: String },
+}
+
+#[derive(Subcommand)]
+enum RootCommand {
+    /// Show what is registered in a root: each registration that holds it in your configuration.
+    Holds { name: String },
+}
+
+#[derive(Subcommand)]
+enum ProfileCommand {
+    /// Retire a selection profile: it is hidden from new choices, and its versions stay for the selections that
+    /// used them. Refused while a play library folder uses it.
+    Retire { name: String },
+    /// Restore a retired selection profile.
+    Restore { name: String },
+}
+
+#[derive(Subcommand)]
+enum UnregisteredCommand {
+    /// List what you unregistered, newest first, with the history the store still holds for each.
+    List,
+    /// Show the history an unregistered source set, play library folder, additions set or ingest folder left: its
+    /// audits, selections, builds and jobs, newest first. Read by its id, as its name may be registered again.
+    History {
+        /// `source_set`, `library_folder`, `additions_set` or `ingest_folder`.
+        #[arg(value_parser = parse_kind)]
+        kind: RegistrationKind,
+        id: i64,
+    },
+    /// Forget an unregistered source set, play library folder, additions set or ingest folder: its audits,
+    /// selections, builds and jobs are removed from the store. No file is touched.
+    Forget {
+        /// `source_set`, `library_folder`, `additions_set` or `ingest_folder`.
+        #[arg(value_parser = parse_kind)]
+        kind: RegistrationKind,
+        id: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -179,6 +263,10 @@ enum IngestCommand {
         /// The root's name in the configuration; it must have `kind = "ingest"`.
         root: String,
     },
+    /// Show what holds an ingest folder registered.
+    Holds { root: String },
+    /// Unregister an ingest folder. No file in it is touched.
+    Unregister { root: String },
     /// Scan an ingest folder now: note what arrived, changed or went, and assess each item that has settled.
     /// Changes nothing in the folder.
     Scan {
@@ -242,6 +330,33 @@ fn write_report(report: &impl serde::Serialize, output: Option<PathBuf>) -> Resu
         None => std::io::stdout()
             .write_all(&json)
             .map_err(|e| e.to_string()),
+    }
+}
+
+fn parse_kind(s: &str) -> Result<RegistrationKind, String> {
+    serde_json::from_value(serde_json::Value::String(s.replace('-', "_"))).map_err(|_| {
+        "expected source_set, library_folder, additions_set or ingest_folder".to_owned()
+    })
+}
+
+/// Prints what holds a registration, one reason a line.
+fn print_holds(holds: Holds) {
+    if holds.holds.is_empty() {
+        println!("nothing holds it; you can unregister it");
+    }
+    for hold in holds.holds {
+        println!("{hold}");
+    }
+}
+
+fn print_unregistration(done: Unregistration) {
+    println!(
+        "{} {}: unregistered; no game file was touched, and its history stays readable as unregistered",
+        done.kind.label(),
+        done.name
+    );
+    for note in done.notes {
+        println!("{note}");
     }
 }
 
@@ -497,6 +612,218 @@ fn run(cli: Cli) -> Result<(), String> {
                     item.name
                 );
             }
+            Ok(())
+        }
+        Command::Set {
+            command: SetCommand::Holds { name },
+        } => {
+            print_holds(
+                open_store(store)?
+                    .source_set_holds(&name)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        }
+        Command::Set {
+            command: SetCommand::Unregister { name },
+        } => {
+            let config = load_config(config)?;
+            print_unregistration(
+                open_store(store)?
+                    .unregister_source_set(&config, &name)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        }
+        Command::Ingest {
+            command: IngestCommand::Holds { root },
+        } => {
+            print_holds(
+                open_store(store)?
+                    .ingest_folder_holds(&root)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        }
+        Command::Ingest {
+            command: IngestCommand::Unregister { root },
+        } => {
+            let config = load_config(config)?;
+            print_unregistration(
+                open_store(store)?
+                    .unregister_ingest_folder(&config, &root)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        }
+        Command::Library {
+            command: LibraryCommand::Holds { id },
+        } => {
+            print_holds(
+                open_store(store)?
+                    .library_folder_holds(id)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        }
+        Command::Library {
+            command: LibraryCommand::Unregister { id },
+        } => {
+            let config = load_config(config)?;
+            print_unregistration(
+                open_store(store)?
+                    .unregister_library_folder(&config, id)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        }
+        Command::Additions {
+            command: AdditionsCommand::Holds { system },
+        } => {
+            print_holds(
+                open_store(store)?
+                    .additions_set_holds(&system)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        }
+        Command::Additions {
+            command: AdditionsCommand::Unregister { system },
+        } => {
+            let config = load_config(config)?;
+            print_unregistration(
+                open_store(store)?
+                    .unregister_additions_set(&config, &system)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        }
+        Command::Root {
+            command: RootCommand::Holds { name },
+        } => {
+            let config = load_config(config)?;
+            let holds = open_store(store)?
+                .root_holds(&config, &name)
+                .map_err(|e| e.to_string())?;
+            if holds.holds.is_empty() {
+                println!(
+                    "nothing is registered in {name}; you can remove it from your configuration"
+                );
+            }
+            for hold in holds.holds {
+                println!("{hold}");
+            }
+            Ok(())
+        }
+        Command::Profile {
+            command: ProfileCommand::Retire { name },
+        } => {
+            open_store(store)?
+                .retire_profile(&name)
+                .map_err(|e| e.to_string())?;
+            println!("{name}: retired; it is hidden from new choices until you restore it");
+            Ok(())
+        }
+        Command::Profile {
+            command: ProfileCommand::Restore { name },
+        } => {
+            open_store(store)?
+                .restore_profile(&name)
+                .map_err(|e| e.to_string())?;
+            println!("{name}: restored");
+            Ok(())
+        }
+        Command::Unregistered {
+            command: UnregisteredCommand::List,
+        } => {
+            for record in open_store(store)?
+                .unregistered()
+                .map_err(|e| e.to_string())?
+            {
+                println!(
+                    "{}\t{}\t{}\t{}:{}\tunregistered {}\taudits={} selections={} builds={} jobs={} kept_files={}",
+                    record.kind.as_str(),
+                    record.id,
+                    record.name,
+                    record.root,
+                    record.path,
+                    record.unregistered_at,
+                    record.audits,
+                    record.selections,
+                    record.builds,
+                    record.jobs,
+                    record.kept_files
+                );
+            }
+            Ok(())
+        }
+        Command::Unregistered {
+            command: UnregisteredCommand::History { kind, id },
+        } => {
+            let history = open_store(store)?
+                .unregistered_history(kind, id)
+                .map_err(|e| e.to_string())?;
+            let record = &history.record;
+            println!(
+                "{} {} ({}:{}): registered {}, unregistered {}",
+                record.kind.label(),
+                record.name,
+                record.root,
+                record.path,
+                record.registered_at,
+                record.unregistered_at
+            );
+            for audit in &history.audits {
+                println!(
+                    "audit\t{}\t{}\t{}",
+                    audit.id, audit.finished_at, audit.dat_revision_version
+                );
+            }
+            for selection in &history.selections {
+                println!(
+                    "selection\t{}\t{}\t{} v{}",
+                    selection.id,
+                    selection.created_at,
+                    selection.profile.name,
+                    selection.profile.version
+                );
+            }
+            for build in &history.builds {
+                println!(
+                    "build\t{}\t{}\t{}",
+                    build.id,
+                    build.state.as_str(),
+                    build.started_at
+                );
+            }
+            for job in &history.jobs {
+                println!(
+                    "job\t{}\t{}\t{}\t{}",
+                    job.id,
+                    job.kind.as_str(),
+                    job.state.as_str(),
+                    job.created_at
+                );
+            }
+            Ok(())
+        }
+        Command::Unregistered {
+            command: UnregisteredCommand::Forget { kind, id },
+        } => {
+            let forgotten = open_store(store)?
+                .forget(kind, id)
+                .map_err(|e| e.to_string())?;
+            println!(
+                "{} {}: forgotten: {} audits, {} selections, {} builds, {} jobs and {} DAT revisions nothing else \
+                 used were removed from the store; no file was touched",
+                forgotten.kind.label(),
+                forgotten.name,
+                forgotten.audits,
+                forgotten.selections,
+                forgotten.builds,
+                forgotten.jobs,
+                forgotten.dat_revisions
+            );
             Ok(())
         }
         Command::Set {

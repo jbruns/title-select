@@ -198,6 +198,7 @@ impl Store {
         let (inputs, build, audit, kept, sources): (_, i64, i64, Kept, Sources) = self.read(|c| {
             let tx = c.unchecked_transaction()?;
             let row = folder_by_id(&tx, folder)?;
+            row.check_registered()?;
             let Some(build) = row.current_build else {
                 return Err(Error::Refused(format!(
                     "library folder {folder} has no build yet; build into it first, then clean up what a check \

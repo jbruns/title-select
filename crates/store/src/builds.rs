@@ -23,6 +23,7 @@ use title_select_api::build::{
     BuildDetail, BuildItem, BuildSummary, BuiltFile, ExpectedRom, FileStat, IncompleteReason,
     ItemKind, ItemState, Marker, PlanItem, PlanRemoval, PlanSource, RemovalKind, STAGING,
 };
+use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{
@@ -839,6 +840,15 @@ impl Store {
         let job = self.job(id)?;
         if job.state == JobState::Succeeded {
             self.retain_blobs()?;
+            // A build that removed every built file ends with the folder unregistered, unless something came to
+            // hold it meanwhile; then it stays registered, empty, and you unregister it once nothing does.
+            let content = self.plan(plan_id)?.content;
+            if content.choices.remove_all {
+                match self.unregister(config, RegistrationKind::LibraryFolder, content.folder) {
+                    Ok(_) | Err(Error::Conflict(_)) => {}
+                    Err(err) => return Err(err),
+                }
+            }
         }
         Ok(job)
     }
@@ -895,8 +905,6 @@ impl Store {
                 )));
             }
         }
-        let (set_dir, set_root) = self.set_folder(config, folder_row.source_set_id)?;
-        let set_fd = self.set_folder_dir(config, folder_row.source_set_id)?;
         // The Additions Set the plan's Additions are copied from: one, the folder's system's.
         let additions = match content.items.iter().find_map(|i| i.addition.as_ref()) {
             Some(a) => Some(
@@ -921,6 +929,16 @@ impl Store {
             })
             .collect();
         let (work, adopts) = all.split_at(all.iter().take_while(|w| w.item.kind.writes()).count());
+        // The Source Set's folder is read only by a build that writes: one that only removes or adopts files, such as
+        // removing every built file, runs while it is unavailable, or bound to another Source Set since.
+        let set = match work.is_empty() {
+            true => None,
+            false => {
+                let (set_dir, set_root) = self.set_folder(config, folder_row.source_set_id)?;
+                let set_fd = self.set_folder_dir(config, folder_row.source_set_id)?;
+                Some((set_dir, set_root, set_fd))
+            }
+        };
         // Then the built files no longer selected: each kept aside, or forgotten when it is gone already.
         let removals: Vec<(i64, &PlanRemoval)> = content
             .removals
@@ -1174,7 +1192,12 @@ impl Store {
                     w.item,
                     &mut file,
                     &staged_path,
-                    (&set_dir, &set_root, &set_fd),
+                    {
+                        let (set_dir, set_root, set_fd) = set
+                            .as_ref()
+                            .expect("a build that writes reads its source set");
+                        (set_dir.as_path(), set_root.as_path(), set_fd)
+                    },
                     additions.as_ref(),
                     built_at,
                 ) {

@@ -597,6 +597,7 @@ impl Store {
     pub fn enqueue_check(&self, folder: i64, actor: &str) -> Result<Job> {
         self.write(|tx| {
             let row = folder_by_id(tx, folder)?;
+            row.check_registered()?;
             if let Some(job) = row.active_job {
                 return Err(Error::Conflict(format!(
                     "library folder {folder} already has a build or check queued or running: job {job}"

@@ -64,6 +64,22 @@ fn newest(c: &Connection, profile_id: i64) -> Result<Option<(i64, ProfileVersion
     .optional()?)
 }
 
+/// The Profile `name`, refused while it is Retired: a Retired Profile is hidden from new choices.
+pub(super) fn active_profile_id(c: &Connection, name: &str) -> Result<i64> {
+    let id = profile_id(c, name)?;
+    let retired: bool = c.query_row(
+        "SELECT retired_at IS NOT NULL FROM profiles WHERE id = ?1",
+        [id],
+        |r| r.get(0),
+    )?;
+    if retired {
+        return Err(Error::Refused(format!(
+            "selection profile {name} is retired; restore it first"
+        )));
+    }
+    Ok(id)
+}
+
 pub(super) fn profile_id(c: &Connection, name: &str) -> Result<i64> {
     c.query_row("SELECT id FROM profiles WHERE name = ?1", [name], |r| {
         r.get(0)
@@ -101,6 +117,9 @@ fn record(c: &Connection, id: i64, name: String, created_at: String) -> Result<P
         name,
         created_at,
         latest: newest(c, id)?.map(|(_, v)| v),
+        retired_at: c.query_row("SELECT retired_at FROM profiles WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })?,
     })
 }
 
@@ -188,7 +207,7 @@ impl Store {
     ) -> Result<SavedProfile> {
         let (sha256, json) = canonical(profile);
         self.write(|tx| {
-            let id = match profile_id(tx, name) {
+            let id = match active_profile_id(tx, name) {
                 Ok(id) => id,
                 Err(Error::NotFound(_)) => create(tx, name)?,
                 Err(err) => return Err(err),
@@ -235,6 +254,48 @@ impl Store {
                 created,
                 jobs,
             })
+        })
+    }
+
+    /// Retires the Profile `name`: hidden from new choices, its versions kept for the Selections made with them.
+    /// Refused while a registered Library Folder is bound to it.
+    pub fn retire_profile(&self, name: &str) -> Result<ProfileRecord> {
+        self.write(|tx| {
+            let id = profile_id(tx, name)?;
+            let mut stmt = tx.prepare(
+                "SELECT root || '/' || path FROM library_folders
+                 WHERE profile_id = ?1 AND unregistered_at IS NULL ORDER BY root, path",
+            )?;
+            let bound = stmt
+                .query_map([id], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            if !bound.is_empty() {
+                return Err(Error::Conflict(format!(
+                    "selection profile {name} is still chosen by play library folder {}; choose another profile \
+                     for it, or unregister it, first",
+                    bound.join(", ")
+                )));
+            }
+            tx.execute(
+                "UPDATE profiles SET retired_at = coalesce(retired_at, ?2) WHERE id = ?1",
+                params![id, now()],
+            )?;
+            let created_at: String =
+                tx.query_row("SELECT created_at FROM profiles WHERE id = ?1", [id], |r| r.get(0))?;
+            record(tx, id, name.to_owned(), created_at)
+        })
+    }
+
+    /// Restores the Retired Profile `name`, so it can be chosen again.
+    pub fn restore_profile(&self, name: &str) -> Result<ProfileRecord> {
+        self.write(|tx| {
+            let id = profile_id(tx, name)?;
+            tx.execute("UPDATE profiles SET retired_at = NULL WHERE id = ?1", [id])?;
+            let created_at: String =
+                tx.query_row("SELECT created_at FROM profiles WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })?;
+            record(tx, id, name.to_owned(), created_at)
         })
     }
 }

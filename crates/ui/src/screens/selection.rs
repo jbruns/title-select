@@ -501,7 +501,7 @@ pub fn NewSelection() -> impl IntoView {
                             .and_then(Result::ok)
                             .unwrap_or_default()
                             .into_iter()
-                            .filter(|p| p.latest.is_some())
+                            .filter(|p| p.latest.is_some() && p.retired_at.is_none())
                             .map(|p| {
                                 let selected = p.name == profile.get_untracked();
                                 let label = format!(

@@ -48,6 +48,8 @@ use crate::auth::{Actor, Auth, require_operator};
 use crate::jobs::Jobs;
 use crate::selections::{Previews, UNAVAILABLE};
 
+mod lifecycle;
+
 /// The largest DAT file an upload may carry.
 pub const UPLOAD_LIMIT: usize = 512 * 1024 * 1024;
 const DEFAULT_PAGE: usize = 100;
@@ -205,6 +207,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/jobs/{id}/events", get(job_events))
         .route("/jobs/{id}/cancellation", post(cancel_job))
         .route("/events", get(all_events))
+        .merge(lifecycle::routes())
         .layer(middleware::from_fn_with_state(auth, require_operator));
     let api = Router::new()
         .route("/health", get(health))

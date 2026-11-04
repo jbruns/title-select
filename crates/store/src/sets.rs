@@ -79,7 +79,7 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
 
 pub(super) fn set_by_name(c: &Connection, name: &str) -> Result<SourceSetRow> {
     c.query_row(
-        &format!("{SET_QUERY} WHERE s.name = ?1"),
+        &format!("{SET_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL"),
         [name],
         set_from_row,
     )
@@ -190,10 +190,29 @@ impl Store {
                  read-only root"
             )));
         }
-        let rel = resolve(config, root, rel)?.rel;
+        // Held while it is checked and recorded, so that no Library Folder registered or move approved meanwhile
+        // comes to overlap it.
+        let _lifecycle = self.lifecycle_lock();
+        let resolved = resolve(config, root, rel)?;
+        let canonical = resolved
+            .path
+            .canonicalize()
+            .map_err(|e| Error::Refused(format!("{}: {e}", resolved.path.display())))?;
+        let rel = resolved.rel;
         let name = rel.rsplit('/').next().unwrap_or(&rel).to_owned();
         let (provider, dat_name) = split_dat(dat)?;
         self.write(|tx| {
+            if let Some((what, other)) = crate::folders::overlapping(
+                tx,
+                config,
+                &canonical,
+                crate::folders::Registering::SourceSet,
+            )? {
+                return Err(Error::Refused(format!(
+                    "{rel} in root {root} would overlap {what} at {}",
+                    other.display()
+                )));
+            }
             let dat_id: i64 = tx
                 .query_row(
                     "SELECT id FROM dats WHERE provider = ?1 AND name = ?2",
@@ -204,7 +223,8 @@ impl Store {
                 .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))?;
             let clash: Option<String> = tx
                 .query_row(
-                    "SELECT name FROM source_sets WHERE name = ?1 OR (root = ?2 AND path = ?3)",
+                    "SELECT name FROM source_sets
+                     WHERE (name = ?1 OR (root = ?2 AND path = ?3)) AND unregistered_at IS NULL",
                     params![name, root, rel],
                     |r| r.get(0),
                 )
@@ -225,7 +245,9 @@ impl Store {
     /// Every registered Source Set, by name.
     pub fn source_sets(&self) -> Result<Vec<SourceSetRecord>> {
         self.read(|c| {
-            let mut stmt = c.prepare(&format!("{SET_QUERY} ORDER BY s.name"))?;
+            let mut stmt = c.prepare(&format!(
+                "{SET_QUERY} WHERE s.unregistered_at IS NULL ORDER BY s.name"
+            ))?;
             let rows = stmt.query_map([], |r| set_from_row(r).map(|s| s.record))?;
             Ok(rows.collect::<Result<_, _>>()?)
         })

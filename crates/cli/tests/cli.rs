@@ -196,6 +196,66 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
 }
 
 #[test]
+fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
+    let (f, dat) = pong_fixture();
+    let config = f.dat_dir.path().join("title-select.toml");
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    std::fs::write(
+        &config,
+        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
+    )
+    .unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store)
+            .env("TITLE_SELECT_CONFIG", &config);
+        cmd
+    };
+    run_ok(
+        ts().args(["dat", "import"])
+            .arg(&dat)
+            .args(["--provider", "Test"]),
+    );
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
+    run_ok(ts().args(["audit", "--set", rel]));
+    let holds = run_ok(ts().args(["root", "holds", "sets"]));
+    assert!(holds.contains(rel), "{holds}");
+    let holds = run_ok(ts().args(["set", "holds", rel]));
+    assert!(holds.contains("nothing holds it"), "{holds}");
+
+    let done = run_ok(ts().args(["set", "unregister", rel]));
+    assert!(
+        done.contains("unregistered; no game file was touched"),
+        "{done}"
+    );
+    assert!(f.set.path().join("Pong (USA).a26").exists());
+    assert!(run_ok(ts().args(["set", "list"])).is_empty());
+    let listed = run_ok(ts().args(["unregistered", "list"]));
+    assert!(
+        listed.starts_with("source_set\t1\t") && listed.contains("audits=1"),
+        "{listed}"
+    );
+
+    let history = run_ok(ts().args(["unregistered", "history", "source-set", "1"]));
+    assert!(
+        history.starts_with(&format!("source set {rel} "))
+            && history.lines().any(|l| l.starts_with("audit\t")),
+        "{history}"
+    );
+
+    let forgotten = run_ok(ts().args(["unregistered", "forget", "source-set", "1"]));
+    assert!(forgotten.contains("forgotten: 1 audits"), "{forgotten}");
+    assert!(run_ok(ts().args(["unregistered", "list"])).is_empty());
+    let unknown = ts()
+        .args(["unregistered", "forget", "shelf", "1"])
+        .output()
+        .unwrap();
+    assert!(!unknown.status.success());
+}
+
+#[test]
 fn set_add_with_no_path_registers_the_path_the_template_proposes() {
     let (f, dat) = pong_fixture();
     let root = f.dat_dir.path().join("sets");

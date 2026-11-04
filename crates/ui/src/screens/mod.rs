@@ -9,6 +9,7 @@ mod ingest_plan;
 mod jobs;
 mod library_folders;
 mod library_plan;
+pub mod lifecycle;
 mod profiles;
 pub mod repair;
 mod roots;
@@ -29,6 +30,7 @@ pub use library_folders::{
     BuildScreen, Libraries, LibrariesPages, LibraryFolderScreen, NewLibraryFolder, PlanABuild,
     provide_planner,
 };
+pub use lifecycle::Unregistered;
 pub use profiles::{NewProfile, ProfileScreen, Profiles};
 pub use roots::Roots;
 pub use selection::{NewSelection, SelectionScreen};

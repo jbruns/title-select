@@ -4,6 +4,7 @@
 pub mod additions;
 pub mod build;
 pub mod ingest;
+pub mod lifecycle;
 pub mod paths;
 pub mod repair;
 pub mod report;
@@ -270,6 +271,9 @@ pub struct ProfileRecord {
     pub created_at: String,
     /// The newest version, or none before the first save.
     pub latest: Option<ProfileVersion>,
+    /// When it was Retired: hidden from new choices, its versions kept for the Selections made with them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retired_at: Option<String>,
 }
 
 /// One immutable version of a Selection Profile.

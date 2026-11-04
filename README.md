@@ -341,6 +341,25 @@ title-select ingest items <ingest root>
 `ingest register` registers a root of kind `ingest` as an ingest folder, writing its marker; see "Ingest folders".
 `ingest scan` scans it now, and `ingest items` lists each item with its state and what is proposed for it.
 
+```sh
+title-select set holds|unregister <source set>
+title-select library holds|unregister <library folder id>
+title-select additions holds|unregister <system>
+title-select ingest holds|unregister <ingest root>
+title-select root holds <root>
+title-select profile retire|restore <selection profile>
+title-select unregistered list
+title-select unregistered history <source-set|library-folder|additions-set|ingest-folder> <id>
+title-select unregistered forget <source-set|library-folder|additions-set|ingest-folder> <id>
+```
+
+`holds` prints what holds a registration: each reason it can't be unregistered yet, such as a library folder built
+from a source set or a job working on it. `unregister` unregisters it when nothing does; see "Unregistering". `root
+holds` lists what is registered in a root, which you unregister before you remove the root from your configuration.
+`profile retire` hides a selection profile from new choices, and `profile restore` offers it again. `unregistered
+list` lists what you unregistered with the history the store still holds for it, `unregistered history` shows that
+history (its audits, selections, builds and jobs) by the id `list` prints, and `unregistered forget` removes it.
+
 ## Service
 
 ```sh
@@ -745,6 +764,40 @@ like that of a library folder, reads the folder and changes nothing: it reports 
 missing or changed, and anything else as an unknown file. A file whose change time moved is re-hashed, and is
 intact only if it still holds what was published. It ignores `.title-select` entries and kept files.
 
+### Unregistering
+
+You can unregister a source set, a library folder, an additions set or an ingest folder. Unregistering touches no
+game file: the files stay where they are, no longer managed, and only Title Select's own marker is removed. It is
+refused while anything holds the registration, and you are told what: a library folder bound to a source set, a job
+queued or running for it, or a move, build or deletion the service hasn't finished. A root has no registration of its
+own; remove it from your configuration once nothing is registered in it.
+
+What you unregistered stays readable under unregistered: its audits, selections, builds and jobs. Its kept files
+stay too, and you can still delete them; until you do, its marker stays, so the same folder can't be registered
+again. An ingest folder's kept files are left as files Title Select no longer manages. Registering the same path
+again is a new registration, with a history of its own. Forgetting an unregistered registration removes its history
+from the store and touches no file; DAT revisions nothing else uses are then dropped by the store's usual cleanup.
+You forget it once its kept files are deleted, and a source set once every library folder built from it is
+unregistered and forgotten.
+
+Instead of unregistering in place, you can:
+
+- **Set aside** a whole source set: a repair plan, which you review and approve like any other, that renames every
+  file of the set into its kept files, in place, so it takes no more space, and then unregisters the set. It plans
+  from the set's latest audit.
+- **Set aside** a whole additions set: you review the additions it retires, then approve, and each one's file
+  becomes a kept file before the set is unregistered.
+- **Remove the built files** of a library folder: a build plan, which you review and approve, that moves every file
+  its builds placed into its kept files. Then unregister it, or delete the kept files.
+- **Move or rename** a library folder within its root: a plan that renames the folder in place, files and all, never
+  copying them. You approve it with its digest; if the service stops part way, it finds where the folder ended up
+  when it starts again.
+- **Change what a library folder builds**: bind it to another selection profile, or to another source set of the
+  same system. It is stale until its next build.
+
+You can also retire a selection profile no library folder uses. It is no longer offered for new selections or library
+folders, and its versions stay for the selections that used them. Restore it to offer it again.
+
 ### API
 
 Every body is JSON, and every error is `{"error": "...", "job": <id, when one is named>}`.
@@ -842,6 +895,23 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/additions-set/kept-deletions?system=` | plan deleting some or all of them: `{"ids"?: [id], "all"?: true}`; `201` |
 | `GET /api/v1/additions-kept-deletions/{id}`        | a plan to delete an additions set's kept files               |
 | `POST /api/v1/additions-kept-deletions/{id}/approval` | approve it: `{"digest"}`; deletes them and answers with each outcome |
+| `GET /api/v1/{source-sets/{name},libraries/{id},ingest-folders/{root}}/holds`, `GET /api/v1/additions-set/holds?system=` | what holds it registered: `{"holds": [reason]}` |
+| `GET /api/v1/roots/{name}/holds`                   | what is registered in a root                                 |
+| `POST /api/v1/{source-sets/{name},libraries/{id},ingest-folders/{root}}/unregistration`, `POST /api/v1/additions-set/unregistration?system=` | unregister it, touching no game file; `400` with what holds it |
+| `POST /api/v1/source-sets/{name}/set-aside`        | plan setting it aside: a repair plan, `201`, approved as a repair |
+| `GET /api/v1/additions-set/set-aside?system=`      | the plan to set it aside: `{"system", "set", "additions", "digest"}` |
+| `POST /api/v1/additions-set/set-aside?system=`     | approve it: `{"digest"}`; retires every addition and unregisters the set |
+| `POST /api/v1/libraries/{id}/removals`             | plan moving every built file into its kept files: a build plan, `201` |
+| `POST /api/v1/libraries/{id}/moves`                | plan moving or renaming it in its root: `{"path"}`; `201`    |
+| `GET /api/v1/library-moves/{id}`                   | a move, with its digest and outcome                          |
+| `POST /api/v1/library-moves/{id}/approval`         | approve it: `{"digest"}`; renames the folder in place        |
+| `POST /api/v1/profiles/{name}/retirement`          | retire a selection profile no library folder uses            |
+| `POST /api/v1/profiles/{name}/restoration`         | restore a retired selection profile                          |
+| `GET /api/v1/unregistered`                         | everything unregistered, with the history the store holds for each |
+| `GET /api/v1/unregistered/{kind}/{id}/history`     | its audits, selections, builds and jobs, read-only, by its id |
+| `DELETE /api/v1/unregistered/{kind}/{id}`          | forget it: `kind` is `source_set`, `library_folder`, `additions_set` or `ingest_folder`; touches no file |
+| `GET /api/v1/unregistered/{source_set,additions_set}/{id}/kept-files` | an unregistered set's kept files            |
+| `POST /api/v1/unregistered/{source_set,additions_set}/{id}/kept-deletions` | plan deleting them: `{"ids"?, "all"?}`; `201`, approved as the set's kept deletions |
 | `GET /api/v1/jobs`                                 | the latest 100 jobs, newest first                            |
 | `GET /api/v1/failed-jobs`                          | every failed job, however old, newest first                  |
 | `GET /api/v1/jobs/{id}`                            | one job                                                      |
@@ -1050,6 +1120,15 @@ Its screens:
   parent game and where it came from. You rename an addition, set or clear its parent, retire or restore it, and
   check the additions set for drift. Each set lists its kept files, which you pick, review and approve deleting, and
   any found entries a stop left.
+- **Unregister, set aside or move**, at the foot of a source set's overview, a library folder's overview, an
+  additions set and an ingest folder, says what holds it, or asks you to confirm before unregistering it. A source
+  set's "Set aside…" and a library folder's "Remove built files…" make a plan and open it for your review; an
+  additions set's lists the additions it retires before you approve; a library folder's "Move…" shows where it goes
+  before you approve. A selection profile's page retires or restores it; a retired profile isn't offered in the
+  pickers.
+- **Unregistered** (`/settings/unregistered`) lists what you unregistered. Opening one shows its history, each audit,
+  selection and build linked to its page, plans and approves deleting its kept files, and forgets it after you
+  confirm.
 - **Activity** (`/activity`) has two tabs. **Jobs** counts the running, queued and failed jobs above a list of the
   latest jobs, each with its state, kind, what it works on, progress and when it was queued. Choosing a counter shows
   only those jobs (`?state=`); choosing it again shows every job. Opening a job (`?row=<job id>`) shows its progress,

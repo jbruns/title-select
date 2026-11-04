@@ -45,6 +45,9 @@ use crate::registration;
 use crate::screens::additions::{AdditionFields, new_addition};
 use crate::screens::jobs::progress_view;
 use crate::screens::library_plan::LibraryPlan;
+use crate::screens::lifecycle::{
+    LifecycleSection, MoveFolderAction, Paths, PlanAction, UnregisterAction,
+};
 
 fn folder_href(id: i64) -> String {
     format!("/libraries/{id}")
@@ -768,7 +771,7 @@ pub fn NewLibraryFolder() -> impl IntoView {
             .and_then(Result::ok)
             .unwrap_or_default()
             .into_iter()
-            .filter(|p| p.latest.is_some())
+            .filter(|p| p.latest.is_some() && p.retired_at.is_none())
             .collect::<Vec<_>>()
     };
     let fixed = from_set.is_some() || from_selection.is_some();
@@ -1140,7 +1143,11 @@ fn FolderPage(
                 .collect_view()}
         </nav>
         {move || match tab.get() {
-            FolderTab::Overview => view! { <Overview folder=folder.get_value() /> }.into_any(),
+            FolderTab::Overview => view! {
+                <Overview folder=folder.get_value() />
+                <FolderLifecycle folder=folder.get_value() refresh />
+            }
+            .into_any(),
             FolderTab::Selection => view! {
                 <SelectionTab folder=folder.get_value() refresh />
             }
@@ -1170,6 +1177,36 @@ fn Overview(folder: LibraryFolder) -> impl IntoView {
         {folder_facts(&folder)}
         {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id /> })}
         <BuiltFiles folder=id />
+    }
+}
+
+/// Removing the folder's built files, moving it, or unregistering it.
+#[component]
+fn FolderLifecycle(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
+    let id = folder.id;
+    let base = format!("/libraries/{id}");
+    view! {
+        <LifecycleSection>
+            <PlanAction
+                label="Remove built files"
+                explain="This plans to move every file the folder's builds placed into its kept files, renamed in \
+                    place. You review the plan before anything moves; then unregister the folder, or delete the kept \
+                    files from its Kept tab."
+                    .to_string()
+                path=format!("{base}/removals")
+                href=Callback::new(move |_| tab_href(id, FolderTab::Plan))
+                refresh
+            />
+            <MoveFolderAction folder=id from=location(&folder) refresh />
+            <UnregisterAction
+                what=format!("the library folder {}", location(&folder))
+                paths=Paths {
+                    holds: format!("{base}/holds"),
+                    unregister: format!("{base}/unregistration"),
+                }
+                left="Its built files stay where they are, no longer managed."
+            />
+        </LifecycleSection>
     }
 }
 
@@ -1817,6 +1854,8 @@ fn ChangeBinding(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView
     let set = RwSignal::new(folder.source_set.clone());
     let profile = RwSignal::new(folder.profile.clone());
     let (was_set, was_profile) = (folder.source_set.clone(), folder.profile.clone());
+    // A retired profile stays offered only to the folder already bound to it.
+    let was_profile_shown = StoredValue::new(folder.profile.clone());
     let problem = RwSignal::new(None::<String>);
     let submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
@@ -1864,7 +1903,10 @@ fn ChangeBinding(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView
                                 .and_then(Result::ok)
                                 .unwrap_or_default()
                                 .into_iter()
-                                .filter(|p| p.latest.is_some())
+                                .filter(|p| {
+                                    p.latest.is_some()
+                                        && (p.retired_at.is_none() || p.name == was_profile_shown.get_value())
+                                })
                                 .map(|p| view! { <option value=p.name.clone()>{p.name.clone()}</option> })
                                 .collect_view()
                         }}

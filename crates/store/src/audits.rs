@@ -868,10 +868,16 @@ impl Store {
 
     /// The Audits of the Source Set `name`, the latest to finish first.
     pub fn history(&self, name: &str) -> Result<Vec<AuditSummary>> {
+        let set = self.read(|c| set_by_name(c, name))?;
+        self.source_set_history_by_id(set.id)
+    }
+
+    /// The finished Audits of Source Set `id`, newest first, whether it is registered or Unregistered.
+    pub fn source_set_history_by_id(&self, id: i64) -> Result<Vec<AuditSummary>> {
         self.read(|c| {
-            let set = set_by_name(c, name)?;
+            crate::sets::set_by_id(c, id)?;
             let mut stmt = c.prepare(&format!("{SUMMARY_QUERY} WHERE a.source_set_id = ?1 AND a.status = 'finished' ORDER BY a.finish_seq DESC"))?;
-            let rows = stmt.query_map([set.id], summary_from_row)?;
+            let rows = stmt.query_map([id], summary_from_row)?;
             Ok(rows.collect::<Result<_, _>>()?)
         })
     }
@@ -882,7 +888,8 @@ impl Store {
         let sets = self.source_sets()?;
         self.read(|c| {
             let mut latest = c.prepare(&format!(
-                "{SUMMARY_QUERY} WHERE s.name = ?1 AND a.status = 'finished' ORDER BY a.finish_seq DESC LIMIT 1"
+                "{SUMMARY_QUERY} WHERE s.name = ?1 AND s.unregistered_at IS NULL AND a.status = 'finished'
+                 ORDER BY a.finish_seq DESC LIMIT 1"
             ))?;
             sets.into_iter()
                 .map(|set| {

@@ -19,7 +19,7 @@ use crate::screens::{
     About, Activity, Additions, AuditScreen, BuildScreen, DatRevisions, IngestFolderScreen,
     IngestFolders, Jobs, KeptFiles, Libraries, LibrariesPages, LibraryFolderScreen,
     NewLibraryFolder, NewProfile, NewSelection, ProfileScreen, Profiles, RepairRedirect, Roots,
-    SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, provide_planner,
+    SelectionScreen, SourceSet, SourceSets, StoragePolicyScreen, Unregistered, provide_planner,
 };
 use crate::shell::{SeenJobs, moved, needing_attention, waiting_on_decision};
 
@@ -83,6 +83,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("") view=|| view! { <Redirect path="/settings/storage" options=replace() /> } />
                         <Route path=path!("storage") view=StoragePolicyScreen />
                         <Route path=path!("roots") view=Roots />
+                        <Route path=path!("unregistered") view=Unregistered />
                         <Route path=path!("about") view=About />
                     </ParentRoute>
                     // Paths from before #71, kept so that old bookmarks still open their page.
@@ -216,6 +217,7 @@ fn Settings() -> impl IntoView {
             tabs=vec![
                 Tab { path: "/settings/storage", label: "Storage policy" },
                 Tab { path: "/settings/roots", label: "Roots" },
+                Tab { path: "/settings/unregistered", label: "Unregistered" },
                 Tab { path: "/settings/about", label: "About" },
             ]
         />

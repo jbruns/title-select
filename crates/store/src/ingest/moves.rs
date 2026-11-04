@@ -27,6 +27,7 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
 use title_select_api::build::{ExpectedRom, FileStat, kept_name};
 use title_select_api::ingest::IngestMarker;
+use title_select_api::lifecycle::RegistrationKind;
 use title_select_engine::build::{
     FromSource, repack_sources, sole_payload, verify, verify_loose, write_loose,
 };
@@ -438,12 +439,33 @@ impl Store {
                 }
             }
         };
-        let id = self.write(|tx| {
+        // Recorded only while the folder is registered and the item is one found in it: a move recorded is a hold on
+        // the folder, so it can't be Unregistered until the move ends.
+        self.write(|tx| {
+            match crate::lifecycle::check_live(tx, RegistrationKind::IngestFolder, mv.folder) {
+                Ok(()) => {}
+                Err(Error::Conflict(why)) => return Ok(Err(why)),
+                Err(e) => return Err(e),
+            }
+            if let Some(item) = mv.item {
+                let found_in: Option<i64> = tx
+                    .query_row(
+                        "SELECT folder_id FROM ingest_items WHERE id = ?1",
+                        [item],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                if found_in != Some(mv.folder) {
+                    return Ok(Err(format!(
+                        "{} was not found in ingest folder {}; it was left as it is",
+                        mv.name, row.root
+                    )));
+                }
+            }
             let id = insert_move(tx, &mv, kind)?;
             also(tx, id)?;
-            Ok(id)
-        })?;
-        Ok(Ok(id))
+            Ok(Ok(id))
+        })
     }
 
     /// Advances move `id` from the step it was recorded at to its end, after checking that its folder is open, in a
@@ -466,6 +488,12 @@ impl Store {
             }
             Ok(Err(why))
         };
+        if m.state == "pending"
+            && let Err(Error::Conflict(why)) = self
+                .read(|c| crate::lifecycle::check_live(c, RegistrationKind::IngestFolder, m.folder))
+        {
+            return precondition(why);
+        }
         if m.state == "pending"
             && let Some(item) = m.item
             && let Some(why) =
@@ -1227,7 +1255,7 @@ impl Store {
         }
         let set: Option<i64> = self.read(|c| {
             Ok(c.query_row(
-                "SELECT id FROM source_sets WHERE root = ?1 AND path = ?2",
+                "SELECT id FROM source_sets WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
                 params![root, rel],
                 |r| r.get(0),
             )

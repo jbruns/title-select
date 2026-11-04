@@ -88,7 +88,7 @@ pub(super) fn ingest_by_id(c: &Connection, id: i64) -> Result<IngestRow> {
 
 fn ingest_by_root(c: &Connection, root: &str) -> Result<Option<IngestRow>> {
     Ok(c.query_row(
-        &format!("{FOLDER_QUERY} WHERE root = ?1"),
+        &format!("{FOLDER_QUERY} WHERE root = ?1 AND unregistered_at IS NULL"),
         [root],
         folder_from_row,
     )
@@ -592,7 +592,9 @@ impl SetIndex {
 impl Matcher {
     fn load(store: &Store) -> Result<Matcher> {
         let chosen = store.read(|c| {
-            let mut stmt = c.prepare("SELECT name FROM source_sets ORDER BY name")?;
+            let mut stmt = c.prepare(
+                "SELECT name FROM source_sets WHERE unregistered_at IS NULL ORDER BY name",
+            )?;
             let names = stmt
                 .query_map([], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -1098,8 +1100,30 @@ impl Store {
     /// Registers the Ingest Folder of Root `root` and writes its marker; every scan and every change then requires
     /// it. Registering again changes nothing. Refused when the folder has a marker that is not this store's for it.
     pub fn register_ingest_folder(&self, config: &Config, root: &str) -> Result<IngestFolder> {
+        // Held until its marker is written, so that no Unregistering of it comes in between to leave the marker of an
+        // Unregistered folder behind.
+        let _lifecycle = self.lifecycle_lock();
         let dir = open_ingest(config, root).map_err(Error::Refused)?;
         let store = self.read(store_id)?;
+        // Checked for a registration made before too, whose root may since point somewhere else. Registrations
+        // that could come to overlap it take the lifecycle lock held here.
+        let canonical = dir
+            .path()
+            .canonicalize()
+            .map_err(|e| Error::Refused(format!("{}: {e}", dir.path().display())))?;
+        if let Some((what, other)) = self.read(|c| {
+            crate::folders::overlapping(
+                c,
+                config,
+                &canonical,
+                crate::folders::Registering::IngestFolder,
+            )
+        })? {
+            return Err(Error::Refused(format!(
+                "ingest folder {root} would overlap {what} at {}; nothing in it was changed",
+                other.display()
+            )));
+        }
         let existing = self.read(|c| ingest_by_root(c, root))?;
         let row = match existing {
             Some(row) => row,
@@ -1126,6 +1150,7 @@ impl Store {
             store,
             ingest_folder: row.id,
         };
+        self.fault_point(crate::Fault::IngestMarking);
         match read_ingest_marker(&dir) {
             MarkerFound::Present(found) if found == marker => {}
             // Before anything was moved out, a marker that never got written is written now.
@@ -1753,6 +1778,11 @@ impl Store {
             return Err(Error::Refused(why));
         }
         let approve = |tx: &Transaction| {
+            crate::lifecycle::check_live(
+                tx,
+                title_select_api::lifecycle::RegistrationKind::IngestFolder,
+                row.id,
+            )?;
             let advanced = tx.execute(
                 "UPDATE ingest_folders SET generation = ?2 WHERE id = ?1 AND generation = ?3",
                 params![row.id, content.generation as i64, row.generation as i64],
@@ -1943,7 +1973,7 @@ impl Store {
                          (plan_id, item_id, source_set_id, sha256, actor, readers, hashers, created_at)
                      SELECT ?1, ?2, s.id, ?3, ?4, ?5, ?6, ?7
                      FROM source_sets s JOIN dats d ON d.id = s.dat_id
-                     WHERE d.provider = ?8 AND d.name = ?9",
+                     WHERE d.provider = ?8 AND d.name = ?9 AND s.unregistered_at IS NULL",
                     params![
                         plan,
                         item.item,

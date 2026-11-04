@@ -119,6 +119,15 @@ pub async fn put<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Res
         .map_err(|e| e.to_string())
 }
 
+pub async fn delete<T: DeserializeOwned>(path: &str) -> Result<T, String> {
+    let response = Request::delete(&url(path)).send().await.map_err(failed)?;
+    checked(response)
+        .await?
+        .json()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 pub async fn post_form<T: DeserializeOwned>(
     path: &str,
     form: web_sys::FormData,
