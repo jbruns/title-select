@@ -130,9 +130,26 @@ impl Client {
     }
 
     fn upload(&self, file: &str, bytes: &[u8]) -> (u16, ImportedDatRevision) {
+        let (status, body) = self.upload_form(
+            "/dat-revisions",
+            &[("provider", "No-Intro"), ("source_url", "")],
+            file,
+            bytes,
+        );
+        (status, serde_json::from_value(body).unwrap())
+    }
+
+    /// Posts a multipart form of `fields` and the file `file`, returning the status and the JSON body.
+    fn upload_form(
+        &self,
+        path: &str,
+        fields: &[(&str, &str)],
+        file: &str,
+        bytes: &[u8],
+    ) -> (u16, serde_json::Value) {
         let boundary = "title-select-test-boundary";
         let mut body = Vec::new();
-        for (name, value) in [("provider", "No-Intro"), ("source_url", "")] {
+        for (name, value) in fields {
             body.extend(format!(
                 "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
             ).bytes());
@@ -144,7 +161,7 @@ impl Client {
         body.extend(bytes);
         body.extend(format!("\r\n--{boundary}--\r\n").bytes());
         let mut response = self
-            .post("/dat-revisions")
+            .post(path)
             .header(
                 "Content-Type",
                 format!("multipart/form-data; boundary={boundary}"),
@@ -441,6 +458,45 @@ fn an_identity_header_is_trusted_only_from_a_trusted_proxy() {
     assert_eq!(response.status(), 202);
     let job: Job = response.body_mut().read_json().unwrap();
     assert_eq!(job.actor, "the Operator");
+}
+
+#[test]
+fn the_api_uploads_a_cue_pack_for_a_dat_and_lists_it() {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System.dat", &env.dat());
+    let pack = env.tmp.path().join("cues.zip");
+    write_zip(
+        &pack,
+        &[("Pong (USA).cue", b"FILE \"Pong (USA).bin\" BINARY\n")],
+    );
+    let bytes = std::fs::read(&pack).unwrap();
+
+    let (status, body) = client.upload_form(
+        "/cue-packs",
+        &[("dat", "No-Intro/Test - System"), ("source_url", "")],
+        "Test - System (cues).zip",
+        &bytes,
+    );
+    assert_eq!(status, 201, "{body}");
+    let imported: title_select_api::CuePackImport = serde_json::from_value(body).unwrap();
+    assert_eq!(imported.outcome, ImportOutcome::Added);
+    assert_eq!(imported.pack.cues, 1);
+    assert_eq!(
+        imported.pack.origin,
+        title_select_api::CuePackOrigin::Import
+    );
+    let packs: Vec<title_select_api::CuePackRecord> = client.json("/cue-packs");
+    assert_eq!(packs, [imported.pack]);
+
+    let (status, _) = client.upload_form(
+        "/cue-packs",
+        &[("dat", "No-Intro/Missing")],
+        "cues.zip",
+        &bytes,
+    );
+    assert_eq!(status, 400);
 }
 
 #[test]

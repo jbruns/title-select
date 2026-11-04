@@ -6,7 +6,8 @@ use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
 use title_select_api::{
-    AuditSummary, Dat, DatRevisionRecord, ImportOutcome, ImportedDatRevision, SourceSetRecord,
+    AuditSummary, CuePackImport, CuePackRecord, Dat, DatRevisionRecord, ImportOutcome,
+    ImportedDatRevision, SourceSetRecord,
 };
 
 use crate::api;
@@ -33,6 +34,8 @@ struct UsedBy {
 struct RevisionItem {
     revision: DatRevisionRecord,
     used_by: Vec<UsedBy>,
+    /// The cue packs imported for its DAT.
+    cue_packs: Vec<CuePackRecord>,
 }
 
 impl RevisionItem {
@@ -140,6 +143,7 @@ impl ListRow for RevisionItem {
 async fn revisions() -> Result<Vec<RevisionItem>, String> {
     let dats: Vec<Dat> = api::get("/dats").await?;
     let sets: Vec<SourceSetRecord> = api::get("/source-sets").await?;
+    let packs: Vec<CuePackRecord> = api::get("/cue-packs").await?;
     let mut used_by: BTreeMap<String, Vec<UsedBy>> = BTreeMap::new();
     for set in sets {
         let history: Vec<AuditSummary> =
@@ -160,6 +164,11 @@ async fn revisions() -> Result<Vec<RevisionItem>, String> {
         .flat_map(|dat| dat.revisions.into_iter().rev())
         .map(|revision| RevisionItem {
             used_by: used_by.remove(&revision.sha256).unwrap_or_default(),
+            cue_packs: packs
+                .iter()
+                .filter(|p| p.dat == revision.dat())
+                .cloned()
+                .collect(),
             revision,
         })
         .collect())
@@ -219,9 +228,13 @@ pub fn DatRevisions() -> impl IntoView {
     let statuses =
         Signal::derive(move || present(rows.get().iter().map(RevisionItem::file_status)));
     let importing = RwSignal::new(false);
+    let importing_cues = RwSignal::new(false);
     let said = RwSignal::new(None::<String>);
     let actions = vec![
         ToolAction::page(Glyph::Upload, "Import", move || importing.set(true)),
+        ToolAction::page(Glyph::Upload, "Import cue pack", move || {
+            importing_cues.set(true)
+        }),
         ToolAction::checked(Glyph::Copy, "Copy SHA-256s", move |chosen| {
             let n = chosen.rows.len();
             let text = chosen
@@ -242,7 +255,9 @@ pub fn DatRevisions() -> impl IntoView {
     view! {
         <h1>"DAT revisions"</h1>
         <p class="lede">
-            "Each import of a DAT file is a DAT revision, named by its SHA-256. Newest import first within each DAT."
+            "Each import of a DAT file is a DAT revision, named by its SHA-256. Newest import first within each DAT. \
+             Import a cue pack, a ZIP of a disc system's cue sheets, and a repair can fill a missing cue sheet, or \
+             replace one that doesn't match, from it."
         </p>
         {move || match items.get() {
             None => view! { <Loading what="the DAT revisions" /> }.into_any(),
@@ -267,6 +282,91 @@ pub fn DatRevisions() -> impl IntoView {
         <Drawer open=importing title="Import a DAT">
             <Upload on_done=Callback::new(move |_| uploaded.update(|n| *n += 1)) />
         </Drawer>
+        <Drawer open=importing_cues title="Import a cue pack">
+            <CuePackUpload on_done=Callback::new(move |_| uploaded.update(|n| *n += 1)) />
+        </Drawer>
+    }
+}
+
+#[component]
+fn CuePackUpload(on_done: Callback<()>) -> impl IntoView {
+    let form = NodeRef::<Form>::new();
+    let outcome = RwSignal::new(None::<Result<CuePackImport, String>>);
+    let busy = RwSignal::new(false);
+    let dats = LocalResource::new(|| api::get::<Vec<Dat>>("/dats"));
+    let submit = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        let Some(el) = form.get_untracked() else {
+            return;
+        };
+        let Ok(data) = web_sys::FormData::new_with_form(&el) else {
+            return;
+        };
+        busy.set(true);
+        leptos::task::spawn_local(async move {
+            let result = api::post_form::<CuePackImport>("/cue-packs", data).await;
+            busy.set(false);
+            if result.is_ok() {
+                el.reset();
+                on_done.run(());
+            }
+            outcome.set(Some(result));
+        });
+    };
+    view! {
+        <section aria-label="Import a cue pack">
+            <form class="form" node_ref=form on:submit=submit>
+                <label>
+                    "DAT"
+                    <select name="dat" required>
+                        {move || {
+                            dats.get()
+                                .and_then(Result::ok)
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|d| view! { <option value=d.dat.clone()>{d.dat.clone()}</option> })
+                                .collect_view()
+                        }}
+                    </select>
+                </label>
+                <label>
+                    "Source URL"
+                    <input type="url" name="source_url" placeholder="Where the cue pack came from" />
+                </label>
+                <label>
+                    "Cue pack"
+                    <input type="file" name="file" required accept=".zip" />
+                </label>
+                <button type="submit" class="primary" disabled=busy>
+                    {move || if busy.get() { "Importing…" } else { "Import" }}
+                </button>
+            </form>
+            {move || {
+                outcome
+                    .get()
+                    .map(|outcome| match outcome {
+                        Ok(imported) => {
+                            let p = imported.pack;
+                            let what = match imported.outcome {
+                                ImportOutcome::Added => "Added cue pack",
+                                ImportOutcome::AlreadyImported => "Already imported: cue pack",
+                                ImportOutcome::Restored => "Restored the kept file of cue pack",
+                            };
+                            let sheets = match p.cues {
+                                1 => "1 cue sheet".to_string(),
+                                n => format!("{n} cue sheets"),
+                            };
+                            view! {
+                                <p class="done" role="status">
+                                    {format!("{what} {} for {} ({sheets}).", p.file, p.dat)}
+                                </p>
+                            }
+                                .into_any()
+                        }
+                        Err(message) => view! { <Problem message /> }.into_any(),
+                    })
+            }}
+        </section>
     }
 }
 
@@ -320,6 +420,34 @@ fn revision_detail(item: RevisionItem) -> AnyView {
                                                 u.source_set,
                                                 if u.pruned { ", pruned" } else { "" },
                                             )}
+                                        </li>
+                                    }
+                                })
+                                .collect_view()}
+                        </ul>
+                    }
+                        .into_any()
+                }}
+            </dd>
+            <dt>"Cue packs"</dt>
+            <dd>
+                {if item.cue_packs.is_empty() {
+                    view! { "None imported for this DAT" }.into_any()
+                } else {
+                    view! {
+                        <ul>
+                            {item
+                                .cue_packs
+                                .into_iter()
+                                .map(|p| {
+                                    let sheets = match p.cues {
+                                        1 => "1 cue sheet".to_string(),
+                                        n => format!("{n} cue sheets"),
+                                    };
+                                    view! {
+                                        <li>
+                                            <code class="path">{p.file}</code>
+                                            {format!(", {sheets}, imported {}", when(&p.imported_at))}
                                         </li>
                                     }
                                 })

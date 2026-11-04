@@ -85,6 +85,12 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
                 .post(upload_dat)
                 .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
         )
+        .route(
+            "/cue-packs",
+            get(cue_packs)
+                .post(upload_cue_pack)
+                .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
+        )
         .route("/path-templates", get(path_templates))
         .route("/source-sets", get(source_sets).post(add_source_set))
         .route("/source-set-summaries", get(source_set_summaries))
@@ -434,6 +440,60 @@ async fn upload_dat(
             outcome,
             dat_revision,
         }),
+    ))
+}
+
+async fn cue_packs(
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<title_select_api::CuePackRecord>>> {
+    Ok(Json(blocking(&state, Store::cue_packs).await?))
+}
+
+/// Imports a cue pack you upload, for the DAT named in the form's `dat` field as `<provider>/<name>`.
+async fn upload_cue_pack(
+    State(state): State<AppState>,
+    multipart: Result<Multipart, axum::extract::multipart::MultipartRejection>,
+) -> ApiResult<(StatusCode, Json<title_select_api::CuePackImport>)> {
+    let mut multipart = multipart?;
+    let (mut dat, mut source_url, mut file) = (None, None, None);
+    while let Some(field) = multipart.next_field().await? {
+        match field.name() {
+            Some("dat") => dat = Some(field.text().await?),
+            Some("source_url") => source_url = Some(field.text().await?).filter(|s| !s.is_empty()),
+            Some("file") => {
+                let name = field.file_name().unwrap_or_default().to_owned();
+                file = Some((name, field.bytes().await?));
+            }
+            other => {
+                return Err(ApiError::bad_request(format!(
+                    "unexpected form field {:?}",
+                    other.unwrap_or_default()
+                )));
+            }
+        }
+    }
+    let dat = dat.ok_or_else(|| ApiError::bad_request("the form has no DAT"))?;
+    let (name, bytes) = file.ok_or_else(|| ApiError::bad_request("the form has no file"))?;
+    if name.is_empty() {
+        return Err(ApiError::bad_request("the file has no filename"));
+    }
+    let (pack, outcome) = blocking(&state, move |store| {
+        store.import_cue_pack_bytes(
+            &bytes,
+            &name,
+            &dat,
+            source_url.as_deref(),
+            title_select_api::CuePackOrigin::Import,
+        )
+    })
+    .await?;
+    let status = match outcome {
+        title_select_api::ImportOutcome::Added => StatusCode::CREATED,
+        _ => StatusCode::OK,
+    };
+    Ok((
+        status,
+        Json(title_select_api::CuePackImport { pack, outcome }),
     ))
 }
 

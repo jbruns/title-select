@@ -150,6 +150,22 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
             .args(["--provider", "Test"]),
     );
     assert!(imported.contains("Test/Test - System"), "{imported}");
+    let pack = f.dat_dir.path().join("cues.zip");
+    write_zip(
+        &pack,
+        &[("Pong (USA).cue", b"FILE \"Pong (USA).bin\" BINARY\n")],
+    );
+    let cues = run_ok(
+        ts().args(["cue-pack", "import"])
+            .arg(&pack)
+            .args(["--dat", "Test/Test - System"]),
+    );
+    assert!(cues.contains("(1 cue sheet) imported"), "{cues}");
+    let listed = run_ok(ts().args(["cue-pack", "list"]));
+    assert!(
+        listed.starts_with("Test/Test - System\tcues.zip\t1 cue sheet"),
+        "{listed}"
+    );
     run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
     let report: serde_json::Value =
         serde_json::from_str(&run_ok(ts().args(["audit", "--set", rel]))).unwrap();
