@@ -2241,12 +2241,7 @@ fn deletion_by_id(c: &Connection, id: i64) -> Result<KeptDeletion> {
 /// The key under which two file names are one file on any file system, including a case-insensitive, normalizing one:
 /// lowercased, as a stand-in for case folding, and in NFC. Every set of names reserved in the kept files is keyed so.
 pub(crate) fn name_key(name: &str) -> String {
-    use unicode_normalization::UnicodeNormalization;
-    name.nfd()
-        .collect::<String>()
-        .to_lowercase()
-        .nfc()
-        .collect()
+    title_select_api::build::name_key(name)
 }
 
 #[cfg(test)]

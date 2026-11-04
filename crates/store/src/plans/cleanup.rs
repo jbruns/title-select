@@ -24,7 +24,7 @@ use crate::checks::{Seen, loose_names, reuse, storage_targets, store_check};
 use crate::config::Config;
 use crate::folder_dir::{FolderDir, Identity, file_stat};
 use crate::folders::{folder_by_id, is_own, open_folder};
-use crate::kept::{kept_where, open_retention};
+use crate::kept::{kept_where, name_key, open_retention};
 use crate::{Error, Fault, Result, Store};
 
 /// The ROMs the DAT lists for `game`, in DAT order.
@@ -118,7 +118,7 @@ fn fingerprint(c: &Connection, inputs: &Inputs, found: Option<&Folder>) -> Resul
     }
     for (target, built) in &inputs.built {
         let at = files
-            .and_then(|files| files.get(&target.to_lowercase()))
+            .and_then(|files| files.get(&name_key(target)))
             .filter(|f| f.name == *target)
             .map_or_else(|| "absent".to_owned(), stat);
         lines.insert(format!("built\t{target}\t{}\t{at}", built.build));
@@ -171,7 +171,7 @@ impl Names<'_> {
     /// Claims `name` for an entry the cleanup puts there, or says why it cannot: something else is there, in any
     /// case, or another of the cleanup's actions puts something there.
     fn claim(&mut self, name: &str) -> std::result::Result<(), String> {
-        let lower = name.to_lowercase();
+        let lower = name_key(name);
         if is_own(name) {
             return Err(format!("{name} is a name Title Select keeps for itself"));
         }
@@ -315,7 +315,7 @@ impl Store {
                                 Some(CleanupAction::KeepAside | CleanupAction::AddAddition)
                             )
                         })
-                        .map(|d| d.name.to_lowercase())
+                        .map(|d| name_key(&d.name))
                         .collect(),
                     claimed: HashSet::new(),
                 };
@@ -343,7 +343,7 @@ impl Store {
                 for d in &scan.drift {
                     let Some(f) = folder_found
                         .files
-                        .get(&d.name.to_lowercase())
+                        .get(&name_key(&d.name))
                         .filter(|f| f.name == d.name)
                     else {
                         continue;
@@ -439,7 +439,7 @@ impl Store {
                                 Err(why) => Some(format!("{} cannot be adopted: {why}", d.name)),
                                 Ok((game, roms, target)) => {
                                     let claimed = if target == d.name {
-                                        names.claimed.insert(target.to_lowercase());
+                                        names.claimed.insert(name_key(&target));
                                         Ok(())
                                     } else {
                                         names.claim(&target)
@@ -493,7 +493,7 @@ impl Store {
                     let checked = scan.files.iter().find(|c| c.target == *target);
                     let f = folder_found
                         .files
-                        .get(&target.to_lowercase())
+                        .get(&name_key(target))
                         .filter(|f| f.name == *target && f.regular);
                     let intact = checked.is_some_and(|c| {
                         matches!(
@@ -644,6 +644,7 @@ impl Store {
                 }),
                 storage: inputs.storage,
                 notes: Vec::new(),
+                sbi_pack: None,
             },
             previous: None,
             changes: Vec::new(),

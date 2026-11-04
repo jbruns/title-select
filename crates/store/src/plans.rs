@@ -32,7 +32,7 @@ use super::folders::{
     FolderRow, MARKER_NEW, folder_by_id, is_own, marker_problem, open_folder, store_id,
 };
 use super::jobs::{build_hold, job_by_id};
-use super::kept::{deletion_active, folder_dirs, is_dir_temp};
+use super::kept::{deletion_active, folder_dirs, is_dir_temp, name_key};
 use super::selections::{read_rows, read_selection, record_by_id};
 use super::sets::{resolve, set_by_id};
 use super::{Error, Result, Store, now};
@@ -482,7 +482,7 @@ fn check_folder(
             continue;
         };
         files.insert(
-            name.to_lowercase(),
+            name_key(name),
             Found {
                 name: name.clone(),
                 file: file_stat(&st),
@@ -621,7 +621,7 @@ fn removals(
         return Vec::new();
     };
     let targets: HashSet<&str> = items.iter().map(|i| i.target.as_str()).collect();
-    let lowered: HashSet<String> = items.iter().map(|i| i.target.to_lowercase()).collect();
+    let lowered: HashSet<String> = items.iter().map(|i| name_key(&i.target)).collect();
     // Files a selected game's item converts, kept aside by that item once its new file is written.
     let converted: HashSet<&str> = items
         .iter()
@@ -639,7 +639,14 @@ fn removals(
         {
             continue;
         }
-        if let Some(item) = items.iter().find(|i| i.game == built.game) {
+        // A file generated beside its discs that the plan no longer writes, an SBI file or an `.m3u`, is no longer
+        // needed, whether or not its games are still selected.
+        let generated = built.roms.is_empty();
+        if let Some(item) = items
+            .iter()
+            .find(|i| i.game == built.game)
+            .filter(|_| !generated)
+        {
             let outcome = scan
                 .files
                 .iter()
@@ -656,7 +663,7 @@ fn removals(
                 keep: None,
                 converts_to: None,
             };
-            let intact = folder.files.get(&target.to_lowercase()).filter(|f| {
+            let intact = folder.files.get(&name_key(target)).filter(|f| {
                 f.regular
                     && f.name == *target
                     && matches!(
@@ -718,7 +725,7 @@ fn removals(
             out.push(removal);
             continue;
         }
-        let lower = target.to_lowercase();
+        let lower = name_key(target);
         let checked = scan.files.iter().find(|f| f.target == *target);
         let found = folder.files.get(&lower);
         let mut removal = PlanRemoval {
@@ -730,16 +737,17 @@ fn removals(
             converts_to: None,
         };
         let outcome = checked.map(|c| c.outcome);
-        if lowered.contains(&lower) {
+        let gone = match generated {
+            true => format!("{target} is no longer needed"),
+            false => format!("{} is no longer selected", built.game),
+        };
+        if lowered.contains(&name_key(target)) {
             removal.reason = format!(
                 "{target} differs from a selected game's file only in case; it is left as it is"
             );
         } else if outcome == Some(FileOutcome::Missing) {
             removal.kind = RemovalKind::Forget;
-            removal.reason = format!(
-                "{} is no longer selected, and {target} is gone already; its record is dropped",
-                built.game
-            );
+            removal.reason = format!("{gone}, and {target} is gone already; its record is dropped");
         } else if let Some(found) = found.filter(|f| {
             f.regular
                 && f.name == *target
@@ -749,10 +757,8 @@ fn removals(
                 )
         }) {
             removal.kind = RemovalKind::Keep;
-            removal.reason = format!(
-                "{} is no longer selected; {target} is kept aside in the folder's retention area",
-                built.game
-            );
+            removal.reason =
+                format!("{gone}; {target} is kept aside in the folder's retention area");
             removal.keep = Some(keep_of(
                 KeepReason::Removal,
                 found,
@@ -761,8 +767,7 @@ fn removals(
             ));
         } else {
             removal.reason = format!(
-                "{} is no longer selected, but {target} changed since it was built{}; it is left as it is",
-                built.game,
+                "{gone}, but {target} changed since it was built{}; it is left as it is",
                 checked
                     .and_then(|c| c.detail.as_deref())
                     .map(|d| format!(" ({d})"))
@@ -1081,6 +1086,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             cleanup: None,
             storage: inputs.storage,
             notes,
+            sbi_pack: inputs.sbi.as_ref().map(|p| p.sha256.clone()),
         },
         previous,
         changes,
@@ -1208,30 +1214,34 @@ fn plan_items(
     for discs in playlists.values_mut() {
         discs.sort();
     }
+    // Every file and every disc layout folder the plan lays out, by the key names collide by on a share.
     let mut lowered: HashMap<String, usize> = HashMap::new();
+    let mut folders: HashMap<String, String> = HashMap::new();
+    let mut reserve = |target: &str| {
+        *lowered.entry(name_key(target)).or_default() += 1;
+        if let Some((dir, _)) = target.rsplit_once('/') {
+            folders.insert(name_key(dir), dir.to_owned());
+        }
+    };
     for (_, title) in &winners {
         for (target, ..) in files_of(title) {
-            *lowered.entry(target.to_lowercase()).or_default() += 1;
+            reserve(&target);
         }
     }
     for release in playlists.keys() {
-        *lowered
-            .entry(playlist_name(release).to_lowercase())
-            .or_default() += 1;
+        reserve(&playlist_name(release));
     }
     for (_, _, target, _) in &sbis {
-        *lowered.entry(target.to_lowercase()).or_default() += 1;
+        reserve(target);
     }
     // An Addition is built under its own name, after every selected Game: one whose file name a Game's
     // differs from only in case is blocked, never the Game.
     let mut added: HashMap<String, usize> = HashMap::new();
     for a in &inputs.additions {
         *added
-            .entry(
-                crate::additions::built_target(inputs.storage, &a.addition)
-                    .0
-                    .to_lowercase(),
-            )
+            .entry(name_key(
+                &crate::additions::built_target(inputs.storage, &a.addition).0,
+            ))
             .or_default() += 1;
     }
     let wanted = winners
@@ -1274,7 +1284,15 @@ fn plan_items(
                 }
             }
         };
-        let existing = files.and_then(|f| f.get(&target.to_lowercase()));
+        // A disc layout folder at the target holds the release's files in its other layout: they are kept aside
+        // before the target is written, and the folder goes with them.
+        let existing = files
+            .and_then(|f| f.get(&name_key(&target)))
+            .filter(|found| {
+                let inside = format!("{}/", name_key(&target));
+                !(found.directory
+                    && files.is_some_and(|f| f.keys().any(|k| k.starts_with(&inside))))
+            });
         let mut item = PlanItem {
             group: group.to_owned(),
             game: game.to_owned(),
@@ -1306,13 +1324,13 @@ fn plan_items(
             let mut names = BTreeSet::new();
             item.roms
                 .iter()
-                .find(|r| !names.insert(r.name.as_str()))
+                .find(|r| !names.insert(name_key(&r.name)))
                 .map(|r| r.name.clone())
         };
         let built = inputs.built.get(&target);
         let blocked = if let Some(a) = addition {
-            let lower = target.to_lowercase();
-            if lowered.contains_key(&lower) {
+            let lower = name_key(&target);
+            if lowered.contains_key(&lower) || folders.contains_key(&lower) {
                 Some(format!(
                     "a selected game's file is {target}, or differs from it only in case; rename the addition"
                 ))
@@ -1328,9 +1346,11 @@ fn plan_items(
             }
         } else if !games.contains_key(game) {
             Some(format!("the DAT revision lists no game named {game}"))
+        } else if let Some(reason) = invalid_game(game) {
+            Some(reason)
         } else if let Some(reason) = invalid_path(&target) {
             Some(reason)
-        } else if let Some(reason) = in_the_way(files, &target) {
+        } else if let Some(reason) = in_the_way(inputs, files, scan, &target, game) {
             Some(reason)
         } else if let Some(reason) = item
             .roms
@@ -1338,11 +1358,8 @@ fn plan_items(
             .find_map(|r| invalid_name(&r.name).map(|why| format!("a ROM's name: {why}")))
         {
             Some(reason)
-        } else if lowered[&target.to_lowercase()] > 1 {
-            Some(format!(
-                "another selected game's file differs from {target} only in case, which Windows and SMB cannot tell \
-                 apart"
-            ))
+        } else if let Some(reason) = clash(&lowered, &folders, &target) {
+            Some(reason)
         } else {
             duplicate.map(|name| format!("the DAT lists two ROMs named {name} in it"))
         };
@@ -1552,6 +1569,7 @@ fn plan_items(
                     files,
                     scan,
                     lowered: &lowered,
+                    folders: &folders,
                     unresolved,
                 },
                 group,
@@ -1580,6 +1598,7 @@ fn plan_items(
                     files,
                     scan,
                     lowered: &lowered,
+                    folders: &folders,
                     unresolved,
                 },
                 group,
@@ -1602,7 +1621,45 @@ fn plan_items(
             .map_or(items.len(), |n| at + n);
         items.insert(at, item);
     }
+    whole_releases(&mut items);
     items
+}
+
+/// A release goes in place whole or not at all: every disc, every track, its `.m3u` and its SBI files. Once one of
+/// them can't be built, or is left as it is, nothing else of the release is written, and each says which one.
+fn whole_releases(items: &mut [PlanItem]) {
+    let builds = |kind: ItemKind| {
+        matches!(
+            kind,
+            ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged | ItemKind::Adopt
+        )
+    };
+    let mut stopped: HashMap<String, String> = HashMap::new();
+    for item in items
+        .iter()
+        .filter(|i| i.addition.is_none() && !builds(i.kind))
+    {
+        stopped
+            .entry(release_of(&item.game))
+            .or_insert_with(|| match &item.reason {
+                Some(why) => format!("{} can't be built: {why}", item.target),
+                None => format!("{} can't be built", item.target),
+            });
+    }
+    for item in items
+        .iter_mut()
+        .filter(|i| i.addition.is_none() && i.kind != ItemKind::Unchanged && builds(i.kind))
+    {
+        if let Some(why) = stopped.get(&release_of(&item.game)) {
+            item.kind = ItemKind::Blocked;
+            item.reason = Some(format!(
+                "{} goes in place only with every file of its release, and {why}",
+                item.target
+            ));
+            item.keep = None;
+            item.converts = None;
+        }
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1612,18 +1669,94 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Why `target`, a path in the folder, cannot be written: why one of its names cannot.
-fn invalid_path(target: &str) -> Option<String> {
-    target.split('/').find_map(invalid_name)
+/// Why `game`, a name from the DAT, can't name what a play library lays out for it: it must be one name, not one
+/// Title Select keeps its own work under, as every file and folder the layout makes from it is.
+fn invalid_game(game: &str) -> Option<String> {
+    invalid_name(game)
+        .or_else(|| {
+            title_select_api::storage::is_reserved_name(game)
+                .then(|| format!("{game} is a name Title Select keeps its own work under"))
+        })
+        .map(|why| format!("the game's name: {why}"))
 }
 
-/// Why something in the folder is in the way of `target`: a file where its disc layout folder would be, or a disc
-/// layout folder holding files where it would be.
-fn in_the_way(files: Option<&Files>, target: &str) -> Option<String> {
+/// Why `target`, a path in the folder, cannot be written: why one of its names cannot, or why it is in a folder no
+/// disc layout makes. A disc layout makes only `.multidisc/` and `<game>.cue/`, one level deep.
+fn invalid_path(target: &str) -> Option<String> {
+    let reserved = |name: &str| {
+        title_select_api::storage::is_reserved_name(name)
+            .then(|| format!("{name} is a name Title Select keeps its own work under"))
+    };
+    if let Some(why) = target
+        .split('/')
+        .find_map(|name| invalid_name(name).or_else(|| reserved(name)))
+    {
+        return Some(why);
+    }
+    match target.split('/').collect::<Vec<_>>().as_slice() {
+        [_] => None,
+        [dir, _] if *dir == MULTIDISC || dir.to_ascii_lowercase().ends_with(".cue") => None,
+        _ => Some(format!("{target} is in a folder no disc layout makes")),
+    }
+}
+
+/// Why `target` clashes with another file or folder the plan lays out, as a share that ignores case and Unicode
+/// normalization sees them: two files at one name, or a file where a disc layout folder would be.
+fn clash(
+    lowered: &HashMap<String, usize>,
+    folders: &HashMap<String, String>,
+    target: &str,
+) -> Option<String> {
+    let key = name_key(target);
+    if lowered.get(&key).is_some_and(|n| *n > 1) {
+        return Some(format!(
+            "another selected game's file differs from {target} only in case or Unicode form, which Windows and SMB \
+             cannot tell apart"
+        ));
+    }
+    if let Some(dir) = folders.get(&key) {
+        return Some(format!(
+            "the folder {dir} holds another selected game's files where this file would be"
+        ));
+    }
+    let (dir, _) = target.rsplit_once('/')?;
+    lowered
+        .contains_key(&name_key(dir))
+        .then(|| format!("another selected game's file is where the folder {dir} would be"))
+}
+
+/// Why something in the folder is in the way of `target`, a file of `game`: a file where its disc layout folder
+/// would be, or a disc layout folder holding files where it would be. A file of `game`'s own release, still as a
+/// Build wrote it, is not: the release's other layout moved it, and it is kept aside as its unit goes in place.
+fn in_the_way(
+    inputs: &Inputs,
+    files: Option<&Files>,
+    scan: Option<&Scan>,
+    target: &str,
+    game: &str,
+) -> Option<String> {
     let files = files?;
+    let release = title_select_api::storage::release_of(game);
+    // A file the release's unit keeps aside before it puts its own files in place.
+    let ours = |found: &Found| {
+        found.regular
+            && inputs
+                .built
+                .get(&found.name)
+                .is_some_and(|b| title_select_api::storage::release_of(&b.game) == release)
+            && scan.is_some_and(|s| {
+                s.files.iter().any(|f| {
+                    f.target == found.name
+                        && matches!(
+                            f.outcome,
+                            FileOutcome::Unchanged | FileOutcome::Refreshed | FileOutcome::Repacked
+                        )
+                })
+            })
+    };
     if let Some((dir, _)) = target.split_once('/') {
-        let found = files.get(&dir.to_lowercase())?;
-        if found.directory && found.name == dir {
+        let found = files.get(&name_key(dir))?;
+        if (found.directory && found.name == dir) || ours(found) {
             return None;
         }
         return Some(format!(
@@ -1631,15 +1764,35 @@ fn in_the_way(files: Option<&Files>, target: &str) -> Option<String> {
             found.name
         ));
     }
-    let inside = format!("{}/", target.to_lowercase());
-    files
-        .keys()
-        .any(|name| name.starts_with(&inside))
-        .then(|| {
+    let inside = format!("{}/", name_key(target));
+    let held: Vec<&Found> = files
+        .iter()
+        .filter(|(name, _)| name.starts_with(&inside))
+        .map(|(_, found)| found)
+        .collect();
+    if held.is_empty() {
+        return None;
+    }
+    held.iter()
+        .find(|found| !found.directory && !ours(found))
+        .or_else(|| held.iter().find(|found| found.directory))
+        .map(|found| {
             format!(
-                "the folder {target} holds files where this file would be; build the game as TorrentZip once to keep                  them aside, then build it as the storage policy says"
+                "the folder {target} holds {}, which is not this game's file as a build wrote it, where this file \
+                 would be; move it out of the folder to build here",
+                found.name
             )
         })
+}
+
+/// Whether the build keeps `removal`, a file a Build wrote, aside before it puts `target` in place: it is at, or
+/// in a folder at, a path `target` needs.
+pub(crate) fn clears(removal: &str, target: &str) -> bool {
+    let (removal, target) = (name_key(removal), name_key(target));
+    removal.starts_with(&format!("{target}/"))
+        || target
+            .split_once('/')
+            .is_some_and(|(dir, _)| removal == dir)
 }
 
 /// What a generated file is planned beside.
@@ -1648,6 +1801,7 @@ struct GeneratedAt<'a> {
     files: Option<&'a Files>,
     scan: Option<&'a Scan>,
     lowered: &'a HashMap<String, usize>,
+    folders: &'a HashMap<String, String>,
     unresolved: &'a BTreeSet<&'a str>,
 }
 
@@ -1661,7 +1815,7 @@ fn generate(
     file: GeneratedFile,
     parts: &[(ItemKind, String)],
 ) -> PlanItem {
-    let existing = at.files.and_then(|f| f.get(&target.to_lowercase()));
+    let existing = at.files.and_then(|f| f.get(&name_key(&target)));
     let mut item = PlanItem {
         group: group.to_owned(),
         game: game.to_owned(),
@@ -1689,18 +1843,19 @@ fn generate(
     }) {
         item.kind = ItemKind::Unresolved;
         item.reason = Some(format!(
-            "the group {group} is unresolved, and you build the resolved groups only; whatever is at {target} is              left untouched"
+            "the group {group} is unresolved, and you build the resolved groups only; whatever is at {target} is \
+             left untouched"
         ));
         return item;
     }
-    let blocked = if let Some(reason) = invalid_path(&target) {
+    let blocked = if let Some(reason) = invalid_game(game) {
         Some(reason)
-    } else if let Some(reason) = in_the_way(at.files, &target) {
+    } else if let Some(reason) = invalid_path(&target) {
         Some(reason)
-    } else if at.lowered[&target.to_lowercase()] > 1 {
-        Some(format!(
-            "another selected game's file differs from {target} only in case, which Windows and SMB cannot tell apart"
-        ))
+    } else if let Some(reason) = in_the_way(at.inputs, at.files, at.scan, &target, game) {
+        Some(reason)
+    } else if let Some(reason) = clash(at.lowered, at.folders, &target) {
+        Some(reason)
     } else if parts.is_empty()
         || parts.iter().any(|(kind, _)| {
             !matches!(
@@ -1777,7 +1932,7 @@ fn converts(
             && same_roms(&b.roms, &item.roms)
     })?;
     let found = files?
-        .get(&target.to_lowercase())
+        .get(&name_key(target))
         .filter(|f| f.regular && f.name == *target)?;
     let intact = scan?.files.iter().any(|c| {
         c.target == *target

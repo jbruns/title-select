@@ -559,6 +559,10 @@ pub struct PlanContent {
     /// What the plan does not do as the storage policy says, and why.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// The SHA-256 of the SBI pack the plan's SBI files come from, when its system puts SBI files beside its discs:
+    /// a plan whose pack is no longer the system's is stale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sbi_pack: Option<String>,
 }
 
 impl PlanChoices {
@@ -1352,6 +1356,17 @@ pub struct KeptDeletion {
     /// store's. Its kept files stay recorded until it can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_error: Option<String>,
+}
+
+/// The key two names in one folder collide by: on a filesystem that ignores case or Unicode normalization, as a
+/// share may, names alike but for case or normalization are one name.
+pub fn name_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    name.nfd()
+        .collect::<String>()
+        .to_lowercase()
+        .nfc()
+        .collect()
 }
 
 /// Why a name cannot be a file name on every filesystem a Play Library may be shared from, or `None` when it can.

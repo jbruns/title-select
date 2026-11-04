@@ -122,10 +122,16 @@ pub type FaultHook = std::sync::Arc<dyn Fn(Fault) + Send + Sync>;
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fault {
+    /// After the file of the item with this sequence number is written and verified in the staging folder, before the
+    /// next file of its unit is.
+    Staged(i64),
     /// After the publish intent of the item with this sequence number is committed, before its file is renamed.
     BeforePublish(i64),
     /// After the file of the item with this sequence number is renamed into place, before either folder is synced.
     PublishedUnsynced(i64),
+    /// After the file of the item with this sequence number is renamed into place and the folder it went in is
+    /// synced, a disc layout folder included: by the Build, or by its recovery.
+    ParentSynced(i64),
     /// After the file of the item with this sequence number is renamed into place and both folders are synced, before
     /// the store records it.
     AfterPublish(i64),

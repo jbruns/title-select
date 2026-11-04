@@ -471,7 +471,7 @@ pub fn lay_out<'a>(
             },
             (StorageFormat::LooseFolder, Some(layout)) if names.len() > 1 => {
                 let distinct: std::collections::BTreeSet<String> =
-                    names.iter().map(|r| r.to_lowercase()).collect();
+                    names.iter().map(|r| crate::build::name_key(r)).collect();
                 let cues: Vec<&str> = names.iter().copied().filter(|n| ext(n) == "cue").collect();
                 if distinct.len() != names.len() || !names.iter().all(|n| usable(n)) {
                     let reserved = names.iter().any(|r| is_reserved_name(r));
@@ -600,7 +600,7 @@ impl Placement {
 pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Option<&'static str>) {
     if storage.format == StorageFormat::LooseFolder {
         let distinct: std::collections::BTreeSet<String> =
-            roms.iter().map(|r| r.to_lowercase()).collect();
+            roms.iter().map(|r| crate::build::name_key(r)).collect();
         let usable = |name: &str| is_plain_name(name) && invalid_name(name).is_none();
         if !roms.is_empty()
             && usable(game)

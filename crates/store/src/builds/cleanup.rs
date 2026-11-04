@@ -471,8 +471,9 @@ impl Run<'_> {
             return back("it changed since you approved the plan");
         }
         // A file kept from a disc layout folder goes back into it, made again if it was emptied.
-        crate::folder_dir::parent_made(&self.dir, &r.target)
-            .map_err(|e| Error::Io(e.to_string()))?;
+        let made =
+            super::make_parents(&self.dir, &r.target).map_err(|e| Error::Io(e.to_string()))?;
+        super::record_layout_dir(self.store, self.folder, made)?;
         if let Err(err) = source.rename_new(&kept.kept_name, &self.dir, &r.target) {
             return match err.kind() {
                 io::ErrorKind::AlreadyExists => back(&format!(
@@ -486,6 +487,7 @@ impl Run<'_> {
         self.store.fault_point(Fault::AfterMove(seq));
         source
             .sync()
+            .and_then(|()| super::sync_parent(&self.dir, &r.target))
             .and_then(|()| self.dir.sync())
             .map_err(|e| Error::Io(e.to_string()))?;
         self.store.fault_point(Fault::MoveSynced(seq));

@@ -81,6 +81,34 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
 
 const ALL: [&str; 4] = [CD, DVD, SAGA[0], SAGA[1]];
 
+/// The files of the flat layout, loose.
+const FLAT_LOOSE: [&str; 8] = [
+    "Atlas (USA).iso",
+    "Orbit (USA) (Track 1).bin",
+    "Orbit (USA) (Track 2).bin",
+    "Orbit (USA).cue",
+    "Saga (USA) (Disc 1) (Track 1).bin",
+    "Saga (USA) (Disc 1).cue",
+    "Saga (USA) (Disc 2) (Track 1).bin",
+    "Saga (USA) (Disc 2).cue",
+];
+
+/// A game released on two DVDs, each one image.
+const DUO: [&str; 2] = ["Duo (USA) (Disc 1)", "Duo (USA) (Disc 2)"];
+
+fn duo() -> Vec<(&'static str, Vec<RomSpec>)> {
+    vec![
+        (
+            DUO[0],
+            vec![rom("Duo (USA) (Disc 1).iso", &noise(20, 2048 * 50))],
+        ),
+        (
+            DUO[1],
+            vec![rom("Duo (USA) (Disc 2).iso", &noise(21, 2048 * 50))],
+        ),
+    ]
+}
+
 /// The files of the ES-DE layout, loose.
 const ES_DE_LOOSE: [&str; 9] = [
     ".multidisc/Saga (USA) (Disc 1) (Track 1).bin",
@@ -118,6 +146,13 @@ struct Env {
 
 impl Env {
     fn new(format: StorageFormat) -> Env {
+        Env::with(format, Vec::new)
+    }
+
+    /// As [`Env::new`], with `more` games in the DAT and the source set besides; a game whose name no folder could
+    /// have is in the DAT only.
+    fn with(format: StorageFormat, more: fn() -> Vec<(&'static str, Vec<RomSpec>)>) -> Env {
+        let all = || games().into_iter().chain(more()).collect::<Vec<_>>();
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("roots/sets");
         std::fs::create_dir_all(sets.join(SET)).unwrap();
@@ -130,7 +165,7 @@ impl Env {
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let dat = write_dat_version(&tmp.path().join("in"), "test.dat", "1", &games());
+        let dat = write_dat_version(&tmp.path().join("in"), "test.dat", "1", &all());
         let (revision, _) = store.import_dat(&dat, "Redump", None).unwrap();
         store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
         store
@@ -143,7 +178,7 @@ impl Env {
                 WORKERS,
             )
             .unwrap();
-        for (game, roms) in games() {
+        for (game, roms) in all().into_iter().filter(|(g, _)| !g.contains('/')) {
             write_loose_folder(&sets.join(SET), game, &roms);
         }
         store
@@ -215,6 +250,61 @@ impl Env {
         self.store
             .plan_build(&self.config, folder.id, selection)
             .unwrap()
+    }
+
+    /// Approves and runs `plan`, whatever becomes of it.
+    fn run(&self, plan: &Plan) -> title_select_api::Job {
+        let job = self
+            .store
+            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        self.store.claim_job().unwrap().unwrap();
+        self.store
+            .run_build_job(&self.config, job.id, None)
+            .unwrap()
+    }
+
+    /// The items of `job`'s Build.
+    fn items(&self, job: &title_select_api::Job) -> Vec<title_select_api::build::BuildItem> {
+        let build = self.store.build_of_job(job.id).unwrap().unwrap();
+        self.store.build(build.id).unwrap().items
+    }
+
+    /// Builds `plan`, cancelling it, and waiting until the cancel is recorded, at the first fault `at` matches.
+    fn build_cancelled_at(
+        &self,
+        plan: &Plan,
+        at: impl Fn(title_select_store::Fault) -> bool + Send + Sync + 'static,
+    ) -> title_select_api::Job {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Mutex, mpsc};
+        let job = self
+            .store
+            .approve_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        self.store.claim_job().unwrap().unwrap();
+        let (reached, reached_rx) = mpsc::channel();
+        let (go, go_rx) = mpsc::channel::<()>();
+        let (reached, go_rx) = (Mutex::new(reached), Mutex::new(go_rx));
+        let fired = AtomicBool::new(false);
+        self.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                if at(fault) && !fired.swap(true, Ordering::SeqCst) {
+                    reached.lock().unwrap().send(()).unwrap();
+                    go_rx.lock().unwrap().recv().unwrap();
+                }
+            })));
+        let ended = std::thread::scope(|scope| {
+            let running = scope.spawn(|| self.store.run_build_job(&self.config, job.id, None));
+            reached_rx
+                .recv_timeout(std::time::Duration::from_secs(120))
+                .expect("the build reached the fault");
+            self.store.cancel_job(job.id).unwrap();
+            go.send(()).unwrap();
+            running.join().unwrap().unwrap()
+        });
+        self.store.hook_faults(None);
+        ended
     }
 
     fn build(&self, plan: &Plan) {
@@ -327,16 +417,26 @@ fn read(env: &Env, target: &str) -> String {
 
 /// An SBI pack holding SBI files for Orbit and Saga's Disc 1.
 fn sbi_pack() -> Vec<u8> {
+    sbi_pack_of(&[
+        ("Orbit (USA).sbi", b"SBI\0orbit"),
+        ("Saga (USA) (Disc 1).sbi", b"SBI\0saga"),
+    ])
+}
+
+fn sbi_pack_of(members: &[(&str, &[u8])]) -> Vec<u8> {
     let path = tempfile::tempdir().unwrap();
     let zip = path.path().join("sbi.zip");
-    write_zip(
-        &zip,
-        &[
-            ("Orbit (USA).sbi", b"SBI\0orbit"),
-            ("Saga (USA) (Disc 1).sbi", b"SBI\0saga"),
-        ],
-    );
+    write_zip(&zip, members);
     std::fs::read(zip).unwrap()
+}
+
+/// The plan's items for `game`.
+fn items_of<'p>(plan: &'p Plan, game: &str) -> Vec<&'p title_select_api::build::PlanItem> {
+    plan.content
+        .items
+        .iter()
+        .filter(|i| i.game == game)
+        .collect()
 }
 
 #[test]
@@ -601,6 +701,8 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     env.store.claim_job().unwrap().unwrap();
     // Killed once the first of Saga's files is renamed into place, before the rest of its release is.
     let saga = std::sync::atomic::AtomicBool::new(false);
+    let killed = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1));
+    let killed_at = killed.clone();
     let disc1: Vec<i64> = plan
         .content
         .items
@@ -615,6 +717,7 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
                 && disc1.contains(&seq)
                 && !saga.swap(true, std::sync::atomic::Ordering::SeqCst)
             {
+                killed_at.store(seq, std::sync::atomic::Ordering::SeqCst);
                 panic!("killed at {fault:?}");
             }
         })));
@@ -635,8 +738,23 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
     drop(store);
     let store = Store::open(&path).unwrap();
     store.recover_jobs(WORKERS).unwrap();
+    // Recovery syncs the folder the file was renamed into, `.multidisc/`, before it records it.
+    let synced = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = synced.clone();
+    store.hook_faults(Some(std::sync::Arc::new(move |fault| {
+        if let title_select_store::Fault::ParentSynced(seq) = fault {
+            seen.lock().unwrap().push(seq);
+        }
+    })));
     let blocked = store.recover_builds(&config).unwrap();
+    store.hook_faults(None);
     assert!(blocked.is_empty(), "{blocked:?}");
+    let killed = killed.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        synced.lock().unwrap().contains(&killed),
+        "{killed}: {:?}",
+        synced.lock().unwrap()
+    );
     let env = Env {
         tmp,
         store,
@@ -657,4 +775,360 @@ fn a_build_that_stops_while_putting_a_releases_files_in_place_finishes_them_and_
         assert!(built.iter().any(|b| b.target == *file), "{file}: {built:?}");
     }
     assert!(!env.dir().join(title_select_api::build::STAGING).exists());
+}
+
+#[test]
+fn switching_a_cue_game_to_the_flat_layout_replaces_its_folder_and_keeps_its_files() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let folder = env.folder();
+    let selection = env.selection(&ALL);
+    env.built(&folder, selection);
+
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        layout: Some(DiscLayout::Flat),
+        ..Default::default()
+    });
+    env.built(&folder, selection);
+
+    assert_eq!(env.files(), FLAT_LOOSE);
+    let mut expected: Vec<&str> = ES_DE_LOOSE
+        .iter()
+        .copied()
+        .filter(|f| *f != "Atlas (USA).iso")
+        .collect();
+    expected.sort();
+    assert_eq!(env.kept(&folder), expected);
+    let found = outcomes(&env.check(&folder));
+    assert!(
+        found.values().all(|o| *o == FileOutcome::Unchanged),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn switching_a_cue_game_to_the_es_de_layout_moves_it_into_its_folder_and_keeps_its_files() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        layout: Some(DiscLayout::Flat),
+        ..Default::default()
+    });
+    let folder = env.folder();
+    let selection = env.selection(&ALL);
+    env.built(&folder, selection);
+
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        ..Default::default()
+    });
+    env.built(&folder, selection);
+
+    assert_eq!(env.files(), ES_DE_LOOSE);
+    let expected: Vec<&str> = FLAT_LOOSE
+        .iter()
+        .copied()
+        .filter(|f| *f != "Atlas (USA).iso")
+        .collect();
+    assert_eq!(env.kept(&folder), expected);
+}
+
+#[test]
+fn a_release_whose_disc_2_fails_keeps_its_originals_and_publishes_none_of_its_files() {
+    let env = Env::new(StorageFormat::TorrentZip);
+    let folder = env.folder();
+    let selection = env.selection(&ALL);
+    env.built(&folder, selection);
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        ..Default::default()
+    });
+    let plan = env.plan(&folder, selection);
+    // Disc 2's track changes in the source set once the build has written Disc 1's first file, so Disc 2 can't be.
+    let track = env
+        .tmp
+        .path()
+        .join("roots/sets")
+        .join(SET)
+        .join(SAGA[1])
+        .join("Saga (USA) (Disc 2) (Track 1).bin");
+    let len = std::fs::metadata(&track).unwrap().len() as usize;
+    let first = plan
+        .content
+        .items
+        .iter()
+        .position(|i| i.game == SAGA[0])
+        .unwrap() as i64;
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == title_select_store::Fault::Staged(first) {
+                std::fs::write(&track, noise(99, len)).unwrap();
+            }
+        })));
+    let ended = env.run(&plan);
+    env.store.hook_faults(None);
+
+    let files = env.files();
+    for zip in ["Saga (USA) (Disc 1).zip", "Saga (USA) (Disc 2).zip"] {
+        assert!(files.iter().any(|f| f == zip), "{zip}: {files:?}");
+    }
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.starts_with(".multidisc/") || f == M3U),
+        "{files:?}"
+    );
+    assert!(
+        !env.kept(&folder).iter().any(|k| k.starts_with("Saga")),
+        "{:?}",
+        env.kept(&folder)
+    );
+    for item in env.items(&ended) {
+        if item.target.starts_with("Saga (USA)") || item.target.starts_with(".multidisc/") {
+            assert!(item.error.is_some(), "{item:?}");
+        }
+    }
+}
+
+#[test]
+fn a_plan_whose_sbi_pack_changed_before_you_run_it_is_stale() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    env.store.keep_sbi_pack(&sbi_pack(), SYSTEM).unwrap();
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        sbi: Some(true),
+        ..Default::default()
+    });
+    let folder = env.folder();
+    let plan = env.plan(&folder, env.selection(&ALL));
+    // A newer pack holding the same SBI files for these games, and one more.
+    env.store
+        .keep_sbi_pack(
+            &sbi_pack_of(&[
+                ("Orbit (USA).sbi", b"SBI\0orbit"),
+                ("Saga (USA) (Disc 1).sbi", b"SBI\0saga"),
+                ("Other (USA).sbi", b"SBI\0other"),
+            ]),
+            SYSTEM,
+        )
+        .unwrap();
+
+    let approved = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    assert!(
+        matches!(approved, Err(title_select_store::Error::Conflict(_))),
+        "{approved:?}"
+    );
+}
+
+#[test]
+fn a_file_in_the_way_of_one_member_stops_its_whole_release_and_names_it() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let folder = env.folder();
+    std::fs::write(env.dir().join(M3U), "mine\n").unwrap();
+    let plan = env.plan(&folder, env.selection(&ALL));
+
+    for game in SAGA {
+        for item in items_of(&plan, game) {
+            assert_eq!(item.kind, ItemKind::Blocked, "{item:?}");
+            assert!(
+                item.reason.as_deref().is_some_and(|r| r.contains(M3U)),
+                "{item:?}"
+            );
+        }
+    }
+    let run = env.run(&plan);
+    let files = env.files();
+    assert!(
+        !files.iter().any(|f| f.starts_with(".multidisc/")),
+        "{files:?}"
+    );
+    assert_eq!(read(&env, M3U), "mine\n");
+    assert!(
+        files.iter().any(|f| f == "Orbit (USA).cue/Orbit (USA).cue"),
+        "{run:?}"
+    );
+}
+
+#[test]
+fn a_release_of_one_file_discs_cancelled_after_disc_1_puts_neither_disc_in_place() {
+    let env = Env::with(StorageFormat::LooseFolder, duo);
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        layout: Some(DiscLayout::Flat),
+        ..Default::default()
+    });
+    let folder = env.folder();
+    let plan = env.plan(&folder, env.selection(&DUO));
+    let disc1 = plan
+        .content
+        .items
+        .iter()
+        .position(|i| i.game == DUO[0])
+        .unwrap() as i64;
+    let ended = env.build_cancelled_at(&plan, move |f| {
+        f == title_select_store::Fault::Staged(disc1)
+    });
+
+    assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
+    assert!(env.files().is_empty(), "{:?}", env.files());
+    assert!(env.store.built_files(folder.id).unwrap().is_empty());
+}
+
+fn injected() -> Vec<(&'static str, Vec<RomSpec>)> {
+    let cue = |n: u8| {
+        let mut roms = saga(1);
+        roms[0].name = leak(format!("Game (Disc {n}).cue"));
+        roms[1].name = leak(format!("Game (Disc {n}) (Track 1).bin"));
+        roms
+    };
+    vec![
+        (
+            ".title-select-retained/1/Injected",
+            vec![rom("Injected.iso", &noise(30, 2048 * 10))],
+        ),
+        ("Sub/Game (Disc 1)", cue(1)),
+        ("Sub/Game (Disc 2)", cue(2)),
+    ]
+}
+
+#[test]
+fn a_game_whose_name_is_a_path_or_a_private_folder_is_never_laid_out() {
+    let env = Env::with(StorageFormat::LooseFolder, injected);
+    let folder = env.folder();
+    let games = [
+        ".title-select-retained/1/Injected",
+        "Sub/Game (Disc 1)",
+        "Sub/Game (Disc 2)",
+    ];
+    let plan = env.plan(&folder, env.selection(&games));
+
+    for item in &plan.content.items {
+        assert_eq!(item.kind, ItemKind::Blocked, "{item:?}");
+        assert!(
+            item.reason
+                .as_deref()
+                .is_some_and(|r| r.contains("the game's name")),
+            "{item:?}"
+        );
+    }
+    env.run(&plan);
+    assert!(env.files().is_empty(), "{:?}", env.files());
+    for game in games {
+        let found = items_of(&plan, game);
+        assert!(!found.is_empty(), "{game}");
+        for item in found {
+            assert!(
+                item.reason
+                    .as_deref()
+                    .is_some_and(|r| r.contains("the game's name")),
+                "{item:?}"
+            );
+        }
+    }
+}
+
+fn alpha() -> Vec<(&'static str, Vec<RomSpec>)> {
+    let mut roms = saga(1);
+    roms[0].name = "Alpha.cue";
+    roms[1].name = "Alpha (Track 1).bin";
+    vec![
+        ("Alpha (USA)", roms),
+        ("Beta (USA)", vec![rom("Alpha.cue", b"FILE \"x\" BINARY\n")]),
+    ]
+}
+
+#[test]
+fn a_file_and_another_games_cue_folder_at_one_name_are_both_refused_before_you_approve() {
+    let env = Env::with(StorageFormat::LooseFolder, alpha);
+    let folder = env.folder();
+    let plan = env.plan(&folder, env.selection(&["Alpha (USA)", "Beta (USA)"]));
+
+    // Neither is built: which one would win is not yours to guess.
+    for item in &plan.content.items {
+        assert_eq!(item.kind, ItemKind::Blocked, "{item:?}");
+        assert!(
+            item.reason
+                .as_deref()
+                .is_some_and(|r| r.contains("Alpha.cue")),
+            "{item:?}"
+        );
+    }
+}
+
+fn cafes() -> Vec<(&'static str, Vec<RomSpec>)> {
+    vec![
+        (
+            "Caf\u{e9} (USA)",
+            vec![rom("Caf\u{e9} (USA).iso", &noise(40, 2048 * 10))],
+        ),
+        (
+            "Cafe\u{301} (Europe)",
+            vec![rom("Cafe\u{301} (USA).iso", &noise(41, 2048 * 10))],
+        ),
+    ]
+}
+
+#[test]
+fn files_whose_names_differ_only_in_unicode_normalization_collide() {
+    let env = Env::with(StorageFormat::LooseFolder, cafes);
+    let folder = env.folder();
+    let plan = env.plan(
+        &folder,
+        env.selection(&["Caf\u{e9} (USA)", "Cafe\u{301} (Europe)"]),
+    );
+
+    assert_eq!(plan.content.items.len(), 2, "{:?}", plan.content.items);
+    for item in &plan.content.items {
+        assert_eq!(item.kind, ItemKind::Blocked, "{item:?}");
+        assert!(
+            item.reason
+                .as_deref()
+                .is_some_and(|r| r.contains("Unicode form")),
+            "{item:?}"
+        );
+    }
+}
+
+#[test]
+fn turning_sbi_files_off_under_the_flat_layout_keeps_them_aside() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    env.store.keep_sbi_pack(&sbi_pack(), SYSTEM).unwrap();
+    let flat = |sbi| SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        layout: Some(DiscLayout::Flat),
+        sbi: Some(sbi),
+        ..Default::default()
+    };
+    env.set(flat(true));
+    let folder = env.folder();
+    let selection = env.selection(&ALL);
+    env.built(&folder, selection);
+    let mut expected: Vec<&str> = FLAT_LOOSE.to_vec();
+    expected.extend(["Orbit (USA).sbi", "Saga (USA) (Disc 1).sbi"]);
+    expected.sort();
+    assert_eq!(env.files(), expected);
+
+    env.set(flat(false));
+    env.built(&folder, selection);
+    assert_eq!(env.files(), FLAT_LOOSE);
+    assert_eq!(
+        env.kept(&folder),
+        ["Orbit (USA).sbi", "Saga (USA) (Disc 1).sbi"]
+    );
+}
+
+#[test]
+fn a_layout_folder_you_made_is_never_removed_even_once_empty() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let folder = env.folder();
+    std::fs::create_dir(env.dir().join("Orbit (USA).cue")).unwrap();
+    env.built(&folder, env.selection(&ALL));
+    assert_eq!(env.files(), ES_DE_LOOSE);
+
+    env.built(&folder, env.selection(&[DVD]));
+    assert_eq!(env.files(), ["Atlas (USA).iso"]);
+    assert!(env.dir().join("Orbit (USA).cue").is_dir());
+    assert!(!env.dir().join(".multidisc").exists());
 }
