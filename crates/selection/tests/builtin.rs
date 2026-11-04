@@ -1,5 +1,6 @@
 //! The built-in engine against the bundled one: both run over the same DATs with the same Selection Profiles, and
-//! must leave the same trace, Selection and warnings.
+//! must leave the same trace, Selection and warnings. By default this checks a subset that runs every stage (see
+//! `in_run`); `CONFORMANCE_FULL=1` checks every fixture DAT.
 
 mod support;
 
@@ -23,6 +24,21 @@ fn fixture_dats() -> Vec<PathBuf> {
     }
     dats.sort();
     dats
+}
+
+/// System DATs the pull-request run checks beside every feature DAT: mid-sized ones with clone lists and metadata, so
+/// clone-list, metadata and 1G1R stages run over real-world shapes. `CONFORMANCE_FULL=1` checks every DAT instead,
+/// as the scheduled conformance workflow does.
+const REPRESENTATIVE_SYSTEMS: &[&str] = &[
+    "Nintendo - Wii U - Datfile.dat",
+    "Nintendo - Nintendo 64 (BigEndian) (Private).dat",
+];
+
+/// Whether a run checks this DAT.
+fn in_run(dat: &Path) -> bool {
+    std::env::var_os("CONFORMANCE_FULL").is_some()
+        || dat.parent().is_some_and(|p| p.ends_with("features"))
+        || REPRESENTATIVE_SYSTEMS.contains(&dat.file_name().unwrap().to_str().unwrap())
 }
 
 /// Set orders the bundled engine is retried with, to tell order-sensitive differences from real ones. A title in
@@ -119,6 +135,7 @@ fn run_all(profiles: &[(&str, SelectionProfile)]) {
         failures.extend(std::thread::scope(|scope| {
             let handles: Vec<_> = dats
                 .iter()
+                .filter(|dat| in_run(dat))
                 .filter(|dat| {
                     let file = dat.file_name().unwrap().to_str().unwrap();
                     profile.options.disable_1g1r || !INTRACTABLE.contains(&(name, file))
