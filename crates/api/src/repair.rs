@@ -192,6 +192,10 @@ pub enum RepairStep {
         /// Written as a loose file, its one ROM, rather than a TorrentZip.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         loose: bool,
+        /// The item is left where it is once this file is written: a ZIP more files of a loose folder are extracted
+        /// from, by later Fill steps, the last of which disposes of it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        leave: bool,
     },
     /// Deletes `path`, the original a conversion read, kept aside by the Keep step `keep`, once the file the Build
     /// step `build` wrote and the Publish step `publish` put in place is verified, and only while the original still

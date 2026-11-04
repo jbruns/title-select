@@ -3040,6 +3040,7 @@ impl Store {
             roms,
             exact,
             loose,
+            leave,
         } = &step.step
         else {
             unreachable!("a fill step");
@@ -3088,6 +3089,19 @@ impl Store {
                         format!("ingest folder {ingest_root} is no longer registered"),
                     );
                 };
+                // A file of a loose folder goes into the folder, made first if it is missing.
+                if target.contains('/')
+                    && let Err(e) = parent_made(&r.dir, target)
+                {
+                    return self.step_failed(
+                        step,
+                        "failed",
+                        format!(
+                            "the folder of {target} could not be made ({e}); {name} in ingest folder {ingest_root} \
+                             was left as it is"
+                        ),
+                    );
+                }
                 let content = &r.plan.content;
                 let mv = Move {
                     folder,
@@ -3113,6 +3127,7 @@ impl Store {
                     },
                     exact: exact.clone(),
                     loose: *loose,
+                    leave: *leave,
                 };
                 let recorded = self.record_move(config, mv, &mut |tx, move_id| {
                     tx.execute(

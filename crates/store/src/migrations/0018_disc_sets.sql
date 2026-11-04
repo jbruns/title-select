@@ -35,3 +35,7 @@ CREATE TABLE cue_packs (
     imported_at TEXT NOT NULL
 );
 CREATE INDEX cue_packs_by_dat ON cue_packs (dat);
+
+-- An ingest move that leaves its original where it is once its copy is published: one of several extracting the ROMs
+-- of a ZIP into a loose folder, the last of which disposes of the ZIP.
+ALTER TABLE ingest_moves ADD COLUMN leave_original INTEGER NOT NULL DEFAULT 0;

@@ -402,6 +402,7 @@ fn add_from_ingest(
             repack: Some(vec![(rom.clone(), payload.member.clone())]),
             exact: Some(rom.clone()),
             loose: target.loose,
+            leave: false,
         },
         "repack",
     )?;
@@ -1885,6 +1886,7 @@ impl Store {
                     repack: None,
                     exact: None,
                     loose: false,
+                    leave: false,
                 },
             )?;
             outcomes.push(match moved {
@@ -2268,8 +2270,8 @@ fn unmovable(row: &ItemRow, keep_aside: bool) -> Option<String> {
     None
 }
 
-/// An item of an Ingest Folder, assessed as it is now, that holds a Game of a Source Set whole: what a repair may fill
-/// the Game from.
+/// An item of an Ingest Folder, assessed as it is now, that holds ROMs of a Game of a Source Set: what a repair may
+/// fill the Game from, when it holds the Game whole, or the files of a loose folder it holds.
 pub(crate) struct FillCandidate {
     pub root: String,
     pub item: IngestItem,
@@ -2301,10 +2303,7 @@ pub(crate) fn fill_candidates(
                 continue;
             }
             for matched in &row.item.assessment.matches {
-                if matched.source_set == set
-                    && matched.dat_revision == dat_revision
-                    && matched.complete
-                {
+                if matched.source_set == set && matched.dat_revision == dat_revision {
                     found.push(FillCandidate {
                         root: folder.root.clone(),
                         item: row.item.clone(),

@@ -117,6 +117,12 @@ enum Part {
         to: String,
         rom: ExpectedRom,
     },
+    /// Moved or extracted into place from the ingest candidate at this index.
+    Fill {
+        target: String,
+        rom: ExpectedRom,
+        candidate: usize,
+    },
 }
 
 /// A proposed change, with the files it keeps aside.
@@ -461,6 +467,25 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 _ => None,
             })
             .collect();
+        // For a loose folder, each ROM neither the Source Set nor a cue pack holds, from an Ingest Folder item that holds
+        // it, with its payload read: a disc's tracks may arrive one by one.
+        let ingested: Vec<Option<usize>> = roms
+            .iter()
+            .enumerate()
+            .map(|(n, rom)| {
+                if folder.is_none() || sources[n].is_some() || cues[n].is_some() {
+                    return None;
+                }
+                i.candidates.iter().position(|c| {
+                    c.matched.game == *game
+                        && !used_candidates.contains(&c.item.id)
+                        && c.matched.roms.iter().any(|m| m.rom == rom.name)
+                })
+            })
+            .collect();
+        // Whether ROM `n` of the Game has nowhere to come from.
+        let unsourced =
+            |n: usize| sources[n].is_none() && cues[n].is_none() && ingested[n].is_none();
         let occupants: Vec<&str> = targets
             .iter()
             .filter(|t| i.files.contains_key(*t))
@@ -477,11 +502,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             notes.push(left_in_way(occupant));
             continue;
         }
-        if sources
-            .iter()
-            .zip(&cues)
-            .all(|(s, c)| s.is_some() || c.is_some())
-        {
+        if (0..roms.len()).all(|n| !unsourced(n)) || ingested.iter().any(Option::is_some) {
             let names: BTreeSet<&str> = roms.iter().map(|r| r.name.as_str()).collect();
             // A file holding exactly the Game's ROMs, each Matched under its name, stored as TorrentZip; or, `loose`,
             // a loose file that is the Game's one ROM, Matched under its name.
@@ -538,10 +559,15 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             // Each file in the way: kept aside, unless it is already the ROM a loose folder holds there.
             let mut blocked = None;
             for (n, t) in targets.iter().enumerate() {
-                if !i.files.contains_key(t) || (folder.is_some() && exact_loose(t, &roms[n])) {
+                if !i.files.contains_key(t)
+                    || (folder.is_some() && (exact_loose(t, &roms[n]) || unsourced(n)))
+                {
                     continue;
                 }
                 match usable.get_key_value(t.as_str()) {
+                    Some((key, file)) if file.unreadable && ingested[n].is_some() => {
+                        referenced.insert(key);
+                    }
                     None => {
                         blocked = Some(format!(
                             "{game} is left as it is: {t} is in the way, and the audit did not read it as it is \
@@ -577,7 +603,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         member: Some(cue.member.clone()),
                         cue_pack: Some(cue.pack.clone()),
                     },
-                    (None, None) => unreachable!("every ROM has a source"),
+                    (None, None) => unreachable!("a ROM written from the source set or a cue pack"),
                 }
             };
             // A `.cue` sheet from a cue pack fills one the Source Set lacks, or replaces one that is not the DAT's.
@@ -614,13 +640,26 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 let mut parts = Vec::new();
                 let mut displaces: Vec<(String, String)> = Vec::new();
                 let mut renamed: BTreeSet<&str> = BTreeSet::new();
+                let mut missing: Vec<&str> = Vec::new();
                 for (n, rom) in roms.iter().enumerate() {
                     let to = &targets[n];
                     if exact_loose(to, rom) {
                         continue;
                     }
+                    if unsourced(n) {
+                        missing.push(&rom.name);
+                        continue;
+                    }
                     if i.files.contains_key(to) {
                         displaces.push((to.clone(), format!("{to} was written in its place")));
+                    }
+                    if let Some(candidate) = ingested[n] {
+                        parts.push(Part::Fill {
+                            target: to.clone(),
+                            rom: rom.clone(),
+                            candidate,
+                        });
+                        continue;
                     }
                     match sources[n] {
                         // A loose file that is this ROM and holds nothing another Game needs is moved, not copied.
@@ -658,10 +697,23 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     })
                     .filter(|path| !renamed.contains(path))
                     .collect();
+                let fills: Vec<&FillCandidate> = parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        Part::Fill { candidate, .. } => Some(&i.candidates[*candidate]),
+                        _ => None,
+                    })
+                    .fold(Vec::new(), |mut found, c| {
+                        if !found.iter().any(|f| f.item.id == c.item.id) {
+                            found.push(c);
+                        }
+                        found
+                    });
                 // Exactly the Game as one TorrentZip, every file of the folder written from it.
                 let converts: Vec<String> = match read.iter().next() {
                     Some(&zip)
                         if read.len() == 1
+                            && fills.is_empty()
                             && cued.is_empty()
                             && parts.len() == roms.len()
                             && renamed.is_empty()
@@ -683,7 +735,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     }
                 }
                 let from: Vec<&str> = files.iter().copied().collect();
-                let (kind, summary) = if !converts.is_empty() {
+                let (kind, mut summary) = if !converts.is_empty() {
                     (
                         RepairKind::Convert,
                         format!(
@@ -691,6 +743,41 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                             converts[0]
                         ),
                     )
+                } else if !fills.is_empty() {
+                    let items: Vec<String> = fills
+                        .iter()
+                        .map(|c| format!("{} in ingest folder {}", c.item.name, c.root))
+                        .collect();
+                    let filled: Vec<&str> = parts
+                        .iter()
+                        .filter_map(|p| match p {
+                            Part::Fill { rom, .. } => Some(rom.name.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    match displaces.is_empty() {
+                        true => (
+                            RepairKind::Fill,
+                            format!(
+                                "write {} into {target} from {}",
+                                filled.join(", "),
+                                items.join(", ")
+                            ),
+                        ),
+                        false => (
+                            RepairKind::Replace,
+                            format!(
+                                "keep {} aside, and write {} into {target} from {}",
+                                displaces
+                                    .iter()
+                                    .map(|(path, _)| path.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                filled.join(", "),
+                                items.join(", ")
+                            ),
+                        ),
+                    }
                 } else if !cued.is_empty() {
                     cue_kind()
                 } else if local.iter().any(|(rank, ..)| *rank >= 2) {
@@ -715,11 +802,20 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                         ),
                     )
                 };
+                if !missing.is_empty() {
+                    let still = format!(
+                        "{} still missing: no file of the source set, cue pack or ingest folder holds it",
+                        missing.join(", ")
+                    );
+                    summary = format!("{summary}; {still}");
+                    notes.push(format!("{game}: {still}"));
+                }
+                used_candidates.extend(fills.iter().map(|c| c.item.id));
                 proposed.push(Proposed {
                     item: game_item(game, folder, kind, summary),
                     proposal: Some(Proposal::Folder { parts }),
                     displaces,
-                    produces: Some(game.clone()),
+                    produces: missing.is_empty().then(|| game.clone()),
                     checked: true,
                     target: None,
                     converts,
@@ -889,11 +985,17 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             notes.push(left_in_way(path));
             continue;
         }
-        let Some(candidate) = i
-            .candidates
-            .iter()
-            .position(|c| c.matched.game == *game && !used_candidates.contains(&c.item.id))
-        else {
+        if folder.is_some() {
+            if !attributable.is_empty() || !occupants.is_empty() {
+                notes.push(format!(
+                    "{game} is left as it is: no ingest folder holds a ROM it is missing, with its payload read"
+                ));
+            }
+            continue;
+        }
+        let Some(candidate) = i.candidates.iter().position(|c| {
+            c.matched.game == *game && c.matched.complete && !used_candidates.contains(&c.item.id)
+        }) else {
             if !attributable.is_empty() || !occupants.is_empty() {
                 notes.push(format!(
                     "{game} is left as it is: no ingest folder holds it whole, with its payloads read"
@@ -901,13 +1003,6 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             }
             continue;
         };
-        if folder.is_some() {
-            notes.push(format!(
-                "{game} is left as it is: an ingest folder holds it, but a game stored as a loose folder isn't \
-                 filled from an ingest folder yet"
-            ));
-            continue;
-        }
         if let Some(blocked) = attributable
             .iter()
             .chain(occupant.as_ref())
@@ -1198,6 +1293,9 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
                             paths.insert(from.clone());
                             paths.insert(to.clone());
                         }
+                        Part::Fill { target, .. } => {
+                            paths.insert(target.clone());
+                        }
                     }
                 }
             }
@@ -1250,7 +1348,7 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
                         target.clone(),
                         build_step(p, target.clone(), true, vec![rom.clone()]),
                     )),
-                    Part::Rename { .. } => None,
+                    Part::Rename { .. } | Part::Fill { .. } => None,
                 })
                 .collect(),
             _ => Vec::new(),
@@ -1314,8 +1412,33 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
         });
     }
     for p in &together {
-        if let Some(Proposal::Fill { candidate }) = &p.proposal {
-            steps.push(fill_of(i, p, &i.candidates[*candidate]));
+        match &p.proposal {
+            Some(Proposal::Fill { candidate }) => {
+                steps.push(fill_of(i, p, &i.candidates[*candidate]));
+            }
+            Some(Proposal::Folder { parts }) => {
+                for (n, part) in parts.iter().enumerate() {
+                    if let Part::Fill {
+                        target,
+                        rom,
+                        candidate,
+                    } = part
+                    {
+                        // Each file but the last written from one item leaves the item in place.
+                        let leave = parts[n + 1..].iter().any(
+                            |later| matches!(later, Part::Fill { candidate: c, .. } if c == candidate),
+                        );
+                        steps.push(folder_fill_of(
+                            p,
+                            target,
+                            rom,
+                            &i.candidates[*candidate],
+                            leave,
+                        ));
+                    }
+                }
+            }
+            _ => {}
         }
     }
     for p in turns {
@@ -1468,6 +1591,46 @@ fn fill_of(i: &Inputs, p: &Proposed, c: &FillCandidate) -> PlannedStep {
             roms,
             exact,
             loose,
+            leave: false,
+        },
+    }
+}
+
+/// The Fill step of `p` that writes `target`, a file of a loose folder, as `rom` from ingest candidate `c`; `leave`
+/// leaves the item in place for a later Fill step.
+fn folder_fill_of(
+    p: &Proposed,
+    target: &str,
+    rom: &ExpectedRom,
+    c: &FillCandidate,
+    leave: bool,
+) -> PlannedStep {
+    let member = c
+        .matched
+        .roms
+        .iter()
+        .find(|m| m.rom == rom.name)
+        .and_then(|m| m.member.clone());
+    // The original is deleted only once what was written reads as exactly this ROM, from a loose file.
+    let exact = (!c.item.assessment.zip && member.is_none()).then(|| rom.clone());
+    PlannedStep {
+        item: p.item.key.clone(),
+        step: RepairStep::Fill {
+            target: target.to_owned(),
+            ingest_root: c.root.clone(),
+            item: c.item.id,
+            name: c.item.name.clone(),
+            seen: seen_file(&c.seen),
+            sha256: c.item.assessment.sha256.clone(),
+            roms: vec![RepairRom {
+                rom: rom.clone(),
+                from: c.item.name.clone(),
+                member,
+                cue_pack: None,
+            }],
+            exact,
+            loose: true,
+            leave,
         },
     }
 }

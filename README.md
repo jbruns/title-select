@@ -712,7 +712,12 @@ approving approves the plan as it was made, so it waits while you have changes y
   original: on by default when there is one;
 - a missing `.cue` sheet of a disc game is filled, and a mismatched one replaced, keeping the original, from a cue
   pack imported for the source set's DAT whose sheet matches every checksum the DAT gives: on by default when there
-  is one. A fill from an ingest folder into a loose folder isn't proposed yet;
+  is one;
+- a game stored as a loose folder is filled file by file: each ROM it lacks, or holds mismatched, is written into
+  `<game>/` from an ingest folder item holding it, whether that item is the one track or a ZIP of the whole disc. A
+  loose track is moved, and deleted from the ingest folder only once what was written is exactly its ROM; a ZIP is
+  kept in the ingest folder's kept files once every file it fills is written. What no file holds yet stays missing,
+  and the plan says which ROMs;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
   to take it as the ROM its payload matches, keep it aside or leave it;
 - unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.

@@ -79,6 +79,9 @@ pub(crate) struct Move<'a> {
     pub exact: Option<ExpectedRom>,
     /// Whether the one ROM of `repack` is written as a loose file, extracted from its ZIP, rather than a TorrentZip.
     pub loose: bool,
+    /// Whether the original is left where it is once the copy is published, and its item still to move: a ZIP that
+    /// several ROMs of a loose folder are extracted from, one move each, until the last disposes of it.
+    pub leave: bool,
 }
 
 /// How a move ended.
@@ -124,6 +127,7 @@ struct MoveRow {
     roms: Option<Vec<(ExpectedRom, Option<String>)>>,
     exact: Option<ExpectedRom>,
     loose: bool,
+    leave: bool,
     staged_name: Option<String>,
     staged: Option<Identity>,
     /// The staged copy's size and modification time once written and checked, read through the descriptor held.
@@ -140,7 +144,7 @@ struct MoveRow {
 
 const MOVE_QUERY: &str = "SELECT id, folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns, \
      sha256, dest_kind, dest_root, dest_rel, generation, dest_name, reason, roms, staged_name, staged_dev, \
-     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, staged_size, staged_mtime_ns, isolated_ctime_ns, loose FROM ingest_moves";
+     staged_ino, dest_sha256, ctime_ns, found_dev, found_ino, aside_name, error, exact_rom, published_ctime_ns, staged_size, staged_mtime_ns, isolated_ctime_ns, loose, leave_original FROM ingest_moves";
 
 fn parse_ns(r: &Row, at: usize) -> rusqlite::Result<i128> {
     r.get::<_, String>(at)?.parse().map_err(|e| {
@@ -206,6 +210,7 @@ fn move_from_row(r: &Row) -> rusqlite::Result<MoveRow> {
             None => None,
         },
         loose: r.get(33)?,
+        leave: r.get(34)?,
         staged_name: r.get(19)?,
         staged: identity_at(r, 20)?,
         published_ctime: match r.get::<_, Option<String>>(29)? {
@@ -527,6 +532,37 @@ impl Store {
                 }
             }
         };
+        // A file of a loose folder: moved into that folder, which the repair made, under its own name.
+        let (dest, m) = match &m.dest {
+            Destination::Path {
+                root,
+                rel,
+                name,
+                generation,
+            } if name.contains('/') => {
+                let (parents, leaf) = name.rsplit_once('/').expect("a nested name");
+                let mut at = dest;
+                for part in parents.split('/') {
+                    at = match at.sub(part) {
+                        Ok(sub) => sub,
+                        Err(e) => {
+                            return precondition(format!(
+                                "folder {parents} could not be opened ({e}); {} was left as it is",
+                                m.name
+                            ));
+                        }
+                    };
+                }
+                let dest = Destination::Path {
+                    root: root.clone(),
+                    rel: rel.clone(),
+                    name: leaf.to_owned(),
+                    generation: *generation,
+                };
+                (at, MoveRow { dest, ..m })
+            }
+            _ => (dest, m),
+        };
         match m.kind.as_str() {
             "rename" => self.drive_rename(config, &m, &src, &dest),
             _ => self.drive_copy(&m, &src, &dest),
@@ -586,6 +622,24 @@ impl Store {
             kept: kept_id,
             dest_sha256,
             note,
+        }))
+    }
+
+    /// Records move `m` done once its copy is published, leaving its original, and its item, as they are: another
+    /// move of the same item disposes of it.
+    fn finish_left(&self, m: &MoveRow, dest_sha256: Option<String>) -> Outcome {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE ingest_moves SET state = 'done', dest_sha256 = ?2, finished_at = ?3 WHERE id = ?1",
+                params![m.id, dest_sha256, now()],
+            )?;
+            Ok(())
+        })?;
+        Ok(Ok(Moved {
+            kind: m.kind.clone(),
+            kept: None,
+            dest_sha256,
+            note: None,
         }))
     }
 
@@ -705,7 +759,10 @@ impl Store {
                     )?;
                     Ok(())
                 })?;
-                let m = self.read(|c| move_by_id(c, m.id))?;
+                let m = MoveRow {
+                    dest: m.dest.clone(),
+                    ..self.read(|c| move_by_id(c, m.id))?
+                };
                 self.restore(&m, src, dest)
             }
             Moving::Other {
@@ -928,7 +985,13 @@ impl Store {
             }
             self.fault_point(Fault::IngestPublished);
         }
-        let m = &self.read(|c| move_by_id(c, m.id))?;
+        let m = &MoveRow {
+            dest: m.dest.clone(),
+            ..self.read(|c| move_by_id(c, m.id))?
+        };
+        if m.leave {
+            return self.finish_left(m, dest_sha256);
+        }
         // Once the original is being kept, keeping it no longer depends on the published copy.
         let preserving = matches!(m.state.as_str(), "keeping" | "retaining");
         let resumed = m.state == "disposing";
@@ -1684,9 +1747,9 @@ pub(crate) fn insert_move(tx: &Transaction, mv: &Move, kind: &str) -> Result<i64
     tx.execute(
             "INSERT INTO ingest_moves (folder_id, plan_id, item_id, kind, state, name, dev, ino, size, mtime_ns,
                                        ctime_ns, sha256, dest_kind, dest_root, dest_rel, generation, dest_name,
-                                       reason, roms, exact_rom, created_at, loose)
+                                       reason, roms, exact_rom, created_at, loose, leave_original)
              VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                     ?19, ?20, ?21)",
+                     ?19, ?20, ?21, ?22)",
             params![
                 mv.folder,
                 mv.plan,
@@ -1708,7 +1771,8 @@ pub(crate) fn insert_move(tx: &Transaction, mv: &Move, kind: &str) -> Result<i64
                 mv.repack.as_ref().map(to_json),
                 mv.exact.as_ref().map(to_json),
                 now(),
-                mv.loose && mv.repack.is_some()
+                mv.loose && mv.repack.is_some(),
+                mv.leave && mv.repack.is_some()
             ],
         )?;
     Ok(tx.last_insert_rowid())
@@ -1784,6 +1848,7 @@ mod tests {
                 repack,
                 exact: None,
                 loose: false,
+                leave: false,
             }
         }
 

@@ -3072,3 +3072,119 @@ fn a_cue_pack_for_a_dat_not_imported_or_without_cue_sheets_is_refused() {
     assert!(matches!(empty, Err(Error::Refused(_))), "{empty:?}");
     assert!(env.store.cue_packs().unwrap().is_empty());
 }
+
+#[test]
+fn a_disc_game_arriving_as_one_zip_is_extracted_into_its_loose_folder_and_the_zip_kept() {
+    let env = Env::with("Redump", &disc_games());
+    env.audit(AuditEvidence::Full);
+    let quest = disc_of("Quest (USA)");
+    env.ingest("quest.zip", |p| {
+        let members: Vec<(&str, &[u8])> = quest
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(p, &members)
+    });
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    assert!(fill.summary.contains("quest.zip"), "{}", fill.summary);
+    let done = env.approve(&plan);
+
+    let mut wanted = vec![".title-select".to_string()];
+    wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
+    wanted.sort();
+    assert_eq!(env.listing(), wanted);
+    let kept = env.store.ingest_kept_files("in").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].name, "quest.zip");
+    assert_eq!(
+        env.ingest_listing(),
+        [format!(
+            ".title-select-retained/{}/quest.zip.kept",
+            kept[0].generation
+        )]
+    );
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn tracks_arriving_one_by_one_are_moved_into_the_loose_folder_and_the_plan_says_what_is_missing() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    assert_eq!(quest.len(), 4, "a cue sheet and three tracks");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[..2]);
+    env.audit(AuditEvidence::Full);
+    env.ingest("track 2.bin", |p| write_file(p, &quest[2].payload));
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    assert!(
+        fill.summary.contains(quest[3].name) && fill.summary.contains("still missing"),
+        "{}",
+        fill.summary
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains(quest[3].name) && n.contains("still missing")),
+        "{:?}",
+        plan.content.notes
+    );
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        std::fs::read(env.set().join("Quest (USA)").join(quest[2].name)).unwrap(),
+        quest[2].payload
+    );
+    assert!(
+        env.ingest_listing().is_empty(),
+        "a loose track written exactly as its ROM leaves nothing behind: {:?}",
+        env.ingest_listing()
+    );
+    env.run_queued_audit(&done);
+    assert_ne!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+
+    env.ingest("track 3.bin", |p| write_file(p, &quest[3].payload));
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Quest (USA)").kind, RepairKind::Fill);
+    let done = env.approve(&plan);
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+    let mut wanted = vec![".title-select".to_string()];
+    wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
+    wanted.sort();
+    assert_eq!(env.listing(), wanted);
+}
+
+#[test]
+fn a_mismatched_track_is_replaced_from_ingest_and_kept_aside() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    let track = format!("Quest (USA)/{}", quest[1].name);
+    env.put(&track, b"not the track");
+    env.audit(AuditEvidence::Full);
+    env.ingest("track.bin", |p| write_file(p, &quest[1].payload));
+
+    let plan = env.plan();
+    let replace = item(&plan, "game:Quest (USA)");
+    assert_eq!(replace.kind, RepairKind::Replace, "{replace:?}");
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        std::fs::read(env.set().join(&track)).unwrap(),
+        quest[1].payload
+    );
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert!(
+        kept.iter().any(|k| k.name.ends_with(quest[1].name)),
+        "{kept:?}"
+    );
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
