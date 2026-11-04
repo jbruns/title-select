@@ -1134,6 +1134,42 @@ fn a_layout_folder_you_made_is_never_removed_even_once_empty() {
 }
 
 #[test]
+fn a_layout_switch_that_cant_build_one_disc_moves_none_of_its_release() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let folder = env.folder();
+    let selection = env.selection(&ALL);
+    env.built(&folder, selection);
+    assert_eq!(env.files(), ES_DE_LOOSE);
+
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        layout: Some(DiscLayout::Flat),
+        ..Default::default()
+    });
+    std::fs::write(env.dir().join("Saga (USA) (Disc 2).cue"), b"yours").unwrap();
+    let plan = env.plan(&folder, selection);
+    env.run(&plan);
+    let saga: Vec<String> = env
+        .files()
+        .into_iter()
+        .filter(|f| f.contains("Saga"))
+        .collect();
+    let mut expected: Vec<&str> = ES_DE_LOOSE
+        .iter()
+        .copied()
+        .filter(|f| f.contains("Saga"))
+        .chain(["Saga (USA) (Disc 2).cue"])
+        .collect();
+    expected.sort();
+    assert_eq!(saga, expected);
+    assert!(
+        env.kept(&folder).iter().all(|k| !k.contains("Saga")),
+        "{:?}",
+        env.kept(&folder)
+    );
+}
+
+#[test]
 fn switching_to_flat_leaves_a_cue_folder_you_made_and_its_release_as_they_are() {
     let env = Env::new(StorageFormat::LooseFolder);
     let folder = env.folder();

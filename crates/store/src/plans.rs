@@ -748,9 +748,23 @@ fn removals(
             true => format!("{target} is no longer needed"),
             false => format!("{} is no longer selected", built.game),
         };
+        // A generated file of a release the plan writes goes with the release's unit, so only once all of it can
+        // be written. A release written as it was, or no longer selected, needs it no more.
+        let release = release_of(&built.game);
+        let of_release: Vec<&PlanItem> = items
+            .iter()
+            .filter(|i| generated && i.addition.is_none() && release_of(&i.game) == release)
+            .collect();
+        let held = of_release.iter().find(|i| !builds(i.kind));
+        let replaced = of_release.iter().any(|i| i.kind != ItemKind::Unchanged);
         if lowered.contains(&name_key(target)) {
             removal.reason = format!(
                 "{target} differs from a selected game's file only in case; it is left as it is"
+            );
+        } else if let Some(item) = held {
+            removal.reason = format!(
+                "{target} stays until {} can be written as the storage policy says",
+                item.target
             );
         } else if outcome == Some(FileOutcome::Missing) {
             removal.kind = RemovalKind::Forget;
@@ -767,7 +781,11 @@ fn removals(
             removal.reason =
                 format!("{gone}; {target} is kept aside in the folder's retention area");
             removal.keep = Some(keep_of(
-                KeepReason::Removal,
+                if replaced {
+                    KeepReason::Replacement
+                } else {
+                    KeepReason::Removal
+                },
                 found,
                 Some(scan),
                 built.sha256.as_ref(),
@@ -1639,15 +1657,17 @@ fn plan_items(
     items
 }
 
+/// Whether an item of `kind` is in place once its unit commits.
+fn builds(kind: ItemKind) -> bool {
+    matches!(
+        kind,
+        ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged | ItemKind::Adopt
+    )
+}
+
 /// A release goes in place whole or not at all: every disc, every track, its `.m3u` and its SBI files. Once one of
 /// them can't be built, or is left as it is, nothing else of the release is written, and each says which one.
 fn whole_releases(items: &mut [PlanItem]) {
-    let builds = |kind: ItemKind| {
-        matches!(
-            kind,
-            ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged | ItemKind::Adopt
-        )
-    };
     let mut stopped: HashMap<String, String> = HashMap::new();
     for item in items.iter().filter(|i| !builds(i.kind)) {
         stopped
