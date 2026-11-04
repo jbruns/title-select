@@ -328,12 +328,7 @@ impl Engine {
                 Err(Error::Cancelled) => return Err(Error::Cancelled),
                 Err(e) => (None, Some(e.to_string())),
             };
-            outcome.shadow = Some(ShadowRun {
-                engine: options.engine,
-                shadow,
-                comparison,
-                error,
-            });
+            outcome.shadow = Some(ShadowRun::new(options.engine, shadow, comparison, error));
         }
         Ok(outcome)
     }

@@ -499,8 +499,9 @@ profile, after the selection is made, and records how the two compare beside the
 differently or explain differently, and their warnings where those differ. The shadow run never changes the
 selection, and a shadow run that fails is recorded as failed without failing the job. The server's log gets one line
 per shadow run saying whether the engines agreed, and naming the first groups where they didn't;
-`GET /api/v1/selections/{id}/shadow` returns the full comparison. A shadow run compares one run of each engine, so a
-difference may be order-sensitive: run `conformance` on the DAT to tell.
+`GET /api/v1/selections/{id}/shadow` returns the full comparison. A shadow run compares one run of each engine, so
+its differences are unclassified: some may come only from the order the bundled engine meets titles in. The log line
+and the comparison's `"classification": "unclassified"` say so; run `conformance` on the DAT to classify them.
 
 ### Stale source sets
 
@@ -1056,7 +1057,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
-| `GET /api/v1/selections/{id}/shadow`               | the shadow run beside a selection: `{"engine", "shadow", "comparison"?, "error"?}`, or `null` when shadow mode was off |
+| `GET /api/v1/selections/{id}/shadow`               | the shadow run beside a selection: `{"engine", "shadow", "comparison"?, "error"?, "classification"?}`, or `null` when shadow mode was off |
 | `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}` |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
@@ -1439,6 +1440,10 @@ or a patch; the tests fail, rather than skip, without it.
 - **Goldens:** `crates/selection/tests/goldens/` holds each conformance case's Selection and trace (its records that
   don't depend on set order). After a deliberate change to a patch, a pin or the derivation, regenerate them with
   `TITLE_SELECT_REGENERATE_GOLDENS=1 cargo test -p title-select-selection --test conformance` and review the diff.
+- **Built-in engine conformance:** `crates/selection/tests/builtin.rs` runs both engines over Retool's fixture DATs
+  with its test configs. Pull-request CI checks every feature DAT and two system DATs; the `conformance` workflow
+  checks every DAT nightly and on demand. Run the full set locally with
+  `CONFORMANCE_FULL=1 cargo test -p title-select-selection --test builtin`.
 - **A real DAT:** `TITLE_SELECT_ATARI_DAT=<DAT file> cargo test -p title-select-selection --test selection --
   --ignored --nocapture` selects from it, checks every group has a rule and prints the counts. Never commit the DAT.
 

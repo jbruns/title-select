@@ -1266,12 +1266,12 @@ mod profiles_and_selections {
         assert_eq!(env.store.selection(id).unwrap(), made);
         assert_eq!(env.store.selection_rows(id).unwrap(), made.rows());
         assert_eq!(env.store.selection_shadow(id).unwrap(), None);
-        let shadow = ShadowRun {
-            engine: SelectionEngine::Bundled,
-            shadow: SelectionEngine::Builtin,
-            comparison: None,
-            error: Some("too many combinations".into()),
-        };
+        let shadow = ShadowRun::new(
+            SelectionEngine::Bundled,
+            SelectionEngine::Builtin,
+            None,
+            Some("too many combinations".into()),
+        );
         env.store.record_shadow(id, &shadow).unwrap();
         assert_eq!(env.store.selection_shadow(id).unwrap(), Some(shadow));
         let record = env.store.selection_record(id).unwrap();

@@ -251,6 +251,40 @@ pub struct ShadowRun {
     /// Why the shadow run failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// How far the differences are known to be real; absent when the engines agreed or the shadow run failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<ShadowClassification>,
+}
+
+impl ShadowRun {
+    /// The shadow run of `shadow` beside `engine`'s Selection, with its comparison or why it failed.
+    pub fn new(
+        engine: SelectionEngine,
+        shadow: SelectionEngine,
+        comparison: Option<EngineComparison>,
+        error: Option<String>,
+    ) -> Self {
+        let classification = comparison
+            .as_ref()
+            .filter(|c| !c.is_identical())
+            .map(|_| ShadowClassification::Unclassified);
+        ShadowRun {
+            engine,
+            shadow,
+            comparison,
+            error,
+            classification,
+        }
+    }
+}
+
+/// How far a shadow run's differences are known to be real.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShadowClassification {
+    /// Not classified: a shadow run makes one run of each engine, so a difference may only be the bundled engine's
+    /// set order. The conformance command reruns the bundled engine in other orders to tell.
+    Unclassified,
 }
 
 /// What a Selection was made with, so that it can be reproduced.
@@ -680,6 +714,33 @@ mod tests {
 
     fn set(titles: &[&str]) -> BTreeSet<String> {
         titles.iter().map(|t| t.to_string()).collect()
+    }
+
+    #[test]
+    fn a_shadow_runs_differences_are_unclassified() {
+        let (bundled, builtin) = (SelectionEngine::Bundled, SelectionEngine::Builtin);
+        let alike = EngineComparison {
+            groups: 2,
+            ..EngineComparison::default()
+        };
+        let differing = EngineComparison {
+            warnings: Some([vec!["a".into()], vec![]]),
+            ..alike.clone()
+        };
+        assert_eq!(
+            ShadowRun::new(bundled, builtin, Some(alike), None).classification,
+            None
+        );
+        assert_eq!(
+            ShadowRun::new(bundled, builtin, None, Some("failed".into())).classification,
+            None
+        );
+        let run = ShadowRun::new(bundled, builtin, Some(differing), None);
+        assert_eq!(run.classification, Some(ShadowClassification::Unclassified));
+        assert_eq!(
+            serde_json::to_value(&run).unwrap()["classification"],
+            "unclassified"
+        );
     }
 
     #[test]

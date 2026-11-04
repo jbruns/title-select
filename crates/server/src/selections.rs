@@ -90,7 +90,8 @@ pub fn shadow_summary(file: &str, shadow: &ShadowRun) -> String {
             }
             format!(
                 "shadow run for {file}: the {engines} placed releases differently in {} of {} groups{}, explained {} \
-                 more differently{}",
+                 more differently{}. These differences are unclassified: some may only reflect the order the bundled \
+                 engine meets titles in. Run `title-select conformance` on {file} to classify them",
                 c.differing,
                 c.groups,
                 if groups.is_empty() {
@@ -244,5 +245,34 @@ mod tests {
             "a dropped request kills its run"
         );
         assert!(!previews.0.lock().unwrap().contains_key("someone"));
+    }
+
+    #[test]
+    fn a_shadow_runs_log_line_marks_its_differences_unclassified() {
+        use title_select_api::selection::EngineComparison;
+        let run = |warnings| {
+            let comparison = EngineComparison {
+                groups: 3,
+                warnings,
+                ..EngineComparison::default()
+            };
+            shadow_summary(
+                "Test.dat",
+                &ShadowRun::new(
+                    SelectionEngine::Bundled,
+                    SelectionEngine::Builtin,
+                    Some(comparison),
+                    None,
+                ),
+            )
+        };
+        let differing = run(Some([vec!["a".into()], vec![]]));
+        assert!(differing.contains("unclassified"), "{differing}");
+        assert!(
+            differing.contains("`title-select conformance` on Test.dat"),
+            "{differing}"
+        );
+        let alike = run(None);
+        assert!(!alike.contains("unclassified"), "{alike}");
     }
 }
