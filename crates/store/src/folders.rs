@@ -691,16 +691,14 @@ pub(super) fn check_library_path(
              UNION ALL SELECT root, to_path, 'a library folder being moved there' FROM library_folder_moves
              WHERE approved_at IS NOT NULL AND finished_at IS NULL",
         )?;
-        let others = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        others
+        stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?
     };
     // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
     // Select reads or writes.
