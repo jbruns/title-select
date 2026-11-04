@@ -219,24 +219,11 @@ pub fn target_of(
 pub const RELEASE_STAYS_ZIP: &str = "another disc of the same game can't be stored as the storage policy says, and \
      every disc of a game is stored alike, so it stays TorrentZip";
 
-/// The release a disc belongs to: Game `game` without its `(Disc N)` tag, so that every disc of a Multi-disc Game
-/// has the same one, which a repair stores every disc of alike. This is only the tag Redump names discs with;
-/// recognizing Multi-disc Games in general is #98.
+/// The release a disc belongs to: Game `game` without its disc tag, once disc names are normalized, so that every
+/// disc of a Multi-disc Game has the same one, which a repair stores every disc of alike. A Game that is no disc is
+/// its own release.
 pub fn release_of(game: &str) -> String {
-    let mut out = String::with_capacity(game.len());
-    let mut rest = game;
-    while let Some(at) = rest.find(" (Disc ") {
-        let tag = &rest[at + 2..];
-        match tag.find(')') {
-            Some(end) => {
-                out.push_str(&rest[..at]);
-                rest = &tag[end + 1..];
-            }
-            None => break,
-        }
-    }
-    out.push_str(rest);
-    out
+    crate::discs::disc(game).map_or_else(|| game.to_owned(), |d| d.release)
 }
 
 /// Where a Repair stores a Game in a Source Set's folder, relative to it.

@@ -64,6 +64,7 @@ pub fn incomplete_reason_label(reason: IncompleteReason) -> &'static str {
         IncompleteReason::Conflict => "conflict",
         IncompleteReason::Blocked => "blocked",
         IncompleteReason::Missing => "missing",
+        IncompleteReason::MissingDisc => "missing disc",
     }
 }
 

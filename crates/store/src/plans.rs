@@ -982,9 +982,12 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             blockers.push(Blocker {
                 kind: BlockerKind::Unresolved,
                 message: format!(
-                    "the group {} is unresolved; confirm a choice for it in the selection, or build the resolved \
+                    "the group {} is unresolved{}; confirm a choice for it in the selection, or build the resolved \
                      groups only",
-                    group.group
+                    group.group,
+                    title_select_api::discs::unresolved_reason(group)
+                        .map(|reason| format!(": {reason}"))
+                        .unwrap_or_default()
                 ),
                 group: Some(group.group.clone()),
                 target: None,
