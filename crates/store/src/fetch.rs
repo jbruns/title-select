@@ -1119,4 +1119,39 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn an_imported_cue_pack_a_fetch_brings_again_is_held_while_that_fetch_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let dat = br#"<?xml version="1.0"?><datafile><header><name>Sony - PlayStation</name>
+            <version>1</version></header></datafile>"#;
+        store
+            .import_dat_bytes(dat, "psx.dat", "Redump", None)
+            .unwrap();
+        let dat = "Redump/Sony - PlayStation";
+        let a = zip_of("A.cue", b"FILE \"A.bin\" BINARY");
+        let (imported, _) = store
+            .import_cue_pack_bytes(&a, "a.zip", dat, None, CuePackOrigin::Import)
+            .unwrap();
+
+        // A fetch brings the same bytes, and before it finishes another pack is imported, which runs retention.
+        let fetch = record(&store, FetchArtifact::Cues, None);
+        let (again, _) = store
+            .import_cue_pack_held(&a, "a.zip", dat, None, CuePackOrigin::Fetch, Some(fetch))
+            .unwrap();
+        assert_eq!(again.origin, CuePackOrigin::Import);
+        let b = zip_of("B.cue", b"FILE \"B.bin\" BINARY");
+        store
+            .import_cue_pack_bytes(&b, "b.zip", dat, None, CuePackOrigin::Import)
+            .unwrap();
+        store.retain_cue_packs().unwrap();
+
+        assert!(
+            dir.path()
+                .join(crate::cue_packs::CUE_PACKS)
+                .join(&imported.sha256)
+                .is_file()
+        );
+    }
 }

@@ -207,7 +207,7 @@ impl Store {
     /// Deletes the file of every cue pack that no repair plan or step refers to and that its origin no longer holds.
     /// An imported pack is held while it is the latest added for its DAT or held as restored. A fetched pack is held
     /// while it is the one the latest successful fetch of its system's cue pack brought, or while no fetch names it
-    /// yet, as it is being fetched. The row stays, and importing the pack again restores its file. Returns the
+    /// yet, as it is being fetched. Either is held while a running fetch brings it. The row stays, and importing the pack again restores its file. Returns the
     /// SHA-256s whose files were deleted.
     pub fn retain_cue_packs(&self) -> Result<Vec<String>> {
         self.with_writer(|conn| {
@@ -228,10 +228,10 @@ impl Store {
                                                  WHERE g.provider = f.provider AND g.system = f.system
                                                    AND g.artifact = 'cues'
                                                    AND g.outcome IN ('added', 'unchanged')))
-                               AND {not_held}
                            ELSE c.restored_at IS NULL
                                AND c.id <> (SELECT max(n.id) FROM cue_packs n WHERE n.dat = c.dat)
                            END
+                       AND {not_held}
                        AND NOT EXISTS (SELECT 1 FROM repair_plans p WHERE instr(p.content, c.sha256) > 0)
                        AND NOT EXISTS (SELECT 1 FROM repair_steps s WHERE instr(s.detail, c.sha256) > 0)
                      ORDER BY c.id",
