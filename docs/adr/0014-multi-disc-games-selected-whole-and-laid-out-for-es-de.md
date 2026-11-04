@@ -33,4 +33,6 @@ file, and an `.m3u` as one entry for several discs.
 ## Consequences
 
 - Retool's disc-name normalization decides what counts as one release's discs, so the port carries it too.
-- Other layouts, such as all discs flat in the system folder, can be added as further choices of the same setting.
+- Other layouts can be added as further choices of the same setting. The first is flat: every file of every disc
+  directly in the system folder, with no `.m3u`.
+- An SBI file goes beside its disc's `.chd` as well as its `.cue`, named for it, since emulators read it there too.
