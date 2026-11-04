@@ -539,7 +539,10 @@ ROM itself under the name the DAT gives it; or as a loose folder, `<game>/` hold
 the DAT gives them. It has two scopes, source sets and play libraries (library folders), each with a global setting
 and settings for each system, a DAT as `<provider>/<name>`, as a selection profile has. The default is TorrentZip
 everywhere, except for disc systems' source sets, which default to loose folders: a disc system is one whose DAT's
-provider is Redump. A system's own setting overrides that default. Only a game with one ROM can be stored loose: a
+provider is Redump. A system's own setting overrides that default. A system's setting follows the
+spelling the store keeps of its provider: one you save for `redump/<name>` before importing any Redump DAT becomes
+`Redump/<name>` when you import under `Redump`. If two settings become one system that way, the more cautious wins:
+keeping originals wins over following the default, and that wins over deleting them. Only a game with one ROM can be stored loose: a
 game with more stays TorrentZip, and so does a game whose ROM's name isn't a plain file name; a plan says which games
 and why. Any game can be stored as a loose folder, a single `.iso` as well as a `.cue` sheet and its tracks, unless
 its name or a ROM's name isn't a plain file name, is a name Title Select keeps its own work under (one starting

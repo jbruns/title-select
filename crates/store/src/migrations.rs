@@ -134,8 +134,8 @@ fn backup(conn: &Connection, dir: &Path, version: usize) -> Result<()> {
 /// spelled one way may hold a DAT under two spellings of its provider, each with its own revisions; they become the
 /// first imported of them, which takes the others' revisions, Source Sets and Additions Sets. Of two Additions Sets
 /// registered for the one DAT, the first made stays registered and the others are Unregistered, their folders and
-/// records left as they are. Cue packs, SBI packs and Storage Policy name the DAT as text, rewritten to the kept
-/// spelling; of two policies for one system, the one written under the kept spelling, else the first, stays.
+/// records left as they are. Cue packs and SBI packs name the DAT as text, rewritten to the kept spelling; Storage
+/// Policy overrides are respelled as [`crate::storage::respell_overrides`].
 fn merge_provider_spellings(tx: &rusqlite::Transaction) -> Result<()> {
     use std::collections::HashMap;
     use std::collections::hash_map::Entry;
@@ -173,11 +173,8 @@ fn merge_provider_spellings(tx: &rusqlite::Transaction) -> Result<()> {
             rusqlite::params![id, provider],
         )?;
     }
-    for (table, column) in [
-        ("cue_packs", "dat"),
-        ("sbi_packs", "dat"),
-        ("storage_policy", "system"),
-    ] {
+    crate::storage::respell_overrides(tx)?;
+    for (table, column) in [("cue_packs", "dat"), ("sbi_packs", "dat")] {
         let named = tx
             .prepare(&format!(
                 "SELECT DISTINCT {column} FROM {table} ORDER BY {column}"
@@ -188,10 +185,9 @@ fn merge_provider_spellings(tx: &rusqlite::Transaction) -> Result<()> {
             let new = crate::dats::canonical_dat(tx, &old)?;
             if new != old {
                 tx.execute(
-                    &format!("UPDATE OR IGNORE {table} SET {column} = ?2 WHERE {column} = ?1"),
+                    &format!("UPDATE {table} SET {column} = ?2 WHERE {column} = ?1"),
                     rusqlite::params![old, new],
                 )?;
-                tx.execute(&format!("DELETE FROM {table} WHERE {column} = ?1"), [&old])?;
             }
         }
     }

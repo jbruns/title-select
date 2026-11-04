@@ -301,7 +301,10 @@ impl Store {
                         "INSERT INTO dats (provider, name) VALUES (?1, ?2)",
                         params![provider, dat.name],
                     )?;
-                    tx.last_insert_rowid()
+                    let id = tx.last_insert_rowid();
+                    // The provider's first DAT fixes its spelling for overrides saved before it.
+                    crate::storage::respell_overrides(&tx)?;
+                    id
                 }
             };
             // A newer revision releases any restored revision of the same DAT.

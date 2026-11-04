@@ -1052,7 +1052,7 @@ mod tests {
             ["late"]
         );
         assert_eq!(rows("SELECT dat FROM cue_packs"), ["Redump/PSX"]);
-        // Two policies now of one DAT: the one written under its kept spelling stays.
+        // Two policies now of one DAT merge: the format of the one written under its kept spelling stays.
         assert_eq!(
             rows(
                 "SELECT system || '=' || format FROM storage_policy WHERE system <> '' ORDER BY system"
