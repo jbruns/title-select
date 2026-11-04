@@ -23,10 +23,12 @@ ends and emulators widely prefer CHD and `.m3u` playlists.
 - In Library Folders, a Build may convert a disc Game to CHD with a pinned `chdman` shipped in the image. A new CHD is
   verified once by extracting it and matching the DAT's hashes, which gives the trusted stamp ADR 0010 requires;
   Drift checks then read the SHA-1 the CHD records in its header.
-  - The header SHA-1 is the CHD v5 raw data SHA-1, recorded when the CHD is verified. It covers the disc's data
-    alone, whatever the compression, so recompressing, or a `chdman` bump, never causes Drift. The combined SHA-1
-    also covers the metadata, such as the track list, which a newer `chdman` may write differently; the raw one
-    trades that coverage for stability. The verified extraction checked the tracks once.
+  - The header SHA-1 is the CHD v5 combined SHA-1, of the raw data and the checksummed metadata such as the track
+    list, recorded when the CHD is verified. Neither it nor the raw data SHA-1 depends on compression, so
+    recompressing never causes Drift. Drift compares a file only with its own recorded value, so a `chdman` bump
+    that writes metadata differently can't make an existing file drift; a rebuilt file records its own value at its
+    own verification. The raw data SHA-1 is recorded too, so a Check can say whether the data or only the metadata
+    changed.
   - A CD, a `.cue` and its `.bin` tracks, becomes a CHD with `createcd`; an `.iso` with `createdvd`. A disc that
     can't come back byte for byte, such as a track of partial sectors, stays TorrentZip with its release.
   - The CHD Storage Policy format is only a per-system Play Library override for disc systems, never a global

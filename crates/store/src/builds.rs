@@ -68,12 +68,13 @@ enum Failure {
     Cancelled,
 }
 
-/// A file written and verified in the staging directory, with its SHA-256 and size, and for a CHD the raw data SHA-1
-/// its header recorded once its extraction matched the DAT.
+/// A file written and verified in the staging directory, with its SHA-256 and size, and for a CHD the SHA-1 and the
+/// raw data SHA-1 its header recorded once its extraction matched the DAT.
 struct Staged {
     sha256: String,
     size: u64,
     chd_sha1: Option<String>,
+    chd_raw_sha1: Option<String>,
 }
 
 /// What a Build needs to make a CHD: chdman, or why it can't be run, the store's scratch directory, and whether you
@@ -113,7 +114,7 @@ impl Drop for Scratch {
 /// Writes `item`'s CHD to `file`, new in the staging directory at `staged`: each ROM of the disc is written loose
 /// into a scratch directory from the source the plan found, by descriptor, and checked against the DAT; chdman
 /// builds the CHD from them, then extracts it again, and every track it gives back must match the DAT's. Only then
-/// is the CHD copied into `file`, with its header's raw data SHA-1 to check it by from then on. A CHD whose
+/// is the CHD copied into `file`, with its header's SHA-1, of its data and metadata, to check it by from then on. A CHD whose
 /// extraction does not match is never staged; the item fails, and says why.
 fn stage_chd(
     item: &PlanItem,
@@ -216,7 +217,8 @@ fn stage_chd(
     Ok(Staged {
         sha256,
         size,
-        chd_sha1: Some(header.raw_sha1),
+        chd_sha1: Some(header.sha1),
+        chd_raw_sha1: Some(header.raw_sha1),
     })
 }
 
@@ -461,6 +463,7 @@ fn stage(
             sha256,
             size,
             chd_sha1: None,
+            chd_raw_sha1: None,
         });
     }
     let sources: Vec<PathBuf> = item
@@ -532,6 +535,7 @@ fn stage(
         sha256,
         size,
         chd_sha1: None,
+        chd_raw_sha1: None,
     })
 }
 
@@ -562,7 +566,7 @@ fn converted_verified(
     let verified = match (item.chd, item.loose, item.roms.as_slice()) {
         // A CHD was checked by extracting it once it was built; it is the same CHD while its header says so.
         (true, ..) => match chd::header(&file) {
-            Ok(h) if Some(h.raw_sha1.as_str()) == chd_sha1 => Ok(()),
+            Ok(h) if Some(h.sha1.as_str()) == chd_sha1 => Ok(()),
             Ok(_) => Err("its CHD header is not the one recorded when it was checked".into()),
             Err(why) => Err(why),
         },
@@ -701,9 +705,9 @@ fn record_applied(
     tx.execute(
         "INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id, dat_revision_id,
                                   roms, sources, size, mtime_ns, sha256, torrentzip, loose, addition_id, chd,
-                                  chd_sha1)
+                                  chd_sha1, chd_raw_sha1)
          SELECT ?1, ?2, ?3, ?4, b.id, b.selection_id, b.audit_id, b.dat_revision_id, ?5, ?6, ?7, ?8, i.sha256, ?11,
-                ?12, ?13, ?14, CASE WHEN ?14 THEN i.chd_sha1 END
+                ?12, ?13, ?14, CASE WHEN ?14 THEN i.chd_sha1 END, CASE WHEN ?14 THEN i.chd_raw_sha1 END
          FROM builds b JOIN build_items i ON i.build_id = b.id AND i.seq = ?10 WHERE b.id = ?9
          ON CONFLICT (folder_id, target) DO UPDATE SET
              game = excluded.game, kind = excluded.kind, build_id = excluded.build_id,
@@ -711,7 +715,7 @@ fn record_applied(
              dat_revision_id = excluded.dat_revision_id, roms = excluded.roms, sources = excluded.sources,
              size = excluded.size, mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,
              torrentzip = excluded.torrentzip, loose = excluded.loose, addition_id = excluded.addition_id,
-             chd = excluded.chd, chd_sha1 = excluded.chd_sha1",
+             chd = excluded.chd, chd_sha1 = excluded.chd_sha1, chd_raw_sha1 = excluded.chd_raw_sha1",
         params![
             folder,
             item.target,
@@ -1443,9 +1447,18 @@ impl Store {
                         self.write(|tx| {
                         tx.execute(
                             "UPDATE build_items SET state = 'publishing', sha256 = ?3, size = ?4, dev = ?5, ino = ?6,
-                                                    chd_sha1 = ?7
+                                                    chd_sha1 = ?7, chd_raw_sha1 = ?8
                              WHERE build_id = ?1 AND seq = ?2",
-                            params![id, w.seq, staged.sha256, staged.size as i64, dev, ino, staged.chd_sha1],
+                            params![
+                                id,
+                                w.seq,
+                                staged.sha256,
+                                staged.size as i64,
+                                dev,
+                                ino,
+                                staged.chd_sha1,
+                                staged.chd_raw_sha1
+                            ],
                         )?;
                         Ok(())
                     })?;

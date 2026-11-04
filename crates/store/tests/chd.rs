@@ -323,9 +323,10 @@ fn a_cd_and_a_dvd_build_to_chd_verify_and_pass_later_checks_by_their_header_alon
         (FileOutcome::Unchanged, false)
     );
 
-    // Its data changed: the header's raw SHA-1 is no longer the one verified.
+    // Its data changed: the header's SHA-1s are no longer the ones verified.
     let mut bytes = std::fs::read(&cd).unwrap();
     bytes[64] ^= 0xff;
+    bytes[84] ^= 0xff;
     std::fs::write(&cd, &bytes).unwrap();
     let file = std::fs::File::options().write(true).open(&cd).unwrap();
     file.set_modified(SystemTime::now() + Duration::from_secs(5))
@@ -340,6 +341,84 @@ fn a_cd_and_a_dvd_build_to_chd_verify_and_pass_later_checks_by_their_header_alon
     let again = env.plan(&folder, selection);
     let dvd = again.content.items.iter().find(|i| i.game == DVD);
     assert!(dvd.is_none_or(|i| !i.kind.writes()), "{dvd:?}");
+}
+
+#[test]
+fn a_chd_whose_metadata_changed_over_the_same_data_is_drift() {
+    let Some(chdman) = chdman() else { return };
+    let env = Env::new(None);
+    let (folder, selection) = env.folder(&[CD]);
+    assert_eq!(
+        env.build(&env.plan(&folder, selection)).state,
+        JobState::Succeeded
+    );
+    let cd = env.dir().join("Orbit (USA).chd");
+    let header = |path: &Path| {
+        title_select_engine::chd::header(&std::fs::File::open(path).unwrap()).unwrap()
+    };
+    let before = header(&cd);
+
+    // The same data with another track list. chdman adds metadata only to an uncompressed CHD, which holds no
+    // SHA-1s, so compress it again.
+    let scratch = tempfile::tempdir().unwrap();
+    let edited = scratch.path().join("edited.chd");
+    let run = |args: &[&std::ffi::OsStr]| {
+        let status = std::process::Command::new(&chdman)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "{args:?}");
+    };
+    run(&[
+        "copy".as_ref(),
+        "-c".as_ref(),
+        "none".as_ref(),
+        "-i".as_ref(),
+        cd.as_os_str(),
+        "-o".as_ref(),
+        edited.as_os_str(),
+    ]);
+    run(&[
+        "addmeta".as_ref(),
+        "-i".as_ref(),
+        edited.as_os_str(),
+        "-t".as_ref(),
+        "CHT2".as_ref(),
+        "-ix".as_ref(),
+        "2".as_ref(),
+        "-vt".as_ref(),
+        "TRACK:3 TYPE:AUDIO SUBTYPE:NONE FRAMES:150".as_ref(),
+    ]);
+    std::fs::remove_file(&cd).unwrap();
+    run(&[
+        "copy".as_ref(),
+        "-i".as_ref(),
+        edited.as_os_str(),
+        "-o".as_ref(),
+        cd.as_os_str(),
+    ]);
+    let after = header(&cd);
+    assert_eq!(after.raw_sha1, before.raw_sha1);
+    assert_ne!(after.sha1, before.sha1);
+    let file = std::fs::File::options().write(true).open(&cd).unwrap();
+    file.set_modified(SystemTime::now() + Duration::from_secs(5))
+        .unwrap();
+
+    let check = env.check(&env.config, &folder);
+    assert_eq!(
+        outcome(&check, "Orbit (USA).chd"),
+        (FileOutcome::Conflict, false)
+    );
+    let detail = check
+        .files
+        .iter()
+        .find(|f| f.target == "Orbit (USA).chd")
+        .unwrap()
+        .detail
+        .as_deref();
+    assert!(detail.unwrap().contains("its metadata"), "{detail:?}");
 }
 
 #[cfg(unix)]

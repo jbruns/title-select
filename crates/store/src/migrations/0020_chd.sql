@@ -18,12 +18,14 @@ INSERT INTO storage_policy_new SELECT scope, system, format, delete_originals, u
 DROP TABLE storage_policy;
 ALTER TABLE storage_policy_new RENAME TO storage_policy;
 
--- A built file that is a CHD, and the raw data SHA-1 its v5 header recorded when its extraction was checked against
--- the DAT: a later check reads the header alone and compares it, never decompressing. The raw data SHA-1 covers the
--- disc's data only, not chdman's compression or metadata, so a newer chdman never changes it.
+-- A built file that is a CHD, and the SHA-1 its v5 header recorded when its extraction was checked against the DAT,
+-- of its data and its metadata, such as a CD's track list: a later check reads the header alone and compares it, never
+-- decompressing. Neither depends on compression; the raw data SHA-1, of the data alone, is kept to say which changed.
 ALTER TABLE built_files ADD COLUMN chd INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE built_files ADD COLUMN chd_sha1 TEXT;
+ALTER TABLE built_files ADD COLUMN chd_raw_sha1 TEXT;
 
--- The raw data SHA-1 of the CHD an item verified and is putting in place, recorded with its publish intent so that
--- recovery records it built as the Build would have.
+-- The SHA-1s of the CHD an item verified and is putting in place, recorded with its publish intent so that recovery
+-- records it built as the Build would have.
 ALTER TABLE build_items ADD COLUMN chd_sha1 TEXT;
+ALTER TABLE build_items ADD COLUMN chd_raw_sha1 TEXT;

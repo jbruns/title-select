@@ -559,11 +559,13 @@ disc is stored as CHD when it is one `.cue` sheet and its `.bin` tracks, each wh
 of whole 2048-byte sectors; any other disc stays TorrentZip, with every other disc of its game, and the plan says
 why. A build makes a CD's CHD with `chdman createcd` and an `.iso`'s with `chdman createdvd`, then extracts the new
 CHD once and checks every track, or the image, against the DAT's hashes. A CHD that doesn't give back the DAT's files
-is never put in place: its item fails and says why. The checked CHD's data SHA-1, which its header holds, is
-recorded, and a check of the folder afterwards reads only that header, never the compressed data: a CHD recompressed
-by another chdman, even a newer one, is the same data and isn't drift. A build runs chdman as the configuration's
+is never put in place: its item fails and says why. The checked CHD's SHA-1, which its header holds and which covers
+its data and its track list, is recorded, and a check of the folder afterwards reads only that header, never the
+compressed data: a CHD recompressed by another chdman is the same CHD and isn't drift, but one whose data or track
+list changed is, and the check says which. A build runs chdman as the configuration's
 `[chd] chdman` names it, else as `TITLE_SELECT_CHDMAN` names it, else as `chdman` on the `PATH`; the image ships its
-own. It works in the store's `tmp/` folder, which needs room for the disc's tracks and its CHD while it runs, and
+own. It works in the store's `tmp/` folder, which needs free space for about the disc's raw size plus twice its CHD's size
+while it runs: it writes the tracks, makes the CHD, unpacks it again to check it, and copies it into place. It
 removes that work when the item ends or you cancel. A cancel stops chdman, and the disc stays unbuilt for the next
 plan. A CHD not written by a build, or put back from kept files, isn't adopted: the next plan keeps it aside and
 builds the disc again.

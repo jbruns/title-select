@@ -136,9 +136,13 @@ fn read(dir: &FolderDir, name: &str, seen: &Stat) -> std::result::Result<Probe, 
     Ok(probe)
 }
 
-/// The raw data SHA-1 in the CHD header of the regular file `name`, found by `lstat` as `seen`, read through `dir`
-/// while it is the same file: its header alone is read, never its compressed data.
-fn chd_sha1(dir: &FolderDir, name: &str, seen: &Stat) -> std::result::Result<String, String> {
+/// The CHD header of the regular file `name`, found by `lstat` as `seen`, read through `dir` while it is the same
+/// file: its header alone is read, never its compressed data.
+fn chd_header(
+    dir: &FolderDir,
+    name: &str,
+    seen: &Stat,
+) -> std::result::Result<title_select_engine::chd::Header, String> {
     let file: File = dir.open_file(name).map_err(|e| e.to_string())?;
     let before = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
     if Seen::of(&before) != Seen::of(seen) {
@@ -146,7 +150,7 @@ fn chd_sha1(dir: &FolderDir, name: &str, seen: &Stat) -> std::result::Result<Str
     }
     let header = title_select_engine::chd::header(&file)?;
     still(dir, name, &file, seen)?;
-    Ok(header.raw_sha1)
+    Ok(header)
 }
 
 /// Whether `file`, opened from `name` in `dir`, and the entry at `name` are both still the file `seen`.
@@ -309,14 +313,14 @@ pub(super) fn scan(
                 file.detail = Some("it is no longer a regular file".into());
             }
             Some(st) if file_stat(&st) == built.file => {}
-            // A CHD's data was checked against the DAT when it was built: it is the same data while the raw data
-            // SHA-1 its header holds is the one recorded then, however it was recompressed since.
-            Some(st) if built.chd => match chd_sha1(dir, target, &st) {
+            // A CHD's data was checked against the DAT when it was built: it is the same CHD while the SHA-1 its
+            // header holds, of its data and metadata, is the one recorded then, however it was recompressed since.
+            Some(st) if built.chd => match chd_header(dir, target, &st) {
                 Err(e) => {
                     file.outcome = FileOutcome::Unreadable;
                     file.detail = Some(e);
                 }
-                Ok(sha1) if built.chd_sha1.as_deref() == Some(sha1.as_str()) => {
+                Ok(header) if built.chd_sha1.as_deref() == Some(header.sha1.as_str()) => {
                     file.outcome = FileOutcome::Refreshed;
                     out.updates.push(Update {
                         target: target.clone(),
@@ -327,13 +331,15 @@ pub(super) fn scan(
                         torrentzip: false,
                     });
                 }
-                Ok(_) => {
+                Ok(header) => {
                     file.outcome = FileOutcome::Conflict;
-                    file.detail = Some(
-                        "it changed since it was built, and its CHD no longer holds the data that was checked \
-                         against the DAT"
-                            .into(),
-                    );
+                    let what = if built.chd_raw_sha1.as_deref() == Some(header.raw_sha1.as_str()) {
+                        "its CHD holds the same data, but its metadata, such as its track list, is not what was \
+                         checked against the DAT"
+                    } else {
+                        "its CHD no longer holds the data that was checked against the DAT"
+                    };
+                    file.detail = Some(format!("it changed since it was built, and {what}"));
                 }
             },
             Some(st) => {

@@ -36,10 +36,10 @@ pub struct Header {
     /// The bytes its hunks expand to.
     pub logical_bytes: u64,
     /// The SHA-1 of its raw data, the expanded hunks alone, as hex: the same however it is compressed and whatever
-    /// metadata it carries, so a chdman that compresses differently gives the same value.
+    /// metadata it carries.
     pub raw_sha1: String,
-    /// The SHA-1 of its raw data and its metadata together, as hex. A chdman that writes its track metadata
-    /// differently changes it, so it is not compared.
+    /// The SHA-1 of its raw data and its checksummed metadata, such as a CD's track list, together, as hex: the
+    /// same however it is compressed, and what a CHD is checked by once it is verified.
     pub sha1: String,
 }
 

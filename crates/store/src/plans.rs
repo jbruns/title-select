@@ -51,10 +51,11 @@ pub(super) struct Built {
     pub torrentzip: bool,
     /// Whether it was built loose, its one ROM under its DAT name.
     pub loose: bool,
-    /// Whether it was built as a CHD, with the raw data SHA-1 its header recorded once its extraction matched the
-    /// DAT.
+    /// Whether it was built as a CHD, with the SHA-1, of its data and metadata, and the raw data SHA-1 its header
+    /// recorded once its extraction matched the DAT.
     pub chd: bool,
     pub chd_sha1: Option<String>,
+    pub chd_raw_sha1: Option<String>,
 }
 
 impl Built {
@@ -91,7 +92,8 @@ fn same_roms(a: &[ExpectedRom], b: &[ExpectedRom]) -> bool {
 
 pub(super) fn read_built(c: &Connection, folder: i64) -> Result<BTreeMap<String, Built>> {
     let mut stmt = c.prepare(
-        "SELECT target, game, roms, size, mtime_ns, build_id, sha256, torrentzip, loose, chd, chd_sha1
+        "SELECT target, game, roms, size, mtime_ns, build_id, sha256, torrentzip, loose, chd, chd_sha1,
+                chd_raw_sha1
          FROM built_files
          WHERE folder_id = ?1",
     )?;
@@ -111,6 +113,7 @@ pub(super) fn read_built(c: &Connection, folder: i64) -> Result<BTreeMap<String,
                 loose: r.get(8)?,
                 chd: r.get(9)?,
                 chd_sha1: r.get(10)?,
+                chd_raw_sha1: r.get(11)?,
             },
         ))
     })?;
