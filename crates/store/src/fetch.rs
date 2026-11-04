@@ -747,8 +747,14 @@ impl Store {
             );
             Ok(Some(tx.query_row(&sql, [id], attempt_from_row)?.0))
         })?;
-        if artifact == FetchArtifact::Sbi {
-            self.retain_sbi_packs()?;
+        match artifact {
+            FetchArtifact::Sbi => {
+                self.retain_sbi_packs()?;
+            }
+            FetchArtifact::Cues => {
+                self.retain_cue_packs()?;
+            }
+            _ => {}
         }
         Ok(finished)
     }

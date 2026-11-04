@@ -352,7 +352,16 @@ impl Env {
 
     /// The SHA-256s of the SBI packs whose files the store keeps.
     fn sbi_packs(&self) -> Vec<String> {
-        let mut found: Vec<String> = std::fs::read_dir(self.store.dir().join("sbi_packs"))
+        self.kept("sbi_packs")
+    }
+
+    /// The SHA-256s of the cue packs whose files the store keeps.
+    fn cue_packs(&self) -> Vec<String> {
+        self.kept("cue_packs")
+    }
+
+    fn kept(&self, packs: &str) -> Vec<String> {
+        let mut found: Vec<String> = std::fs::read_dir(self.store.dir().join(packs))
             .map(|d| {
                 d.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
                     .collect()
@@ -809,6 +818,33 @@ fn the_sbi_pack_kept_is_the_one_the_latest_fetch_brought_even_if_it_came_before(
 
     env.store.retain_sbi_packs().unwrap();
     assert_eq!(env.sbi_packs(), [a]);
+}
+
+#[test]
+fn the_cue_pack_kept_is_the_one_the_latest_fetch_brought_even_if_it_came_before() {
+    let env = Env::new("redump = true");
+    env.serve_psx("2");
+    let a = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    let a = a.attempts[1].pack.clone().unwrap();
+    env.backdate(25);
+    env.serve_psx_packs("3");
+    env.fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    env.backdate(25);
+    env.serve_psx_packs("2");
+    let again = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(
+        again.attempts[1].pack.as_deref(),
+        Some(a.as_str()),
+        "{again:?}"
+    );
+
+    env.store.retain_cue_packs().unwrap();
+    assert_eq!(env.cue_packs(), [a]);
 }
 
 /// A MAME ListXML at build `build`.
