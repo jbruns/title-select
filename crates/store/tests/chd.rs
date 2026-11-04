@@ -264,6 +264,13 @@ impl Env {
 
     /// Reopens the store as after a crash, and recovers what it left unfinished.
     fn restart(self) -> Env {
+        let (env, blocked) = self.reopen();
+        assert!(blocked.is_empty(), "{blocked:?}");
+        env
+    }
+
+    /// Reopens the store as after a crash, recovers what it left unfinished, and says why what is still unfinished is.
+    fn reopen(self) -> (Env, Vec<String>) {
         let Env {
             tmp,
             store,
@@ -275,13 +282,13 @@ impl Env {
         let store = Store::open(&path).unwrap();
         store.recover_jobs(WORKERS).unwrap();
         let blocked = store.recover_builds(&config).unwrap();
-        assert!(blocked.is_empty(), "{blocked:?}");
-        Env {
+        let env = Env {
             tmp,
             store,
             config,
             sha256,
-        }
+        };
+        (env, blocked.into_iter().map(|(_, why)| why).collect())
     }
 
     fn dir(&self) -> PathBuf {
@@ -1154,6 +1161,96 @@ fn a_build_that_stops_between_two_keeps_finishes_its_game_on_recovery() {
     let built = env.store.built_files(folder.id).unwrap();
     for chd in SAGA_CHDS {
         assert!(env.dir().join(chd).is_file());
+        assert!(built.iter().any(|b| b.target == chd), "{built:?}");
+    }
+    assert!(!env.dir().join(title_select_api::build::STAGING).exists());
+}
+
+#[test]
+fn a_disc_whose_keep_stopped_unsynced_is_never_forgotten_across_two_recoveries() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(None);
+    let (folder, _, plan) = saga_converting_over(&env, true);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    env.store.hook_faults(Some(std::sync::Arc::new(|fault| {
+        if let title_select_store::Fault::KeptUnsynced(_) = fault {
+            panic!("killed at {fault:?}");
+        }
+    })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(&env.config, job.id, None)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+    // Disc 1's file was kept aside; something takes its place before the service starts again.
+    let obstruction = env.dir().join(SAGA_CHDS[0]);
+    assert!(!obstruction.exists());
+    std::fs::write(&obstruction, b"in the way").unwrap();
+
+    let (env, blocked) = env.reopen();
+    assert!(
+        blocked.len() == 1 && blocked[0].contains(SAGA_CHDS[0]),
+        "{blocked:?}"
+    );
+    let disc1 = env
+        .items(&env.store.job(job.id).unwrap())
+        .into_iter()
+        .find(|i| i.target == SAGA_CHDS[0])
+        .unwrap();
+    assert_eq!(disc1.state, ItemState::Publishing, "{disc1:?}");
+
+    std::fs::remove_file(&obstruction).unwrap();
+    assert!(recover(&env).is_empty());
+    let built = env.store.built_files(folder.id).unwrap();
+    for chd in SAGA_CHDS {
+        assert!(env.dir().join(chd).is_file(), "{chd}");
+        assert!(built.iter().any(|b| b.target == chd), "{built:?}");
+    }
+    assert!(!env.dir().join(title_select_api::build::STAGING).exists());
+}
+
+#[test]
+fn a_copy_of_a_discs_checked_file_at_its_target_is_not_taken_for_it() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(None);
+    let (folder, _, plan) = saga_converting(&env);
+    // Just before Disc 2 is renamed into place, a copy of its checked file, byte for byte, takes its name.
+    let dir = env.dir();
+    let copy = dir.join(SAGA_CHDS[1]);
+    let second = nth(2, |f| {
+        matches!(f, title_select_store::Fault::BeforePublish(_))
+    });
+    let at = copy.clone();
+    let ended = env.build_hooked(&plan, move |fault| {
+        if second(fault)
+            && let title_select_store::Fault::BeforePublish(seq) = fault
+        {
+            let staged = dir
+                .join(title_select_api::build::STAGING)
+                .join(format!("{seq}.zip"));
+            std::fs::copy(&staged, &at).unwrap();
+        }
+    });
+
+    assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    let blocked = recover(&env);
+    assert!(
+        blocked.len() == 1 && blocked[0].contains(SAGA_CHDS[1]),
+        "{blocked:?}"
+    );
+    assert!(env.dir().join(title_select_api::build::STAGING).is_dir());
+    let built = env.store.built_files(folder.id).unwrap();
+    assert!(!built.iter().any(|b| b.target == SAGA_CHDS[1]), "{built:?}");
+
+    std::fs::remove_file(&copy).unwrap();
+    assert!(recover(&env).is_empty());
+    let built = env.store.built_files(folder.id).unwrap();
+    for chd in SAGA_CHDS {
+        assert!(env.dir().join(chd).is_file(), "{chd}");
         assert!(built.iter().any(|b| b.target == chd), "{built:?}");
     }
     assert!(!env.dir().join(title_select_api::build::STAGING).exists());

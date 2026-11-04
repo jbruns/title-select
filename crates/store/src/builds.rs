@@ -2071,7 +2071,11 @@ impl Store {
             )?;
             let mut stmt = c.prepare(
                 "SELECT seq, target, sha256, size, kind, origin, dev, ino, kept_id, unit FROM build_items
-                 WHERE build_id = ?1 AND state = 'publishing' ORDER BY seq",
+                 WHERE build_id = ?1
+                   AND (state = 'publishing'
+                        OR (state <> 'applied'
+                            AND unit IN (SELECT unit FROM build_units WHERE build_id = ?1 AND state = 'committing')))
+                 ORDER BY seq",
             )?;
             let publishing = stmt
                 .query_map([build], |r| {
@@ -2132,11 +2136,14 @@ impl Store {
         let ours = match dir.open_file(&p.target) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,
             Err(e) => return Ok(Err(e.to_string())),
-            Ok(file) => match sha256_of(&file) {
-                Ok((sha256, size)) => {
-                    Some(Some(&sha256) == p.sha256.as_ref() && Some(size as i64) == p.size)
-                }
-                Err(e) => return Ok(Err(e.to_string())),
+            // The staged file itself, renamed into place: the same file, not only the same bytes.
+            Ok(file) => match (Identity::of_fd(&file), sha256_of(&file)) {
+                (Ok(id), Ok((sha256, size))) => Some(
+                    (p.dev, p.ino) == (Some(id.to_sql().0), Some(id.to_sql().1))
+                        && Some(&sha256) == p.sha256.as_ref()
+                        && Some(size as i64) == p.size,
+                ),
+                (Err(e), _) | (_, Err(e)) => return Ok(Err(e.to_string())),
             },
         };
         match (ours, &item.keep) {
@@ -2338,6 +2345,21 @@ impl Store {
                         return Ok(Err(e.to_string()));
                     }
                     self.fault_point(Fault::AfterPublish(p.seq));
+                }
+                // A disc of a committed unit is never failed or left: the unit was finished above, so this is its
+                // staged file, renamed into place, unless something changed it since.
+                if let Some(release) = &p.unit {
+                    let published = matches!(&found, Some(Ok(((sha256, size), st)))
+                        if Some(sha256) == p.sha256.as_ref()
+                            && Some(*size as i64) == p.size
+                            && (p.dev, p.ino) == (Some(Identity::of(st).to_sql().0), Some(Identity::of(st).to_sql().1)));
+                    if !published {
+                        return Ok(Err(unit_stuck(
+                            release,
+                            &p.target,
+                            "it is not the checked file the build put there",
+                        )));
+                    }
                 }
                 self.write(|tx| match found {
                     None => set_item(

@@ -1157,10 +1157,14 @@ impl Store {
                 return Ok(Err(e.to_string()));
             }
             self.write(|tx| {
+                // A disc of a unit committed to go in place keeps its publish intent: recovery finishes the unit.
                 let note = |state: &str, error: String| {
                     tx.execute(
                         "UPDATE build_items SET state = ?3, error = ?4
-                         WHERE build_id = ?1 AND seq = ?2 AND state IN ('pending', 'publishing')",
+                         WHERE build_id = ?1 AND seq = ?2 AND state IN ('pending', 'publishing')
+                           AND NOT EXISTS (SELECT 1 FROM build_units u
+                                           WHERE u.build_id = build_items.build_id AND u.unit = build_items.unit
+                                             AND u.state = 'committing')",
                         params![build, seq, state, error],
                     )
                 };
