@@ -45,6 +45,11 @@ struct Env {
 
 impl Env {
     fn new() -> Env {
+        Env::with("Test", &alpha_games())
+    }
+
+    /// Alpha and Gamma bound to the DAT of `games` from `provider`.
+    fn with(provider: &str, games: &[(&str, Vec<RomSpec>)]) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         for dir in ["roots/sets/Alpha", "roots/ro/Gamma", "in", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
@@ -58,13 +63,14 @@ impl Env {
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let dat = write_dat_version(&tmp.path().join("dats"), "alpha.dat", "1", &alpha_games());
-        store.import_dat(&dat, "Test", None).unwrap();
+        let dat = write_dat_version(&tmp.path().join("dats"), "alpha.dat", "1", games);
+        store.import_dat(&dat, provider, None).unwrap();
+        let system = format!("{provider}/Test - System");
         store
-            .add_source_set(&config, "sets", "Alpha", "Test/Test - System")
+            .add_source_set(&config, "sets", "Alpha", &system)
             .unwrap();
         store
-            .add_source_set(&config, "ro", "Gamma", "Test/Test - System")
+            .add_source_set(&config, "ro", "Gamma", &system)
             .unwrap();
         let env = Env { tmp, store, config };
         env.store.register_ingest_folder(&env.config, "in").unwrap();
@@ -2803,4 +2809,266 @@ fn a_fill_is_refused_when_its_ingest_folder_is_registered_anew_while_the_repair_
     );
     assert!(env.store.claim_job().unwrap().is_none(), "nothing queued");
     assert_eq!(env.ingest_listing(), ["pong.a26"]);
+}
+
+const DISC_SYSTEM: &str = "Redump/Test - System";
+
+/// A Redump DAT of disc games: one of two tracks, a game on two discs, and a disc with no tracks of its own.
+fn disc_games() -> Vec<(&'static str, Vec<RomSpec>)> {
+    vec![
+        ("Quest (USA)", disc("Quest (USA)", 3, 70_000, 1)),
+        (
+            "Saga (USA) (Disc 1)",
+            disc("Saga (USA) (Disc 1)", 1, 9_000, 20),
+        ),
+        (
+            "Saga (USA) (Disc 2)",
+            disc("Saga (USA) (Disc 2)", 1, 9_000, 30),
+        ),
+    ]
+}
+
+fn disc_of(game: &str) -> Vec<RomSpec> {
+    disc_games()
+        .into_iter()
+        .find(|(name, _)| *name == game)
+        .unwrap()
+        .1
+}
+
+/// Sets the storage policy's format for the disc system's Source Sets.
+fn set_disc_policy(env: &Env, format: StorageFormat, delete_originals: bool) {
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.systems.insert(
+        DISC_SYSTEM.into(),
+        SystemStorage {
+            format: Some(format),
+            delete_originals: Some(delete_originals),
+        },
+    );
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+}
+
+fn status_of(env: &Env, game: &str) -> GameStatus {
+    env.latest_report()
+        .games
+        .iter()
+        .find(|g| g.name == game)
+        .unwrap_or_else(|| panic!("no game {game}"))
+        .status
+}
+
+#[test]
+fn a_disc_systems_loose_tracks_are_moved_into_loose_folders_by_default() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    for r in &quest {
+        env.put(r.name, &r.payload);
+    }
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let item = item(&plan, "game:Quest (USA)");
+    assert_eq!(item.kind, RepairKind::Rename, "{item:?}");
+    assert!(
+        item.summary.contains("into Quest (USA)/"),
+        "{}",
+        item.summary
+    );
+    let done = env.approve(&plan);
+
+    let mut wanted = vec![".title-select".to_string()];
+    wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
+    wanted.sort();
+    assert_eq!(env.listing(), wanted);
+    for r in &quest {
+        assert_eq!(
+            std::fs::read(env.set().join("Quest (USA)").join(r.name)).unwrap(),
+            r.payload
+        );
+    }
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+    assert!(
+        !env.plan()
+            .content
+            .items
+            .iter()
+            .any(|i| i.key == "game:Quest (USA)"),
+        "a loose folder as the DAT names it is left as it is"
+    );
+}
+
+#[test]
+fn a_loose_folder_converts_to_torrentzip_and_back_deleting_each_original_once_verified() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    env.audit(AuditEvidence::Full);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+    set_disc_policy(&env, StorageFormat::TorrentZip, true);
+
+    let to_zip = env.plan();
+    let item_zip = item(&to_zip, "game:Quest (USA)");
+    assert_eq!(item_zip.kind, RepairKind::Convert, "{item_zip:?}");
+    assert!(
+        item_zip.summary.contains("Quest (USA)/") && item_zip.summary.contains("TorrentZip"),
+        "{}",
+        item_zip.summary
+    );
+    let deletes = to_zip
+        .content
+        .steps
+        .iter()
+        .filter(|s| matches!(s.step, RepairStep::Delete { .. }))
+        .count();
+    assert_eq!(deletes, quest.len(), "{:#?}", to_zip.content.steps);
+    let zipped = env.approve(&to_zip);
+    assert_eq!(env.listing(), [".title-select", "Quest (USA).zip"]);
+    assert!(is_torrentzip(&env.set().join("Quest (USA).zip")));
+    assert!(env.store.source_kept_files("Alpha").unwrap().is_empty());
+    env.run_queued_audit(&zipped);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+
+    set_disc_policy(&env, StorageFormat::LooseFolder, true);
+    let to_folder = env.plan();
+    let item_folder = item(&to_folder, "game:Quest (USA)");
+    assert_eq!(item_folder.kind, RepairKind::Convert, "{item_folder:?}");
+    assert!(
+        item_folder.summary.contains("loose folder"),
+        "{}",
+        item_folder.summary
+    );
+    let foldered = env.approve(&to_folder);
+    let mut wanted = vec![".title-select".to_string()];
+    wanted.extend(quest.iter().map(|r| format!("Quest (USA)/{}", r.name)));
+    wanted.sort();
+    assert_eq!(env.listing(), wanted);
+    let outcome = foldered
+        .outcomes
+        .iter()
+        .find(|o| o.item == "game:Quest (USA)")
+        .unwrap();
+    assert!(
+        outcome.detail.iter().any(|d| d.contains("was deleted")),
+        "{outcome:?}"
+    );
+    env.run_queued_audit(&foldered);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn every_disc_of_a_game_stays_torrentzip_when_one_cannot_be_a_loose_folder() {
+    let mut games = disc_games();
+    // A ROM named under a folder of its own can't be a file directly in a loose folder.
+    games[2].1[1].name = "tracks/Saga (USA) (Disc 2).bin";
+    let env = Env::with("Redump", &games);
+    for (game, roms) in &games[1..] {
+        let members: Vec<(&str, &[u8])> = roms
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(&env.set().join(format!("{game}.zip")), &members);
+    }
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    for game in ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"] {
+        let saga = item(&plan, &format!("game:{game}"));
+        assert_eq!(
+            saga.path.as_deref(),
+            Some(format!("{game}.zip").as_str()),
+            "{saga:?}"
+        );
+    }
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Saga (USA) (Disc 1)") && n.contains("another disc")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+/// Imports a cue pack holding `cues` for the disc system's DAT.
+fn import_cue_pack(env: &Env, cues: &[(&str, &[u8])]) {
+    let pack = env.tmp.path().join("Test - System (cues).zip");
+    write_zip(&pack, cues);
+    env.store
+        .import_cue_pack(&pack, DISC_SYSTEM, Some("https://example.invalid/cues"))
+        .unwrap();
+}
+
+#[test]
+fn a_missing_cue_sheet_is_filled_from_a_cue_pack() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    assert_ne!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+    import_cue_pack(
+        &env,
+        &[
+            ("Quest (USA).cue", quest[0].payload.as_slice()),
+            ("Other (USA).cue", b"FILE \"Other (USA).bin\" BINARY\n"),
+        ],
+    );
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    assert!(fill.summary.contains("cue pack"), "{}", fill.summary);
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        std::fs::read(env.set().join("Quest (USA)/Quest (USA).cue")).unwrap(),
+        quest[0].payload
+    );
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_mismatched_cue_sheet_is_replaced_from_a_cue_pack_and_kept() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    env.put(
+        "Quest (USA)/Quest (USA).cue",
+        b"FILE \"wrong.bin\" BINARY\n",
+    );
+    env.audit(AuditEvidence::Full);
+    import_cue_pack(
+        &env,
+        &[("cues/Quest (USA).cue", quest[0].payload.as_slice())],
+    );
+
+    let plan = env.plan();
+    let replace = item(&plan, "game:Quest (USA)");
+    assert_eq!(replace.kind, RepairKind::Replace, "{replace:?}");
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        std::fs::read(env.set().join("Quest (USA)/Quest (USA).cue")).unwrap(),
+        quest[0].payload
+    );
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].name, "Quest (USA)/Quest (USA).cue");
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_cue_pack_for_a_dat_not_imported_or_without_cue_sheets_is_refused() {
+    let env = Env::with("Redump", &disc_games());
+    let pack = env.tmp.path().join("pack.zip");
+    write_zip(&pack, &[("Quest (USA).cue", b"FILE")]);
+    let unknown = env.store.import_cue_pack(&pack, "Redump/Other", None);
+    assert!(matches!(unknown, Err(Error::Refused(_))), "{unknown:?}");
+    write_zip(&pack, &[("readme.txt", b"hello")]);
+    let empty = env.store.import_cue_pack(&pack, DISC_SYSTEM, None);
+    assert!(matches!(empty, Err(Error::Refused(_))), "{empty:?}");
+    assert!(env.store.cue_packs().unwrap().is_empty());
 }

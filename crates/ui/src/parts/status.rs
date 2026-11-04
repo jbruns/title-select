@@ -500,13 +500,13 @@ impl Status for PlanKind {
                 Glyph::CirclePlus,
                 Tone::Good,
                 "Fill",
-                "Adds a missing game from an ingest folder.",
+                "Adds a missing game from an ingest folder, or a missing cue sheet from a cue pack.",
             ),
             PlanKind::Replace => look(
                 Glyph::Replace,
                 Tone::Review,
                 "Replace",
-                "Replaces a mismatched or unreadable entry, keeping the original.",
+                "Replaces a mismatched or unreadable entry from an ingest folder or a cue pack, keeping the original.",
             ),
             PlanKind::SetAside => look(
                 Glyph::Archive,

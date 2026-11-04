@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::build::invalid_name;
+
 /// How a folder stores a Game.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -193,6 +195,31 @@ pub fn target_of(
     }
 }
 
+/// Why a disc of a Multi-disc Game is stored as TorrentZip where the policy says loose folder: another of its discs
+/// can't be, and every disc of a game is stored alike.
+pub const RELEASE_STAYS_ZIP: &str = "another disc of the same game can't be stored as a loose folder, and every \
+     disc of a game is stored alike, so it stays TorrentZip";
+
+/// The release a disc belongs to: Game `game` without its `(Disc N)` tag, so that every disc of a Multi-disc Game
+/// has the same one, which a repair stores every disc of alike. This is only the tag Redump names discs with;
+/// recognizing Multi-disc Games in general is #98.
+pub fn release_of(game: &str) -> String {
+    let mut out = String::with_capacity(game.len());
+    let mut rest = game;
+    while let Some(at) = rest.find(" (Disc ") {
+        let tag = &rest[at + 2..];
+        match tag.find(')') {
+            Some(end) => {
+                out.push_str(&rest[..at]);
+                rest = &tag[end + 1..];
+            }
+            None => break,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Where a Repair stores a Game in a Source Set's folder, relative to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Placement {
@@ -231,10 +258,11 @@ pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Opt
     if storage.format == StorageFormat::LooseFolder {
         let distinct: std::collections::BTreeSet<String> =
             roms.iter().map(|r| r.to_lowercase()).collect();
+        let usable = |name: &str| is_plain_name(name) && invalid_name(name).is_none();
         if !roms.is_empty()
-            && is_plain_name(game)
+            && usable(game)
             && distinct.len() == roms.len()
-            && roms.iter().all(|r| is_plain_name(r))
+            && roms.iter().all(|r| usable(r))
         {
             return (
                 Placement::Folder {
@@ -349,5 +377,15 @@ mod tests {
         let (placed, note) = placement(folder, "Odd", &["ok.bin", "sub/track.bin"]);
         assert_eq!(placed, Placement::TorrentZip("Odd.zip".into()));
         assert_eq!(note, Some(NOT_FOLDER_NAMES));
+    }
+
+    #[test]
+    fn the_discs_of_a_game_share_its_release() {
+        assert_eq!(
+            release_of("Saga (USA) (Disc 1) (Rev 1)"),
+            "Saga (USA) (Rev 1)"
+        );
+        assert_eq!(release_of("Saga (USA) (Disc 2)"), "Saga (USA)");
+        assert_eq!(release_of("Solo (USA)"), "Solo (USA)");
     }
 }

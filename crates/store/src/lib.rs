@@ -6,6 +6,7 @@ mod blobs;
 mod builds;
 mod checks;
 pub mod config;
+mod cue_packs;
 mod dats;
 mod folder_dir;
 mod folder_moves;
@@ -31,6 +32,7 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
+pub use cue_packs::{CUE_PACK_LIMIT, CUE_PACKS};
 pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use selections::SelectionInput;

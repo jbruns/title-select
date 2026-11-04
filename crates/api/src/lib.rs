@@ -97,6 +97,49 @@ pub enum ImportOutcome {
     Restored,
 }
 
+/// A Redump cue pack as the store records it: a ZIP of `.cue` sheets for one DAT, kept unmodified.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CuePackRecord {
+    /// SHA-256 of the unmodified cue pack; its identity.
+    pub sha256: String,
+    /// The DAT its sheets are for, as `<provider>/<name>`.
+    pub dat: String,
+    /// The original filename.
+    pub file: String,
+    pub source_url: Option<String>,
+    /// How it came into the store.
+    pub origin: CuePackOrigin,
+    /// How many `.cue` sheets it holds.
+    pub cues: u64,
+    pub imported_at: String,
+}
+
+/// How a cue pack came into the store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CuePackOrigin {
+    /// You imported it.
+    Import,
+    /// Title Select fetched it.
+    Fetch,
+}
+
+impl CuePackOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CuePackOrigin::Import => "import",
+            CuePackOrigin::Fetch => "fetch",
+        }
+    }
+}
+
+/// The response to a cue pack upload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CuePackImport {
+    pub pack: CuePackRecord,
+    pub outcome: ImportOutcome,
+}
+
 /// The response to a DAT upload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportedDatRevision {

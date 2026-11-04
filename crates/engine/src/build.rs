@@ -49,6 +49,42 @@ fn archive<R: Read + Seek>(
     }
 }
 
+/// The `.cue` sheets in `file`, a cue pack: a ZIP archive of them, by member name, each read and hashed. Other
+/// members are passed over. A sheet larger than `limit` bytes, or a pack holding none, is refused.
+pub fn cue_sheets(file: &File, limit: u64) -> Result<Vec<(String, Checksums)>, String> {
+    let mut archive = archive(file, || Ok(BufReader::new(file)))?;
+    let mut sheets = Vec::new();
+    for index in 0..archive.len() {
+        let mut member = archive.by_index(index).map_err(|e| e.to_string())?;
+        let name = member.name().map_err(|e| e.to_string())?.into_owned();
+        let cue = name
+            .rsplit_once('.')
+            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("cue"));
+        if !member.is_file() || !cue {
+            continue;
+        }
+        let mut hasher = Hasher::new();
+        let mut buf = vec![0; CHUNK];
+        let mut read = 0u64;
+        loop {
+            let n = member.read(&mut buf).map_err(|e| format!("{name}: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            read += n as u64;
+            if read > limit {
+                return Err(format!("{name}: a cue sheet is at most {limit} bytes"));
+            }
+            hasher.update(&buf[..n]);
+        }
+        sheets.push((name, hasher.finish()));
+    }
+    if sheets.is_empty() {
+        return Err("it holds no .cue sheet".into());
+    }
+    Ok(sheets)
+}
+
 /// Whether the archive at `path` is structurally valid TorrentZip, read from its central directory alone.
 pub fn is_torrentzip(path: &Path) -> bool {
     File::open(path)
