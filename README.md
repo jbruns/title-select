@@ -29,6 +29,10 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   request says so on stderr and reports `full`.
 - A finding is decided by payload before name: a file whose name is wrong but whose payload matches a ROM is
   misnamed, not unmatched. A payload matches a ROM when every checksum the DAT supplies for it agrees.
+- A disc set is audited the same way. A game with many ROMs, such as a `.cue` sheet and its `.bin` tracks, a `.gdi`
+  and its tracks, or an `.iso`, may be stored as a ZIP or as a loose folder, `<game>/` holding its ROMs, and both may
+  sit side by side in one source set. Every file is streamed while it is hashed, so a file of several gigabytes is
+  never held in memory whole.
 - An unreadable file, directory, archive or member becomes an unreadable entry and the audit continues.
   Symbolic links are followed.
 - Exits 0 when the audit completes, whatever it found. Exits non-zero with a message on stderr when the DAT
@@ -193,7 +197,7 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
 ## Store
 
 The store is one directory: a SQLite database (`title-select.sqlite`), the unmodified DAT files under `dats/<sha256>`,
-`backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
+the cue packs you import under `cue_packs/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
 first use. Only one Title Select process may have a store open at a time: it holds an exclusive lock on
 `<store>/lock`, and another process fails at once with "the store is in use by another Title Select process".
 
@@ -296,6 +300,18 @@ Imports an unmodified DAT file as a DAT revision, recording its SHA-256, header 
 filename, import time, provider and source URL. A DAT is identified by its provider and header name, written
 `<provider>/<name>`; each import of new bytes adds a DAT revision of it. Importing the same bytes again changes
 nothing and prints the existing DAT revision, restoring its file if the store had dropped it.
+
+```sh
+title-select cue-pack import <ZIP file> --dat <provider>/<name> [--source-url <url>]
+title-select cue-pack list
+```
+
+`cue-pack import` stores a cue pack, a ZIP of a disc system's `.cue` sheets such as Redump publishes for each system,
+for an imported DAT, recording its SHA-256, original filename, source URL, import time and how many cue sheets it
+holds. A ZIP with no `.cue` sheet is refused. Importing the same bytes again changes nothing; a cue pack already
+imported for another DAT is refused. A repair of a source set bound to that DAT can then fill a missing cue sheet, or
+replace one that doesn't match, from it (see "Repairs"). Title Select never downloads a cue pack itself. `cue-pack
+list` prints each cue pack with its DAT, file, cue sheets, import time and SHA-256.
 
 ```sh
 title-select set add <root> [<relative path>] --dat <provider>/<name> [--template <path template>]
@@ -454,11 +470,20 @@ saying why.
 
 ### Storage policy
 
-The storage policy says how each folder stores a game: as one TorrentZip per game, `<game>.zip`, or loose, as its
-ROM itself under the name the DAT gives it. It has two scopes, source sets and play libraries (library folders), each
-with a global setting and settings for each system, a DAT as `<provider>/<name>`, as a selection profile has. The
-default is TorrentZip everywhere. Only a game with one ROM can be stored loose: a game with more stays TorrentZip, and
-so does a game whose ROM's name isn't a plain file name; a plan says which games and why.
+The storage policy says how each folder stores a game: as one TorrentZip per game, `<game>.zip`; loose, as its
+ROM itself under the name the DAT gives it; or as a loose folder, `<game>/` holding the game's ROMs under the names
+the DAT gives them. It has two scopes, source sets and play libraries (library folders), each with a global setting
+and settings for each system, a DAT as `<provider>/<name>`, as a selection profile has. The default is TorrentZip
+everywhere, except for disc systems' source sets, which default to loose folders: a disc system is one whose DAT's
+provider is Redump. A system's own setting overrides that default. Only a game with one ROM can be stored loose: a
+game with more stays TorrentZip, and so does a game whose ROM's name isn't a plain file name; a plan says which games
+and why. Any game can be stored as a loose folder, a single `.iso` as well as a `.cue` sheet and its tracks, unless
+its name or a ROM's name isn't a plain file name, or two ROMs share a name: then it stays TorrentZip. Play libraries
+can't use loose folders yet.
+
+A game's ROMs are never split between formats, and every disc of a game released on several discs, named alike but
+for its `(Disc …)` tag, is stored the same way: if one disc has to stay TorrentZip, so do the others, and the plan
+says why.
 
 Every write of a game into a folder follows it: a build writes each system's play library in that system's format,
 and a repair, including a fill from an ingest folder, writes a source set in its system's format. Saving the policy
@@ -676,7 +701,8 @@ game's ROMs before it renames it. Each item has a choice you can change, then pl
 approving approves the plan as it was made, so it waits while you have changes you haven't planned with:
 
 - a game whose files are named otherwise than the DAT says is renamed, or written under its name: on by default;
-- a game not stored as the storage policy says, `<game>.zip` or its one ROM loose, is repacked or converted to it:
+- a game not stored as the storage policy says, `<game>.zip`, its one ROM loose, or a `<game>/` loose folder, is
+  repacked or converted to it, a loose game's tracks moved into its folder by a rename:
   always proposed for now. A conversion writes the converted file and puts it in place first, then keeps the
   original, or deletes it once the converted file verifies when delete originals after conversion is on. If the
   converted file's name is taken, the original stays where it is, unless you chose to keep what is there aside: it
@@ -684,6 +710,9 @@ approving approves the plan as it was made, so it waits while you have changes y
 - a missing game is filled from an ingest folder item whose payload matches it: on by default when there is one;
 - a game with a mismatched or unreadable entry is replaced from an ingest folder item that matches it, keeping the
   original: on by default when there is one;
+- a missing `.cue` sheet of a disc game is filled, and a mismatched one replaced, keeping the original, from a cue
+  pack imported for the source set's DAT whose sheet matches every checksum the DAT gives: on by default when there
+  is one. A fill from an ingest folder into a loose folder isn't proposed yet;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
   to take it as the ROM its payload matches, keep it aside or leave it;
 - unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.
@@ -809,6 +838,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/dats`                                 | each DAT with its DAT revisions                              |
 | `GET /api/v1/dat-revisions`                        | every DAT revision                                           |
 | `POST /api/v1/dat-revisions`                       | import a DAT: multipart `provider`, `source_url`?, `file`    |
+| `GET /api/v1/cue-packs`                            | every cue pack: `{"sha256", "dat", "file", "source_url", "origin", "cues", "imported_at"}` |
+| `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
 | `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}` |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
 | `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat"}`; with no `path`, the path `template`, else the default, proposes |
@@ -835,7 +866,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/profiles/{name}/versions`             | its versions, newest first                                   |
 | `POST /api/v1/profiles/{name}/versions`            | save: `{"profile", "base_version"?, "queue"?}`; creates it   |
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
-| `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "systems"}`, `format` being `torrent_zip` or `loose`, and `systems` each system's own `{"format"?, "delete_originals"?}` |
+| `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "systems"}`, `format` being `torrent_zip`, `loose` or `loose_folder`, and `systems` each system's own `{"format"?, "delete_originals"?}` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
 | `POST /api/v1/preview`                             | the selection a profile would make: `{"source_set", "profile", "revision"?}`, with the changes from the latest saved selection |
 | `GET /api/v1/selections?source_set=&profile=`      | selections, newest first, of a source set, a profile or both; each names the library folders that use it |
@@ -1026,8 +1057,8 @@ Its screens:
   what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; a past audit opens read-only. **Kept files** lists what its repairs kept aside, where you pick some
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
 - **DATs** (`/dats`) lists every DAT revision, newest import first within each DAT, with its provenance (provider,
-  source URL, file, SHA-256, import time), whether its file is kept, and the audits that refer to it. It uploads a DAT
-  file as a new DAT revision.
+  source URL, file, SHA-256, import time), whether its file is kept, and the audits that refer to it, and the cue packs imported for its DAT. It uploads a DAT
+  file as a new DAT revision, and a cue pack for a DAT.
 - **Audit** shows the audit's source set, DAT revision, times and evidence, exports its JSON report and re-audits. Its summary
   counts each finding and game status, and two derived states: an entry is verified when it is matched with payload
   evidence, and needs review when it is misnamed, conflicting, mismatched, unmatched or unreadable. Its entries load in
@@ -1063,7 +1094,7 @@ Its screens:
   (`?group=`) opens it. The selection names the library folders that use it; one no library folder uses is a
   what-if. "Create library folder from this" makes a library folder from it, and "Plan a build" plans building it
   into a library folder bound to its source set and selection profile.
-- **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip or loose, and whether a
+- **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
   conversion deletes each original once its converted file verifies, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
