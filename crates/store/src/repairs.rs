@@ -12,7 +12,7 @@
 pub(crate) mod deletion;
 pub(crate) mod planning;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io;
 
@@ -703,14 +703,45 @@ impl Store {
             set_aside: false,
         };
         let digest = digest(&content);
-        self.write(|tx| {
+        let packs: BTreeSet<&str> = content
+            .steps
+            .iter()
+            .filter_map(|s| match &s.step {
+                RepairStep::Build { roms, .. } => Some(roms),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|r| r.cue_pack.as_deref())
+            .collect();
+        self.fault_point(crate::Fault::RepairPlanned);
+        // The plan is recorded only while every cue pack it reads is still kept: once recorded, it holds them.
+        let recorded = self.write(|tx| {
+            for pack in &packs {
+                let kept: bool = tx
+                    .query_row(
+                        "SELECT blob_dropped_at IS NULL FROM cue_packs WHERE sha256 = ?1",
+                        [pack],
+                        |r| r.get(0),
+                    )
+                    .optional()?
+                    .unwrap_or(false);
+                if !kept {
+                    return Ok(None);
+                }
+            }
             tx.execute(
                 "INSERT INTO repair_plans (source_set_id, audit_id, content, digest, created_at, readers, hashers)
                  VALUES (?1, ?2, ?3, ?4, ?5, 0, 0)",
                 params![set.id, audit.id, to_json(&content), digest, now()],
             )?;
-            plan_by_id(tx, tx.last_insert_rowid())
-        })
+            plan_by_id(tx, tx.last_insert_rowid()).map(Some)
+        })?;
+        match recorded {
+            Some(plan) => Ok(plan),
+            // A cue pack it reads was deleted as it was made, and stays deleted until imported again, so planning
+            // again reads only the packs still kept.
+            None => self.plan_repair(config, name, request),
+        }
     }
 
     /// Proposes setting Source Set `name` aside whole: a repair that keeps every file in it aside where it is, in

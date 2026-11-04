@@ -211,6 +211,8 @@ pub enum Fault {
     IngestKeeping,
     /// After the incremental Audits a DAT import from an Ingest Folder owes are recorded, before the DAT is imported.
     IngestDatOwed,
+    /// After a repair plan is made, before it is recorded.
+    RepairPlanned,
     /// After a repair's step with this sequence number writes and checks its staged file, before the store records it.
     RepairStaged(u32),
     /// After a repair's step with this sequence number moves its file, before either folder is synced.

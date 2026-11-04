@@ -3184,6 +3184,64 @@ fn import_cue_pack(env: &Env, cues: &[(&str, &[u8])]) {
 }
 
 #[test]
+fn a_plan_never_reads_a_cue_pack_deleted_while_it_was_made() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    let cue = ("Quest (USA).cue", quest[0].payload.as_slice());
+    import_cue_pack(&env, &[cue]);
+    let older = env.store.cue_packs().unwrap()[0].sha256.clone();
+
+    // While the plan is made from the older pack, a newer one is imported, which deletes the older.
+    let (paused, pause) = std::sync::mpsc::channel::<()>();
+    let (resume, resumed) = std::sync::mpsc::channel::<()>();
+    let gate = std::sync::Mutex::new(Some((paused, resumed)));
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if at == Fault::RepairPlanned
+            && let Some((paused, resumed)) = gate.lock().unwrap().take()
+        {
+            paused.send(()).unwrap();
+            resumed.recv().unwrap();
+        }
+    })));
+    let plan = std::thread::scope(|s| {
+        let planning = s.spawn(|| env.plan());
+        pause.recv().unwrap();
+        import_cue_pack(
+            &env,
+            &[
+                cue,
+                ("Other (USA).cue", b"FILE \"Other (USA).bin\" BINARY\n"),
+            ],
+        );
+        resume.send(()).unwrap();
+        planning.join().unwrap()
+    });
+    env.store.hook_faults(None);
+    let packs = env.store.cue_packs().unwrap();
+    assert!(!packs[0].blob_present, "{packs:?}");
+
+    let read: Vec<&str> = plan
+        .content
+        .steps
+        .iter()
+        .filter_map(|s| match &s.step {
+            RepairStep::Build { roms, .. } => Some(roms),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|r| r.cue_pack.as_deref())
+        .collect();
+    assert_eq!(read, [packs[1].sha256.as_str()], "not {older}");
+    env.approve(&plan);
+    assert_eq!(
+        std::fs::read(env.set().join("Quest (USA)/Quest (USA).cue")).unwrap(),
+        quest[0].payload
+    );
+}
+
+#[test]
 fn a_missing_cue_sheet_is_filled_from_a_cue_pack() {
     let env = Env::with("Redump", &disc_games());
     let quest = disc_of("Quest (USA)");
