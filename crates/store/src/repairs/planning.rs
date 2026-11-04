@@ -234,7 +234,8 @@ pub(crate) fn split_release(items: &[RepairItem]) -> Option<String> {
 }
 
 /// How the files holding game `game`'s ROMs, by the Audit, are stored; `None` for a file of it whose format can't
-/// be told, as an unreadable one where the Game's ZIP, loose folder or a ROM of it would be.
+/// be told, as an unreadable one where the Game's ZIP, loose folder (the folder itself, as an Audit reports an
+/// unreadable directory, or a file in it) or a ROM of it would be.
 fn stored_formats(
     by_path: &BTreeMap<&str, Vec<&Entry>>,
     dat: &Dat,
@@ -256,6 +257,7 @@ fn stored_formats(
                 let name = base_name(path);
                 let unreadable = entries.iter().any(|e| e.finding == Finding::Unreadable)
                     && (name == zip
+                        || name == game
                         || path.starts_with(&folder)
                         || roms.iter().any(|r| r.name == name));
                 return unreadable.then_some(None);

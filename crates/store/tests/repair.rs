@@ -3214,6 +3214,38 @@ fn a_disc_is_not_converted_while_another_disc_of_its_game_is_unreadable() {
     );
 }
 
+#[test]
+fn a_disc_is_not_converted_while_another_disc_of_its_game_is_an_unreadable_folder() {
+    use std::os::unix::fs::PermissionsExt;
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 1)"]);
+    let folder = env.set().join("Saga (USA) (Disc 2)");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
+    env.audit(AuditEvidence::Full);
+    // A plan reads the source set again, so the folder is readable once more by then, though still empty.
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let plan = env.plan();
+
+    assert!(
+        env.latest_report()
+            .entries
+            .iter()
+            .any(|e| e.path == "Saga (USA) (Disc 2)" && e.finding == Finding::Unreadable),
+        "the audit reports the folder as unreadable"
+    );
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+    assert!(
+        first
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Saga (USA) (Disc 2)")),
+        "{first:?}"
+    );
+}
+
 /// Plans converting both discs of Saga, zipped, into loose folders, and stops the repair once the first disc's
 /// conversion has changed something, then cancels the job a restart queued again.
 fn cancelled_once_one_disc_converted(env: &Env, before_rerun: impl FnOnce()) -> RepairPlan {
