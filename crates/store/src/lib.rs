@@ -266,6 +266,8 @@ pub enum Fault {
     /// Before a Build reads a file of its Source Set to write the ROMs it holds for the disc of the item with this
     /// sequence number, which it makes a CHD of.
     ChdSourceRead(i64),
+    /// A CHD that was checked has been copied into staging, before the copy is hashed again.
+    ChdCopied(i64),
     /// After an Additions Set's folder is made and recorded under its temporary name, before its marker is written.
     AdditionSetMade,
     /// After an Additions Set's folder is renamed into place, before the Root is synced and the folder recorded.

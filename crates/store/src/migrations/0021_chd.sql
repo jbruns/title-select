@@ -38,3 +38,13 @@ ALTER TABLE build_items ADD COLUMN mtime_ns INTEGER;
 -- rest in place from their staged files, so that a release is never left split across formats. NULL for an item
 -- put in place alone.
 ALTER TABLE build_items ADD COLUMN unit TEXT;
+
+-- Each such unit's progress, durably: 'staged' while its discs are written and checked, when a failure, a cancel or
+-- a stop rolls it back; 'committing' once, with every disc's publish intent and no cancel asked for, it may keep
+-- files aside and rename its discs into place, which recovery then finishes; 'done' or 'rolled_back' after.
+CREATE TABLE build_units (
+    build_id INTEGER NOT NULL REFERENCES builds (id),
+    unit TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('staged', 'committing', 'done', 'rolled_back')),
+    PRIMARY KEY (build_id, unit)
+);

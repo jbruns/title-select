@@ -555,27 +555,29 @@ its name or a ROM's name isn't a plain file name, is a name Title Select keeps i
 stored loose. Play libraries
 can't use loose folders yet.
 
-A disc system's play libraries can also store each disc as CHD, `<game>.chd`. Only a system's own setting can say
-CHD, not the global one, and source sets never can: a source set keeps each file exactly as the DAT lists it. A
-disc is stored as CHD when it is one `.cue` sheet and its `.bin` tracks, each whole 2352-byte sectors, or one `.iso`
-of whole 2048-byte sectors; any other disc stays TorrentZip, with every other disc of its game, and the plan says
-why. A CD's cue sheet must name each of its `.bin` tracks once, and no other file. A build makes a CD's CHD with `chdman createcd` and an `.iso`'s with `chdman createdvd`, then extracts the new
-CHD once and checks every track, or the image, against the DAT's hashes. A CHD that doesn't give back the DAT's files
-is never put in place: its item fails and says why. The checked CHD's SHA-1, which its header holds and which covers
-its data and its track list, is recorded, and a check of the folder afterwards reads only that header, never the
-compressed data: a CHD recompressed by another chdman is the same CHD and isn't drift, but one whose data or track
-list changed is, and the check says which. A build runs chdman as the configuration's
-`[chd] chdman` names it, else as `TITLE_SELECT_CHDMAN` names it, else as `chdman` on the `PATH`; the image ships its
-own. It works in the store's `tmp/` folder, which needs free space for about the disc's raw size plus twice its CHD's size
-while it runs: it writes the tracks, makes the CHD, unpacks it again to check it, and copies it into place. It
-removes that work when the item ends or you cancel. chdman may run for 10 minutes plus 4 minutes for each GiB of the
-disc, set by `timeout_seconds` and `timeout_seconds_per_gib` under `[chd]`; one that runs longer is stopped, and its
-disc fails. The discs of one game are put in place together: every disc is made and checked first, and if one fails,
-or you cancel, none is, and the game stays as it was. Once the first is in place, the rest follow, even if you cancel
-or the service stops. When the new CHDs replace a game's earlier files, an earlier file is deleted, if you chose
-that, only while its CHD is still the file that was checked: the same size and modification time, and, read whole
-again just before, the same SHA-256. Otherwise it stays in your kept files. A CHD not written by a build, or put back from kept files, isn't adopted: the next plan keeps it aside and
-builds the disc again.
+A disc system's play libraries can also store each disc as CHD, `<game>.chd`. Only a system's own setting can say CHD,
+not the global one, and source sets never can: a source set keeps each file exactly as the DAT lists it. A disc is
+stored as CHD when it is one `.cue` sheet and its `.bin` tracks, each whole 2352-byte sectors, or one `.iso` of whole
+2048-byte sectors; any other disc stays TorrentZip, with every other disc of its game, and the plan says why. A CD's cue
+sheet must name each of its `.bin` tracks once, and no other file. A build makes a CD's CHD with `chdman createcd` and
+an `.iso`'s with `chdman createdvd`, then extracts the new CHD once and checks every track, or the image, against the
+DAT's hashes. A CHD that doesn't give back the DAT's files is never put in place: its item fails and says why. The
+checked CHD's SHA-1, which its header holds and which covers its data and its track list, is recorded, and a check of
+the folder afterwards reads only that header, never the compressed data: a CHD recompressed by another chdman is the
+same CHD and isn't drift, but one whose data or track list changed is, and the check says which. A build runs chdman as
+the configuration's `[chd] chdman` names it, else as `TITLE_SELECT_CHDMAN` names it, else as `chdman` on the `PATH`; the
+image ships its own. It works in the store's `tmp/` folder, which needs free space for about the disc's raw size plus
+twice its CHD's size while it runs: it writes the tracks, makes the CHD, unpacks it again to check it, and copies it
+into place. It removes that work when the item ends or you cancel. chdman may run for 10 minutes plus 4 minutes for each
+GiB of the disc, set by `timeout_seconds` and `timeout_seconds_per_gib` under `[chd]`; one that runs longer is stopped,
+and its disc fails. The discs of one game are put in place together: every disc is made and checked first, and if one
+fails, or you cancel before the last is checked, none is, and the game stays as it was. Once any file is kept aside or
+put in place for them, the rest follow, even if you cancel or the service stops. If one disc can't be put in place, its
+checked file and anything kept aside are held, the folder takes no new build, and the build says why; it finishes the
+game when the service next starts, once that disc can go in place. When the new CHDs replace a game's earlier files, an
+earlier file is deleted, if you chose that, only while its CHD is still the file that was checked: the same size and
+modification time, and, read whole again just before, the same SHA-256. Otherwise it stays in your kept files. A CHD not
+written by a build, or put back from kept files, isn't adopted: the next plan keeps it aside and builds the disc again.
 
 A game's ROMs are never split between formats, and every disc of a game released on several discs, named alike but
 for its `(Disc …)` tag, is stored the same way: if one disc has to stay TorrentZip, so do the others, and the plan
