@@ -200,7 +200,7 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
 ## Store
 
 The store is one directory: a SQLite database (`title-select.sqlite`), the unmodified DAT files under `dats/<sha256>`,
-the cue packs you import under `cue_packs/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
+the cue packs you import or fetch under `cue_packs/<sha256>`, the SBI packs you fetch under `packs/<sha256>`, `backups/`, and `tmp/`, where selections and previews run. Pass it with `--store <dir>` or `TITLE_SELECT_STORE`; it is created on
 first use. Only one Title Select process may have a store open at a time: it holds an exclusive lock on
 `<store>/lock`, and another process fails at once with "the store is in use by another Title Select process".
 
@@ -265,6 +265,10 @@ concurrent = 1              # jobs run at once (the default)
 pace = "default"            # gentle | default | unthrottled
 # readers = 2               # overrides the pace's payload readers
 # hashers = 2               # overrides the pace's hash workers
+
+[fetch]                     # fetch newer DATs for the systems you follow; see "Fetching DATs"
+redump = false              # the default
+mame = false                # the default
 
 [path_templates]            # the paths registration proposes; see "Path templates"
 source_set = "{provider}/{dat}"     # the default
@@ -466,6 +470,37 @@ clears both:
   Following never starts an audit; you choose when to audit against the new revision. A source set you don't follow
   never goes stale on a newer revision. Its history keeps each revision that made it stale, after an audit clears it
   or you stop following.
+
+### Fetching DATs
+
+A newer DAT revision reaches the store in one of two ways: you drop it in, or the service fetches it.
+
+**Dropping in.** Put a DAT file into an ingest folder, or import it on the DATs screen or with `dat import`. It is
+recognized from its header, whatever its file name: a DAT whose header names a DAT you already have is assessed as a
+DAT you may import, and once you approve the import, the source sets that follow that DAT become stale. This is the
+only way to bring in No-Intro DATs. Title Select never contacts No-Intro, not even to check for a newer version, and
+refuses any address there: download its DATs yourself and drop them in.
+
+**Fetching.** The service can fetch newer DAT revisions from Redump and from MAME's releases. Each provider is off
+until you turn it on under `[fetch]` (`redump = true`, `mame = true`) and restart the service. Then it fetches only
+for the systems a registered source set follows, and only those DATs:
+
+- **Redump**: the system's DAT, and for the systems that have them its cue pack and SBI pack. A source set follows a
+  Redump DAT when it is bound to one imported with provider `Redump`, under the DAT's own header name (such as
+  `Sony - PlayStation`).
+- **MAME**: it checks for MAME's latest release, then fetches the ListXML (the DAT named `MAME`) and the software
+  lists your source sets follow (imported with provider `MAME`, each named as its list, such as `nes`) from that
+  release. A system already fetched from the latest release is not fetched again.
+
+Each system's DAT, cue pack and SBI pack is fetched at most once a day, counting every attempt, whether scheduled or
+yours. The service checks every hour for anything due. Requests to a provider are made one at a time, at least a
+second apart, and say what Title Select is and why it asks. **Fetch now** fetches what is due at once; with nothing
+due it says when the next fetch may run. A fetch stops at its first error and keeps the last good DAT revision; the
+error shows on the DATs screen until a later fetch succeeds. Nothing is fetched from anywhere but the provider itself.
+
+Fetching never starts an audit. A newer DAT revision it brings makes the source sets that follow its DAT stale, as an
+imported one does, and you choose when to audit against it. Cue and SBI packs are kept whole in the store, each tied
+to the fetch that brought it.
 
 ### Selection profiles
 
@@ -865,6 +900,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/dat-revisions`                       | import a DAT: multipart `provider`, `source_url`?, `file`    |
 | `GET /api/v1/cue-packs`                            | every cue pack: `{"sha256", "dat", "file", "source_url", "origin", "cues", "imported_at"}` |
 | `POST /api/v1/cue-packs`                           | import a cue pack: multipart `dat`, `source_url`?, `file`; 201 when it's new |
+| `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at` |
+| `POST /api/v1/fetch/{provider}`                    | fetch what is due now from `redump` or `mame`: the status above, `200` when the fetch ended within 2 seconds and `202` while it runs on; `400` when it is off, follows nothing or nothing is due, `409` while it is already fetching |
 | `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}` |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
 | `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat"}`; with no `path`, the path `template`, else the default, proposes |
@@ -1083,7 +1120,9 @@ Its screens:
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
 - **DATs** (`/dats`) lists every DAT revision, newest import first within each DAT, with its provenance (provider,
   source URL, file, SHA-256, import time), whether its file is kept, and the audits that refer to it, and the cue packs imported for its DAT. It uploads a DAT
-  file as a new DAT revision, and a cue pack for a DAT.
+  file as a new DAT revision, and a cue pack for a DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
+  system you follow: when its DAT and packs were last fetched, when they may be fetched next, and why a fetch failed.
+  **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.
 - **Audit** shows the audit's source set, DAT revision, times and evidence, exports its JSON report and re-audits. Its summary
   counts each finding and game status, and two derived states: an entry is verified when it is matched with payload
   evidence, and needs review when it is misnamed, conflicting, mismatched, unmatched or unreadable. Its entries load in
