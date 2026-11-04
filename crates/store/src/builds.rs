@@ -730,7 +730,9 @@ fn remove_layout_dir(store: &Store, dir: &FolderDir, folder: i64, target: &str) 
             }
             Ok(())
         }
-        _ => Ok(()),
+        // Something else is there now: the folder recorded is gone, whatever took its name.
+        Ok(Some(_)) => forget(),
+        Err(_) => Ok(()),
     }
 }
 
@@ -2320,9 +2322,6 @@ impl Store {
         Ok(error)
     }
 
-    /// Finishes putting in place `p`, a disc of a committed unit of Build `build` in Library Folder `folder` at
-    /// `generation`: keeps aside what the plan found at its target, if that is still there, and renames its staged
-    /// file into place. `Err` says why it can't be; the folder is left as it is.
     /// The files of the release a Build kept aside to clear the way for `target`, in their other disc layout: at
     /// `target`, or in a folder where `target`'s folder goes. Each is kept aside, once its unit committed, before
     /// `target` is renamed into place, and an emptied layout folder a Build made goes with them. The rest of the
@@ -2351,7 +2350,9 @@ impl Store {
             })?;
             let Some((seq, state)) = row else { continue };
             cleared.push(seq);
+            // A file kept aside already, by the build or by its recovery, may have left its folder in place.
             if state == "applied" {
+                remove_layout_dir(self, dir, folder, &r.target)?;
                 continue;
             }
             let k = Keep {
@@ -2366,11 +2367,16 @@ impl Store {
             if let Err(why) = self.keep_aside(dir, retention, &k)? {
                 return Ok(Err(why));
             }
+            self.fault_point(Fault::Cleared(seq));
             remove_layout_dir(self, dir, folder, &r.target)?;
         }
         Ok(Ok(cleared))
     }
 
+    /// Finishes putting in place `p`, a disc of a committed unit of Build `build` in Library Folder `folder` at
+    /// `generation`: clears its release's other disc layout out of the way, keeps aside what the plan found at its
+    /// target, if that is still there, and renames its staged file into place. `Err` says why it can't be; the
+    /// folder is left as it is.
     fn finish_disc(
         &self,
         dir: &FolderDir,
@@ -2380,6 +2386,29 @@ impl Store {
         item: &PlanItem,
         removals: &[PlanRemoval],
     ) -> Result<std::result::Result<(), String>> {
+        // The release's files in its other disc layout are cleared out of the way first: until they are, the target
+        // may be a folder, or in a folder that is a file.
+        if removals.iter().any(|r| {
+            r.kind == RemovalKind::Keep
+                && r.keep.is_some()
+                && super::plans::clears(&r.target, &p.target)
+        }) {
+            let retention = match open_retention(self, folder, dir, generation, true)? {
+                Ok(Some(retention)) => retention,
+                Ok(None) => return Ok(Err("the retention area was not created".into())),
+                Err(why) => return Ok(Err(why)),
+            };
+            let cleared = self.clear_way(
+                dir,
+                &retention,
+                (folder, build, generation),
+                removals,
+                &p.target,
+            )?;
+            if let Err(why) = cleared {
+                return Ok(Err(why));
+            }
+        }
         let ours = match dir.open_file(&p.target) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,
             Err(e) => return Ok(Err(e.to_string())),
@@ -2420,28 +2449,7 @@ impl Store {
                     return Ok(Err(why));
                 }
             }
-            (None, _) => {
-                if removals
-                    .iter()
-                    .any(|r| super::plans::clears(&r.target, &p.target))
-                {
-                    let retention = match open_retention(self, folder, dir, generation, true)? {
-                        Ok(Some(retention)) => retention,
-                        Ok(None) => return Ok(Err("the retention area was not created".into())),
-                        Err(why) => return Ok(Err(why)),
-                    };
-                    let cleared = self.clear_way(
-                        dir,
-                        &retention,
-                        (folder, build, generation),
-                        removals,
-                        &p.target,
-                    )?;
-                    if let Err(why) = cleared {
-                        return Ok(Err(why));
-                    }
-                }
-            }
+            (None, _) => {}
         }
         match finish_unit(dir, temps, p) {
             Ok(made) => {

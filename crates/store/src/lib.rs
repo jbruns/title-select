@@ -147,6 +147,9 @@ pub enum Fault {
     /// After the file of the item with this sequence number is moved into the retention area, before either folder is
     /// synced.
     KeptUnsynced(i64),
+    /// After the file of the removal with this sequence number is kept aside to clear the way for a file of its
+    /// release's other disc layout, before the disc layout folder it emptied, if any, is removed.
+    Cleared(i64),
     /// After the intent to move the entry of a cleanup's item with this sequence number is committed, before it is
     /// renamed.
     BeforeMove(i64),

@@ -15,6 +15,7 @@ use common::*;
 use title_select_api::JobState;
 use title_select_api::build::{
     AddLibraryFolder, FileOutcome, FolderCheck, ItemKind, LibraryFolder, MARKER, Plan, RETENTION,
+    RemovalKind,
 };
 use title_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
@@ -1131,6 +1132,133 @@ fn a_layout_folder_you_made_is_never_removed_even_once_empty() {
     assert_eq!(env.files(), ["Atlas (USA).iso"]);
     assert!(env.dir().join("Orbit (USA).cue").is_dir());
     assert!(!env.dir().join(".multidisc").exists());
+}
+
+/// Orbit's files in the ES-DE layout, and in the flat one.
+const ORBIT_ES_DE: [&str; 3] = [
+    "Orbit (USA).cue/Orbit (USA) (Track 1).bin",
+    "Orbit (USA).cue/Orbit (USA) (Track 2).bin",
+    "Orbit (USA).cue/Orbit (USA).cue",
+];
+const ORBIT_FLAT: [&str; 3] = [
+    "Orbit (USA) (Track 1).bin",
+    "Orbit (USA) (Track 2).bin",
+    "Orbit (USA).cue",
+];
+
+/// Builds Orbit in one disc layout, then switches it to the other with a build killed where `stop` says, given the
+/// sequence numbers of the removals that clear the way for the new layout, in order. Recovery puts the new layout in
+/// place, and a build after it keeps the rest of the old layout aside.
+fn switch_stopped(
+    to_flat: bool,
+    stop: impl Fn(&[i64], title_select_store::Fault) -> bool + Send + Sync + 'static,
+) {
+    let layout = |flat| SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        layout: Some(if flat {
+            DiscLayout::Flat
+        } else {
+            DiscLayout::EsDe
+        }),
+        ..Default::default()
+    };
+    let env = Env::new(StorageFormat::LooseFolder);
+    env.set(layout(!to_flat));
+    let folder = env.folder();
+    let selection = env.selection(&[CD]);
+    env.built(&folder, selection);
+    assert_eq!(env.files(), if to_flat { ORBIT_ES_DE } else { ORBIT_FLAT });
+
+    env.set(layout(to_flat));
+    let plan = env.plan(&folder, selection);
+    let written = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.kind.writes() || i.kind == ItemKind::Adopt)
+        .count();
+    let clearing: Vec<i64> = plan
+        .content
+        .removals
+        .iter()
+        .filter(|r| r.kind != RemovalKind::Leave)
+        .enumerate()
+        .filter(|(_, r)| match to_flat {
+            true => r.target.starts_with("Orbit (USA).cue/"),
+            false => r.target == "Orbit (USA).cue",
+        })
+        .map(|(i, _)| (written + i) as i64)
+        .collect();
+    assert_eq!(clearing.len(), if to_flat { 3 } else { 1 }, "{plan:?}");
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if stop(&clearing, fault) {
+                panic!("killed at {fault:?}");
+            }
+        })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(&env.config, job.id, None)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+
+    let Env {
+        tmp,
+        store,
+        config,
+        sha256,
+    } = env;
+    let path = store.dir().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    store.recover_jobs(WORKERS).unwrap();
+    let blocked = store.recover_builds(&config).unwrap();
+    assert!(blocked.is_empty(), "{blocked:?}");
+    let env = Env {
+        tmp,
+        store,
+        config,
+        sha256,
+    };
+    let (new, old) = match to_flat {
+        true => (ORBIT_FLAT, ORBIT_ES_DE),
+        false => (ORBIT_ES_DE, ORBIT_FLAT),
+    };
+    let files = env.files();
+    for file in new {
+        assert!(files.iter().any(|f| f == file), "{file}: {files:?}");
+    }
+    let kept = env.kept(&folder);
+    let obstructions: Vec<&str> = old
+        .into_iter()
+        .filter(|f| f.starts_with("Orbit (USA).cue"))
+        .collect();
+    for file in &obstructions {
+        assert!(kept.iter().any(|k| k == file), "{file}: {kept:?}");
+    }
+
+    env.built(&folder, selection);
+    assert_eq!(env.files(), new);
+    assert_eq!(env.kept(&folder), old);
+}
+
+#[test]
+fn a_switch_to_the_es_de_layout_stopped_while_clearing_the_flat_files_finishes_on_recovery() {
+    use title_select_store::Fault;
+    switch_stopped(false, |c, f| f == Fault::BeforeKeep(c[0]));
+    switch_stopped(false, |c, f| f == Fault::Cleared(c[c.len() - 1]));
+}
+
+#[test]
+fn a_switch_to_the_flat_layout_stopped_while_clearing_the_cue_folder_finishes_on_recovery() {
+    use title_select_store::Fault;
+    switch_stopped(true, |c, f| f == Fault::BeforeKeep(c[0]));
+    switch_stopped(true, |c, f| f == Fault::Cleared(c[c.len() - 1]));
 }
 
 #[test]
