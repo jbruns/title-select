@@ -444,10 +444,15 @@ fn revision_detail(item: RevisionItem) -> AnyView {
                                         1 => "1 cue sheet".to_string(),
                                         n => format!("{n} cue sheets"),
                                     };
+                                    let kept = if p.blob_present {
+                                        ""
+                                    } else {
+                                        "; its file was deleted since a later pack replaced it, so import it again to use it"
+                                    };
                                     view! {
                                         <li>
                                             <code class="path">{p.file}</code>
-                                            {format!(", {sheets}, imported {}", when(&p.imported_at))}
+                                            {format!(", {sheets}, imported {}{kept}", when(&p.imported_at))}
                                         </li>
                                     }
                                 })

@@ -10,7 +10,7 @@ use common::*;
 use title_select_api::build::PlanKeptDeletion;
 use title_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan, RepairStep};
 use title_select_api::storage::{StorageFormat, SystemStorage};
-use title_select_api::{AuditEvidence, Finding, GameStatus, JobKind, JobState};
+use title_select_api::{AuditEvidence, Finding, GameStatus, ImportOutcome, JobKind, JobState};
 use title_select_engine::build::is_torrentzip;
 use title_select_store::config::Config;
 use title_select_store::{Error, Fault, Store, Workers};
@@ -3071,6 +3071,112 @@ fn a_cue_pack_for_a_dat_not_imported_or_without_cue_sheets_is_refused() {
     let empty = env.store.import_cue_pack(&pack, DISC_SYSTEM, None);
     assert!(matches!(empty, Err(Error::Refused(_))), "{empty:?}");
     assert!(env.store.cue_packs().unwrap().is_empty());
+}
+
+#[test]
+fn a_cue_pack_expanding_past_its_budget_or_listing_too_many_members_is_refused() {
+    let env = Env::with("Redump", &disc_games());
+    let pack = env.tmp.path().join("pack.zip");
+    let sheet = vec![b' '; 1 << 20];
+    let names: Vec<String> = (0..65).map(|i| format!("Game {i}.cue")).collect();
+    let members: Vec<(&str, &[u8])> = names
+        .iter()
+        .map(|n| (n.as_str(), sheet.as_slice()))
+        .collect();
+    write_zip(&pack, &members);
+    let expanding = env.store.import_cue_pack(&pack, DISC_SYSTEM, None);
+    assert!(
+        matches!(&expanding, Err(Error::Refused(why)) if why.contains("together")),
+        "{expanding:?}"
+    );
+
+    let names: Vec<String> = (0..32769).map(|i| format!("{i}.txt")).collect();
+    let mut members: Vec<(&str, &[u8])> = names.iter().map(|n| (n.as_str(), &b""[..])).collect();
+    members.push(("Quest (USA).cue", b"FILE"));
+    write_zip(&pack, &members);
+    let crowded = env.store.import_cue_pack(&pack, DISC_SYSTEM, None);
+    assert!(matches!(crowded, Err(Error::Refused(_))), "{crowded:?}");
+    assert!(env.store.cue_packs().unwrap().is_empty());
+}
+
+#[test]
+fn planning_matches_cue_sheets_indexed_at_import_without_reading_the_pack() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    import_cue_pack(&env, &[("Quest (USA).cue", quest[0].payload.as_slice())]);
+    let pack = env.store.cue_packs().unwrap().remove(0);
+    // The pack's file no longer reads as a ZIP: planning matches the sheet's checksums from the index all the same,
+    // and only the repair, reading the sheet, finds it unreadable and writes nothing.
+    std::fs::write(env.store.cue_pack_path(&pack.sha256), b"not a zip").unwrap();
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Quest (USA)");
+    assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
+    assert!(fill.summary.contains("cue pack"), "{}", fill.summary);
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.run_repair_job(&approved);
+    let done = env.store.repair_plan(plan.id).unwrap();
+    let outcome = &done.outcomes[0];
+    assert!(
+        !outcome.done && outcome.error.as_deref() == Some("it is not a ZIP archive"),
+        "{outcome:?}"
+    );
+    assert!(!env.set().join("Quest (USA)/Quest (USA).cue").exists());
+    assert!(
+        env.listing()
+            .iter()
+            .all(|name| !name.contains("title-select-new")),
+        "{:?}",
+        env.listing()
+    );
+}
+
+#[test]
+fn an_older_cue_pack_is_deleted_unless_a_repair_plan_refers_to_it() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest[1..]);
+    env.audit(AuditEvidence::Full);
+    import_cue_pack(&env, &[("Quest (USA).cue", quest[0].payload.as_slice())]);
+    env.plan();
+    import_cue_pack(
+        &env,
+        &[("Other (USA).cue", b"FILE \"Other (USA).bin\" BINARY\n")],
+    );
+    import_cue_pack(
+        &env,
+        &[("Another (USA).cue", b"FILE \"Another (USA).bin\" BINARY\n")],
+    );
+
+    let packs = env.store.cue_packs().unwrap();
+    let present: Vec<(bool, bool)> = packs
+        .iter()
+        .map(|p| (p.blob_present, env.store.cue_pack_path(&p.sha256).is_file()))
+        .collect();
+    assert_eq!(
+        present,
+        [(true, true), (false, false), (true, true)],
+        "the planned pack is kept, the older unplanned one deleted, the latest kept"
+    );
+
+    let older = env.tmp.path().join("older.zip");
+    write_zip(
+        &older,
+        &[("Other (USA).cue", b"FILE \"Other (USA).bin\" BINARY\n")],
+    );
+    let (restored, outcome) = env
+        .store
+        .import_cue_pack(&older, DISC_SYSTEM, None)
+        .unwrap();
+    assert_eq!(outcome, ImportOutcome::Restored);
+    assert!(restored.blob_present);
+    env.store.retain_blobs().unwrap();
+    assert!(env.store.cue_pack_path(&restored.sha256).is_file());
 }
 
 #[test]

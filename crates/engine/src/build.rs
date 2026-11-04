@@ -49,11 +49,35 @@ fn archive<R: Read + Seek>(
     }
 }
 
+/// The bounds a cue pack is read within: a cue pack is small, so a ZIP that expands past them is refused rather than
+/// read.
+#[derive(Debug, Clone, Copy)]
+pub struct CueLimits {
+    /// The most bytes one `.cue` sheet expands to.
+    pub sheet: u64,
+    /// The most bytes every member read expands to, together.
+    pub total: u64,
+    /// The most members the pack's central directory lists.
+    pub entries: u64,
+}
+
 /// The `.cue` sheets in `file`, a cue pack: a ZIP archive of them, by member name, each read and hashed. Other
-/// members are passed over. A sheet larger than `limit` bytes, or a pack holding none, is refused.
-pub fn cue_sheets(file: &File, limit: u64) -> Result<Vec<(String, Checksums)>, String> {
-    let mut archive = archive(file, || Ok(BufReader::new(file)))?;
+/// members are passed over unread. A pack listing more than `limits.entries` members, a sheet expanding past
+/// `limits.sheet` bytes, sheets expanding past `limits.total` bytes together, or a pack holding no sheet, is refused.
+pub fn cue_sheets(file: &File, limits: &CueLimits) -> Result<Vec<(String, Checksums)>, String> {
+    let bounds = DirectoryLimits {
+        entries: limits.entries,
+        ..DirectoryLimits::default()
+    };
+    let mut archive = match zipdir::open(file, &bounds, || Ok(BufReader::new(file)))
+        .map_err(|e| e.to_string())?
+    {
+        Gated::Archive(archive) => archive.map_err(|e| e.to_string())?,
+        Gated::Refused(why) => return Err(why),
+        Gated::NotZip => return Err("it is not a ZIP archive".into()),
+    };
     let mut sheets = Vec::new();
+    let mut total = 0u64;
     for index in 0..archive.len() {
         let mut member = archive.by_index(index).map_err(|e| e.to_string())?;
         let name = member.name().map_err(|e| e.to_string())?.into_owned();
@@ -72,8 +96,18 @@ pub fn cue_sheets(file: &File, limit: u64) -> Result<Vec<(String, Checksums)>, S
                 break;
             }
             read += n as u64;
-            if read > limit {
-                return Err(format!("{name}: a cue sheet is at most {limit} bytes"));
+            total += n as u64;
+            if read > limits.sheet {
+                return Err(format!(
+                    "{name}: a cue sheet is at most {} bytes",
+                    limits.sheet
+                ));
+            }
+            if total > limits.total {
+                return Err(format!(
+                    "its cue sheets expand to more than {} bytes together",
+                    limits.total
+                ));
             }
             hasher.update(&buf[..n]);
         }
@@ -260,10 +294,12 @@ pub fn repack_sources(
                 let Reading::Zip(archive) = slot else {
                     unreachable!("just opened")
                 };
-                let mut payload = archive
+                let payload = archive
                     .by_name(member)
                     .map_err(|e| format!("{member}: {e}"))?;
-                writer.add(&rom.name, rom.size, &mut payload)
+                // Read no further than one byte past the DAT's size, which the writer then refuses, however far
+                // the member expands.
+                writer.add(&rom.name, rom.size, &mut payload.take(rom.size + 1))
             }
             (None, Reading::Unread) => {
                 let mut hashing = Hashing::new(source).map_err(|e| e.to_string())?;

@@ -112,6 +112,9 @@ pub struct CuePackRecord {
     /// How many `.cue` sheets it holds.
     pub cues: u64,
     pub imported_at: String,
+    /// Whether its file is still kept: an older pack for the same DAT that no repair plan refers to is deleted from
+    /// the store, and importing it again restores it.
+    pub blob_present: bool,
 }
 
 /// How a cue pack came into the store.

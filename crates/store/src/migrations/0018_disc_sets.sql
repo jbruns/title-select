@@ -23,7 +23,9 @@ ALTER TABLE repair_steps ADD COLUMN source_reads TEXT;
 
 -- A Redump cue pack: a ZIP of `.cue` sheets for one DAT, kept unmodified under `cue_packs/<sha256>` in the store,
 -- with where it came from. A repair fills or replaces a `.cue` ROM from it, matched by the DAT's checksums.
--- origin is 'import' for one you imported, 'fetch' for one fetched (#96).
+-- origin is 'import' for one you imported, 'fetch' for one fetched (#96). Its file is deleted, and blob_dropped_at
+-- set, once no repair plan refers to it and it is not the latest pack for its DAT; the row stays. Importing it again
+-- restores it and holds it, as restored_at, until a later pack for its DAT is imported.
 CREATE TABLE cue_packs (
     id INTEGER PRIMARY KEY,
     sha256 TEXT NOT NULL UNIQUE,
@@ -32,9 +34,24 @@ CREATE TABLE cue_packs (
     source_url TEXT,
     origin TEXT NOT NULL CHECK (origin IN ('import', 'fetch')),
     cues INTEGER NOT NULL,
-    imported_at TEXT NOT NULL
+    imported_at TEXT NOT NULL,
+    blob_dropped_at TEXT,
+    restored_at TEXT
 );
 CREATE INDEX cue_packs_by_dat ON cue_packs (dat);
+
+-- Each `.cue` sheet of a cue pack, hashed once when the pack was imported, so planning a repair matches the DAT's
+-- checksums here and reads only the sheet a repair writes.
+CREATE TABLE cue_sheets (
+    pack_id INTEGER NOT NULL REFERENCES cue_packs (id),
+    member TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    crc TEXT NOT NULL,
+    md5 TEXT NOT NULL,
+    sha1 TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    PRIMARY KEY (pack_id, member)
+);
 
 -- An ingest move that leaves its original where it is once its copy is published: one of several extracting the ROMs
 -- of a ZIP into a loose folder, the last of which disposes of the ZIP.

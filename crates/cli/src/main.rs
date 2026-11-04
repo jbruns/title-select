@@ -579,12 +579,17 @@ fn run(cli: Cli) -> Result<(), String> {
         } => {
             for pack in open_store(store)?.cue_packs().map_err(|e| e.to_string())? {
                 println!(
-                    "{}\t{}\t{}\t{}\t{}",
+                    "{}\t{}\t{}\t{}\t{}{}",
                     pack.dat,
                     pack.file,
                     cue_sheets(pack.cues),
                     pack.imported_at,
-                    pack.sha256
+                    pack.sha256,
+                    if pack.blob_present {
+                        ""
+                    } else {
+                        "\tfile deleted; import it again to use it"
+                    }
                 );
             }
             Ok(())
