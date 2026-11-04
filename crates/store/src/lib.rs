@@ -8,6 +8,7 @@ mod checks;
 pub mod config;
 mod cue_packs;
 mod dats;
+pub mod fetch;
 mod folder_dir;
 mod folder_moves;
 mod folders;
