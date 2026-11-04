@@ -37,6 +37,16 @@ pub struct Config {
     pub source_sets: SourceSets,
     #[serde(default)]
     pub fetch: Fetch,
+    #[serde(default)]
+    pub chd: Chd,
+}
+
+/// How a Build makes a CHD.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Chd {
+    /// The chdman to run. When absent, the program `TITLE_SELECT_CHDMAN` names, else `chdman` on the `PATH`.
+    pub chdman: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -304,6 +314,7 @@ impl Default for Config {
             path_templates: PathTemplates::default(),
             source_sets: SourceSets::default(),
             fetch: Fetch::default(),
+            chd: Chd::default(),
         }
     }
 }

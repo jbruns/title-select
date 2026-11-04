@@ -36,6 +36,11 @@ const LICENCES: &[Licence] = &[
         ),
     },
     Licence {
+        title: "chdman, from MAME: GNU General Public License, version 2",
+        file: "/licences/mame.txt",
+        upstream: Some("https://github.com/mamedev/mame/blob/master/COPYING"),
+    },
+    Licence {
         title: "Lucide icons: ISC License",
         file: "/licences/lucide.txt",
         upstream: Some("https://github.com/lucide-icons/lucide/blob/main/LICENSE"),

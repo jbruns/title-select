@@ -1,5 +1,5 @@
-//! The storage policy: how source sets and play libraries store each game, as TorrentZip, loose or a loose folder,
-//! set globally and for each system, as a selection profile's settings are.
+//! The storage policy: how source sets and play libraries store each game, as TorrentZip, loose, a loose folder or
+//! CHD, set globally and for each system, as a selection profile's settings are.
 
 use std::collections::BTreeSet;
 
@@ -19,6 +19,8 @@ const SCOPES: [(StorageScope, &str); 2] = [
 
 const DELETE_WARNING: &str = "With this on, a conversion deletes each original as soon as its converted file is verified, instead of keeping it in kept files. You can't get a deleted original back from Title Select. An original that changed, or whose converted file doesn't verify, is always kept.";
 
+const CHD_NOTE: &str = "As CHD, a build makes each disc's CHD with chdman, extracts it once and checks every track against the DAT before it puts it in place. A disc whose CHD doesn't give back the DAT's files is never put in place. A disc that isn't one .cue with its .bin tracks, or one .iso, stays TorrentZip, with every other disc of its game.";
+
 fn scope_mut(policy: &mut StoragePolicy, scope: StorageScope) -> &mut ScopePolicy {
     match scope {
         StorageScope::SourceSets => &mut policy.source_sets,
@@ -31,16 +33,23 @@ fn format_label(format: StorageFormat) -> &'static str {
         StorageFormat::TorrentZip => "TorrentZip",
         StorageFormat::Loose => "Loose, for games with one ROM",
         StorageFormat::LooseFolder => "Loose folder: a folder per game",
+        StorageFormat::Chd => "CHD: one per disc",
     }
 }
 
-/// The formats you can choose for folders of `scope`: play libraries don't store loose folders yet.
-fn formats(scope: StorageScope) -> &'static [StorageFormat] {
+/// The formats you can choose for folders of `scope`, globally or for `system`: play libraries don't store loose
+/// folders yet, and only a disc system's play libraries store CHD.
+fn formats(scope: StorageScope, system: Option<&str>) -> &'static [StorageFormat] {
     match scope {
         StorageScope::SourceSets => &[
             StorageFormat::TorrentZip,
             StorageFormat::Loose,
             StorageFormat::LooseFolder,
+        ],
+        StorageScope::PlayLibraries if system.is_some_and(is_disc_system) => &[
+            StorageFormat::TorrentZip,
+            StorageFormat::Loose,
+            StorageFormat::Chd,
         ],
         StorageScope::PlayLibraries => &[StorageFormat::TorrentZip, StorageFormat::Loose],
     }
@@ -79,7 +88,7 @@ pub fn StoragePolicyScreen() -> impl IntoView {
     view! {
         <h1>"Storage policy"</h1>
         <p class="lede">
-            "The storage policy says how each folder stores a game: as one TorrentZip per game; loose, as the ROM itself under the name the DAT gives it; or as a loose folder, a folder named for the game holding each of its ROMs loose. Source sets and play libraries each have a global setting, and you can set a system differently."
+            "The storage policy says how each folder stores a game: as one TorrentZip per game; loose, as the ROM itself under the name the DAT gives it; as a loose folder, a folder named for the game holding each of its ROMs loose; or, for a disc system's play libraries, as one CHD per disc. Source sets and play libraries each have a global setting, and you can set a system differently."
         </p>
         {move || match loaded.get() {
             None => view! { <Loading what="the storage policy" /> }.into_any(),
@@ -214,7 +223,7 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
                                     }
                                 }
                             >
-                                {formats(scope)
+                                {formats(scope, None)
                                     .iter()
                                     .map(|&f| view! { <option value=f.as_str()>{format_label(f)}</option> })
                                     .collect_view()}
@@ -319,11 +328,13 @@ fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoV
                                         }
                                     }}
                                 </option>
-                                {formats(scope)
+                                {formats(scope, Some(&s.get_value()))
                                     .iter()
                                     .map(|&f| view! { <option value=f.as_str()>{format_label(f)}</option> })
                                     .collect_view()}
                             </select>
+                            {(scope == StorageScope::PlayLibraries && is_disc_system(&s.get_value()))
+                                .then(|| view! { <p class="note small">{CHD_NOTE}</p> })}
                             <label class="stacked" for=format!("s-{id}-delete")>
                                 "Delete originals after conversion"
                             </label>

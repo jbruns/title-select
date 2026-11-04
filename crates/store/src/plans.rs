@@ -16,7 +16,9 @@ use title_select_api::build::{
 };
 use title_select_api::report::{Entry, EvidenceLevel, Finding};
 use title_select_api::selection::{ReleaseRow, Role, Selection, SelectionProfile, diff_rows};
-use title_select_api::storage::{Storage, StorageScope, target_of as storage_target};
+use title_select_api::storage::{
+    ChdKind, Storage, StorageFormat, StorageScope, chd_targets, target_of as storage_target,
+};
 use title_select_api::{DatRevisionRecord, Job, Workers};
 use title_select_engine::build::{Probe, holds_as, is_torrentzip};
 use title_select_engine::dat::Dat;
@@ -49,6 +51,17 @@ pub(super) struct Built {
     pub torrentzip: bool,
     /// Whether it was built loose, its one ROM under its DAT name.
     pub loose: bool,
+    /// Whether it was built as a CHD, with the raw data SHA-1 its header recorded once its extraction matched the
+    /// DAT.
+    pub chd: bool,
+    pub chd_sha1: Option<String>,
+}
+
+impl Built {
+    /// Whether it is stored as `item` says its game is: loose, CHD or TorrentZip alike.
+    pub fn stored_as(&self, item: &PlanItem) -> bool {
+        self.loose == item.loose && self.chd == item.chd
+    }
 }
 
 fn read_originals(c: &Connection, folder: i64) -> Result<HashSet<(String, String, Identity)>> {
@@ -78,7 +91,8 @@ fn same_roms(a: &[ExpectedRom], b: &[ExpectedRom]) -> bool {
 
 pub(super) fn read_built(c: &Connection, folder: i64) -> Result<BTreeMap<String, Built>> {
     let mut stmt = c.prepare(
-        "SELECT target, game, roms, size, mtime_ns, build_id, sha256, torrentzip, loose FROM built_files
+        "SELECT target, game, roms, size, mtime_ns, build_id, sha256, torrentzip, loose, chd, chd_sha1
+         FROM built_files
          WHERE folder_id = ?1",
     )?;
     let rows = stmt.query_map([folder], |r| {
@@ -95,6 +109,8 @@ pub(super) fn read_built(c: &Connection, folder: i64) -> Result<BTreeMap<String,
                 sha256: r.get(6)?,
                 torrentzip: r.get(7)?,
                 loose: r.get(8)?,
+                chd: r.get(9)?,
+                chd_sha1: r.get(10)?,
             },
         ))
     })?;
@@ -652,7 +668,7 @@ fn removals(
                 removal.kind = RemovalKind::Forget;
                 removal.reason = format!("{target} is gone already; its record is dropped");
             } else if let Some(found) = intact.filter(|f| {
-                item.kind == ItemKind::Unchanged && built.loose != item.loose && recorded(f)
+                item.kind == ItemKind::Unchanged && !built.stored_as(item) && recorded(f)
             }) {
                 removal.kind = RemovalKind::Keep;
                 removal.reason = format!(
@@ -671,8 +687,7 @@ fn removals(
                 ));
                 removal.converts_to = Some(item.target.clone());
             } else if let Some(found) = intact.filter(|_| {
-                built.loose != item.loose
-                    && (item.kind == ItemKind::Unchanged || item.kind.writes())
+                !built.stored_as(item) && (item.kind == ItemKind::Unchanged || item.kind.writes())
             }) {
                 // Another file for the game, not a conversion of this one: it is replaced, and only ever kept.
                 removal.kind = RemovalKind::Keep;
@@ -1037,7 +1052,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
         None => (None, None),
     };
     let retained = retained(inputs, &items, check.as_ref());
-    let notes = storage_notes(inputs.storage, &items);
+    let notes = storage_notes(inputs.storage, dat, &items);
     Planned {
         content: PlanContent {
             folder: inputs.folder.id,
@@ -1128,14 +1143,18 @@ fn plan_items(
             }
         }
     }
-    // Where the storage policy stores each game, and whether loose.
-    let target_of = |game: &str| -> (String, bool) {
+    let chds = chd_targets_of(inputs.storage, dat);
+    // Where the storage policy stores each game, whether loose, and whether as a CHD.
+    let target_of = |game: &str| -> (String, bool, bool) {
+        if let Some(Ok(_)) = chds.get(game) {
+            return (format!("{game}.chd"), false, true);
+        }
         let names: Vec<&str> = games
             .get(game)
             .map(|&i| roms_of[i].iter().map(|r| r.name.as_str()).collect())
             .unwrap_or_default();
         let (target, loose, _) = storage_target(inputs.storage, game, &names);
-        (target, loose)
+        (target, loose, false)
     };
     let mut lowered: HashMap<String, usize> = HashMap::new();
     for (_, title) in &winners {
@@ -1167,8 +1186,11 @@ fn plan_items(
     let mut sources = Sources::new(config, inputs);
     let mut items = Vec::new();
     for (group, game, addition) in wanted {
-        let (target, loose) = match addition {
-            Some(a) => crate::additions::built_target(inputs.storage, &a.addition),
+        let (target, loose, chd) = match addition {
+            Some(a) => {
+                let (target, loose) = crate::additions::built_target(inputs.storage, &a.addition);
+                (target, loose, false)
+            }
             None => target_of(game),
         };
         let roms = match addition {
@@ -1185,6 +1207,7 @@ fn plan_items(
             target: target.clone(),
             kind: ItemKind::Blocked,
             loose,
+            chd,
             roms,
             sources: Vec::new(),
             reason: None,
@@ -1265,7 +1288,7 @@ fn plan_items(
                 None => *file == built.file,
             };
             let replacing =
-                built.game != item.game || built.roms != item.roms || built.loose != item.loose;
+                built.game != item.game || built.roms != item.roms || !built.stored_as(&item);
             match existing {
                 Some(found) if found.name == target && as_built(&found.file) => {
                     if !replacing {
@@ -1292,7 +1315,9 @@ fn plan_items(
                 None => {}
             }
         } else if let Some(found) = existing {
+            // A CHD it did not build is not adopted: only its extraction could show what it holds.
             item.adoptable = found.name == target
+                && !item.chd
                 && !item.roms.is_empty()
                 && scan
                     .and_then(|s| s.probes.get(&found.name))
@@ -1384,6 +1409,7 @@ fn plan_items(
             Ok(chosen) => {
                 let first = &chosen[0];
                 let copy = !item.loose
+                    && !item.chd
                     && first.copyable
                     && chosen
                         .iter()
@@ -1404,8 +1430,8 @@ fn plan_items(
                         evidence: c.entry.evidence.as_ref().map(|e| e.level),
                         file: c.file.clone(),
                         identity: Some(c.identity),
-                        // Only a loose file is written from the source the plan found, by descriptor.
-                        ctime_ns: item.loose.then_some(c.ctime_ns),
+                        // Only a loose file or a CHD is written from the source the plan found, by descriptor.
+                        ctime_ns: (item.loose || item.chd).then_some(c.ctime_ns),
                     })
                     .collect();
                 item.converts = converts(inputs, files, scan, &item);
@@ -1427,7 +1453,7 @@ fn converts(
     let (target, built) = inputs.built.iter().find(|(t, b)| {
         **t != item.target
             && b.game == item.game
-            && b.loose != item.loose
+            && !b.stored_as(item)
             && same_roms(&b.roms, &item.roms)
     })?;
     let found = files?
@@ -1443,20 +1469,50 @@ fn converts(
     intact.then(|| keep_of(KeepReason::Replacement, found, scan, built.sha256.as_ref()))
 }
 
-/// Why games the storage policy would store loose stay TorrentZip, with how many each reason covers.
-fn storage_notes(storage: Storage, items: &[PlanItem]) -> Vec<String> {
+/// The games of `dat` the storage policy stores as CHD, with their kind, or why each stays TorrentZip: none unless it
+/// says CHD.
+pub(crate) fn chd_targets_of(
+    storage: Storage,
+    dat: &Dat,
+) -> BTreeMap<String, std::result::Result<ChdKind, &'static str>> {
+    if storage.format != StorageFormat::Chd {
+        return BTreeMap::new();
+    }
+    let mut roms: Vec<Vec<(&str, u64)>> = vec![Vec::new(); dat.games.len()];
+    for rom in &dat.roms {
+        roms[rom.game].push((&rom.name, rom.size));
+    }
+    chd_targets(storage, dat.games.iter().map(String::as_str).zip(roms))
+}
+
+/// Why games the storage policy would store loose or as CHD stay TorrentZip, with how many each reason covers.
+fn storage_notes(storage: Storage, dat: Option<&Dat>, items: &[PlanItem]) -> Vec<String> {
+    let chds = dat.map(|d| chd_targets_of(storage, d)).unwrap_or_default();
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
-    for item in items.iter().filter(|i| !i.loose && !i.roms.is_empty()) {
-        let names: Vec<&str> = item.roms.iter().map(|r| r.name.as_str()).collect();
-        if let (_, _, Some(why)) = storage_target(storage, &item.game, &names) {
+    for item in items
+        .iter()
+        .filter(|i| !i.loose && !i.chd && !i.roms.is_empty())
+    {
+        let why = match storage.format {
+            StorageFormat::Chd => chds.get(&item.game).and_then(|c| c.err()),
+            _ => {
+                let names: Vec<&str> = item.roms.iter().map(|r| r.name.as_str()).collect();
+                storage_target(storage, &item.game, &names).2
+            }
+        };
+        if let Some(why) = why {
             *counts.entry(why).or_default() += 1;
         }
     }
+    let stored = match storage.format {
+        StorageFormat::Chd => "as CHD",
+        _ => "loose",
+    };
     counts
         .into_iter()
         .map(|(why, n)| match n {
-            1 => format!("1 game is not stored loose: {why}"),
-            n => format!("{n} games are not stored loose, each because {why}"),
+            1 => format!("1 game is not stored {stored}: {why}"),
+            n => format!("{n} games are not stored {stored}, each because {why}"),
         })
         .collect()
 }

@@ -421,12 +421,17 @@ pub struct PlanItem {
     pub group: String,
     /// The DAT's Game name.
     pub game: String,
-    /// The file name in the Library Folder: `<game>.zip`, or, stored loose, its one ROM's name.
+    /// The file name in the Library Folder: `<game>.zip`, `<game>.chd` stored as CHD, or, stored loose, its one ROM's
+    /// name.
     pub target: String,
     pub kind: ItemKind,
     /// Whether it is written as a loose file, its one ROM, rather than a TorrentZip, as the storage policy says.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub loose: bool,
+    /// Whether it is written as a CHD, `<game>.chd`, that chdman builds from the disc's ROMs and that is checked by
+    /// extracting it before it is put in place, as the storage policy says.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chd: bool,
     pub roms: Vec<ExpectedRom>,
     /// One per ROM, in ROM order; empty unless the item is built or unchanged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -50,6 +50,8 @@ pub fn storage_line(storage: &Storage) -> String {
             StorageFormat::TorrentZip => "as TorrentZip",
             StorageFormat::Loose => "loose where a game has one ROM",
             StorageFormat::LooseFolder => "as loose folders, a folder per game holding its ROMs",
+            StorageFormat::Chd =>
+                "as CHD, which a source set never holds, so a repair writes TorrentZip",
         },
         if storage.delete_originals {
             "; delete originals after conversion is on, so each original is deleted once its converted file is verified"

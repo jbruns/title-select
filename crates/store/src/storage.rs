@@ -1,10 +1,9 @@
-//! The Storage Policy: the one place that decides how a folder stores a Game, as TorrentZip, loose or a loose folder,
-//! and whether a
-//! conversion deletes each original once its converted file is verified.
+//! The Storage Policy: the one place that decides how a folder stores a Game, as TorrentZip, loose, a loose folder or
+//! CHD, and whether a conversion deletes each original once its converted file is verified.
 
 use rusqlite::{Connection, OptionalExtension, params};
 use title_select_api::storage::{
-    ScopePolicy, Storage, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
+    ScopePolicy, Storage, StorageFormat, StoragePolicy, StorageScope, SystemStorage, is_disc_system,
 };
 
 use crate::{Error, Result, Store, now};
@@ -125,6 +124,32 @@ fn check(policy: &StoragePolicy) -> Result<()> {
             "play libraries can't store games as loose folders yet: choose TorrentZip or loose"
                 .into(),
         ));
+    }
+    // A CHD is only ever a play library's copy of a disc: a source set holds the DAT's exact bytes (ADR 0013), and a
+    // system that is no disc system has no disc to store as one.
+    let chd = Some(StorageFormat::Chd);
+    if policy.source_sets.format == StorageFormat::Chd
+        || policy.source_sets.systems.values().any(|s| s.format == chd)
+    {
+        return Err(Error::Refused(
+            "source sets can't store games as CHD: they keep each file exactly as the DAT lists it"
+                .into(),
+        ));
+    }
+    if play.format == StorageFormat::Chd {
+        return Err(Error::Refused(
+            "CHD is for disc systems only: choose it for each disc system's play libraries, not as the default"
+                .into(),
+        ));
+    }
+    if let Some((system, _)) = play
+        .systems
+        .iter()
+        .find(|(system, s)| s.format == chd && !is_disc_system(system))
+    {
+        return Err(Error::Refused(format!(
+            "{system} is not a disc system, so its play libraries can't store games as CHD"
+        )));
     }
     for scope in SCOPES {
         for (system, own) in &policy.scope(scope).systems {

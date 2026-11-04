@@ -105,7 +105,7 @@ fn steps(cleanup: &Cleanup) -> Vec<Step<'_>> {
 
 /// Whether a cleanup stores `target` as a loose file: one recorded under its one ROM's name, rather than its game's.
 fn stored_loose(target: &str, game: &str, roms: &[title_select_api::build::ExpectedRom]) -> bool {
-    roms.len() == 1 && target != format!("{game}.zip")
+    roms.len() == 1 && target != format!("{game}.zip") && target != format!("{game}.chd")
 }
 
 /// The plan item a cleanup records a built file with.
@@ -123,6 +123,7 @@ fn built_item(
         target: target.to_owned(),
         kind,
         loose: stored_loose(target, game, roms),
+        chd: false,
         roms: roms.to_vec(),
         sources: sources.to_vec(),
         reason: None,

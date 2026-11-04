@@ -278,6 +278,9 @@ pace = "default"            # gentle | default | unthrottled
 redump = false              # the default
 mame = false                # the default
 
+[chd]                       # see "Storage policy"
+# chdman = "/usr/local/bin/chdman"   # by default TITLE_SELECT_CHDMAN, then chdman on the PATH
+
 [path_templates]            # the paths registration proposes; see "Path templates"
 source_set = "{provider}/{dat}"     # the default
 library_folder = "{platform}"       # the default
@@ -549,6 +552,21 @@ its name or a ROM's name isn't a plain file name, is a name Title Select keeps i
 `.title-select` or `.deleting`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
 stored loose. Play libraries
 can't use loose folders yet.
+
+A disc system's play libraries can also store each disc as CHD, `<game>.chd`. Only a system's own setting can say
+CHD, not the global one, and source sets never can: a source set keeps each file exactly as the DAT lists it. A
+disc is stored as CHD when it is one `.cue` sheet and its `.bin` tracks, each whole 2352-byte sectors, or one `.iso`
+of whole 2048-byte sectors; any other disc stays TorrentZip, with every other disc of its game, and the plan says
+why. A build makes a CD's CHD with `chdman createcd` and an `.iso`'s with `chdman createdvd`, then extracts the new
+CHD once and checks every track, or the image, against the DAT's hashes. A CHD that doesn't give back the DAT's files
+is never put in place: its item fails and says why. The checked CHD's data SHA-1, which its header holds, is
+recorded, and a check of the folder afterwards reads only that header, never the compressed data: a CHD recompressed
+by another chdman, even a newer one, is the same data and isn't drift. A build runs chdman as the configuration's
+`[chd] chdman` names it, else as `TITLE_SELECT_CHDMAN` names it, else as `chdman` on the `PATH`; the image ships its
+own. It works in the store's `tmp/` folder, which needs room for the disc's tracks and its CHD while it runs, and
+removes that work when the item ends or you cancel. A cancel stops chdman, and the disc stays unbuilt for the next
+plan. A CHD not written by a build, or put back from kept files, isn't adopted: the next plan keeps it aside and
+builds the disc again.
 
 A game's ROMs are never split between formats, and every disc of a game released on several discs, named alike but
 for its `(Disc …)` tag, is stored the same way: if one disc has to stay TorrentZip, so do the others, and the plan
@@ -1072,9 +1090,10 @@ the token is refused or the Service cannot be reached.
 ### Image
 
 `ghcr.io/jbruns/title-select` is a static binary, the workbench's bundle (at `/ui`) and the patched selection engine
-with its pinned clone lists and venv (at `/opt/retool`) on `gcr.io/distroless/python3-debian12:nonroot`, for
-linux/amd64. The licence texts the About page shows are at `/ui/licences`: Title Select's, the selection engine's,
-the clone lists and metadata's, and the Lucide icons'. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
+with its pinned clone lists and venv (at `/opt/retool`), and chdman (at `/usr/local/bin/chdman`, from a pinned MAME
+release) on `gcr.io/distroless/python3-debian12:nonroot`, for linux/amd64. The licence texts the About page shows are
+at `/ui/licences`: Title Select's, the selection engine's, the clone lists and metadata's, MAME's, which chdman is
+part of, and the Lucide icons'. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
 `/store`, and serves the workbench at `/`. It needs nothing else writable but your writable roots, not even `/tmp`, so you can
 run it with a read-only root filesystem:
 
@@ -1298,6 +1317,18 @@ Decisions are recorded in [docs/adr/](docs/adr/). A Cargo workspace: `crates/api
 tested on the host with `cargo test`; `cargo clippy --package title-select-ui --target wasm32-unknown-unknown` checks
 it as the browser runs it. `crates/selection` runs Retool and derives the Selection from its trace.
 
+### chdman
+
+The Dockerfile's `chdman-build` stage builds chdman alone from the MAME release tag its `MAME_VERSION` pins, which
+Renovate bumps. It builds MAME's tools with the emulator off (`SUBTARGET=tiny TOOLS=1 EMULATOR=0`) and makes only the
+`chdman` target; MAME's tools link SDL, which chdman never calls, so
+[tools/chdman/sdl-stub.c](tools/chdman/sdl-stub.c) stands in for SDL's library and the C++ runtime is linked in
+statically, leaving a binary that needs only the C library. The `chdman` stage holds that binary alone, so CI's test
+job exports it (`docker buildx build --target chdman --output type=local,dest=<dir> .`) and runs the CHD tests with
+`TITLE_SELECT_CHDMAN` naming it. Those tests skip when chdman can't be found, except under CI, where they fail. To run
+them elsewhere, such as on macOS, build chdman from the same tag following MAME's build instructions, with
+`SUBTARGET=tiny TOOLS=1 EMULATOR=0`, or install one, and set `TITLE_SELECT_CHDMAN` to it.
+
 ### Retool
 
 `third_party/retool/` holds Retool for Selection (ADR 0001):
@@ -1335,5 +1366,5 @@ or a patch; the tests fail, rather than skip, without it.
 MIT. See [LICENSE](LICENSE). The vendored Retool is BSD-3-Clause
 ([third_party/retool/upstream/LICENSE](third_party/retool/upstream/LICENSE)); the image ships the clone lists and
 metadata with their BSD-3-Clause licence beside them. The workbench's icons are vendored from Lucide, ISC
-([crates/ui/assets/licences/lucide.txt](crates/ui/assets/licences/lucide.txt)). The image ships all four licence texts
-under `/ui/licences`, where the workbench's About page shows them.
+([crates/ui/assets/licences/lucide.txt](crates/ui/assets/licences/lucide.txt)). The image's chdman is built from MAME's
+source, GPL-2.0, at the release the Dockerfile pins. The image ships all five licence texts under `/ui/licences`, where the workbench's About page shows them.
