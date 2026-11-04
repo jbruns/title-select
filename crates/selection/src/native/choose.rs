@@ -13,16 +13,37 @@ use super::pyset::{PyHash, PySet, tuple_hash};
 use super::settings::{Settings, Tag};
 use super::titletools::{self, VersionValue};
 
-/// `itertools.combinations(titles, 2)`.
-pub(crate) fn pairs(titles: &Titles) -> Vec<(Id, Id)> {
-    let list: Vec<Id> = titles.iter().copied().collect();
-    let mut out = Vec::with_capacity(list.len() * list.len().saturating_sub(1) / 2);
-    for (i, &a) in list.iter().enumerate() {
-        for &b in &list[i + 1..] {
-            out.push((a, b));
-        }
+/// `itertools.combinations(titles, 2)`: snapshots the set, as `combinations` copies its pool, and yields the
+/// pairs one at a time, so a large set doesn't hold every pair at once.
+pub(crate) fn pairs(titles: &Titles) -> Pairs {
+    Pairs {
+        pool: titles.iter().copied().collect(),
+        a: 0,
+        b: 1,
     }
-    out
+}
+
+pub(crate) struct Pairs {
+    pool: Vec<Id>,
+    a: usize,
+    b: usize,
+}
+
+impl Iterator for Pairs {
+    type Item = (Id, Id);
+
+    fn next(&mut self) -> Option<(Id, Id)> {
+        if self.b >= self.pool.len() {
+            self.a += 1;
+            self.b = self.a + 1;
+            if self.b >= self.pool.len() {
+                return None;
+            }
+        }
+        let pair = (self.pool[self.a], self.pool[self.b]);
+        self.b += 1;
+        Some(pair)
+    }
 }
 
 /// `TitleTools.check_title_equivalence`.
@@ -950,6 +971,17 @@ pub(crate) fn language_top(run: &mut Run, titles: &mut Titles, top: &PySet<TopLa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pairs_follow_itertools_one_at_a_time() {
+        let titles: Titles = [3, 1, 2].into_iter().collect();
+        assert_eq!(pairs(&titles).collect::<Vec<_>>(), [(3, 1), (3, 2), (1, 2)]);
+        assert_eq!(pairs(&[7].into_iter().collect()).count(), 0);
+        assert_eq!(pairs(&Titles::new()).count(), 0);
+        // Five billion pairs, which only fit if they come one at a time.
+        let many: Titles = (0..100_000).collect();
+        assert_eq!(pairs(&many).nth(99_999), Some((1, 2)));
+    }
 
     #[test]
     fn versions_compare_as_retool_s_do() {

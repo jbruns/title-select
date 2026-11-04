@@ -802,9 +802,98 @@ fn candidates_repr(candidates: &[Vec<Grouping>]) -> String {
     list_repr(&items)
 }
 
-/// The most combinations of compilations the built-in engine compares at once. Retool lists every combination in its
-/// trace; past this many it runs for hours and exhausts memory instead.
-const MAX_COMBINATIONS: u128 = 2_000_000;
+/// How much work the built-in engine spends comparing combinations of compilations for one group. Retool lists
+/// every combination in its trace; past this it runs for hours and exhausts memory instead.
+#[derive(Clone, Copy)]
+struct Budget {
+    /// The most combinations it compares.
+    combinations: u128,
+    /// The most bytes of candidate combinations it keeps.
+    bytes: usize,
+}
+
+impl Default for Budget {
+    fn default() -> Budget {
+        Budget {
+            combinations: 2_000_000,
+            bytes: 64 << 20,
+        }
+    }
+}
+
+fn too_many(what: String) -> Crash {
+    Crash(format!(
+        "too many combinations of compilations to compare: {what}"
+    ))
+}
+
+/// Roughly how much memory a grouping holds.
+fn grouping_bytes((names, region): &Grouping) -> usize {
+    names.iter().map(|n| n.len() + 24).sum::<usize>() + region.len() + 48
+}
+
+/// The REF0122 step of `choose_compilations`: every combination of fewer groupings than the groups in contention
+/// that covers the required titles, in `itertools.combinations` order.
+fn compilation_candidates(
+    run: &mut Run,
+    groupings: &[Grouping],
+    required: &[(String, String)],
+    contention: usize,
+    budget: Budget,
+) -> PyResult<Vec<Vec<Grouping>>> {
+    // Retool prints each list of combinations whole. A list shown on one line changes nothing in the trace, so
+    // it's only built when a name spans lines.
+    let multiline = groupings
+        .iter()
+        .any(|(names, region)| region.contains('\n') || names.iter().any(|n| n.contains('\n')));
+    let mut work: u128 = 0;
+    let mut kept_bytes = 0;
+    let mut candidates: Vec<Vec<Grouping>> = Vec::new();
+    for i in 1..contention {
+        run.limits.check()?;
+        work = work.saturating_add(binomial(groupings.len(), i));
+        if work > budget.combinations {
+            return Err(too_many(format!("{} choose {i}", groupings.len())));
+        }
+        run.trace_ref("REF0122", &[i.to_string()]);
+        let mut shown: Vec<String> = Vec::new();
+        let mut shown_bytes = 0;
+        for (n, combo) in combinations(groupings.len(), i).enumerate() {
+            if n % 4096 == 0 {
+                run.limits.check()?;
+            }
+            let combo: Vec<Grouping> = combo.iter().map(|&g| groupings[g].clone()).collect();
+            if multiline {
+                let repr = candidate_repr(&combo);
+                shown_bytes += repr.len();
+                if shown_bytes > budget.bytes {
+                    return Err(too_many(format!("{shown_bytes} bytes to show")));
+                }
+                shown.push(repr);
+            }
+            let mut full: HashSet<(&str, &str)> = HashSet::new();
+            for (names, region) in &combo {
+                for name in names {
+                    full.insert((name, region));
+                }
+            }
+            if required
+                .iter()
+                .all(|(name, region)| full.contains(&(name.as_str(), region.as_str())))
+            {
+                kept_bytes += combo.iter().map(grouping_bytes).sum::<usize>();
+                if kept_bytes > budget.bytes {
+                    return Err(too_many(format!("{kept_bytes} bytes of candidates")));
+                }
+                candidates.push(combo);
+            }
+        }
+        if multiline {
+            run.note(&list_repr(&shown));
+        }
+    }
+    Ok(candidates)
+}
 
 /// `n` choose `k`, saturating.
 fn binomial(n: usize, k: usize) -> u128 {
@@ -822,23 +911,36 @@ fn binomial(n: usize, k: usize) -> u128 {
     out
 }
 
-/// `itertools.combinations(items, k)`.
-fn combinations<T: Clone>(items: &[T], k: usize) -> Vec<Vec<T>> {
-    let n = items.len();
-    let mut out = Vec::new();
-    if k > n {
-        return out;
+/// `itertools.combinations(range(n), k)`, one combination of indices at a time.
+struct Combinations {
+    n: usize,
+    indices: Option<Vec<usize>>,
+}
+
+fn combinations(n: usize, k: usize) -> Combinations {
+    Combinations {
+        n,
+        indices: (k <= n).then(|| (0..k).collect()),
     }
-    let mut indices: Vec<usize> = (0..k).collect();
-    loop {
-        out.push(indices.iter().map(|&i| items[i].clone()).collect());
-        let Some(i) = (0..k).rev().find(|&i| indices[i] != i + n - k) else {
-            return out;
-        };
-        indices[i] += 1;
-        for j in i + 1..k {
-            indices[j] = indices[j - 1] + 1;
+}
+
+impl Iterator for Combinations {
+    type Item = Vec<usize>;
+
+    fn next(&mut self) -> Option<Vec<usize>> {
+        let current = self.indices.clone()?;
+        let indices = self.indices.as_mut().expect("current");
+        let k = indices.len();
+        match (0..k).rev().find(|&i| indices[i] != i + self.n - k) {
+            Some(i) => {
+                indices[i] += 1;
+                for j in i + 1..k {
+                    indices[j] = indices[j - 1] + 1;
+                }
+            }
+            None => self.indices = None,
         }
+        Some(current)
     }
 }
 
@@ -1317,30 +1419,13 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
         let groupings = available[&key].clone();
         let mut sorted_groupings = groupings.to_vec();
         sorted_groupings.sort();
-        let mut candidates: Vec<Vec<Grouping>> = Vec::new();
-        for i in 1..contention.len() {
-            run.limits.check()?;
-            if binomial(sorted_groupings.len(), i) > MAX_COMBINATIONS {
-                return Err(Crash(format!(
-                    "too many combinations of compilations to compare: {} choose {i}",
-                    sorted_groupings.len()
-                )));
-            }
-            let combos = combinations(&sorted_groupings, i);
-            run.trace_ref("REF0122", &[i.to_string()]);
-            run.note(&candidates_repr(&combos));
-            for combo in combos {
-                let mut full: HashSet<(String, String)> = HashSet::new();
-                for (names, region) in &combo {
-                    for name in names {
-                        full.insert((name.clone(), region.clone()));
-                    }
-                }
-                if required.iter().all(|item| full.contains(item)) {
-                    candidates.push(combo);
-                }
-            }
-        }
+        let mut candidates = compilation_candidates(
+            run,
+            &sorted_groupings,
+            &required,
+            contention.len(),
+            Budget::default(),
+        )?;
         if candidates.is_empty() || mode != "o" {
             candidates = vec![groupings.to_vec()];
         }
@@ -1524,13 +1609,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn comparing_compilations_stops_at_its_budget() {
+        let settings = super::super::settings::Settings::new(
+            &super::super::tests::internal_config(),
+            &title_select_api::selection::SelectionProfile::default(),
+            "",
+        )
+        .unwrap();
+        let mut run = Run::new(settings);
+        let groupings: Vec<Grouping> = (0..40)
+            .map(|i| (vec![format!("game {i}")], "USA".to_owned()))
+            .collect();
+        let required = [("game 0".to_owned(), "USA".to_owned())];
+        let mut within = |combinations, bytes| {
+            compilation_candidates(
+                &mut run,
+                &groupings,
+                &required,
+                4,
+                Budget {
+                    combinations,
+                    bytes,
+                },
+            )
+        };
+        // 40 + 780 + 9,880 combinations, of which 1 + 39 + 741 hold game 0.
+        assert_eq!(within(10_700, 1 << 30).unwrap().len(), 781);
+        let work = within(10_000, 1 << 30).err().unwrap();
+        assert!(work.0.contains("40 choose 3"), "{}", work.0);
+        let bytes = within(10_700, 10_000).err().unwrap();
+        assert!(bytes.0.contains("bytes of candidates"), "{}", bytes.0);
+    }
+
+    #[test]
     fn combinations_follow_itertools() {
         let items = ["a", "b", "c"];
+        let pick = |k| -> Vec<Vec<&str>> {
+            combinations(items.len(), k)
+                .map(|c| c.iter().map(|&i| items[i]).collect())
+                .collect()
+        };
         assert_eq!(
-            combinations(&items, 2),
+            pick(2),
             vec![vec!["a", "b"], vec!["a", "c"], vec!["b", "c"]]
         );
-        assert_eq!(combinations(&items, 4), Vec::<Vec<&str>>::new());
+        assert_eq!(pick(0), vec![Vec::<&str>::new()]);
+        assert_eq!(pick(4), Vec::<Vec<&str>>::new());
+        // About 1.7e14 combinations, which only fit if they come one at a time.
+        assert_eq!(combinations(100_000, 3).nth(2), Some(vec![0, 1, 4]));
         assert_eq!(binomial(5, 2), 10);
         assert_eq!(binomial(3, 4), 0);
         assert_eq!(binomial(200, 100), u128::MAX);
