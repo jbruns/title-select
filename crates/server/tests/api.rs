@@ -1922,6 +1922,90 @@ mod selections {
         assert!(shadow.error.unwrap().contains("ran out of memory"));
     }
 
+    fn shadow_of(client: &Client, id: i64) -> ShadowRun {
+        (0..600)
+            .find_map(|_| {
+                let shadow: Option<ShadowRun> = client.json(&format!("/selections/{id}/shadow"));
+                shadow.or_else(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    None
+                })
+            })
+            .expect("a shadow run is recorded beside the selection")
+    }
+
+    fn shell_shadow(env: &Env, script: &str) -> Settings {
+        Settings {
+            shadow_command: Some(title_select_selection::ShadowCommand {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), script.into()],
+                envs: Vec::new(),
+            }),
+            ..env.settings("[selections]\nshadow = true\n")
+        }
+    }
+
+    #[test]
+    fn one_shadow_run_runs_and_one_waits_and_a_newer_one_takes_the_waiting_one_s_place() {
+        let env = Env::new();
+        drop(ready(&env));
+        let dir = env.tmp.path();
+        // The first shadow run holds on until released; the others fail at once.
+        let service = title_select_server::spawn(shell_shadow(
+            &env,
+            &format!(
+                "cd '{}' && if mkdir first 2>/dev/null; then while [ ! -e release ]; do sleep 0.1; done; \
+                 echo first >&2; else echo later >&2; fi; exit 1",
+                dir.display()
+            ),
+        ))
+        .unwrap();
+        let client = Client::new(&service);
+        let made: Vec<i64> = [["Europe", "USA"], ["USA", "Europe"], ["Japan", "USA"]]
+            .into_iter()
+            .map(|order| save(&client, json!({"region_order": order})).1.id)
+            .collect();
+        let replaced = shadow_of(&client, made[1]);
+        assert!(replaced.error.unwrap().starts_with("skipped: busy"));
+        std::fs::write(dir.join("release"), "").unwrap();
+        assert!(shadow_of(&client, made[0]).error.unwrap().contains("first"));
+        assert!(shadow_of(&client, made[2]).error.unwrap().contains("later"));
+    }
+
+    #[test]
+    fn stopping_the_service_kills_a_running_shadow_run_with_what_it_started() {
+        let env = Env::new();
+        drop(ready(&env));
+        let pid_file = env.tmp.path().join("grandchild");
+        let service = title_select_server::spawn(shell_shadow(
+            &env,
+            &format!("sleep 300 & echo $! > '{}'; wait", pid_file.display()),
+        ))
+        .unwrap();
+        let client = Client::new(&service);
+        save(&client, json!({"region_order": ["Europe", "USA"]}));
+        let pid = (0..600)
+            .find_map(|_| {
+                let pid = std::fs::read_to_string(&pid_file)
+                    .ok()
+                    .and_then(|t| t.trim().parse::<i32>().ok());
+                pid.or_else(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    None
+                })
+            })
+            .expect("the shadow run starts");
+        let pid = rustix::process::Pid::from_raw(pid).unwrap();
+        let started = std::time::Instant::now();
+        drop((client, service));
+        assert!(started.elapsed() < std::time::Duration::from_secs(30));
+        let gone = (0..250).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            rustix::process::test_kill_process(pid).is_err()
+        });
+        assert!(gone, "the shadow run's own child outlived the service");
+    }
+
     #[test]
     fn a_choice_is_recorded_as_the_rule_and_flagged_as_the_profile_and_dat_change() {
         let env = Env::new();

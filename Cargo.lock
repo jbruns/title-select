@@ -2757,6 +2757,7 @@ dependencies = [
  "futures-util",
  "ipnet",
  "md-5",
+ "rustix",
  "serde",
  "serde_json",
  "sha1",

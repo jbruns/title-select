@@ -71,19 +71,20 @@ pub fn shadow(
     blob: &Path,
     file: &str,
     profile: &SelectionProfile,
-    engine_choice: SelectionEngine,
+    config: &title_select_store::config::Selections,
     selection: &Selection,
     warnings: &[String],
 ) -> ShadowRun {
     let shadow = match stage(store, blob, file) {
         Ok(staged) => {
             let mut options = RunOptions::new(store.dir().join(TMP));
-            options.engine = engine_choice;
+            options.engine = config.engine;
+            options.shadow_result = config.shadow_result_mib.saturating_mul(1 << 20);
             engine.shadow(&staged.dat, profile, &options, selection, warnings)
         }
         Err(e) => ShadowRun::new(
-            engine_choice,
-            engine_choice.other(),
+            config.engine,
+            config.engine.other(),
             None,
             Some(e.to_string()),
         ),

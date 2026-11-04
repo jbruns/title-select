@@ -160,6 +160,17 @@ pub struct Selections {
     /// Also run the other engine for each Selection Job, and record how its Selection compares.
     #[serde(default)]
     pub shadow: bool,
+    /// The largest result, in MiB, a shadow run may return; a larger one is recorded as the shadow run's error.
+    #[serde(default = "default_shadow_result_mib")]
+    pub shadow_result_mib: u64,
+}
+
+/// Comfortably above the largest Selection the fixture DATs make, about 3 MB; see
+/// `title_select_selection::DEFAULT_SHADOW_RESULT`.
+pub const DEFAULT_SHADOW_RESULT_MIB: u64 = 64;
+
+fn default_shadow_result_mib() -> u64 {
+    DEFAULT_SHADOW_RESULT_MIB
 }
 
 fn default_selections_keep() -> usize {
@@ -172,6 +183,7 @@ impl Default for Selections {
             keep: DEFAULT_SELECTIONS_KEPT,
             engine: SelectionEngine::default(),
             shadow: false,
+            shadow_result_mib: DEFAULT_SHADOW_RESULT_MIB,
         }
     }
 }
@@ -502,10 +514,17 @@ mod tests {
             (default.engine, default.shadow),
             (SelectionEngine::Bundled, false)
         );
-        let config = Config::parse("[selections]\nengine = \"builtin\"\nshadow = true").unwrap();
+        let config = Config::parse(
+            "[selections]\nengine = \"builtin\"\nshadow = true\nshadow_result_mib = 8",
+        )
+        .unwrap();
         assert_eq!(
-            (config.selections.engine, config.selections.shadow),
-            (SelectionEngine::Builtin, true)
+            (
+                config.selections.engine,
+                config.selections.shadow,
+                config.selections.shadow_result_mib
+            ),
+            (SelectionEngine::Builtin, true, 8)
         );
         assert!(Config::parse("[selections]\nengine = \"python\"").is_err());
     }
