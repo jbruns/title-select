@@ -9,6 +9,12 @@ Library. "Title Select" is the product's name, not a domain term.
 A published inventory of expected game files and their identifying checksums (e.g. No-Intro, Redump, MAME).
 _Avoid_: datfile, database
 
+**DAT Provider**:
+The group that publishes a DAT, such as No-Intro, Redump or MAME. Each states, or leaves unstated, whether tools may
+fetch its DATs; Title Select fetches only from a DAT Provider that permits it, and only when the Operator turns
+fetching on.
+_Avoid_: Source (alone), group
+
 **DAT Revision**:
 One particular edition of a DAT, identified by the SHA-256 of its unmodified file. A newer revision does not replace
 the reference used by an earlier Audit or Selection.
@@ -17,6 +23,12 @@ the reference used by an earlier Audit or Selection.
 An entry in a DAT Revision: one release, made of one or more ROMs. The product says Game; Title is an accepted
 synonym in conversation.
 _Avoid_: set
+
+**Multi-disc Game**:
+The Games of a DAT Revision that are the numbered discs of one release, such as `Title (USA) (Disc 1)` and
+`Title (USA) (Disc 2)`. A Selection takes it whole or not at all, and a Library Folder lacking one of its discs is
+Incomplete.
+_Avoid_: Disc Set, multi-disc set
 
 **ROM**:
 One expected file of a Game, with its name, size and checksums as the DAT Revision gives them. Also used for any
@@ -31,8 +43,9 @@ through an approved Repair, and only while its Root may write it and its marker 
 _Avoid_: Verified Set, Archive, romset, dump folder
 
 **Follow**:
-A Source Set's opt-in to newer DAT Revisions of its DAT. A newer revision makes a Following Source Set Stale; it never
-starts an Audit by itself.
+A Source Set's opt-in to newer DAT Revisions of its DAT, whether the Operator drops them in or Title Select fetches
+them from a DAT Provider that permits it. A newer revision makes a Following Source Set Stale; it never starts an
+Audit by itself.
 _Avoid_: Subscribe, track, auto-update
 
 **Play Library**:
@@ -54,6 +67,18 @@ _Avoid_: Mount, share
 
 **Operator**:
 The person who runs Title Select and approves its Change Plans.
+
+**Unregister**:
+To end Title Select's management of a Source Set, Library Folder, Additions Set, Ingest Folder or Root, touching
+none of its game files. Something another registration depends on cannot be unregistered. Removing the files as well
+is a separate approved Change Plan that sets them aside as Kept Files.
+_Avoid_: Delete, remove (when no file is set aside)
+
+**Retire**:
+To take an Addition or a Selection Profile out of use while forgetting nothing, so it can be restored. A retired
+Addition's file becomes a Kept File; a retired Selection Profile is hidden from new choices but its versions stay for
+the Selections that used them.
+_Avoid_: Archive, delete
 
 **Job**:
 A durable unit of work that Title Select runs for the Operator, such as an Audit. It is Queued, Running, Succeeded,
@@ -183,11 +208,13 @@ the Operator acknowledges is not reported again until it changes.
 _Avoid_: Corruption (when meaning any difference)
 
 **Storage Policy**:
-How each folder stores a Game: as TorrentZip, one `<game>.zip` per Game, or loose, as its one ROM under the DAT's
-name. It has two scopes, Source Sets and Play Libraries, each with a global default and per-system overrides, as a
-Selection Profile has. The default is TorrentZip everywhere. Only a Game with one ROM can be stored loose; a Game with
-more stays TorrentZip, and the plan says why. Every write of a Game into a folder, by a Repair, a Build or a fill,
-follows it.
+How each folder stores a Game: as TorrentZip, one `<game>.zip` per Game; loose, as its one ROM under the DAT's
+name; or as a loose folder, `<game>/` holding its ROMs under the DAT's names. A Play Library may also store a disc
+Game as CHD; a Source Set never does. It has two scopes, Source Sets and Play Libraries, each with a global default and
+per-system overrides, as a Selection Profile has. The default is TorrentZip everywhere, except loose folder for disc
+systems' Source Sets. Only a Game with one ROM can be stored loose; a Game with more stays TorrentZip or a loose
+folder, and the plan says why. The Games of one release share one format. Every write of a Game into a folder, by a
+Repair, a Build or a fill, follows it.
 _Avoid_: Format setting, compression
 
 **Conversion**:
