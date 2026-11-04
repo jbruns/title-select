@@ -1,0 +1,25 @@
+# The Redump systems Title Select can fetch: the DAT's header name, Redump's system code, and the packs Redump
+# publishes for it besides the DAT. Tab-separated.
+Sony - PlayStation	psx	cues,sbi
+Sony - PlayStation 2	ps2	cues
+Sony - PlayStation 3	ps3	
+Sony - PlayStation Portable	psp	
+Sega - Saturn	ss	cues
+Sega - Dreamcast	dc	
+Sega - Mega CD & Sega CD	mcd	cues
+NEC - PC Engine CD & TurboGrafx CD	pce	cues
+NEC - PC-FX & PC-FXGA	pc-fx	cues
+NEC - PC-98 series	pc-98	cues
+Panasonic - 3DO Interactive Multiplayer	3do	cues
+Philips - CD-i	cdi	cues
+SNK - Neo Geo CD	ngcd	cues
+Commodore - Amiga CD32	cd32	cues
+Commodore - Amiga CDTV	cdtv	cues
+Atari - Jaguar CD Interactive Multimedia System	ajcd	cues
+Fujitsu - FM-Towns	fmt	cues
+IBM - PC compatible	pc	cues
+Apple - Macintosh	mac	cues
+Nintendo - GameCube	gc	
+Nintendo - Wii	wii	
+Microsoft - Xbox	xbox	
+Microsoft - Xbox 360	xbox360	

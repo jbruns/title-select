@@ -4,6 +4,7 @@
 pub mod additions;
 pub mod build;
 pub mod discs;
+pub mod fetch;
 pub mod ingest;
 pub mod lifecycle;
 pub mod paths;

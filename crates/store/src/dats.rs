@@ -88,6 +88,18 @@ impl Store {
             )));
         }
         let dat = Dat::parse(bytes, Path::new(file))?;
+        self.import_parsed_dat(&dat, bytes, file, provider, source_url)
+    }
+
+    /// As [`Store::import_dat_bytes`], for `bytes` already parsed as `dat`.
+    pub(crate) fn import_parsed_dat(
+        &self,
+        dat: &Dat,
+        bytes: &[u8],
+        file: &str,
+        provider: &str,
+        source_url: Option<&str>,
+    ) -> Result<(DatRevisionRecord, ImportOutcome)> {
         if dat.name.is_empty() {
             return Err(Error::Refused(format!(
                 "{file}: the DAT header has no name"

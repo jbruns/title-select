@@ -56,10 +56,7 @@ pub fn refusal(url: &str) -> Option<String> {
     if authority.as_str().contains('@') {
         return Some(format!("{url} carries credentials"));
     }
-    let host = authority
-        .host()
-        .trim_end_matches('.')
-        .to_ascii_lowercase();
+    let host = authority.host().trim_end_matches('.').to_ascii_lowercase();
     let forbidden = FORBIDDEN_DOMAINS
         .iter()
         .any(|d| host == *d || host.ends_with(&format!(".{d}")));
@@ -97,11 +94,23 @@ impl Http {
 
     /// Gets `url`, with `accept` as its Accept header if given, reading at most `limit` bytes of body.
     pub fn get(&self, url: &str, accept: Option<&str>, limit: u64) -> Result<Fetched, FetchError> {
+        self.get_paced(url, accept, limit, &mut || {})
+    }
+
+    /// As [`Http::get`], running `pace` before each request it sends, redirects included.
+    pub fn get_paced(
+        &self,
+        url: &str,
+        accept: Option<&str>,
+        limit: u64,
+        pace: &mut dyn FnMut(),
+    ) -> Result<Fetched, FetchError> {
         let mut url = url.to_owned();
         for _ in 0..=MAX_REDIRECTS {
             if let Some(why) = refusal(&url) {
                 return Err(FetchError::Forbidden(why));
             }
+            pace();
             let transport = |e: ureq::Error| FetchError::Transport {
                 url: url.clone(),
                 message: e.to_string(),
@@ -135,11 +144,7 @@ impl Http {
                 .get("content-disposition")
                 .and_then(|v| v.to_str().ok())
                 .and_then(disposition_file_name);
-            let read = response
-                .body_mut()
-                .with_config()
-                .limit(limit)
-                .read_to_vec();
+            let read = response.body_mut().with_config().limit(limit).read_to_vec();
             let bytes = match read {
                 Ok(bytes) => bytes,
                 Err(ureq::Error::BodyExceedsLimit(_)) => {
@@ -167,7 +172,9 @@ fn resolve(from: &str, location: &str) -> Option<String> {
     }
     let from = from.parse::<Uri>().ok()?;
     let base = format!("{}://{}", from.scheme_str()?, from.authority()?);
-    location.starts_with('/').then(|| format!("{base}{location}"))
+    location
+        .starts_with('/')
+        .then(|| format!("{base}{location}"))
 }
 
 /// The file name a `Content-Disposition` header gives, without any directory.
