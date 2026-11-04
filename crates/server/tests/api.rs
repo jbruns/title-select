@@ -1222,6 +1222,116 @@ fn the_api_repairs_a_source_set_only_through_an_approved_plan_and_keeps_what_it_
 }
 
 #[test]
+fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_files_are_deleted() {
+    use title_select_api::lifecycle::{Forgotten, Holds, UnregisteredRecord};
+    use title_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
+    let env = Env::new();
+    let set = env.tmp.path().join("roots/sets").join(SET);
+    let service =
+        title_select_server::spawn(env.settings(&format!("writable_paths = [{SET:?}]\n"))).unwrap();
+    let client = Client::new(&service);
+    let auth = client.auth.clone().unwrap();
+    client.upload("Test - System (20260101).dat", &env.dat());
+    client.add_set();
+    let job: Job = client
+        .post("/audits")
+        .send_json(serde_json::json!({"source_set": SET, "evidence": "full"}))
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    let holds: Holds = client.json("/source-sets/Test%20-%20System/holds");
+    assert!(holds.holds.is_empty(), "{holds:?}");
+    let holds: Holds = client.json("/roots/sets/holds");
+    assert_eq!(
+        holds.holds.len(),
+        1,
+        "the source set holds its root: {holds:?}"
+    );
+    assert_eq!(
+        status_of(client.post("/profiles/Nobody/retirement").send_empty()),
+        404
+    );
+
+    let mut response = client
+        .post("/source-sets/Test%20-%20System/set-aside")
+        .send_empty()
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let plan: RepairPlan = response.body_mut().read_json().unwrap();
+    assert!(plan.content.set_aside);
+    let approved: RepairPlan = client
+        .post(&format!("/repairs/{}/approval", plan.id))
+        .send_json(serde_json::json!({"digest": plan.digest}))
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    let (_, ended) = client.follow(approved.job.expect("a repair job"));
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    assert!(
+        set.read_dir().unwrap().all(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".title-select")),
+        "every file is kept in place"
+    );
+    let gone = client.get("/source-sets/Test%20-%20System").call();
+    assert_eq!(status_of(gone), 404);
+    let unregistered: Vec<UnregisteredRecord> = client.json("/unregistered");
+    assert_eq!(unregistered.len(), 1, "{unregistered:?}");
+    let id = unregistered[0].id;
+    assert_eq!(unregistered[0].kept_files, 3);
+    let refused = agent()
+        .delete(format!("{}/unregistered/source_set/{id}", client.base))
+        .header(&auth.0, &auth.1)
+        .call();
+    assert_eq!(status_of(refused), 400, "kept files hold its history");
+
+    let kept: Vec<SourceKeptFile> =
+        client.json(&format!("/unregistered/source_set/{id}/kept-files"));
+    assert_eq!(kept.len(), 3);
+    let deletion: SourceKeptDeletion = client
+        .post(&format!("/unregistered/source_set/{id}/kept-deletions"))
+        .send_json(serde_json::json!({"all": true}))
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    let response = client
+        .post(&format!("/source-kept-deletions/{}/approval", deletion.id))
+        .send_json(serde_json::json!({"digest": deletion.digest}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let left: Vec<_> = set
+        .read_dir()
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert!(left.is_empty(), "the marker goes too: {left:?}");
+
+    let mut response = agent()
+        .delete(format!("{}/unregistered/source_set/{id}", client.base))
+        .header(&auth.0, &auth.1)
+        .call()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let forgotten: Forgotten = response.body_mut().read_json().unwrap();
+    assert_eq!(
+        (forgotten.audits, forgotten.dat_revisions),
+        (1, 0),
+        "the DAT keeps its latest revision"
+    );
+    assert!(
+        client
+            .json::<Vec<UnregisteredRecord>>("/unregistered")
+            .is_empty()
+    );
+}
+
+#[test]
 fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says() {
     use title_select_api::repair::{RepairKind, RepairPlan};
     use title_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};

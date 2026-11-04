@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::FileType;
-use title_select_api::build::MARKER;
+use title_select_api::build::{MARKER, RETENTION};
 use title_select_api::lifecycle::{
     Forgotten, Holds, RegistrationKind, UnregisteredRecord, Unregistration,
 };
@@ -332,9 +332,31 @@ fn remove_own_marker(
         Ok(Some(st)) if Identity::of(&st) == Identity::of(&before) => {}
         _ => return left("it changed while it was read".into()),
     }
+    // The retention area goes too once nothing is kept in it; a file found in it leaves it, and the marker, in place.
+    if let Ok(retention) = dir.sub(RETENTION)
+        && !remove_empty_dirs(&retention)
+    {
+        return left(format!("{RETENTION} still holds files"));
+    }
+    let _ = dir.rmdir(RETENTION);
     dir.unlink(MARKER)
         .and_then(|()| dir.sync())
         .or_else(|e| left(e.to_string()))
+}
+
+/// Removes every empty directory under `dir`, never a file. Whether `dir` is left empty.
+fn remove_empty_dirs(dir: &FolderDir) -> bool {
+    let Ok(entries) = dir.entries() else {
+        return false;
+    };
+    let mut empty = true;
+    for (name, kind) in entries {
+        let removed = kind == FileType::Directory
+            && dir.sub(&name).is_ok_and(|sub| remove_empty_dirs(&sub))
+            && dir.rmdir(&name).is_ok();
+        empty &= removed;
+    }
+    empty
 }
 
 impl Store {
