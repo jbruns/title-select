@@ -26,6 +26,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0015_item_moves.sql"),
     include_str!("migrations/0016_stale_source_sets.sql"),
     include_str!("migrations/0017_lifecycle.sql"),
+    include_str!("migrations/0018_disc_sets.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {

@@ -446,3 +446,45 @@ fn title_selects_own_entries_in_a_source_set_are_not_audited() {
     let paths: Vec<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
     assert_eq!(paths, [".hidden.a26", "Pong (USA).a26"]);
 }
+
+#[test]
+fn a_disc_set_of_loose_folders_beside_zips_audits_every_track_verified() {
+    let f = Fixture::new();
+    // A first track larger than any read buffer, so each payload is hashed across many reads.
+    let alpha = disc("Alpha (USA)", 3, (1 << 20) + 7, 1);
+    let beta = disc("Beta (Europe)", 1, 4096, 2);
+    let gamma = disc("Gamma (Japan)", 2, 8192, 3);
+    let dat = f.dat(&[
+        ("Alpha (USA)", disc("Alpha (USA)", 3, (1 << 20) + 7, 1)),
+        ("Beta (Europe)", disc("Beta (Europe)", 1, 4096, 2)),
+        ("Gamma (Japan)", disc("Gamma (Japan)", 2, 8192, 3)),
+    ]);
+    write_loose_folder(f.set.path(), "Alpha (USA)", &alpha);
+    write_loose_folder(f.set.path(), "Beta (Europe)", &beta);
+    let members: Vec<(&str, &[u8])> = gamma.iter().map(|r| (r.name, &r.payload[..])).collect();
+    write_zip(&f.set_path("Gamma (Japan).zip"), &members);
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(report.entries.len(), 4 + 2 + 3, "{:#?}", report.entries);
+    for entry in &report.entries {
+        assert_eq!(entry.finding, Finding::Matched, "{entry:?}");
+        let evidence = entry.evidence.as_ref().unwrap();
+        assert_eq!(evidence.level, EvidenceLevel::Payload, "{entry:?}");
+        assert!(
+            evidence.algorithms.iter().any(|a| a == "sha256"),
+            "{entry:?}"
+        );
+    }
+    assert!(
+        report
+            .entries
+            .iter()
+            .any(|e| e.path == "Alpha (USA)/Alpha (USA) (Track 3).bin"),
+        "{:#?}",
+        report.entries
+    );
+    for game in ["Alpha (USA)", "Beta (Europe)", "Gamma (Japan)"] {
+        assert_eq!(status_of(&report, game), GameStatus::Complete, "{game}");
+    }
+}

@@ -1378,6 +1378,14 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
     let refused =
         put(serde_json::json!({"source_sets": {"systems": {"no system": {"format": "loose"}}}}));
     assert_eq!(status_of(refused), 400);
+    let folders_in_libraries = put(
+        serde_json::json!({"play_libraries": {"format": "loose_folder", "delete_originals": false}}),
+    );
+    assert_eq!(
+        status_of(folders_in_libraries),
+        400,
+        "play libraries don't store loose folders yet"
+    );
 
     let job: Job = client
         .post("/audits")

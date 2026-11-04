@@ -144,3 +144,44 @@ impl Fixture {
         self.set.path().join(rel)
     }
 }
+
+/// `len` bytes of noise from `seed`, the same for the same seed: a synthetic disc track.
+pub fn noise(seed: u64, len: usize) -> Vec<u8> {
+    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..len)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x as u8
+        })
+        .collect()
+}
+
+/// A synthetic Redump-style disc, `<game>.cue` and `tracks` tracks `<game> (Track N).bin` of noise, the first
+/// `track_len` bytes long; the cue sheet names each track, as a real one does.
+pub fn disc(game: &str, tracks: usize, track_len: usize, seed: u64) -> Vec<RomSpec> {
+    let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+    let mut cue = String::new();
+    let mut roms = Vec::new();
+    for n in 1..=tracks {
+        let name = if tracks == 1 {
+            format!("{game}.bin")
+        } else {
+            format!("{game} (Track {n}).bin")
+        };
+        let kind = if n == 1 { "MODE2/2352" } else { "AUDIO" };
+        cue += &format!("FILE \"{name}\" BINARY\n  TRACK {n:02} {kind}\n    INDEX 01 00:00:00\n");
+        let len = if n == 1 { track_len } else { 2352 * 4 + n };
+        roms.push(rom(leak(name), &noise(seed + n as u64, len)));
+    }
+    roms.insert(0, rom(leak(format!("{game}.cue")), cue.as_bytes()));
+    roms
+}
+
+/// The ROMs of a synthetic disc game, each written loose into `<dir>/<game>/`: a loose folder.
+pub fn write_loose_folder(dir: &Path, game: &str, roms: &[RomSpec]) {
+    for r in roms {
+        write_file(&dir.join(game).join(r.name), &r.payload);
+    }
+}
