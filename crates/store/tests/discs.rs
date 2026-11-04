@@ -1190,41 +1190,7 @@ fn switch_stopped(
         .map(|(i, _)| (written + i) as i64)
         .collect();
     assert_eq!(clearing.len(), if to_flat { 3 } else { 1 }, "{plan:?}");
-    let job = env
-        .store
-        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
-        .unwrap();
-    env.store.claim_job().unwrap().unwrap();
-    env.store
-        .hook_faults(Some(std::sync::Arc::new(move |fault| {
-            if stop(&clearing, fault) {
-                panic!("killed at {fault:?}");
-            }
-        })));
-    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.store.run_build_job(&env.config, job.id, None)
-    }));
-    env.store.hook_faults(None);
-    assert!(ran.is_err(), "{ran:?}");
-
-    let Env {
-        tmp,
-        store,
-        config,
-        sha256,
-    } = env;
-    let path = store.dir().to_path_buf();
-    drop(store);
-    let store = Store::open(&path).unwrap();
-    store.recover_jobs(WORKERS).unwrap();
-    let blocked = store.recover_builds(&config).unwrap();
-    assert!(blocked.is_empty(), "{blocked:?}");
-    let env = Env {
-        tmp,
-        store,
-        config,
-        sha256,
-    };
+    let env = killed_and_recovered(env, &plan, move |f| stop(&clearing, f));
     let (new, old) = match to_flat {
         true => (ORBIT_FLAT, ORBIT_ES_DE),
         false => (ORBIT_ES_DE, ORBIT_FLAT),
@@ -1247,6 +1213,49 @@ fn switch_stopped(
     assert_eq!(env.kept(&folder), old);
 }
 
+/// Runs `plan`, killing its build where `stop` says, then reopens the store and recovers it, with nothing blocked.
+fn killed_and_recovered(
+    env: Env,
+    plan: &Plan,
+    stop: impl Fn(title_select_store::Fault) -> bool + Send + Sync + 'static,
+) -> Env {
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if stop(fault) {
+                panic!("killed at {fault:?}");
+            }
+        })));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(&env.config, job.id, None)
+    }));
+    env.store.hook_faults(None);
+    assert!(ran.is_err(), "{ran:?}");
+
+    let Env {
+        tmp,
+        store,
+        config,
+        sha256,
+    } = env;
+    let path = store.dir().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    store.recover_jobs(WORKERS).unwrap();
+    let blocked = store.recover_builds(&config).unwrap();
+    assert!(blocked.is_empty(), "{blocked:?}");
+    Env {
+        tmp,
+        store,
+        config,
+        sha256,
+    }
+}
+
 #[test]
 fn a_switch_to_the_es_de_layout_stopped_while_clearing_the_flat_files_finishes_on_recovery() {
     use title_select_store::Fault;
@@ -1259,6 +1268,53 @@ fn a_switch_to_the_flat_layout_stopped_while_clearing_the_cue_folder_finishes_on
     use title_select_store::Fault;
     switch_stopped(true, |c, f| f == Fault::BeforeKeep(c[0]));
     switch_stopped(true, |c, f| f == Fault::Cleared(c[c.len() - 1]));
+}
+
+#[test]
+fn a_switch_back_that_writes_only_the_cue_and_stops_before_it_goes_in_place_finishes_on_recovery() {
+    use title_select_store::Fault;
+    let flat = |flat| SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        layout: Some(if flat {
+            DiscLayout::Flat
+        } else {
+            DiscLayout::EsDe
+        }),
+        ..Default::default()
+    };
+    let env = Env::new(StorageFormat::LooseFolder);
+    env.set(flat(true));
+    let folder = env.folder();
+    let selection = env.selection(&[CD]);
+    env.built(&folder, selection);
+
+    // A switch to the ES-DE layout, recovered: the flat tracks are left for the next build.
+    env.set(flat(false));
+    let plan = env.plan(&folder, selection);
+    let env = killed_and_recovered(env, &plan, |f| matches!(f, Fault::Cleared(_)));
+    let mut leftover: Vec<&str> = ORBIT_ES_DE.to_vec();
+    leftover.extend(["Orbit (USA) (Track 1).bin", "Orbit (USA) (Track 2).bin"]);
+    leftover.sort();
+    assert_eq!(env.files(), leftover);
+
+    // Back to flat: only the `.cue` is written, once the cue folder is cleared out of its way.
+    env.set(flat(true));
+    let plan = env.plan(&folder, selection);
+    let writes: Vec<(usize, &str)> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.kind.writes())
+        .map(|i| i.target.as_str())
+        .enumerate()
+        .collect();
+    assert_eq!(writes, [(0, "Orbit (USA).cue")], "{plan:?}");
+    let env = killed_and_recovered(env, &plan, |f| f == Fault::BeforePublish(0));
+    assert_eq!(env.files(), ORBIT_FLAT);
+    let kept = env.kept(&folder);
+    for file in ORBIT_ES_DE {
+        assert!(kept.iter().any(|k| k == file), "{file}: {kept:?}");
+    }
 }
 
 #[test]

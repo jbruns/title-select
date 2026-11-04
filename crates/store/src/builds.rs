@@ -1671,6 +1671,7 @@ impl Store {
             staged: Staged,
             staged_path: PathBuf,
         }
+        let disc_system = title_select_api::storage::is_disc_system(&folder_row.system);
         for unit in &units {
             if cancelled {
                 break;
@@ -1679,8 +1680,10 @@ impl Store {
                 cancelled = true;
                 break;
             }
-            let shared =
-                (unit.len() > 1).then(|| title_select_api::storage::release_of(&unit[0].item.game));
+            // A release of several files, or any disc release, which may clear its other layout or keep an original
+            // aside before it goes in place, commits durably: recovery then finishes it rather than drops it.
+            let shared = (unit.len() > 1 || (disc_system && unit[0].item.addition.is_none()))
+                .then(|| title_select_api::storage::release_of(&unit[0].item.game));
             if let Some(release) = &shared {
                 self.write(|tx| {
                     tx.execute(
