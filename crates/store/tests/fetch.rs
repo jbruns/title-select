@@ -461,6 +461,56 @@ fn a_redump_fetch_brings_a_newer_dat_and_its_packs_a_second_apart_and_starts_no_
     assert_eq!(env.audits(), audits, "fetching starts no audit");
 }
 
+impl Env {
+    /// Records a request to `provider`'s system `other` that finished `ago` before now, as an earlier Service would.
+    fn record_request(&self, provider: &str, ago: Duration) {
+        let db = rusqlite::Connection::open(self.store.dir().join("title-select.sqlite")).unwrap();
+        let at = jiff::Timestamp::now() - jiff::SignedDuration::try_from(ago).unwrap();
+        db.execute(
+            "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at, finished_at, outcome)
+             VALUES (?1, 'other', 'dat', 'manual', 'Operator', 'x', ?2, ?2, 'unchanged')",
+            rusqlite::params![provider, at.to_string()],
+        )
+        .unwrap();
+    }
+
+    /// How long after it was started a fetch from Redump sent its first request.
+    fn first_request_after(&self) -> Duration {
+        let started = Instant::now();
+        self.fetch(FetchProvider::Redump, FetchTrigger::Manual)
+            .unwrap();
+        self.fake.seen()[0].at.duration_since(started)
+    }
+}
+
+#[test]
+fn a_new_fetcher_waits_a_second_after_the_last_request_any_service_recorded() {
+    let env = Env::new("redump = true");
+    env.serve_psx("2");
+    env.record_request("redump", Duration::from_millis(300));
+    let waited = env.first_request_after();
+    assert!(waited >= Duration::from_millis(600), "{waited:?}");
+    assert!(waited < Duration::from_millis(1000), "{waited:?}");
+}
+
+#[test]
+fn a_new_fetcher_with_no_request_recorded_waits_a_second_first() {
+    let env = Env::new("redump = true");
+    env.serve_psx("2");
+    let waited = env.first_request_after();
+    assert!(waited >= Duration::from_millis(950), "{waited:?}");
+}
+
+#[test]
+fn a_new_fetcher_whose_last_recorded_request_is_long_past_sends_at_once() {
+    let env = Env::new("redump = true");
+    env.serve_psx("2");
+    env.record_request("redump", Duration::from_secs(10));
+    env.record_request("mame", Duration::ZERO);
+    let waited = env.first_request_after();
+    assert!(waited < Duration::from_millis(500), "{waited:?}");
+}
+
 #[test]
 fn each_system_is_fetched_at_most_once_a_day_even_by_hand() {
     let env = Env::new("redump = true");

@@ -134,6 +134,21 @@ impl Fetcher {
         })
     }
 
+    /// Paces `provider` from `last`, the time of the latest request to it any Service recorded, unless this fetcher
+    /// has sent it one already: its next request waits until [`MIN_GAP`] after `last`, or, with none recorded, for
+    /// [`MIN_GAP`].
+    fn seed(&self, provider: FetchProvider, last: Option<jiff::Timestamp>) {
+        let mut paced = self.last.lock().unwrap();
+        paced.entry(provider).or_insert_with(|| {
+            let ago = last
+                .and_then(|at| Duration::try_from(jiff::Timestamp::now().duration_since(at)).ok())
+                .unwrap_or_default()
+                .min(MIN_GAP);
+            let now = Instant::now();
+            now.checked_sub(ago).unwrap_or(now)
+        });
+    }
+
     /// Gets `url` from `provider`, at least [`MIN_GAP`] after its last request, and each redirect as long after.
     fn get(
         &self,
@@ -330,6 +345,19 @@ fn next_at(
     Ok((next > jiff::Timestamp::now()).then_some(next))
 }
 
+/// When the latest request to `provider` that any Service recorded was sent, or finished if it did.
+fn last_request(c: &Connection, provider: FetchProvider) -> Result<Option<jiff::Timestamp>> {
+    let at: Option<String> = c
+        .query_row(
+            "SELECT coalesce(finished_at, started_at) FROM fetches WHERE provider = ?1
+             ORDER BY id DESC LIMIT 1",
+            [provider.as_str()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(at.and_then(|at| at.parse().ok()))
+}
+
 fn artifact_status(
     c: &Connection,
     provider: FetchProvider,
@@ -457,6 +485,7 @@ impl Store {
         }
         let _running = fetcher.begin(provider)?;
         self.close_interrupted(provider)?;
+        fetcher.seed(provider, self.read(|c| last_request(c, provider))?);
         let followed = self.read(|c| followed(c, provider))?;
         let mut report = FetchReport {
             provider,
