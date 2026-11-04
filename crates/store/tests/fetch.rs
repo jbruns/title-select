@@ -734,6 +734,33 @@ fn a_newer_pack_releases_the_last_ones_file_and_the_latest_is_kept() {
     assert_eq!(env.sbi_packs(), [second.attempts[2].pack.clone().unwrap()]);
 }
 
+#[test]
+fn the_sbi_pack_kept_is_the_one_the_latest_fetch_brought_even_if_it_came_before() {
+    let env = Env::new("redump = true");
+    env.serve_psx("2");
+    let a = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    let a = a.attempts[2].pack.clone().unwrap();
+    env.backdate(25);
+    env.serve_psx_packs("3");
+    env.fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    env.backdate(25);
+    env.serve_psx_packs("2");
+    let again = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(
+        again.attempts[2].pack.as_deref(),
+        Some(a.as_str()),
+        "{again:?}"
+    );
+
+    env.store.retain_sbi_packs().unwrap();
+    assert_eq!(env.sbi_packs(), [a]);
+}
+
 /// A MAME ListXML at build `build`.
 fn listxml(build: &str) -> Vec<u8> {
     format!(

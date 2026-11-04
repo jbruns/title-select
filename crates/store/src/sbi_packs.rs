@@ -1,6 +1,7 @@
 //! Redump SBI packs: ZIPs of subchannel files for one DAT, kept unmodified under `sbi_packs/<sha256>` in the store
-//! with where they were fetched from. Only a fetch brings one (ADR 0012). They are retained as cue packs are: a pack
-//! no repair plan refers to that is no longer the latest for its DAT has its file deleted; its row stays.
+//! with where they were fetched from. Only a fetch brings one (ADR 0012). A pack's file is kept while a repair plan
+//! refers to it or it is what the latest successful fetch of its system's SBI pack brought; then it is deleted, and
+//! its row stays.
 
 use std::io::Cursor;
 use std::path::PathBuf;
@@ -78,14 +79,12 @@ impl Store {
                 }
             }
         })?;
-        if outcome == ImportOutcome::Added {
-            self.retain_sbi_packs()?;
-        }
         Ok((sha, outcome))
     }
 
-    /// Deletes the file of every SBI pack that no repair plan or step refers to and that is not the latest fetched
-    /// for its DAT. The row stays. Returns the SHA-256s whose files were deleted.
+    /// Deletes the file of every SBI pack that no repair plan or step refers to and that the latest successful fetch
+    /// of its system's SBI pack did not bring. A pack no finished fetch names yet is being fetched, and is kept. The
+    /// row stays. Returns the SHA-256s whose files were deleted.
     pub fn retain_sbi_packs(&self) -> Result<Vec<String>> {
         self.with_writer(|conn| {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -93,7 +92,13 @@ impl Store {
                 .prepare(
                     "SELECT p.sha256 FROM sbi_packs p
                      WHERE p.blob_dropped_at IS NULL
-                       AND p.id <> (SELECT max(n.id) FROM sbi_packs n WHERE n.dat = p.dat)
+                       AND EXISTS (SELECT 1 FROM fetches f WHERE f.pack_sha256 = p.sha256)
+                       AND p.sha256 NOT IN (
+                           SELECT f.pack_sha256 FROM fetches f
+                           WHERE f.artifact = 'sbi' AND f.pack_sha256 IS NOT NULL
+                             AND f.id = (SELECT max(g.id) FROM fetches g
+                                         WHERE g.provider = f.provider AND g.system = f.system
+                                           AND g.artifact = 'sbi' AND g.outcome IN ('added', 'unchanged')))
                        AND NOT EXISTS (SELECT 1 FROM repair_plans r WHERE instr(r.content, p.sha256) > 0)
                        AND NOT EXISTS (SELECT 1 FROM repair_steps s WHERE instr(s.detail, p.sha256) > 0)
                      ORDER BY p.id",

@@ -697,7 +697,7 @@ impl Store {
             Ok(brought) => (brought, None),
             Err(e) => (Brought::new(FetchOutcome::Failed), Some(e)),
         };
-        self.write(|tx| {
+        let finished = self.write(|tx| {
             tx.execute(
                 "UPDATE fetches SET finished_at = ?2, outcome = ?3, error = ?4, dat_revision_id = ?5,
                  pack_sha256 = ?6, release = ?7, asset_url = ?8 WHERE id = ?1",
@@ -717,7 +717,11 @@ impl Store {
                  WHERE f.id = ?1"
             );
             Ok(Some(tx.query_row(&sql, [id], attempt_from_row)?.0))
-        })
+        })?;
+        if artifact == FetchArtifact::Sbi {
+            self.retain_sbi_packs()?;
+        }
+        Ok(finished)
     }
 
     /// Imports a fetched DAT, once it is found to be a revision of the DAT `expected`.

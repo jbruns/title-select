@@ -10,8 +10,8 @@ ALTER TABLE dat_revisions ADD COLUMN header_date TEXT NOT NULL DEFAULT '';
 UPDATE dat_revisions SET header_order = id;
 
 -- A Redump SBI pack a fetch brought: a ZIP of subchannel files for one DAT, kept unmodified under
--- `sbi_packs/<sha256>`. Retained as a cue pack is: its file is deleted, and blob_dropped_at set, once no repair plan
--- refers to it and it is not the latest pack for its DAT; the row stays.
+-- `sbi_packs/<sha256>`. Its file is deleted, and blob_dropped_at set, once no repair plan refers to it and the latest
+-- successful fetch of its system's SBI pack brought another; the row stays.
 CREATE TABLE sbi_packs (
     id INTEGER PRIMARY KEY,
     sha256 TEXT NOT NULL UNIQUE,
