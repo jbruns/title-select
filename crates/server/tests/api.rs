@@ -1493,7 +1493,7 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
 mod selections {
     use super::*;
     use serde_json::{Value, json};
-    use title_select_api::selection::{ChoiceStatus, Role, Selection};
+    use title_select_api::selection::{ChoiceStatus, Role, Selection, SelectionEngine, ShadowRun};
     use title_select_api::{
         GameStatus, Preview, ProfileRecord, SavedProfile, SelectionDiff, SelectionRecord,
         SelectionReleaseRow,
@@ -1829,6 +1829,35 @@ mod selections {
         assert_eq!(
             none, None,
             "the first selection has nothing earlier to compare with"
+        );
+    }
+
+    #[test]
+    fn in_shadow_mode_a_selection_records_how_the_other_engine_compares() {
+        let env = Env::new();
+        let (_service, client) = ready(&env);
+        let (_, plain) = save(&client, json!({"region_order": ["USA", "Europe"]}));
+        let none: Option<ShadowRun> = client.json(&format!("/selections/{}/shadow", plain.id));
+        assert_eq!(none, None, "shadow mode is off by default");
+        drop((_service, client));
+
+        let service =
+            title_select_server::spawn(env.settings("[selections]\nshadow = true\n")).unwrap();
+        let client = Client::new(&service);
+        let (_, made) = save(&client, json!({"region_order": ["Europe", "USA"]}));
+        let shadow: Option<ShadowRun> = client.json(&format!("/selections/{}/shadow", made.id));
+        let shadow = shadow.expect("a shadow run is recorded beside the selection");
+        assert_eq!(
+            (shadow.engine, shadow.shadow),
+            (SelectionEngine::Bundled, SelectionEngine::Builtin)
+        );
+        assert_eq!(shadow.error, None);
+        let comparison = shadow.comparison.unwrap();
+        assert!(comparison.groups > 0);
+        assert!(comparison.is_identical(), "{comparison:?}");
+        assert_eq!(
+            winners(&selection(&client, made.id), "pong"),
+            ["Pong (Europe)"]
         );
     }
 

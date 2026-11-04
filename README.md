@@ -99,6 +99,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```sh
 title-select select --dat <DAT file> --profile <selection profile file> [--output <file>] [--timeout <seconds>]
+  [--engine bundled|builtin]
 ```
 
 Chooses releases from a DAT with your selection profile and prints the explained selection as JSON on stdout, or to
@@ -108,6 +109,27 @@ seconds (600 by default). The selection is derived from the engine's trace of ev
 DAT the engine writes. The engine install is `--retool`, else `TITLE_SELECT_RETOOL`, else `/opt/retool`; an install
 built from other pins than this binary's is refused. `title-select --version` prints the pins, and the workbench's
 About page says where the engine comes from.
+
+`--engine builtin` selects with the built-in selection engine instead: a port of the bundled engine into Title Select
+itself, which reads the same pinned clone lists and metadata from the same install and runs in-process, with the same
+timeout. It is meant to make the same selections, explained the same way; until it replaces the bundled engine, the
+bundled engine stays the default, and `conformance` checks the two against each other.
+
+```sh
+title-select conformance <DAT file or folder>... [--profile <selection profile file>] [--orders <n>] [--json]
+  [--timeout <seconds>]
+```
+
+Runs both engines over DATs you hold, offline, and reports, DAT by DAT, the groups where their selections or their
+explanations differ: a different winner, alternative or exclusion, a different rule, or a different warning. A folder
+is searched for `*.dat` files. Without `--profile`, the profile is empty: every region and language, no filters.
+
+Some of the bundled engine's tie-breaks follow the order in which it happens to meet titles, which no other engine can
+reproduce. Where the engines differ, the bundled engine runs again, up to `--orders` times (32 by default), meeting
+titles in other orders; a difference it reproduces that way is reported as order-sensitive, since either result is one
+the bundled engine can give. Each DAT is reported as the same, the same apart from order-sensitive differences, or
+different, with each remaining difference. The command exits 1 when any DAT is different, and `--json` prints the
+report as JSON.
 
 Your selection profile is JSON; every field is optional, and an unknown field, region, language or video standard is
 refused:
@@ -259,6 +281,8 @@ keep = 20                   # full audits kept per source set (the default)
 
 [selections]
 keep = 20                   # full selections kept per source set (the default)
+# engine = "bundled"        # the engine that makes selections: "bundled" (the default) or "builtin"
+# shadow = false            # also run the other engine on each selection and record how it compares
 
 [source_sets]
 check_every_minutes = 360   # check each source set for changes this often (the default); 0 checks only when you ask
@@ -468,6 +492,15 @@ A selection is a job too, of kind `selection`. It runs one version of a selectio
 DAT revision, chosen as for an audit, and records the selection in the transaction that ends the job. A source set
 may have one audit job and one selection job queued or running at once. Afterwards, selections beyond the newest
 `selections.keep` are pruned to their summary; the latest is never pruned.
+
+`[selections] engine` chooses the engine that makes selections and previews, as `select --engine` does. With
+`[selections] shadow = true`, each selection job also runs the other engine on the same DAT revision and selection
+profile, after the selection is made, and records how the two compare beside the selection: the groups they place
+differently or explain differently, and their warnings where those differ. The shadow run never changes the
+selection, and a shadow run that fails is recorded as failed without failing the job. The server's log gets one line
+per shadow run saying whether the engines agreed, and naming the first groups where they didn't;
+`GET /api/v1/selections/{id}/shadow` returns the full comparison. A shadow run compares one run of each engine, so a
+difference may be order-sensitive: run `conformance` on the DAT to tell.
 
 ### Stale source sets
 
@@ -1023,6 +1056,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/selections/{id}/releases`             | releases, paged, with availability; `?role=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
+| `GET /api/v1/selections/{id}/shadow`               | the shadow run beside a selection: `{"engine", "shadow", "comparison"?, "error"?}`, or `null` when shadow mode was off |
 | `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}` |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
