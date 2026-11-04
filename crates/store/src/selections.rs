@@ -490,12 +490,13 @@ impl Store {
         })
     }
 
-    /// Records the shadow run beside the Selection: the other engine's run and how its Selection compared.
+    /// Records the shadow run beside the Selection: the other engine's run and how its Selection compared. A
+    /// Selection pruned before its shadow run ends doesn't keep it.
     pub fn record_shadow(&self, id: i64, shadow: &ShadowRun) -> Result<()> {
         self.write(|tx| {
             record_by_id(tx, id)?;
             tx.execute(
-                "UPDATE selections SET shadow = ?2 WHERE id = ?1",
+                "UPDATE selections SET shadow = ?2 WHERE id = ?1 AND pruned_at IS NULL",
                 params![id, to_json(shadow)],
             )?;
             Ok(())
@@ -650,7 +651,7 @@ impl Store {
                 )?;
                 tx.execute("DELETE FROM selection_groups WHERE selection_id = ?1", [id])?;
                 tx.execute(
-                    "UPDATE selections SET pruned_at = ?1 WHERE id = ?2",
+                    "UPDATE selections SET pruned_at = ?1, shadow = NULL WHERE id = ?2",
                     params![at, id],
                 )?;
             }
