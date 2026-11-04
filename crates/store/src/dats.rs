@@ -64,27 +64,67 @@ fn version_key(version: &str) -> Vec<Number> {
         .collect()
 }
 
-/// What a revision's header says of its place among its DAT's revisions.
-struct HeaderKey {
-    version: Vec<Number>,
-    date: Vec<Number>,
+/// The date and time `text` writes, as `[year, month, day, hour, minute, second]`, if it starts with one: a date as
+/// `20240101`, `2024-01-01` or `2024 01 01`, then optionally a time as `123456` or `12-34-56`, as No-Intro and Redump
+/// write their versions and DATs their dates. A missing time is midnight.
+fn timestamp(text: &str) -> Option<[u32; 6]> {
+    let runs: Vec<&str> = text
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|run| !run.is_empty())
+        .collect();
+    let split = |run: &str, widths: &[usize]| -> Option<Vec<u32>> {
+        (run.len() == widths.iter().sum::<usize>()).then(|| {
+            let mut at = 0;
+            widths
+                .iter()
+                .map(|w| {
+                    at += w;
+                    run[at - w..at].parse().unwrap_or(0)
+                })
+                .collect()
+        })
+    };
+    let (date, rest) = match runs.as_slice() {
+        [run, rest @ ..] if run.len() == 8 => (split(run, &[4, 2, 2])?, rest),
+        [y, m, d, rest @ ..] if y.len() == 4 && m.len() <= 2 && d.len() <= 2 => (
+            vec![y.parse().ok()?, m.parse().ok()?, d.parse().ok()?],
+            rest,
+        ),
+        _ => return None,
+    };
+    let time = match rest {
+        [run, ..] if run.len() == 6 => split(run, &[2, 2, 2])?,
+        [h, m, s, ..] if [h, m, s].iter().all(|r| r.len() <= 2) => {
+            vec![h.parse().ok()?, m.parse().ok()?, s.parse().ok()?]
+        }
+        _ => vec![0, 0, 0],
+    };
+    let at = [date[0], date[1], date[2], time[0], time[1], time[2]];
+    let valid = (1..=12).contains(&at[1])
+        && (1..=31).contains(&at[2])
+        && at[3] < 24
+        && at[4] < 60
+        && at[5] < 61;
+    valid.then_some(at)
 }
 
-impl HeaderKey {
-    fn new(version: &str, date: &str) -> HeaderKey {
-        HeaderKey {
-            version: version_key(version),
-            date: version_key(date),
-        }
-    }
+/// Where a revision's header places it among its DAT's revisions, one key per revision so that the order is total
+/// and transitive: by when it was made, then by its version's numbers. Its time is the one its version writes, as
+/// No-Intro's and Redump's do, else its header's date. A part the header lacks ranks below any it gives: an undated
+/// revision is older than a dated one, and a version without digits older than one with. Revisions whose keys are
+/// equal keep their import order, the later the newer.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct OrderKey {
+    at: Option<[u32; 6]>,
+    version: Vec<Number>,
+}
 
-    /// Whether `self` is newer than `other` by version, else by date when the versions don't tell; `None` when
-    /// neither tells, so import order does.
-    fn newer_than(&self, other: &HeaderKey) -> Option<bool> {
-        let tell = |a: &Vec<Number>, b: &Vec<Number>| {
-            (!a.is_empty() && !b.is_empty() && a != b).then(|| a > b)
-        };
-        tell(&self.version, &other.version).or_else(|| tell(&self.date, &other.date))
+impl OrderKey {
+    fn new(version: &str, date: &str) -> OrderKey {
+        OrderKey {
+            at: timestamp(version).or_else(|| timestamp(date)),
+            version: version_key(version),
+        }
     }
 }
 
@@ -110,8 +150,8 @@ pub(crate) fn same_dat(dat_id: &str) -> String {
     )
 }
 
-/// Renumbers `header_order` within the DAT `dat_id`, under every spelling of its provider: by version, then date,
-/// then import where the headers don't tell.
+/// Renumbers `header_order` within the DAT `dat_id`, under every spelling of its provider, by [`OrderKey`], then
+/// import.
 pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
     let mut stmt = c.prepare(&format!(
         "SELECT id, version, header_date FROM dat_revisions WHERE dat_id IN {} ORDER BY id",
@@ -126,17 +166,12 @@ pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    // Each revision, in import order, goes just before the first already placed that is newer; one that none is newer
-    // than goes last, as the newest so far.
-    let mut ordered: Vec<(i64, HeaderKey)> = Vec::with_capacity(revisions.len());
-    for (id, version, date) in revisions {
-        let key = HeaderKey::new(&version, &date);
-        let at = ordered
-            .iter()
-            .position(|(_, placed)| placed.newer_than(&key) == Some(true));
-        ordered.insert(at.unwrap_or(ordered.len()), (id, key));
-    }
-    for (order, (id, _)) in ordered.iter().enumerate() {
+    let mut ordered: Vec<(OrderKey, i64)> = revisions
+        .into_iter()
+        .map(|(id, version, date)| (OrderKey::new(&version, &date), id))
+        .collect();
+    ordered.sort();
+    for (order, (_, id)) in ordered.iter().enumerate() {
         c.execute(
             "UPDATE dat_revisions SET header_order = ?2 WHERE id = ?1",
             params![id, order as i64 + 1],
@@ -154,7 +189,7 @@ pub(crate) fn would_be_newest(
     version: &str,
     date: &str,
 ) -> Result<bool> {
-    let key = HeaderKey::new(version, date);
+    let key = OrderKey::new(version, date);
     let mut stmt = c.prepare(
         "SELECT r.version, r.header_date FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
          WHERE d.provider = ?1 COLLATE NOCASE AND d.name = ?2",
@@ -164,9 +199,8 @@ pub(crate) fn would_be_newest(
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(!headers
-        .iter()
-        .any(|(v, d)| HeaderKey::new(v, d).newer_than(&key) == Some(true)))
+    // Imported after every one, it is newer than any whose key is equal.
+    Ok(headers.iter().all(|(v, d)| OrderKey::new(v, d) <= key))
 }
 
 /// Splits `<provider>/<name>`. A provider never contains `/`; a DAT's name may.
@@ -355,7 +389,7 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use super::version_key;
+    use super::{OrderKey, version_key};
 
     #[test]
     fn versions_order_as_each_provider_writes_them() {
@@ -373,6 +407,60 @@ mod tests {
         assert!(ordered("1.9", "1.10"));
         assert!(version_key("").is_empty());
         assert_eq!(version_key("v1.02"), version_key("1.2"));
+    }
+
+    #[test]
+    fn a_version_that_writes_a_date_orders_as_that_date_before_any_number() {
+        let key = |version: &str, date: &str| OrderKey::new(version, date);
+        assert!(key("20231231-235959", "") < key("2024-01-01 00-00-00", ""));
+        assert!(key("20240101-000000", "") < key("2024-01-01 00-00-01", ""));
+        assert!(
+            key("9", "2024-01-01") < key("1", "2024-01-02"),
+            "the date first"
+        );
+        assert!(
+            key("1", "2024-01-01") < key("2", "2024-01-01"),
+            "then the version"
+        );
+        assert!(
+            key("99", "") < key("1", "2024-01-01"),
+            "an undated revision is older"
+        );
+        assert!(
+            key("", "") < key("1", ""),
+            "a version without digits is older"
+        );
+        assert_eq!(key("2024-01-01", "").at, key("", "2024-01-01").at);
+        assert!(key("0.265 (mame0265)", "") > key("0.99 (mame099)", ""));
+        assert_eq!(key("2024-13-45", "").at, None, "not a date");
+    }
+
+    #[test]
+    fn the_order_of_revisions_is_a_total_order() {
+        let parts = [
+            "",
+            "1",
+            "2",
+            "10",
+            "20240101-000000",
+            "2024-02-01",
+            "2024-03-01 10-00-00",
+            "mame0265",
+        ];
+        let keys: Vec<OrderKey> = parts
+            .iter()
+            .flat_map(|v| parts.iter().map(move |d| OrderKey::new(v, d)))
+            .collect();
+        for a in &keys {
+            for b in &keys {
+                assert_eq!(a.cmp(b), b.cmp(a).reverse(), "antisymmetric");
+                for c in &keys {
+                    if a <= b && b <= c {
+                        assert!(a <= c, "transitive: {a:?} {b:?} {c:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

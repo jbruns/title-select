@@ -223,9 +223,10 @@ first use. Only one Title Select process may have a store open at a time: it hol
   a newer cue pack for its DAT is imported.
 - An SBI pack's file is kept the same way: while it is the one the latest successful fetch of its system brought,
   or while a repair plan refers to it.
-- A DAT's revisions are ordered by the version in their headers, not by when they were imported, so the newest
-  revision is the one with the highest version, and of two with the same version, the one with the latest date. A
-  revision whose version and date don't tell it apart counts as newest when it is imported.
+- A DAT's revisions are ordered by their headers, not by when they were imported: first by when each was made, the
+  date its version writes (as No-Intro and Redump versions do) or else its header's date, then by its version's
+  numbers. An undated revision counts as older than a dated one, and a version without digits as older than one with.
+  Of revisions whose headers don't tell them apart, the one imported last counts as newest.
 
 ## Configuration
 

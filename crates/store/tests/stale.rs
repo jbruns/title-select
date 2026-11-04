@@ -374,6 +374,31 @@ fn a_newer_revision_makes_source_sets_bound_to_either_spelling_of_its_provider_s
     assert_eq!(env.stale("Beta"), [], "an audit against it clears it");
 }
 
+#[test]
+fn three_revisions_that_each_tell_apart_only_some_of_the_others_still_order_by_one_rule() {
+    let env = Env::new();
+    let import = |xml: Vec<u8>| {
+        env.store
+            .import_dat_bytes(&xml, "x.dat", "Test", None)
+            .unwrap()
+            .0
+            .sha256
+    };
+    // Version 2, undated; then undated by version but dated February; then version 1 dated March.
+    let two = import(dated("2", "", "a"));
+    let february = import(dated("", "2024-02-01", "b"));
+    let march = import(dated("1", "2024-03-01", "c"));
+
+    let order: Vec<String> = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .map(|r| r.sha256)
+        .collect();
+    assert_eq!(order[1..], [two, february, march]);
+}
+
 fn newest_sha(env: &Env) -> String {
     env.store
         .dat_revisions()
