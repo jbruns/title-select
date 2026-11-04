@@ -211,6 +211,10 @@ first use. Only one Title Select process may have a store open at a time: it hol
   revision of its DAT. Otherwise the file is deleted after the next import or audit; the DAT revision's row stays, so
   history still names it. Importing the same file again restores it and keeps it until an audit using it finishes or a
   newer revision of its DAT is imported.
+- A cue pack's file is kept while it is the newest imported for its DAT or while a repair plan refers to it.
+  Otherwise the file is deleted after the next import or audit; its row stays, and so does the index of its cue
+  sheets, so the cue pack still lists, without its file. Importing the same file again restores it and keeps it until
+  a newer cue pack for its DAT is imported.
 
 ## Configuration
 
@@ -308,7 +312,10 @@ title-select cue-pack list
 
 `cue-pack import` stores a cue pack, a ZIP of a disc system's `.cue` sheets such as Redump publishes for each system,
 for an imported DAT, recording its SHA-256, original filename, source URL, import time and how many cue sheets it
-holds. A ZIP with no `.cue` sheet is refused. Importing the same bytes again changes nothing; a cue pack already
+holds. A ZIP with no `.cue` sheet is refused, and so is one listing more than 32,768 entries, holding a cue sheet
+larger than 1 MiB, or whose cue sheets expand to more than 64 MiB together. Each cue sheet's checksums are recorded
+as it is imported, so planning a repair reads none of the cue pack, and a build reads only the sheets it writes,
+within the same limits. Importing the same bytes again changes nothing; a cue pack already
 imported for another DAT is refused. A repair of a source set bound to that DAT can then fill a missing cue sheet, or
 replace one that doesn't match, from it (see "Repairs"). Title Select never downloads a cue pack itself. `cue-pack
 list` prints each cue pack with its DAT, file, cue sheets, import time and SHA-256.
@@ -478,12 +485,15 @@ everywhere, except for disc systems' source sets, which default to loose folders
 provider is Redump. A system's own setting overrides that default. Only a game with one ROM can be stored loose: a
 game with more stays TorrentZip, and so does a game whose ROM's name isn't a plain file name; a plan says which games
 and why. Any game can be stored as a loose folder, a single `.iso` as well as a `.cue` sheet and its tracks, unless
-its name or a ROM's name isn't a plain file name, or two ROMs share a name: then it stays TorrentZip. Play libraries
+its name or a ROM's name isn't a plain file name, is a name Title Select keeps its own work under (one starting
+`.title-select` or `.deleting`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
+stored loose. Play libraries
 can't use loose folders yet.
 
 A game's ROMs are never split between formats, and every disc of a game released on several discs, named alike but
 for its `(Disc …)` tag, is stored the same way: if one disc has to stay TorrentZip, so do the others, and the plan
-says why.
+says why. This holds whatever the format: a repair proposes, and you choose, alike for every disc of a game. Leaving
+one disc as it is leaves every disc, and a plan made with choices that would store the discs differently is refused.
 
 Every write of a game into a folder follows it: a build writes each system's play library in that system's format,
 and a repair, including a fill from an ingest folder, writes a source set in its system's format. Saving the policy
@@ -702,7 +712,8 @@ approving approves the plan as it was made, so it waits while you have changes y
 
 - a game whose files are named otherwise than the DAT says is renamed, or written under its name: on by default;
 - a game not stored as the storage policy says, `<game>.zip`, its one ROM loose, or a `<game>/` loose folder, is
-  repacked or converted to it, a loose game's tracks moved into its folder by a rename:
+  repacked or converted to it, a loose game's tracks moved into its folder by a rename, the tracks a ZIP holds
+  written out together in one read of it:
   always proposed for now. A conversion writes the converted file and puts it in place first, then keeps the
   original, or deletes it once the converted file verifies when delete originals after conversion is on. If the
   converted file's name is taken, the original stays where it is, unless you chose to keep what is there aside: it
