@@ -229,12 +229,16 @@ pub fn check_picks(group: &SelectionGroup) -> Option<DiscCheck> {
 }
 
 /// The [`expected`] disc numbers that none of `selected` has, between all their releases: a deliberate mix that
-/// has every disc covers the game. Empty when none of `selected` is a disc.
+/// has every disc covers the game. Empty when none of `selected` is a disc: nothing selected, as when a choice
+/// leaves the group out, or only releases that are not discs, selects no Multi-disc Game.
 pub fn uncovered<'a>(
     group: &SelectionGroup,
     selected: impl IntoIterator<Item = &'a str>,
 ) -> BTreeSet<u32> {
     let chosen = chosen(selected);
+    if chosen.is_empty() {
+        return BTreeSet::new();
+    }
     let have: BTreeSet<u32> = chosen.values().flatten().copied().collect();
     expected(group, &chosen)
         .difference(&have)
@@ -482,6 +486,55 @@ mod tests {
             missing(&s.groups[0]),
             BTreeMap::from([(2, vec!["Title (USA) (Disc 2)".to_owned()])])
         );
+    }
+
+    /// A group of Saga's discs and a single-disc release, with your applied choice of `checked`, which the winners
+    /// then are.
+    fn chosen_group(checked: &[&str]) -> SelectionGroup {
+        let mut g = group(checked, &[]);
+        g.alternatives = [
+            "Saga (USA) (Disc 1)",
+            "Saga (Europe) (Disc 1)",
+            "Saga (Europe) (Disc 2)",
+            "Saga (Japan)",
+        ]
+        .into_iter()
+        .filter(|t| !checked.contains(t))
+        .map(|title| Alternative {
+            title: title.into(),
+            clone_of: String::new(),
+            rule: Rule::choice(),
+        })
+        .collect();
+        g.choice = Some(crate::selection::GroupChoice {
+            checked: checked.iter().map(|t| t.to_string()).collect(),
+            status: ChoiceStatus::Applied,
+            picks: vec![
+                "Saga (USA) (Disc 1)".into(),
+                "Saga (Europe) (Disc 2)".into(),
+            ],
+            engine_unresolved: true,
+            problems: vec![],
+        });
+        g
+    }
+
+    #[test]
+    fn an_empty_choice_leaves_the_group_out_with_no_disc_uncovered_or_missing() {
+        let mut s = selection(vec![chosen_group(&[])]);
+        mark_uncovered_choices(&mut s);
+        assert!(!s.groups[0].unresolved);
+        assert_eq!(unresolved_reason(&s.groups[0]), None);
+        assert!(missing(&s.groups[0]).is_empty());
+    }
+
+    #[test]
+    fn choosing_only_a_release_that_is_not_a_disc_selects_no_multi_disc_game() {
+        let mut s = selection(vec![chosen_group(&["Saga (Japan)"])]);
+        mark_uncovered_choices(&mut s);
+        assert!(!s.groups[0].unresolved);
+        assert_eq!(unresolved_reason(&s.groups[0]), None);
+        assert!(missing(&s.groups[0]).is_empty());
     }
 
     #[test]
