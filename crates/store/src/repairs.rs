@@ -877,6 +877,13 @@ impl Store {
             // The reservation: checked again in the transaction that queues the Repair Job, which Audits and Builds
             // of the Source Set check in theirs.
             crate::lifecycle::check_live(tx, RegistrationKind::SourceSet, content.set_id)?;
+            // Each Ingest Folder a game is filled from, by the registration its item was found in, which the steps
+            // inserted below then hold until they end.
+            for step in &content.steps {
+                if let RepairStep::Fill { item, .. } = &step.step {
+                    crate::lifecycle::check_live(tx, RegistrationKind::IngestFolder, item_folder(tx, *item)?)?;
+                }
+            }
             if let Some(why) = reserved(tx, content.set_id)? {
                 return Err(Error::Conflict(why));
             }
@@ -2937,17 +2944,14 @@ impl Store {
                         ),
                     );
                 }
+                // The registration the item was found in, never one made since at the same root.
                 let Some((folder, generation)) = self.write(|tx| {
-                    let folder: Option<i64> = tx
-                        .query_row(
-                            "SELECT id FROM ingest_folders WHERE root = ?1 AND unregistered_at IS NULL",
-                            [ingest_root],
-                            |r| r.get(0),
-                        )
-                        .optional()?;
-                    let Some(folder) = folder else {
+                    let folder = item_folder(tx, *item)?;
+                    if crate::lifecycle::check_live(tx, RegistrationKind::IngestFolder, folder)
+                        .is_err()
+                    {
                         return Ok(None);
-                    };
+                    }
                     tx.execute(
                         "UPDATE ingest_folders SET generation = generation + 1 WHERE id = ?1",
                         [folder],
@@ -3025,6 +3029,17 @@ impl Store {
             }
         }
     }
+}
+
+/// The Ingest Folder registration ingest item `item` was found in.
+fn item_folder(c: &Connection, item: i64) -> Result<i64> {
+    c.query_row(
+        "SELECT folder_id FROM ingest_items WHERE id = ?1",
+        [item],
+        |r| r.get(0),
+    )
+    .optional()?
+    .ok_or_else(|| Error::NotFound(format!("no ingest item {item}")))
 }
 
 /// The stamp each file had when Audit `audit` read its payloads, by path: those it read in full, or, when

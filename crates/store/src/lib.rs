@@ -104,6 +104,9 @@ pub struct Store {
     publishing: Mutex<()>,
     /// Held while an Additions Set's folder is created.
     set_dirs: Mutex<()>,
+    /// Held while a registration is made or Unregistered, its marker written or removed, or a Library Folder's move
+    /// reserves its destination, so that none of them interleave. Taken before the writer, never inside a write.
+    lifecycle: Mutex<()>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -229,6 +232,10 @@ pub enum Fault {
     RepairDiscarding(u32),
     /// After a repair plan's approval is checked against the Source Set, before the transaction that reserves it.
     RepairApproving,
+    /// After an Ingest Folder's registration is read or recorded, before its marker is written.
+    IngestMarking,
+    /// After a Library Folder being registered is created or found empty, before the transaction that records it.
+    FolderRegistering,
     /// After the kept file of a Source Set with this id is moved into the private folder it is deleted from, before
     /// either folder is synced.
     SourceKeptMoved(i64),
@@ -327,6 +334,7 @@ impl Store {
             fault: Mutex::new(None),
             publishing: Mutex::new(()),
             set_dirs: Mutex::new(()),
+            lifecycle: Mutex::new(()),
         };
         // Retention is not run here: it runs after an import or an Audit, so a blob restored by one command is
         // still there for the Audit the next command runs.
@@ -350,6 +358,11 @@ impl Store {
     #[doc(hidden)]
     pub fn hook_faults(&self, hook: Option<FaultHook>) {
         *self.fault.lock().unwrap() = hook;
+    }
+
+    /// Serializes changes to what is registered: see [`Store::lifecycle`].
+    pub(crate) fn lifecycle_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.lifecycle.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Runs the hook a test set, which may stop the thread here as a kill would.

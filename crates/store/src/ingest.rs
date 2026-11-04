@@ -1100,6 +1100,9 @@ impl Store {
     /// Registers the Ingest Folder of Root `root` and writes its marker; every scan and every change then requires
     /// it. Registering again changes nothing. Refused when the folder has a marker that is not this store's for it.
     pub fn register_ingest_folder(&self, config: &Config, root: &str) -> Result<IngestFolder> {
+        // Held until its marker is written, so that no Unregistering of it comes in between to leave the marker of an
+        // Unregistered folder behind.
+        let _lifecycle = self.lifecycle_lock();
         let dir = open_ingest(config, root).map_err(Error::Refused)?;
         let store = self.read(store_id)?;
         let existing = self.read(|c| ingest_by_root(c, root))?;
@@ -1128,6 +1131,7 @@ impl Store {
             store,
             ingest_folder: row.id,
         };
+        self.fault_point(crate::Fault::IngestMarking);
         match read_ingest_marker(&dir) {
             MarkerFound::Present(found) if found == marker => {}
             // Before anything was moved out, a marker that never got written is written now.

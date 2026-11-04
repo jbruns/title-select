@@ -238,17 +238,28 @@ fn load(
     let rows = read_rows(c, selection_id)?;
     let (_, revision) = revision_by_id(c, revision_id)?;
     let set = set_by_id(c, set_id)?;
-    let audit: Option<(i64, i64, String)> = c
-        .query_row(
+    // Removing every built file reads only what the folder's current Build recorded, never a Source Set's latest
+    // Audit, which may since be of another Source Set or DAT Revision.
+    let audit: Option<(i64, i64, String)> = match (choices.remove_all, folder.current_build) {
+        (true, Some(build)) => c
+            .query_row(
+                "SELECT b.audit_id, b.dat_revision_id, r.sha256
+                 FROM builds b JOIN dat_revisions r ON r.id = b.dat_revision_id WHERE b.id = ?1",
+                [build],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?,
+        _ => c.query_row(
             "SELECT a.id, a.dat_revision_id, r.sha256 FROM audits a JOIN dat_revisions r ON r.id = a.dat_revision_id
              WHERE a.source_set_id = ?1 AND a.status = 'finished' AND a.pruned_at IS NULL
              ORDER BY a.finish_seq DESC LIMIT 1",
             [set_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
-        .optional()?;
+        .optional()?,
+    };
     let entries = match &audit {
-        Some((id, audit_revision, _)) if *audit_revision == revision_id => {
+        Some((id, audit_revision, _)) if *audit_revision == revision_id && !choices.remove_all => {
             let mut stmt = c.prepare(&format!(
                 "SELECT {ENTRY_COLUMNS} FROM audit_entries WHERE audit_id = ?1 ORDER BY seq"
             ))?;
@@ -987,6 +998,9 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
         items = plan_items(config, inputs, dat, folder.as_ref(), &unresolved);
     }
     let removals = match (&folder, dat, usable_audit) {
+        (Some(folder), _, _) if inputs.choices.remove_all => {
+            removals(inputs, folder, &items, &untouched)
+        }
         (Some(folder), Some(_), Some(_)) => removals(inputs, folder, &items, &untouched),
         _ => Vec::new(),
     };
@@ -1608,7 +1622,7 @@ impl Store {
             None
         };
         let mut planned = compute(config, &inputs, dat.as_ref());
-        if dat.is_none() {
+        if dat.is_none() && !choices.remove_all {
             planned.content.blockers.push(blocker(
                 BlockerKind::RevisionMismatch,
                 format!(

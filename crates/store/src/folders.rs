@@ -702,22 +702,18 @@ pub(super) fn check_library_path(
     };
     // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
     // Select reads or writes.
-    let would_be = rel
-        .split('/')
-        .fold(canonical_root.clone(), |p, part| p.join(part));
+    let would_be = resolved(&canonical_root, &rel).unwrap_or_else(|| {
+        rel.split('/')
+            .fold(canonical_root.clone(), |p, part| p.join(part))
+    });
     let ingest = config
         .roots
         .iter()
         .filter(|(_, r)| r.is_ingest())
         .map(|(name, _)| (name.clone(), String::new(), "an ingest folder".to_owned()));
     for (root, path, what) in others.into_iter().chain(ingest) {
-        let Some(other) = config.root(&root).and_then(|r| {
-            path.split('/')
-                .filter(|part| !part.is_empty())
-                .fold(r.path.clone(), |p, part| p.join(part))
-                .canonicalize()
-                .ok()
-        }) else {
+        // A destination being moved to may not exist yet.
+        let Some(other) = config.root(&root).and_then(|r| resolved(&r.path, &path)) else {
             continue;
         };
         if overlaps(&would_be, &other) {
@@ -729,6 +725,28 @@ pub(super) fn check_library_path(
         }
     }
     Ok(rel)
+}
+
+/// `rel` under `base`, through whatever of it exists: its longest existing ancestor resolved, with the rest, each a
+/// plain name, joined on. `None` when a part is not a plain name, or an existing part can't be resolved.
+fn resolved(base: &Path, rel: &str) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel.split('/').filter(|part| !part.is_empty()).collect();
+    if parts.iter().any(|part| matches!(*part, "." | "..")) {
+        return None;
+    }
+    for exists in (0..=parts.len()).rev() {
+        let path = parts[..exists]
+            .iter()
+            .fold(base.to_path_buf(), |p, part| p.join(part));
+        match path.canonicalize() {
+            Ok(found) => {
+                return Some(parts[exists..].iter().fold(found, |p, part| p.join(part)));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return None,
+        }
+    }
+    None
 }
 
 impl Store {
@@ -780,18 +798,24 @@ impl Store {
                 self.propose_library_folder_path(config, &add.source_set, template.as_deref())?
             }
         };
+        // Held from the check of its path until it is recorded, so that nothing registered or reserved meanwhile
+        // overlaps the folders it creates.
+        let _lifecycle = self.lifecycle_lock();
         let rel = self.check_library_path(config, &add.root, &rel)?;
         let root = config.root(&add.root).expect("a checked root");
-        let (set, profile) = self.read(|c| {
-            Ok((
-                set_by_name(c, &add.source_set)?,
-                active_profile_id(c, &add.profile)?,
-            ))
+        self.read(|c| {
+            set_by_name(c, &add.source_set)?;
+            active_profile_id(c, &add.profile)?;
+            Ok(())
         })?;
         let folder = create_or_check_empty(&root.path, &rel)?;
+        self.fault_point(crate::Fault::FolderRegistering);
         self.write(|tx| {
-            // Again where it is recorded, so that nothing registered or reserved since is overlapped.
+            // Again where it is recorded, so that nothing registered or reserved since is overlapped, and it is bound
+            // only to a Source Set still registered and a Profile not Retired.
             check_library_path(tx, config, &add.root, &rel)?;
+            let set = set_by_name(tx, &add.source_set)?;
+            let profile = active_profile_id(tx, &add.profile)?;
             let store = store_id(tx)?;
             tx.execute(
                 "INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)

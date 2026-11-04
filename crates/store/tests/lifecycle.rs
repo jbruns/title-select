@@ -1073,6 +1073,10 @@ fn an_approved_move_reserves_its_destination_against_new_registrations() {
         matches!(refused, Err(Error::Refused(ref why)) if why.contains("being moved")),
         "{refused:?}"
     );
+    assert!(
+        !env.play().join("next").exists(),
+        "nothing is created where the folder is being moved"
+    );
 }
 
 /// Copies `from` to `to`, a file or a folder, as a step that raced an unregistering would have seen it.
@@ -1350,4 +1354,153 @@ fn an_unregistered_registrations_history_is_read_by_its_id_and_not_by_a_name_reu
             .len(),
         1
     );
+}
+
+/// Runs `call`, and `act` on another thread once `call` reaches `fault`. `call` goes on once `act` returns, or after a
+/// while should `act` wait for `call`.
+fn race<A: Send, B: Send>(
+    store: &Store,
+    fault: Fault,
+    call: impl FnOnce() -> A + Send,
+    act: impl FnOnce() -> B + Send,
+) -> (A, B) {
+    let (reached, wait) = std::sync::mpsc::channel();
+    let (resume, resumed) = std::sync::mpsc::channel::<()>();
+    let (reached, resumed) = (
+        std::sync::Mutex::new(reached),
+        std::sync::Mutex::new(resumed),
+    );
+    store.hook_faults(Some(std::sync::Arc::new(move |f| {
+        if f == fault {
+            let _ = reached.lock().unwrap().send(());
+            let _ = resumed
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_millis(500));
+        }
+    })));
+    let out = std::thread::scope(|s| {
+        let calling = s.spawn(call);
+        wait.recv().unwrap();
+        let acted = s.spawn(act).join().unwrap();
+        let _ = resume.send(());
+        (calling.join().unwrap(), acted)
+    });
+    store.hook_faults(None);
+    out
+}
+
+fn atari() -> AddLibraryFolder {
+    AddLibraryFolder {
+        root: "play".into(),
+        path: Some("atari".into()),
+        template: None,
+        source_set: SET.into(),
+        profile: PROFILE.into(),
+    }
+}
+
+#[test]
+fn an_ingest_folder_unregistered_while_it_is_being_registered_is_left_without_a_marker() {
+    let env = Env::new();
+    env.store
+        .unregister_ingest_folder(&env.config, "in")
+        .unwrap();
+    let marker = env.tmp.path().join("in/.title-select");
+    assert!(!marker.exists());
+
+    let (registered, unregistered) = race(
+        &env.store,
+        Fault::IngestMarking,
+        || env.store.register_ingest_folder(&env.config, "in"),
+        || env.store.unregister_ingest_folder(&env.config, "in"),
+    );
+
+    registered.unwrap();
+    unregistered.unwrap();
+    assert!(
+        !marker.exists(),
+        "an unregistered ingest folder keeps no marker"
+    );
+}
+
+#[test]
+fn a_library_folder_is_never_bound_to_a_profile_retired_while_it_is_being_registered() {
+    let env = Env::new();
+    let (added, retired) = race(
+        &env.store,
+        Fault::FolderRegistering,
+        || env.store.add_library_folder(&env.config, &atari()),
+        || env.store.retire_profile(PROFILE),
+    );
+
+    retired.unwrap();
+    assert!(
+        matches!(&added, Err(Error::Refused(why)) if why.contains("retired")),
+        "{added:?}"
+    );
+    assert!(env.store.library_folders(&env.config).unwrap().is_empty());
+}
+
+#[test]
+fn a_library_folder_is_never_bound_to_a_source_set_unregistered_while_it_is_being_registered() {
+    let env = Env::new();
+    let (added, unregistered) = race(
+        &env.store,
+        Fault::FolderRegistering,
+        || env.store.add_library_folder(&env.config, &atari()),
+        || env.store.unregister_source_set(&env.config, SET),
+    );
+
+    match (&added, &unregistered) {
+        (Ok(_), Err(Error::Conflict(_))) | (Err(_), Ok(_)) => {}
+        other => panic!("a folder was bound to an unregistered source set: {other:?}"),
+    }
+}
+
+#[test]
+fn a_rebound_library_folders_built_files_are_removed_whatever_its_old_source_set_was_audited_against_since()
+ {
+    let env = Env::new();
+    let folder = env.built();
+    std::fs::create_dir_all(env.tmp.path().join("sets/Other")).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "Other", SYSTEM)
+        .unwrap();
+    env.store
+        .change_library_folder(
+            &env.config,
+            folder.id,
+            &ChangeLibraryFolder {
+                profile: None,
+                source_set: Some("Other".into()),
+            },
+        )
+        .unwrap();
+    let mut newer = games();
+    newer.push(("Yars (USA)", vec![rom("Yars (USA).a26", b"yars")]));
+    let dat = write_dat_version(&env.tmp.path().join("dats"), "test-2.dat", "2", &newer);
+    let (revision, _) = env.store.import_dat(&dat, "Test", None).unwrap();
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            AuditEvidence::Full,
+        )
+        .unwrap();
+
+    let plan = env
+        .store
+        .plan_library_removal(&env.config, folder.id)
+        .unwrap();
+    assert!(
+        plan.content.blockers.is_empty(),
+        "{:#?}",
+        plan.content.blockers
+    );
+    assert_eq!(plan.content.removals.len(), 2);
+    let job = env.build(&plan);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    assert_eq!(env.store.kept_files(folder.id).unwrap().len(), 2);
 }

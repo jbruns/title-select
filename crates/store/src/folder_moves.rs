@@ -165,6 +165,8 @@ impl Store {
         digest: &str,
         actor: &str,
     ) -> Result<FolderMove> {
+        // Reserving the destination is serialized with registering Library Folders, which check it.
+        let _lifecycle = self.lifecycle_lock();
         let planned = self.write(|tx| {
             let row = move_by_id(tx, id)?;
             if row.plan.approved_at.is_some() {

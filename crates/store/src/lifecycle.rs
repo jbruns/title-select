@@ -236,6 +236,17 @@ fn ingest_folder_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
          FROM ingest_moves WHERE folder_id = ?1 AND state NOT IN ('done', 'failed')",
         [id],
     )?);
+    // An approved repair reserves each ingest item it fills a game from until that step ends.
+    holds.extend(strings(
+        c,
+        "SELECT DISTINCT 'an approved repair of source set ' || s.name || ' will move ' || i.name || ' out of it'
+         FROM repair_steps st JOIN repair_plans p ON p.id = st.plan_id
+         JOIN source_sets s ON s.id = p.source_set_id
+         JOIN ingest_items i ON i.id = json_extract(st.detail, '$.fill.item')
+         WHERE i.folder_id = ?1 AND p.approved_at IS NOT NULL AND p.finished_at IS NULL
+           AND st.state IN ('pending', 'moving')",
+        [id],
+    )?);
     Ok(holds)
 }
 
@@ -517,10 +528,11 @@ impl Store {
         kind: RegistrationKind,
         id: i64,
     ) -> Result<Unregistration> {
+        let _lifecycle = self.lifecycle_lock();
         let at = self.write(|tx| unregister_in(tx, kind, id))?;
         let reg = self.read(|c| registration(c, kind, id))?;
         let mut notes = Vec::new();
-        if let Some(note) = self.settle_marker(config, kind, id)? {
+        if let Some(note) = self.settle_marker_in(config, kind, id)? {
             notes.push(note);
         }
         if kind == RegistrationKind::IngestFolder {
@@ -549,6 +561,17 @@ impl Store {
     /// Removes the marker of Unregistered registration `id` of `kind`, unless Kept Files of it are left, which its
     /// marker lets you delete. Returns a note when the marker stays, or could not be removed.
     pub(crate) fn settle_marker(
+        &self,
+        config: &Config,
+        kind: RegistrationKind,
+        id: i64,
+    ) -> Result<Option<String>> {
+        let _lifecycle = self.lifecycle_lock();
+        self.settle_marker_in(config, kind, id)
+    }
+
+    /// As [`Store::settle_marker`], with the lifecycle lock already held.
+    fn settle_marker_in(
         &self,
         config: &Config,
         kind: RegistrationKind,
