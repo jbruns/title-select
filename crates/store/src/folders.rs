@@ -11,6 +11,7 @@ use title_select_api::build::{
     IncompleteItem, IncompleteReason, LibraryFolder, MARKER, Marker, PlanContent, RETENTION,
     STAGING, Stale, UnfinishedBuild,
 };
+use title_select_api::discs;
 use title_select_api::paths::{PathTemplate, TokenValues, relative_path};
 
 use super::audits::recorded_content_sha256;
@@ -19,6 +20,7 @@ use super::dats::split_dat;
 use super::folder_dir::{FolderDir, Identity};
 use super::plans::json;
 use super::profiles::active_profile_id;
+use super::selections::{read_selection, record_by_id};
 use super::sets::{resolve, set_by_id, set_by_name};
 use super::{Error, Result, Store, io_error, now};
 use crate::config::Config;
@@ -360,6 +362,11 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
         })
     })?;
     out.items = rows.collect::<Result<_, _>>()?;
+    let selection: i64 = c.query_row(
+        "SELECT selection_id FROM builds WHERE id = ?1",
+        [build],
+        |r| r.get(0),
+    )?;
     if let Some(check) = latest_check(c, row.id)?
         .filter(|check| check.generation == row.generation && check.summary.marker.is_none())
     {
@@ -371,11 +378,6 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
                 .find(|i| i.target.eq_ignore_ascii_case(target))
                 .map(|i| (i.group.clone(), i.game.clone()))
         };
-        let selection: i64 = c.query_row(
-            "SELECT selection_id FROM builds WHERE id = ?1",
-            [build],
-            |r| r.get(0),
-        )?;
         let selected = selected_targets(c, selection)?;
         let is_selected = |target: &str| selected.contains_key(&target.to_lowercase());
         let mut found = Vec::new();
@@ -414,6 +416,45 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
                 game,
                 target,
                 detail,
+            });
+        }
+    }
+    if !record_by_id(c, selection)?.pruned {
+        for group in read_selection(c, selection)?.groups {
+            for (number, titles) in discs::missing(&group) {
+                let Some(title) = titles.first() else {
+                    continue;
+                };
+                if out.items.iter().any(|i| i.game == *title) {
+                    continue;
+                }
+                out.items.push(IncompleteItem {
+                    reason: IncompleteReason::MissingDisc,
+                    group: group.group.clone(),
+                    game: title.clone(),
+                    target: title.clone(),
+                    detail: Some(format!(
+                        "disc {number} of the multi-disc game {} is not selected, so the game cannot be played \
+                         through; choose the discs you want for the group {} in the selection",
+                        discs::disc(title).map_or_else(|| title.clone(), |d| d.release),
+                        group.group
+                    )),
+                });
+            }
+        }
+    }
+    for item in &mut out.items {
+        if item.reason == IncompleteReason::MissingDisc {
+            continue;
+        }
+        if let Some(d) = discs::disc(&item.game) {
+            let note = format!(
+                "it is disc {} of {}, so that multi-disc game is incomplete",
+                d.number, d.release
+            );
+            item.detail = Some(match item.detail.take() {
+                Some(detail) => format!("{detail}; {note}"),
+                None => note,
             });
         }
     }

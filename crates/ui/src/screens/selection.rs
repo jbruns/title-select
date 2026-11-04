@@ -31,6 +31,7 @@ use crate::selection_model::{
     AvailabilityFilter, FlagFilter, GroupAvailability, ReleaseColumn, ReleaseFilter,
     SelectionIndex, availability_label, checked, choice_label, confirm, confirm_unresolved,
     flag_labels, group_status, include_and_check, role_label, staged_changes, toggle,
+    unresolved_explanation,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, rows_of, sort_of};
 
@@ -1206,7 +1207,8 @@ fn GroupPanel(
                 list_or_none(&picks)
             ),
             ChoiceStatus::MatchesDefault => {
-                "Your choice matches the default now, so you can drop it and nothing changes.".to_string()
+                "Your choice matches the default now, so you can drop it and nothing changes."
+                    .to_string()
             }
             ChoiceStatus::Conflicting => format!(
                 "Your choice includes a release your settings exclude: {}. It is not applied: the default applies until you change your choice or your settings.",
@@ -1217,10 +1219,7 @@ fn GroupPanel(
                 choice.problems.join(", ")
             ),
         },
-        None if g.unresolved => {
-            "The selection picked this by a tie-break, so it needs your decision. Check the releases you want, or confirm the pick."
-                .to_string()
-        }
+        None if g.unresolved => unresolved_explanation(&g),
         None => "The selection's default applies to this group.".to_string(),
     };
     let status = g.choice.as_ref().map(|c| c.status);

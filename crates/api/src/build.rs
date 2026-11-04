@@ -821,16 +821,19 @@ pub enum IncompleteReason {
     Blocked,
     /// A check found its built file gone.
     Missing,
+    /// A disc of a selected Multi-disc Game that no selected release has: the choice for its group left it out.
+    MissingDisc,
 }
 
 impl IncompleteReason {
-    pub const ALL: [IncompleteReason; 6] = [
+    pub const ALL: [IncompleteReason; 7] = [
         IncompleteReason::Unresolved,
         IncompleteReason::NoSource,
         IncompleteReason::Failed,
         IncompleteReason::Conflict,
         IncompleteReason::Blocked,
         IncompleteReason::Missing,
+        IncompleteReason::MissingDisc,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -841,6 +844,7 @@ impl IncompleteReason {
             IncompleteReason::Conflict => "conflict",
             IncompleteReason::Blocked => "blocked",
             IncompleteReason::Missing => "missing",
+            IncompleteReason::MissingDisc => "missing_disc",
         }
     }
 
@@ -858,6 +862,8 @@ pub struct IncompleteCounts {
     pub conflict: u64,
     pub blocked: u64,
     pub missing: u64,
+    #[serde(default)]
+    pub missing_disc: u64,
 }
 
 impl IncompleteCounts {
@@ -869,6 +875,7 @@ impl IncompleteCounts {
             IncompleteReason::Conflict => self.conflict,
             IncompleteReason::Blocked => self.blocked,
             IncompleteReason::Missing => self.missing,
+            IncompleteReason::MissingDisc => self.missing_disc,
         }
     }
 
@@ -880,6 +887,7 @@ impl IncompleteCounts {
             IncompleteReason::Conflict => &mut self.conflict,
             IncompleteReason::Blocked => &mut self.blocked,
             IncompleteReason::Missing => &mut self.missing,
+            IncompleteReason::MissingDisc => &mut self.missing_disc,
         } += 1;
     }
 

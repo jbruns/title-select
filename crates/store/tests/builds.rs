@@ -3809,6 +3809,125 @@ fn an_unresolved_group_whose_roms_the_newer_dat_revision_changed_is_incomplete()
     assert_eq!(folder.incomplete.map(|c| c.unresolved), Some(1));
 }
 
+/// A newer DAT revision that adds Saga, a Multi-disc Game whose Disc 2 only Europe has, with a source for its
+/// USA disc.
+fn with_saga(env: &Env) -> String {
+    let mut newer = games();
+    newer.extend([
+        (
+            "Saga (USA) (Disc 1)",
+            vec![rom("Saga (USA) (Disc 1).a26", b"saga u1")],
+        ),
+        (
+            "Saga (Europe) (Disc 1)",
+            vec![rom("Saga (Europe) (Disc 1).a26", b"saga e1")],
+        ),
+        (
+            "Saga (Europe) (Disc 2)",
+            vec![rom("Saga (Europe) (Disc 2).a26", b"saga e2")],
+        ),
+    ]);
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (2).dat",
+        "20260102-000000",
+        &newer,
+    );
+    let (revision, _) = env.store.import_dat(&dat, "No-Intro", None).unwrap();
+    write_file(&env.set_dir().join("Saga (USA) (Disc 1).a26"), b"saga u1");
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Incremental,
+        )
+        .unwrap();
+    revision.sha256
+}
+
+fn saga(winners: &[&str], others: &[&str]) -> SelectionGroup {
+    let mut saga = group(winners[0]);
+    saga.group = "saga".into();
+    saga.winners = winners.iter().map(|w| group(w).winners.remove(0)).collect();
+    saga.alternatives = others
+        .iter()
+        .map(|title| Alternative {
+            title: (*title).into(),
+            clone_of: winners[0].into(),
+            rule: rule("Region"),
+        })
+        .collect();
+    saga
+}
+
+#[test]
+fn a_group_whose_discs_come_from_different_releases_blocks_the_plan_and_says_why() {
+    let env = Env::new();
+    let sha256 = with_saga(&env);
+    let folder = env.folder("atari2600");
+    let mut mixed = saga(
+        &["Saga (USA) (Disc 1)", "Saga (Europe) (Disc 2)"],
+        &["Saga (Europe) (Disc 1)"],
+    );
+    mixed.unresolved = true;
+    let id = env.record(&selection(&sha256, vec![group("Pong (USA)"), mixed]));
+
+    let plan = env.plan(&folder, id);
+    let blocker = plan
+        .content
+        .blockers
+        .iter()
+        .find(|b| b.kind == BlockerKind::Unresolved)
+        .unwrap();
+    assert_eq!(blocker.group.as_deref(), Some("saga"));
+    assert!(
+        blocker.message.contains(
+            "its selected discs come from different releases: disc 1 from Saga (USA), disc 2 from Saga (Europe)"
+        ),
+        "{}",
+        blocker.message
+    );
+}
+
+#[test]
+fn a_folder_lacking_a_disc_of_a_selected_multi_disc_game_is_incomplete_and_says_why() {
+    let env = Env::new();
+    let sha256 = with_saga(&env);
+    let folder = env.folder("atari2600");
+    // Your choice settled the group with the USA disc alone, which has no Disc 2.
+    let usa = saga(
+        &["Saga (USA) (Disc 1)"],
+        &["Saga (Europe) (Disc 1)", "Saga (Europe) (Disc 2)"],
+    );
+    let id = env.record(&selection(&sha256, vec![group("Pong (USA)"), usa]));
+    let plan = env.plan(&folder, id);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    let incomplete = env.store.incomplete(folder.id).unwrap();
+    let items: Vec<_> = incomplete
+        .items
+        .iter()
+        .map(|i| (i.reason, i.group.as_str(), i.game.as_str()))
+        .collect();
+    assert_eq!(
+        items,
+        vec![(
+            IncompleteReason::MissingDisc,
+            "saga",
+            "Saga (Europe) (Disc 2)"
+        )]
+    );
+    let detail = incomplete.items[0].detail.as_deref().unwrap();
+    assert!(
+        detail.starts_with("disc 2 of the multi-disc game Saga (Europe) is not selected"),
+        "{detail}"
+    );
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
+    assert_eq!(folder.incomplete.map(|c| c.missing_disc), Some(1));
+}
+
 #[test]
 fn a_build_stopped_after_it_advanced_the_generation_is_still_badged() {
     for fault in [Fault::AfterFinalize, Fault::AfterMarker] {

@@ -187,8 +187,10 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
 - Each winner, alternative and exclusion carries the rule that decided it: the stage, the engine's trace reference and
   its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
 - A group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
-  compilation tie-breaker. The engine's pick stays as the provisional winner: review it. Confirming it, or choosing
-  other releases, resolves it.
+  compilation tie-breaker. It is also unresolved when it holds a multi-disc game whose selected discs come from
+  different releases, or whose selected release lacks a disc another release in the group has: a game is selected
+  whole, never half. The engine's pick stays as the provisional winner: review it. Confirming it, or choosing other
+  releases, resolves it.
 - A group with your choice carries `choice`: the releases you checked, its `status` (`applied`, `matches_default`,
   `conflicting` or `stale`), the engine's `picks` and whether the engine left it unresolved. Releases it moved carry
   a rule whose stage is `choice`. The selection's `stale_choices` lists your choices for groups that are gone.
@@ -618,7 +620,8 @@ advances the folder's generation. A cleanup never counts as a build: a build tha
 build finishes.
 
 A folder is incomplete when its current build lacks some of its selection: unresolved groups left out, games with no
-source, files that failed, conflicts and blocked games, or built files a check found missing. The store records this
+source, files that failed, conflicts and blocked games, built files a check found missing, or a disc of a selected
+multi-disc game that no selected release has. The store records this
 for each build, with counts and items by reason; it is never written to the marker. A build cut off by a stop or a
 failure shows as an interrupted or failed build, with how many files were applied and how many are uncertain, from
 the store's record, straight after a restart. Planning again finishes it: the files already built are unchanged.
