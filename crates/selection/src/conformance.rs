@@ -193,6 +193,7 @@ const TRACE_GROUP: &str = "trace group ";
 const TRACE: &str = "trace ";
 const TRACE_EXCLUDED: &str = "trace excluded\t";
 const WARNINGS: &str = "warnings";
+const DAT_NAMES: &str = "trace dat_names";
 
 impl Engine {
     /// Runs both engines over `dat` with `profile` and compares them unit by unit. Where they differ, it runs the
@@ -305,6 +306,9 @@ fn components(
 /// title. Its units join each other, not its groups, but only where that provably doesn't depend on choosing or
 /// filtering: every version excludes it alike apart from the group, every group reporting it exists in every
 /// version, and no choosing record names it.
+///
+/// A numbered DAT's trace names titles without the number its Selection keeps, so every trace title is read as the
+/// DAT name the trace's `dat_names` record maps it to.
 struct Links<'k> {
     /// Every unit any version has, sorted.
     keys: Vec<&'k str>,
@@ -346,6 +350,21 @@ impl<'k> Links<'k> {
                 .and_then(|rest| rest.split_once('\t'))
         };
 
+        let mut dat_names: HashMap<String, String> = HashMap::new();
+        for record in records(DAT_NAMES) {
+            for (name, dat_name) in record["names"].as_object().into_iter().flatten() {
+                if let Some(dat_name) = dat_name.as_str() {
+                    dat_names.insert(name.clone(), dat_name.to_owned());
+                }
+            }
+        }
+        let canon = |title: &str| -> String {
+            dat_names
+                .get(title)
+                .cloned()
+                .unwrap_or_else(|| title.to_owned())
+        };
+
         // The titles choosing records name: in a step's lists, or in a group's clone structure.
         let mut chosen: BTreeSet<String> = BTreeSet::new();
         for &key in &keys {
@@ -353,13 +372,13 @@ impl<'k> Links<'k> {
                 .strip_prefix(TRACE_GROUP)
                 .and_then(|rest| rest.split_once('\t'))
             {
-                chosen.insert(title.to_owned());
+                chosen.insert(canon(title));
             } else if key.starts_with(TRACE) && !key.starts_with(TRACE_EXCLUDED) {
                 for record in records(key) {
                     for field in ["before", "after", "kept", "removed"] {
                         for title in record[field].as_array().into_iter().flatten() {
                             if let Some(title) = title.as_str() {
-                                chosen.insert(title.to_owned());
+                                chosen.insert(canon(title));
                             }
                         }
                     }
@@ -373,11 +392,13 @@ impl<'k> Links<'k> {
                 releases.entry(title).or_default().push(i);
             }
         }
+        // `title` is the trace's name for the title; its release units carry the DAT name.
         let stands_alone = |title: &str| -> bool {
-            if chosen.contains(title) {
+            let record = format!("{TRACE_EXCLUDED}{title}");
+            let title = canon(title);
+            if chosen.contains(&title) {
                 return false;
             }
-            let record = format!("{TRACE_EXCLUDED}{title}");
             let without_group = |v: &String| {
                 serde_json::from_str::<serde_json::Value>(v)
                     .ok()
@@ -395,7 +416,11 @@ impl<'k> Links<'k> {
                 return false;
             }
             let mut exclusion: Option<&String> = None;
-            for &i in releases.get(title).map(Vec::as_slice).unwrap_or_default() {
+            for &i in releases
+                .get(title.as_str())
+                .map(Vec::as_slice)
+                .unwrap_or_default()
+            {
                 let (group, _) = release(keys[i]).expect("a release unit");
                 if versions
                     .iter()
@@ -414,21 +439,23 @@ impl<'k> Links<'k> {
             }
             true
         };
-        let alone: BTreeSet<&str> = keys
+        let alone: BTreeSet<String> = keys
             .iter()
             .filter_map(|k| k.strip_prefix(TRACE_EXCLUDED))
             .filter(|t| stands_alone(t))
+            .map(canon)
             .collect();
 
-        let mut excluded: HashMap<&str, usize> = HashMap::new();
+        let mut excluded: HashMap<String, usize> = HashMap::new();
         let mut groups: HashMap<&str, usize> = HashMap::new();
         let mut title_groups: HashMap<&str, Vec<&str>> = HashMap::new();
         for (i, &key) in keys.iter().enumerate() {
             let title = key
                 .strip_prefix(TRACE_EXCLUDED)
-                .or_else(|| release(key).map(|(_, t)| t));
+                .map(canon)
+                .or_else(|| release(key).map(|(_, t)| t.to_owned()));
             if let Some(title) = title.filter(|t| alone.contains(t)) {
-                match excluded.get(title) {
+                match excluded.get(&title) {
                     Some(&first) => join(&mut parent, first, i),
                     None => {
                         excluded.insert(title, i);
@@ -454,7 +481,7 @@ impl<'k> Links<'k> {
             }
             if key
                 .strip_prefix(TRACE_EXCLUDED)
-                .is_some_and(|t| alone.contains(t))
+                .is_some_and(|t| alone.contains(&canon(t)))
             {
                 continue;
             }
@@ -465,7 +492,10 @@ impl<'k> Links<'k> {
                 }
                 for field in ["before", "after", "kept", "removed"] {
                     for title in record[field].as_array().into_iter().flatten() {
-                        if let Some(in_groups) = title.as_str().and_then(|t| title_groups.get(t)) {
+                        if let Some(in_groups) = title
+                            .as_str()
+                            .and_then(|t| title_groups.get(canon(t).as_str()))
+                        {
                             named.extend(in_groups.iter().copied());
                         }
                     }
@@ -778,6 +808,40 @@ mod tests {
         let c = conformance_of(&a, &b, &[linked]);
         assert_eq!(c.witness("group pong\tPong (USA)"), None);
         assert!(!c.conforms());
+    }
+
+    #[test]
+    fn a_numbered_dat_s_trace_names_link_to_its_selection_names() {
+        // A numbered DAT's trace drops the number its Selection keeps; the trace's own record maps one to the other.
+        const NAMES: &str = r#"{"type":"dat_names","names":{"Combo (USA)":"0002 - Combo (USA)","Pong (USA)":"0001 - Pong (USA)"}}"#;
+        let a = map(&[
+            ("group pong", "{}"),
+            ("group combo", "{}"),
+            ("group pong\t0001 - Pong (USA)", "winner"),
+            ("group combo\t0002 - Combo (USA)", "winner"),
+            ("trace dat_names", NAMES),
+        ]);
+        let mut b = a.clone();
+        b.insert("trace compilations global".into(), STEP.into());
+        b.insert("group pong\t0001 - Pong (USA)".into(), "exclusion".into());
+        let step_only = {
+            let mut r = a.clone();
+            r.insert("trace compilations global".into(), STEP.into());
+            r
+        };
+        let pong_only = {
+            let mut r = a.clone();
+            r.insert("group pong\t0001 - Pong (USA)".into(), "exclusion".into());
+            r
+        };
+        // The step removing Pong (USA) and pong's placement are one component: neither rerun alone witnesses it.
+        let c = conformance_of(&a, &b, &[step_only.clone(), pong_only.clone()]);
+        assert_eq!(c.components.len(), 1, "{:?}", c.components);
+        assert_eq!(c.verdict(), Verdict::Inconclusive);
+        let c = conformance_of(&a, &b, &[step_only, pong_only, b.clone()]);
+        assert_eq!(c.witness("group pong\t0001 - Pong (USA)"), Some(3));
+        assert_eq!(c.witness("trace compilations global"), Some(3));
+        assert_eq!(c.verdict(), Verdict::OrderSensitive);
     }
 
     #[test]
