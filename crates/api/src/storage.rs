@@ -157,15 +157,31 @@ pub const MULTI_ROM_STAYS_ZIP: &str = "it has more than one ROM, and only a game
 pub const NOT_A_FILE_NAME: &str =
     "its ROM's name is not a plain file name, so it can't be stored loose, and it stays TorrentZip";
 
-/// Whether `name` can name a file directly in a folder: not empty, no separator, not `.` or `..`, and not one of the
-/// hidden names Title Select keeps its own work under.
+/// Whether `name`, an entry anywhere in a folder Title Select writes, is one it keeps there for itself and an Audit
+/// passes over: its marker and kept files (`.title-select…`), a private `.deleting` folder, and a file it is writing
+/// under a temporary name (`.<name>.title-select-new-…`). Compared without case, since a folder may be on a
+/// filesystem that ignores it. No Game's file, folder or ROM is ever written under such a name.
+pub fn is_reserved_name(name: &str) -> bool {
+    let name = name.to_lowercase();
+    name.starts_with(".title-select")
+        || name == ".deleting"
+        || (name.starts_with('.') && name.contains(".title-select-new-"))
+}
+
+/// Whether `name` can name a file directly in a folder: not empty, no separator, not `.` or `..`, and not a
+/// [reserved name](is_reserved_name).
 fn is_plain_name(name: &str) -> bool {
     !name.is_empty()
         && !name.contains(['/', '\\', '\0'])
         && name != "."
         && name != ".."
-        && !name.starts_with(".title-select")
+        && !is_reserved_name(name)
 }
+
+/// Why a Game is stored as TorrentZip where the policy says loose or loose folder: its name or a ROM's is one Title
+/// Select keeps its own work under.
+pub const RESERVED_NAME_STAYS_ZIP: &str = "its name or a ROM's name is one Title Select keeps its own work under, \
+     so it can't be stored loose, and it stays TorrentZip";
 
 /// Why a Game is stored as TorrentZip where the policy says loose folder.
 pub const NOT_FOLDER_NAMES: &str = "its name or a ROM's name is not a plain file name, so it can't be stored as a \
@@ -184,6 +200,9 @@ pub fn target_of(
     match (storage.format, roms) {
         (StorageFormat::Loose | StorageFormat::LooseFolder, [only]) if is_plain_name(only) => {
             ((*only).to_owned(), true, None)
+        }
+        (StorageFormat::Loose | StorageFormat::LooseFolder, [only]) if is_reserved_name(only) => {
+            (format!("{game}.zip"), false, Some(RESERVED_NAME_STAYS_ZIP))
         }
         (StorageFormat::Loose | StorageFormat::LooseFolder, [_]) => {
             (format!("{game}.zip"), false, Some(NOT_A_FILE_NAME))
@@ -272,9 +291,13 @@ pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Opt
                 None,
             );
         }
+        let reserved = is_reserved_name(game) || roms.iter().any(|r| is_reserved_name(r));
         return (
             Placement::TorrentZip(format!("{game}.zip")),
-            Some(NOT_FOLDER_NAMES),
+            Some(match reserved {
+                true => RESERVED_NAME_STAYS_ZIP,
+                false => NOT_FOLDER_NAMES,
+            }),
         );
     }
     match target_of(storage, game, roms) {
@@ -377,6 +400,31 @@ mod tests {
         let (placed, note) = placement(folder, "Odd", &["ok.bin", "sub/track.bin"]);
         assert_eq!(placed, Placement::TorrentZip("Odd.zip".into()));
         assert_eq!(note, Some(NOT_FOLDER_NAMES));
+    }
+
+    #[test]
+    fn a_game_or_rom_named_as_title_select_work_is_never_stored_loose() {
+        let folder = Storage {
+            format: StorageFormat::LooseFolder,
+            delete_originals: false,
+        };
+        for (game, roms) in [
+            (".deleting", &["a.bin", "b.bin"][..]),
+            (".Title-Select-Retained", &["a.bin", "b.bin"]),
+            ("Disc", &["a.bin", ".title-select"]),
+            ("Disc", &["a.bin", ".b.bin.title-select-new-1"]),
+        ] {
+            let (placed, note) = placement(folder, game, roms);
+            assert_eq!(
+                placed,
+                Placement::TorrentZip(format!("{game}.zip")),
+                "{game}"
+            );
+            assert_eq!(note, Some(RESERVED_NAME_STAYS_ZIP), "{game}");
+        }
+        let (placed, note) = placement(folder, "Solo", &[".DELETING"]);
+        assert_eq!(placed, Placement::TorrentZip("Solo.zip".into()));
+        assert_eq!(note, Some(RESERVED_NAME_STAYS_ZIP));
     }
 
     #[test]

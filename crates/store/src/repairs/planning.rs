@@ -9,8 +9,8 @@ use title_select_api::repair::{
     PlannedStep, RepairChoice, RepairItem, RepairKind, RepairRom, RepairStep,
 };
 use title_select_api::storage::{
-    MULTI_ROM_STAYS_ZIP, Placement, RELEASE_STAYS_ZIP, Storage, StorageFormat, placement,
-    release_of,
+    MULTI_ROM_STAYS_ZIP, Placement, RELEASE_STAYS_ZIP, Storage, StorageFormat, is_reserved_name,
+    placement, release_of,
 };
 use title_select_api::{Entry, EvidenceLevel, Finding, Report};
 use title_select_engine::FileStamp;
@@ -421,7 +421,10 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             None => targets[0].clone(),
         };
         if folder.is_none()
-            && let Some(why) = invalid_name(&target)
+            && let Some(why) = invalid_name(&target).or_else(|| {
+                is_reserved_name(&target)
+                    .then(|| format!("{target} is a name Title Select keeps its own work under"))
+            })
         {
             notes.push(format!("{game} is left as it is: {why}"));
             continue;
