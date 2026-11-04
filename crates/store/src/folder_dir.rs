@@ -2,7 +2,8 @@
 //! component of its relative path without following a symlink, and every read or change in it is then made relative
 //! to that handle with the `*at` calls: a folder or staging directory swapped for a symlink after it was checked
 //! cannot redirect a write. Files are created exclusively and opened without following a symlink, and a file is
-//! renamed into place only by a rename that refuses to replace anything.
+//! renamed into place only by a rename that refuses to replace anything. A file's name may be a path within the
+//! folder, such as a disc layout's `.multidisc/<file>`: each directory of it is opened without following a symlink.
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -149,6 +150,13 @@ impl FolderDir {
         self.path.join(name)
     }
 
+    /// The directory holding `rel`, a `/`-separated path relative to this one, opened through each component
+    /// without following a symlink (`None` for this one itself), and its last component.
+    fn resolve<'a>(&self, rel: &'a str) -> io::Result<(Option<FolderDir>, &'a str)> {
+        let (owned, name) = parent_of(self, rel)?;
+        Ok((owned, component(name)?))
+    }
+
     /// The directory `name` in this one, not followed if it is a symlink.
     pub fn sub(&self, name: &str) -> io::Result<FolderDir> {
         let name = component(name)?;
@@ -206,20 +214,30 @@ impl FolderDir {
 
     /// Creates the new file `name` for reading and writing, failing if anything, a symlink included, is there.
     pub fn create_new(&self, name: &str) -> io::Result<File> {
-        let name = component(name)?;
+        let (parent, leaf) = self.resolve(name)?;
         let flags =
             OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-        let fd = rustix::fs::openat(&self.fd, name, flags, file_mode())
-            .map_err(|e| self.error(name, e))?;
+        let fd = rustix::fs::openat(
+            &parent.as_ref().unwrap_or(self).fd,
+            leaf,
+            flags,
+            file_mode(),
+        )
+        .map_err(|e| self.error(name, e))?;
         Ok(File::from(fd))
     }
 
     /// Opens the regular file `name` for reading and writing, refusing a symlink or anything else.
     pub fn open_write(&self, name: &str) -> io::Result<File> {
-        let name = component(name)?;
+        let (parent, leaf) = self.resolve(name)?;
         let flags = OFlags::RDWR | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-        let fd = rustix::fs::openat(&self.fd, name, flags, Mode::empty())
-            .map_err(|e| self.error(name, e))?;
+        let fd = rustix::fs::openat(
+            &parent.as_ref().unwrap_or(self).fd,
+            leaf,
+            flags,
+            Mode::empty(),
+        )
+        .map_err(|e| self.error(name, e))?;
         if FileType::from_raw_mode(rustix::fs::fstat(&fd)?.st_mode) != FileType::RegularFile {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -231,10 +249,15 @@ impl FolderDir {
 
     /// Opens the regular file `name` for reading, refusing a symlink or anything else.
     pub fn open_file(&self, name: &str) -> io::Result<File> {
-        let name = component(name)?;
+        let (parent, leaf) = self.resolve(name)?;
         let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-        let fd = rustix::fs::openat(&self.fd, name, flags, Mode::empty())
-            .map_err(|e| self.error(name, e))?;
+        let fd = rustix::fs::openat(
+            &parent.as_ref().unwrap_or(self).fd,
+            leaf,
+            flags,
+            Mode::empty(),
+        )
+        .map_err(|e| self.error(name, e))?;
         if FileType::from_raw_mode(rustix::fs::fstat(&fd)?.st_mode) != FileType::RegularFile {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -253,8 +276,24 @@ impl FolderDir {
 
     /// The `lstat` of `name`, or `None` if nothing is there.
     pub fn stat(&self, name: &str) -> io::Result<Option<Stat>> {
-        let name = component(name)?;
-        match rustix::fs::statat(&self.fd, name, AtFlags::SYMLINK_NOFOLLOW) {
+        let (parent, leaf) = match self.resolve(name) {
+            Ok(found) => found,
+            // A folder of the path that is not there holds nothing.
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) =>
+            {
+                return Ok(None);
+            }
+            Err(e) => return Err(e),
+        };
+        match rustix::fs::statat(
+            &parent.as_ref().unwrap_or(self).fd,
+            leaf,
+            AtFlags::SYMLINK_NOFOLLOW,
+        ) {
             Ok(st) => Ok(Some(st)),
             Err(rustix::io::Errno::NOENT) => Ok(None),
             Err(e) => Err(self.error(name, e)),
@@ -268,8 +307,15 @@ impl FolderDir {
     /// Renames `from` in this directory to `to` in `dest`, failing with `AlreadyExists` rather than replacing
     /// anything at `to`. There is no fallback: where the filesystem cannot rename exclusively, it fails.
     pub fn rename_new(&self, from: &str, dest: &FolderDir, to: &str) -> io::Result<()> {
-        let (from, to) = (component(from)?, component(to)?);
-        match rustix::fs::renameat_with(&self.fd, from, &dest.fd, to, RenameFlags::NOREPLACE) {
+        let (from_parent, from_leaf) = self.resolve(from)?;
+        let (to_parent, to_leaf) = dest.resolve(to)?;
+        match rustix::fs::renameat_with(
+            &from_parent.as_ref().unwrap_or(self).fd,
+            from_leaf,
+            &to_parent.as_ref().unwrap_or(dest).fd,
+            to_leaf,
+            RenameFlags::NOREPLACE,
+        ) {
             Ok(()) => Ok(()),
             Err(rustix::io::Errno::EXIST) => Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -293,20 +339,33 @@ impl FolderDir {
 
     /// Renames `from` over `to`, both in this directory, replacing `to` itself if it is there.
     pub fn replace(&self, from: &str, to: &str) -> io::Result<()> {
-        let (from, to) = (component(from)?, component(to)?);
-        rustix::fs::renameat(&self.fd, from, &self.fd, to).map_err(|e| self.error(to, e))
+        let (from_parent, from_leaf) = self.resolve(from)?;
+        let (to_parent, to_leaf) = self.resolve(to)?;
+        rustix::fs::renameat(
+            &from_parent.as_ref().unwrap_or(self).fd,
+            from_leaf,
+            &to_parent.as_ref().unwrap_or(self).fd,
+            to_leaf,
+        )
+        .map_err(|e| self.error(to, e))
     }
 
     /// Removes the file or symlink `name`; a symlink's target is never touched.
     pub fn unlink(&self, name: &str) -> io::Result<()> {
-        let name = component(name)?;
-        rustix::fs::unlinkat(&self.fd, name, AtFlags::empty()).map_err(|e| self.error(name, e))
+        let (parent, leaf) = self.resolve(name)?;
+        rustix::fs::unlinkat(&parent.as_ref().unwrap_or(self).fd, leaf, AtFlags::empty())
+            .map_err(|e| self.error(name, e))
     }
 
     /// Removes the empty directory `name`.
     pub fn rmdir(&self, name: &str) -> io::Result<()> {
-        let name = component(name)?;
-        rustix::fs::unlinkat(&self.fd, name, AtFlags::REMOVEDIR).map_err(|e| self.error(name, e))
+        let (parent, leaf) = self.resolve(name)?;
+        rustix::fs::unlinkat(
+            &parent.as_ref().unwrap_or(self).fd,
+            leaf,
+            AtFlags::REMOVEDIR,
+        )
+        .map_err(|e| self.error(name, e))
     }
 
     /// Makes the directory's entries durable.
@@ -352,6 +411,60 @@ impl FolderDir {
 
     fn error(&self, name: &str, e: rustix::io::Errno) -> io::Error {
         with_path(&self.at(name), e.into())
+    }
+}
+
+/// Opens the folder holding `rel`, a path relative to `dir`, without following a symlink: `None` for `dir` itself.
+/// Returns it with the last component.
+pub(super) fn parent_of<'a>(
+    dir: &FolderDir,
+    rel: &'a str,
+) -> io::Result<(Option<FolderDir>, &'a str)> {
+    let Some((parents, name)) = rel.rsplit_once('/') else {
+        return Ok((None, rel));
+    };
+    let mut parts = parents.split('/');
+    let mut found = dir.sub(parts.next().unwrap_or_default())?;
+    for part in parts {
+        found = found.sub(part)?;
+    }
+    Ok((Some(found), name))
+}
+
+/// Opens the folder holding `rel`, a path relative to `dir`, as [`parent_of`] does, making each folder of it that
+/// is missing first: a loose folder a repair writes a Game into, or a
+/// folder of a disc layout a Build publishes into.
+pub(super) fn parent_made<'a>(
+    dir: &FolderDir,
+    rel: &'a str,
+) -> io::Result<(Option<FolderDir>, &'a str)> {
+    let Some((parents, name)) = rel.rsplit_once('/') else {
+        return Ok((None, rel));
+    };
+    let mut found: Option<FolderDir> = None;
+    for part in parents.split('/') {
+        let at = found.as_ref().unwrap_or(dir);
+        match at.mkdir(part) {
+            Ok(()) => at.sync()?,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+        found = Some(at.sub(part)?);
+    }
+    Ok((found, name))
+}
+
+/// Removes the folder holding `rel`, a path relative to `dir`, if it is now empty: a loose folder a repair emptied, or a folder
+/// of a disc layout.
+/// Best effort; a folder still holding anything stays.
+pub(super) fn remove_emptied(dir: &FolderDir, rel: &str) {
+    if let Some((parents, _)) = rel.rsplit_once('/')
+        && let Ok((parent, name)) = parent_of(dir, parents)
+    {
+        let parent = parent.as_ref().unwrap_or(dir);
+        if parent.rmdir(name).is_ok() {
+            let _ = parent.sync();
+        }
     }
 }
 

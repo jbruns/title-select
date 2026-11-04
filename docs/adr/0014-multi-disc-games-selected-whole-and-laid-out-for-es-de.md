@@ -33,4 +33,11 @@ file, and an `.m3u` as one entry for several discs.
 ## Consequences
 
 - Retool's disc-name normalization decides what counts as one release's discs, so the port carries it too.
-- Other layouts, such as all discs flat in the system folder, can be added as further choices of the same setting.
+- Other layouts can be added as further choices of the same setting. The first is flat: every file of every disc
+  directly in the system folder, with no `.m3u`.
+- An SBI file goes beside its disc's `.chd` as well as its `.cue`, named for it, since emulators read it there too.
+- Every file a release needs (each disc, each track, its `.m3u` and its SBI files) is one Build unit: it publishes
+  whole or not at all, and an original it replaces is kept aside only once the whole unit is in place. A layout
+  change is a replacement built from the Source Set, like a format change.
+- A Build removes an emptied `.multidisc/` or `<game>.cue/` folder only if a Build made it and its identity is
+  unchanged: one the Operator made is never removed.

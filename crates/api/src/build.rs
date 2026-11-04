@@ -421,8 +421,9 @@ pub struct PlanItem {
     pub group: String,
     /// The DAT's Game name.
     pub game: String,
-    /// The file name in the Library Folder: `<game>.zip`, `<game>.chd` stored as CHD, or, stored loose, its one ROM's
-    /// name.
+    /// The file's path in the Library Folder: `<game>.zip`, `<game>.chd` stored as CHD, or, stored loose, its one
+    /// ROM's name. A disc system's layout may put it in a folder of the Library Folder, as `.multidisc/<file>` or
+    /// `<cue>/<file>`; a disc of several files stored loose is an item per file.
     pub target: String,
     pub kind: ItemKind,
     /// Whether it is written as a loose file, its one ROM, rather than a TorrentZip, as the storage policy says.
@@ -459,6 +460,36 @@ pub struct PlanItem {
     /// For an Addition: which, read from its Additions Set. Its `game` is the addition's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<PlanAddition>,
+    /// For a file a disc layout adds to the Game's own, which the DAT does not list: what it holds. Its `roms` are
+    /// empty, and it is written loose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated: Option<GeneratedFile>,
+}
+
+/// What a generated file is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeneratedKind {
+    /// The `.m3u` that lists a Multi-disc Game's discs, by entry file, in disc order. Its `game` is the release.
+    M3u,
+    /// A disc's SBI file, from its system's SBI pack, beside its `.cue` or `.chd`.
+    Sbi,
+}
+
+/// A file a plan writes that no ROM is: its bytes are known when the plan is made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneratedFile {
+    pub kind: GeneratedKind,
+    pub sha256: String,
+    pub size: u64,
+    /// An `.m3u`'s text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// An SBI file's pack, by SHA-256, and its name in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
 }
 
 /// Why a plan cannot be approved.
@@ -528,6 +559,10 @@ pub struct PlanContent {
     /// What the plan does not do as the storage policy says, and why.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// The SHA-256 of the SBI pack the plan's SBI files come from, when its system puts SBI files beside its discs:
+    /// a plan whose pack is no longer the system's is stale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sbi_pack: Option<String>,
 }
 
 impl PlanChoices {
@@ -1321,6 +1356,17 @@ pub struct KeptDeletion {
     /// store's. Its kept files stay recorded until it can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_error: Option<String>,
+}
+
+/// The key two names in one folder collide by: on a filesystem that ignores case or Unicode normalization, as a
+/// share may, names alike but for case or normalization are one name.
+pub fn name_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    name.nfd()
+        .collect::<String>()
+        .to_lowercase()
+        .nfc()
+        .collect()
 }
 
 /// Why a name cannot be a file name on every filesystem a Play Library may be shared from, or `None` when it can.

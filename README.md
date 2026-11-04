@@ -552,8 +552,43 @@ game with more stays TorrentZip, and so does a game whose ROM's name isn't a pla
 and why. Any game can be stored as a loose folder, a single `.iso` as well as a `.cue` sheet and its tracks, unless
 its name or a ROM's name isn't a plain file name, is a name Title Select keeps its own work under (one starting
 `.title-select` or `.deleting`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
-stored loose. Play libraries
-can't use loose folders yet.
+stored loose. Play libraries store loose folders only for disc systems, chosen for each system, laid out as their
+disc layout says; any other system's play libraries store TorrentZip or loose.
+
+A disc system's play libraries lay out its discs as their disc layout says, set globally for play libraries and for
+each system. The default is the ES-DE layout:
+
+- A disc stored as one file, a CHD or an `.iso`, goes directly in the system folder: `<game>.chd`, `<game>.iso`.
+- A single disc stored as a `.cue` sheet and its tracks, as a loose folder, goes in a folder named exactly for its
+  `.cue`, the file you point an emulator at: `<game>.cue/` holding `<game>.cue` and its `.bin` tracks.
+- Every file of a game released on several discs, each disc's CHD, `.iso`, or `.cue` and tracks, goes flat in
+  `.multidisc/`, and an `.m3u` named for the game without its `(Disc …)` tag, `<game>.m3u`, sits in the system folder
+  listing each disc's `.cue`, `.chd` or `.iso` as `.multidisc/<file>`, one per line in disc order.
+
+The flat layout puts every file of every disc directly in the system folder, and writes no `.m3u`. A disc stored as
+TorrentZip is `<game>.zip` in the system folder in either layout. Under the ES-DE layout, a disc of several files that
+isn't one `.cue` with its tracks stays TorrentZip, with every other disc of its game, and the plan says why. A game's
+name must be one plain name, not a path and not a name Title Select keeps its own work under: the plan refuses any
+other, so the only folders a layout makes are `.multidisc/` and `<game>.cue/`. Names that differ only in case or
+Unicode form are the same name, so a plan refuses two files, or a file and a folder, that would share one.
+
+The `.multidisc/` and `<game>.cue/` folders and each `.m3u` belong to the library folder: a check reads every file in
+them, an `.m3u` that changed since it was built is drift and is never written over, and a file a build no longer needs
+there, an `.m3u` or SBI file too, goes to your kept files like any other. A build removes a layout folder it left
+empty only if a build made it and it is still that folder: one you made stays.
+
+Every file of a game, across all its discs, goes in place together: each disc, each track, its `.m3u` and its SBI
+files. If any of them can't be built, the plan builds none of them and names the one in the way; if one fails or you
+cancel before they go in place, none does, and the files they replace stay where they are. The files they replace go
+to your kept files only once every new file is in place, and while any of them can't be built, its `.m3u` and SBI
+files stay too. Changing a game from one layout to the other rebuilds it from its source set the same way, and keeps
+its old files aside. A `<game>.cue/` folder you made yourself is never replaced by a file: the plan builds none of that
+game's files and names the folder, so you can move it.
+
+A disc system's own setting can also put each disc's SBI file beside it: with "Put SBI files beside discs" on, a build
+writes each disc's `.sbi` from the system's latest fetched SBI pack, named for and beside its `.cue` or `.chd`. A disc
+the pack has no SBI file for gets none. Turning it off keeps the SBI files aside in your kept files. A plan records
+the SBI pack it uses: if a newer pack arrives before you run it, the plan is out of date and you review a new one.
 
 A disc system's play libraries can also store each disc as CHD, `<game>.chd`. Only a system's own setting can say CHD,
 not the global one, and source sets never can: a source set keeps each file exactly as the DAT lists it. A disc is
@@ -978,7 +1013,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/profiles/{name}/versions`             | its versions, newest first                                   |
 | `POST /api/v1/profiles/{name}/versions`            | save: `{"profile", "base_version"?, "queue"?}`; creates it   |
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
-| `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "systems"}`, `format` being `torrent_zip`, `loose` or `loose_folder`, and `systems` each system's own `{"format"?, "delete_originals"?}` |
+| `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "layout", "systems"}`, `format` being `torrent_zip`, `loose`, `loose_folder` or `chd`, `layout` `es_de` or `flat`, and `systems` each system's own `{"format"?, "delete_originals"?, "layout"?, "sbi"?}`; only a disc system's play libraries take `layout` and `sbi` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
 | `POST /api/v1/preview`                             | the selection a profile would make: `{"source_set", "profile", "revision"?}`, with the changes from the latest saved selection |
 | `GET /api/v1/selections?source_set=&profile=`      | selections, newest first, of a source set, a profile or both; each names the library folders that use it |
@@ -1210,7 +1245,8 @@ Its screens:
   what-if. "Create library folder from this" makes a library folder from it, and "Plan a build" plans building it
   into a library folder bound to its source set and selection profile.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
-  conversion deletes each original once its converted file verifies, with a global settings tab and a tab per
+  conversion deletes each original once its converted file verifies, a disc system's disc layout and whether its
+  play libraries put SBI files beside its discs, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
   **Roots** lists the roots in the service's configuration file, read-only: each one's path, whether it's writable

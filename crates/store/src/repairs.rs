@@ -37,7 +37,9 @@ use title_select_engine::{FileStamp, Progress};
 use crate::builds::{sha256_of, still_sha256};
 use crate::checks::Seen;
 use crate::config::Config;
-use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
+use crate::folder_dir::{
+    FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of, remove_emptied,
+};
 use crate::folders::{MARKER_LIMIT, MARKER_NEW, store_id};
 use crate::ingest::OwedAudits;
 use crate::ingest::fill_candidates;
@@ -146,52 +148,6 @@ pub(crate) fn open_repairable(
         source_set: set,
     };
     Ok(check_set_marker(&dir, &expected, rule).map(|()| dir))
-}
-
-/// Opens the folder holding `rel`, a path relative to `dir`, without following a symlink: `None` for `dir` itself.
-/// Returns it with the last component.
-fn parent_of<'a>(dir: &FolderDir, rel: &'a str) -> io::Result<(Option<FolderDir>, &'a str)> {
-    let Some((parents, name)) = rel.rsplit_once('/') else {
-        return Ok((None, rel));
-    };
-    let mut parts = parents.split('/');
-    let mut found = dir.sub(parts.next().unwrap_or_default())?;
-    for part in parts {
-        found = found.sub(part)?;
-    }
-    Ok((Some(found), name))
-}
-
-/// Opens the folder holding `rel`, a path relative to `dir`, as [`parent_of`] does, making each folder of it that
-/// is missing first: a loose folder a repair writes a Game into.
-fn parent_made<'a>(dir: &FolderDir, rel: &'a str) -> io::Result<(Option<FolderDir>, &'a str)> {
-    let Some((parents, name)) = rel.rsplit_once('/') else {
-        return Ok((None, rel));
-    };
-    let mut found: Option<FolderDir> = None;
-    for part in parents.split('/') {
-        let at = found.as_ref().unwrap_or(dir);
-        match at.mkdir(part) {
-            Ok(()) => at.sync()?,
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e),
-        }
-        found = Some(at.sub(part)?);
-    }
-    Ok((found, name))
-}
-
-/// Removes the folder holding `rel`, a path relative to `dir`, if it is now empty: a loose folder a repair emptied.
-/// Best effort; a folder still holding anything stays.
-fn remove_emptied(dir: &FolderDir, rel: &str) {
-    if let Some((parents, _)) = rel.rsplit_once('/')
-        && let Ok((parent, name)) = parent_of(dir, parents)
-    {
-        let parent = parent.as_ref().unwrap_or(dir);
-        if parent.rmdir(name).is_ok() {
-            let _ = parent.sync();
-        }
-    }
 }
 
 /// Every entry under `dir` but Title Select's own, by path relative to it, and the regular files among them as seen.

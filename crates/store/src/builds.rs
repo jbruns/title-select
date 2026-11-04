@@ -13,15 +13,16 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{
-    BuildDetail, BuildItem, BuildSummary, BuiltFile, ExpectedRom, FileStat, IncompleteReason,
-    ItemKind, ItemState, Marker, PlanItem, PlanRemoval, PlanSource, RemovalKind, STAGING,
+    BuildDetail, BuildItem, BuildSummary, BuiltFile, ExpectedRom, FileStat, GeneratedFile,
+    GeneratedKind, IncompleteReason, ItemKind, ItemState, Marker, PlanItem, PlanRemoval,
+    PlanSource, RemovalKind, STAGING,
 };
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::storage::chd_of;
@@ -33,7 +34,7 @@ use title_select_engine::build::{
 use title_select_engine::chd::{self, Chdman};
 
 use super::checks::Seen;
-use super::folder_dir::{FolderDir, Identity, file_stat};
+use super::folder_dir::{FolderDir, Identity, file_stat, parent_of};
 use super::folders::{
     MARKER_NEW, MarkerState, build_by_id, builds_where, check_marker, folder_by_id,
     open_writable_folder, read_marker, store_id, write_marker,
@@ -469,6 +470,9 @@ fn stage(
     if item.chd {
         return stage_chd(item, seq, file, staged, set_fd, chd, built_at);
     }
+    if let Some(generated) = &item.generated {
+        return stage_generated(generated, file, staged, chd.store, built_at);
+    }
     if let Some(addition) = &item.addition {
         // An Addition is read from its Additions Set, through a descriptor on the file published there, while
         // it is still that file: copied whole when the play library stores it in the format its Additions Set does,
@@ -607,6 +611,137 @@ fn stage(
         chd_sha1: None,
         chd_raw_sha1: None,
     })
+}
+
+/// Writes `generated`, a file no ROM is, to `file`, new in the staging directory at `staged`: an `.m3u` from its
+/// text, or an SBI file from its pack, kept in `store`. It must be the file the plan was made with.
+fn stage_generated(
+    generated: &GeneratedFile,
+    file: &mut File,
+    staged: &Path,
+    store: &Store,
+    built_at: SystemTime,
+) -> std::result::Result<Staged, Failure> {
+    let bytes = match (
+        generated.kind,
+        &generated.text,
+        &generated.pack,
+        &generated.member,
+    ) {
+        (GeneratedKind::M3u, Some(text), ..) => text.clone().into_bytes(),
+        (GeneratedKind::Sbi, _, Some(pack), Some(member)) => store
+            .sbi_member(pack, member, &generated.sha256)
+            .map_err(|e| Failure::Item(e.to_string()))?,
+        _ => {
+            return Err(Failure::Item(
+                "the plan does not say what the file holds".into(),
+            ));
+        }
+    };
+    let at = |e: io::Error| Failure::Folder(format!("{}: {e}", staged.display()));
+    file.write_all(&bytes).map_err(at)?;
+    file.set_modified(built_at)
+        .and_then(|()| file.sync_all())
+        .map_err(at)?;
+    let (sha256, size) = sha256_of(file).map_err(at)?;
+    if sha256 != generated.sha256 || size != generated.size {
+        return Err(Failure::Item(
+            "it is not the file the plan was made with".into(),
+        ));
+    }
+    Ok(Staged {
+        sha256,
+        size,
+        mtime_ns: staged_mtime(file)?,
+        chd_sha1: None,
+        chd_raw_sha1: None,
+    })
+}
+
+/// Makes the disc layout folder `target` goes in, when it is in one that is missing, so that it can be renamed into
+/// place. Returns the folder made, by name and identity, for the Build to record as its own: one already there,
+/// yours or an earlier Build's, is used as it is.
+fn make_parents(dir: &FolderDir, target: &str) -> io::Result<Option<(String, Identity)>> {
+    let Some((parent, _)) = target.rsplit_once('/') else {
+        return Ok(None);
+    };
+    match dir.mkdir(parent) {
+        Ok(()) => {
+            dir.sync()?;
+            let st = dir.stat(parent)?.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("{parent} vanished once it was made"),
+                )
+            })?;
+            Ok(Some((parent.to_owned(), Identity::of(&st))))
+        }
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Records `made`, a disc layout folder a Build made in Library Folder `folder`, as one it may remove once empty.
+fn record_layout_dir(store: &Store, folder: i64, made: Option<(String, Identity)>) -> Result<()> {
+    let Some((name, id)) = made else {
+        return Ok(());
+    };
+    let (dev, ino) = id.to_sql();
+    store.write(|tx| {
+        tx.execute(
+            "INSERT OR REPLACE INTO folder_dirs (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)",
+            params![folder, name, dev, ino],
+        )?;
+        Ok(())
+    })
+}
+
+/// Removes the disc layout folder `target` was in once it is empty, but only one a Build made, recorded by
+/// [`record_layout_dir`], and still that very folder: one you made, or made again since, stays. Best effort.
+fn remove_layout_dir(store: &Store, dir: &FolderDir, folder: i64, target: &str) -> Result<()> {
+    let Some((parent, _)) = target.rsplit_once('/') else {
+        return Ok(());
+    };
+    let Some(made) = store
+        .read(|c| super::kept::folder_dirs(c, folder))?
+        .get(parent)
+        .copied()
+    else {
+        return Ok(());
+    };
+    let forget = || {
+        store.write(|tx| {
+            tx.execute(
+                "DELETE FROM folder_dirs WHERE folder_id = ?1 AND name = ?2",
+                params![folder, parent],
+            )?;
+            Ok(())
+        })
+    };
+    match dir.stat(parent) {
+        Ok(None) => forget(),
+        Ok(Some(st))
+            if FolderDir::kind(&st) == rustix::fs::FileType::Directory
+                && Identity::of(&st) == made =>
+        {
+            if dir.rmdir(parent).is_ok() {
+                let _ = dir.sync();
+                forget()?;
+            }
+            Ok(())
+        }
+        // Something else is there now: the folder recorded is gone, whatever took its name.
+        Ok(Some(_)) => forget(),
+        Err(_) => Ok(()),
+    }
+}
+
+/// Syncs the disc layout folder `target` was renamed into, if it is in one.
+fn sync_parent(dir: &FolderDir, target: &str) -> io::Result<()> {
+    match parent_of(dir, target)? {
+        (Some(parent), _) => parent.sync(),
+        (None, _) => Ok(()),
+    }
 }
 
 /// The modification time of the staged file `file`, as written and synced.
@@ -1071,7 +1206,7 @@ fn finish_unit(
     dir: &FolderDir,
     temps: &HashMap<String, Identity>,
     p: &Publishing,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<Option<(String, Identity)>, String> {
     let gone =
         || Err("its checked file is no longer waiting in the build's staging folder".to_string());
     let (Some(dev), Some(ino), Some(sha256), Some(size)) = (p.dev, p.ino, &p.sha256, p.size) else {
@@ -1099,9 +1234,12 @@ fn finish_unit(
     if &hash != sha256 || len as i64 != size {
         return Err("its staged file is not the one that was checked".into());
     }
+    let made = make_parents(dir, &p.target).map_err(|e| e.to_string())?;
     staging
         .rename_new(&name, dir, &p.target)
-        .map_err(|e| e.to_string())
+        .and_then(|()| sync_parent(dir, &p.target))
+        .map_err(|e| e.to_string())?;
+    Ok(made)
 }
 
 /// What recovery reads about an unfinished Build.
@@ -1388,12 +1526,20 @@ impl Store {
                       retention: &mut Option<Retention>|
          -> Result<()> {
             check_marker(&dir, &expected).map_err(Error::Refused)?;
-            // A file another of its game's items replaces is kept aside only once that item's file is in place.
-            let replacing = all.iter().find(|w| {
-                w.item.game == removal.game
-                    && w.item.target != removal.target
-                    && w.item.kind.writes()
-            });
+            // A file its release's new files replace is kept aside only once every one of them is in place: the
+            // release's whole unit committed and finished. If it rolled back, the file stays.
+            let release = title_select_api::storage::release_of(&removal.game);
+            let mut replacing = None;
+            for w in all.iter().filter(|w| {
+                w.item.kind.writes()
+                    && w.item.addition.is_none()
+                    && title_select_api::storage::release_of(&w.item.game) == release
+            }) {
+                if item_state(self, id, w.seq)?.as_deref() != Some("applied") {
+                    replacing = Some(w);
+                    break;
+                }
+            }
             let outcome = match (&removal.kind, &removal.keep) {
                 (RemovalKind::Keep, Some(keep)) if survivor(removal).is_some() => {
                     open_area(retention)?;
@@ -1417,11 +1563,7 @@ impl Store {
                     )?;
                     Ok(())
                 }
-                (RemovalKind::Keep, Some(_))
-                    if replacing.is_some()
-                        && item_state(self, id, replacing.expect("matched").seq)?.as_deref()
-                            != Some("applied") =>
-                {
+                (RemovalKind::Keep, Some(_)) if replacing.is_some() => {
                     Err(format!(
                         "{} was not written, so {} stays as it is",
                         replacing.expect("matched").item.target,
@@ -1504,10 +1646,13 @@ impl Store {
         // unit: every disc is written and verified before any is put in place, and once one is renamed into place
         // the rest follow, whether the Build is cancelled or stops (recovery finishes them). A cancelled Build stops
         // between two units, or before a unit's first rename.
+        let mut cleared: HashSet<i64> = HashSet::new();
         let mut units: Vec<Vec<&Work>> = Vec::new();
         let mut releases: HashMap<String, usize> = HashMap::new();
         for w in work {
-            if w.item.chd || w.item.converts.is_some() {
+            // Every file of a release goes in place with the rest of it, whatever its format and layout: each disc,
+            // each track, and the files generated beside them. An addition goes alone.
+            if w.item.addition.is_none() {
                 let release = title_select_api::storage::release_of(&w.item.game);
                 if let Some(&u) = releases.get(&release) {
                     units[u].push(w);
@@ -1526,6 +1671,7 @@ impl Store {
             staged: Staged,
             staged_path: PathBuf,
         }
+        let disc_system = title_select_api::storage::is_disc_system(&folder_row.system);
         for unit in &units {
             if cancelled {
                 break;
@@ -1534,8 +1680,10 @@ impl Store {
                 cancelled = true;
                 break;
             }
-            let shared =
-                (unit.len() > 1).then(|| title_select_api::storage::release_of(&unit[0].item.game));
+            // A release of several files, or any disc release, which may clear its other layout or keep an original
+            // aside before it goes in place, commits durably: recovery then finishes it rather than drops it.
+            let shared = (unit.len() > 1 || (disc_system && unit[0].item.addition.is_none()))
+                .then(|| title_select_api::storage::release_of(&unit[0].item.game));
             if let Some(release) = &shared {
                 self.write(|tx| {
                     tx.execute(
@@ -1626,14 +1774,17 @@ impl Store {
                         self.write(|tx| set_item(tx, id, w.seq, ItemState::Failed, &error))?;
                         return Err(Error::Io(error));
                     }
-                    Ok(staged) => ready.push(Ready {
-                        w,
-                        name,
-                        file,
-                        file_id,
-                        staged,
-                        staged_path,
-                    }),
+                    Ok(staged) => {
+                        ready.push(Ready {
+                            w,
+                            name,
+                            file,
+                            file_id,
+                            staged,
+                            staged_path,
+                        });
+                        self.fault_point(Fault::Staged(w.seq));
+                    }
                 }
             }
             // A unit is committed, with every disc's publish intent, in one transaction that first checks you have
@@ -1790,6 +1941,31 @@ impl Store {
                 }
                 for r in ready.drain(..) {
                     let (w, name, target) = (r.w, &r.name, &r.w.item.target);
+                    if content
+                        .removals
+                        .iter()
+                        .any(|x| super::plans::clears(&x.target, target))
+                    {
+                        check_marker(&dir, &expected).map_err(Error::Refused)?;
+                        open_area(&mut retention)?;
+                        let area = retention.as_ref().expect("opened above");
+                        match self.clear_way(
+                            &dir,
+                            area,
+                            (folder, id, generation),
+                            &content.removals,
+                            target,
+                        )? {
+                            Ok(seqs) => cleared.extend(seqs),
+                            Err(error) if shared.is_some() => return Err(stuck(target, &error)),
+                            Err(error) => {
+                                self.write(|tx| {
+                                    set_item(tx, id, w.seq, ItemState::Failed, &error)
+                                })?;
+                                return Err(Error::Refused(error));
+                            }
+                        }
+                    }
                     self.fault_point(Fault::BeforePublish(w.seq));
                     // The file renamed is the one verified: the staged name must still be it, and the target must be
                     // it once renamed. The verified file stays open until then.
@@ -1800,6 +1976,10 @@ impl Store {
                                 "{} was replaced after it was verified; it was left as it is",
                                 r.staged_path.display()
                             )),
+                        })
+                        .and_then(|()| make_parents(&dir, target).map_err(|e| e.to_string()))
+                        .and_then(|made| {
+                            record_layout_dir(self, folder, made).map_err(|e| e.to_string())
                         })
                         .and_then(|()| {
                             staging
@@ -1823,7 +2003,9 @@ impl Store {
                     staging
                         .sync()
                         .and_then(|()| dir.sync())
+                        .and_then(|()| sync_parent(&dir, target))
                         .map_err(folder_io)?;
+                    self.fault_point(Fault::ParentSynced(w.seq));
                     self.fault_point(Fault::AfterPublish(w.seq));
                     let found = dir.stat(target).map_err(folder_io)?;
                     let applied = match &found {
@@ -1916,13 +2098,34 @@ impl Store {
             }
             tick(&mut done);
         }
-        for (seq, removal) in removals.iter().filter(|(_, r)| survivor(r).is_none()) {
+        for _ in &cleared {
+            tick(&mut done);
+        }
+        for (seq, removal) in removals
+            .iter()
+            .filter(|(seq, r)| survivor(r).is_none() && !cleared.contains(seq))
+        {
             if cancelled || self.cancel_requested(job)? {
                 cancelled = true;
                 break;
             }
             remove(*seq, removal, &mut retention)?;
             tick(&mut done);
+        }
+        // A disc layout folder a Build made, whose every file was kept aside, goes too.
+        for target in content
+            .removals
+            .iter()
+            .map(|r| &r.target)
+            .chain(
+                content
+                    .items
+                    .iter()
+                    .filter_map(|i| i.keep.as_ref().map(|k| &k.name)),
+            )
+            .chain(conversions.iter().map(|(_, _, k)| &k.name))
+        {
+            remove_layout_dir(self, &dir, folder, target)?;
         }
         drop(retention);
         if cancelled {
@@ -2122,9 +2325,61 @@ impl Store {
         Ok(error)
     }
 
+    /// The files of the release a Build kept aside to clear the way for `target`, in their other disc layout: at
+    /// `target`, or in a folder where `target`'s folder goes. Each is kept aside, once its unit committed, before
+    /// `target` is renamed into place, and an emptied layout folder a Build made goes with them. The rest of the
+    /// release's originals wait until the whole unit is in place.
+    fn clear_way(
+        &self,
+        dir: &FolderDir,
+        retention: &Retention,
+        (folder, build, generation): (i64, i64, u64),
+        removals: &[PlanRemoval],
+        target: &str,
+    ) -> Result<std::result::Result<Vec<i64>, String>> {
+        let mut cleared = Vec::new();
+        for r in removals.iter().filter(|r| {
+            r.kind == RemovalKind::Keep
+                && r.keep.is_some()
+                && super::plans::clears(&r.target, target)
+        }) {
+            let row: Option<(i64, String)> = self.read(|c| {
+                Ok(c.query_row(
+                    "SELECT seq, state FROM build_items WHERE build_id = ?1 AND kind = 'remove' AND target = ?2",
+                    params![build, r.target],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?)
+            })?;
+            let Some((seq, state)) = row else { continue };
+            cleared.push(seq);
+            // A file kept aside already, by the build or by its recovery, may have left its folder in place.
+            if state == "applied" {
+                remove_layout_dir(self, dir, folder, &r.target)?;
+                continue;
+            }
+            let k = Keep {
+                folder,
+                build,
+                seq,
+                generation,
+                keep: r.keep.as_ref().expect("filtered"),
+                hashed: None,
+                original: None,
+            };
+            if let Err(why) = self.keep_aside(dir, retention, &k)? {
+                return Ok(Err(why));
+            }
+            self.fault_point(Fault::Cleared(seq));
+            remove_layout_dir(self, dir, folder, &r.target)?;
+        }
+        Ok(Ok(cleared))
+    }
+
     /// Finishes putting in place `p`, a disc of a committed unit of Build `build` in Library Folder `folder` at
-    /// `generation`: keeps aside what the plan found at its target, if that is still there, and renames its staged
-    /// file into place. `Err` says why it can't be; the folder is left as it is.
+    /// `generation`: clears its release's other disc layout out of the way, keeps aside what the plan found at its
+    /// target, if that is still there, and renames its staged file into place. `Err` says why it can't be; the
+    /// folder is left as it is.
     fn finish_disc(
         &self,
         dir: &FolderDir,
@@ -2132,7 +2387,31 @@ impl Store {
         (folder, build, generation): (i64, i64, u64),
         p: &Publishing,
         item: &PlanItem,
+        removals: &[PlanRemoval],
     ) -> Result<std::result::Result<(), String>> {
+        // The release's files in its other disc layout are cleared out of the way first: until they are, the target
+        // may be a folder, or in a folder that is a file.
+        if removals.iter().any(|r| {
+            r.kind == RemovalKind::Keep
+                && r.keep.is_some()
+                && super::plans::clears(&r.target, &p.target)
+        }) {
+            let retention = match open_retention(self, folder, dir, generation, true)? {
+                Ok(Some(retention)) => retention,
+                Ok(None) => return Ok(Err("the retention area was not created".into())),
+                Err(why) => return Ok(Err(why)),
+            };
+            let cleared = self.clear_way(
+                dir,
+                &retention,
+                (folder, build, generation),
+                removals,
+                &p.target,
+            )?;
+            if let Err(why) = cleared {
+                return Ok(Err(why));
+            }
+        }
         let ours = match dir.open_file(&p.target) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,
             Err(e) => return Ok(Err(e.to_string())),
@@ -2175,7 +2454,13 @@ impl Store {
             }
             (None, _) => {}
         }
-        Ok(finish_unit(dir, temps, p))
+        match finish_unit(dir, temps, p) {
+            Ok(made) => {
+                record_layout_dir(self, folder, made)?;
+                Ok(Ok(()))
+            }
+            Err(why) => Ok(Err(why)),
+        }
     }
 
     fn clean_folder(
@@ -2287,6 +2572,7 @@ impl Store {
                         (folder.id, build, unfinished.generation),
                         p,
                         item,
+                        &content.removals,
                     )?;
                     if let Err(why) = done {
                         return Ok(Err(unit_stuck(release, &p.target, &why)));
@@ -2337,13 +2623,17 @@ impl Store {
                         Ok(_) => None,
                         Err(e) => return Ok(Err(e.to_string())),
                     };
+                    // The folder it was renamed into is synced too: the system folder, or the disc layout folder it
+                    // is in.
                     let synced = staging
                         .transpose()
                         .and_then(|staging| staging.map_or(Ok(()), |s| s.sync()))
-                        .and_then(|()| dir.sync());
+                        .and_then(|()| dir.sync())
+                        .and_then(|()| sync_parent(&dir, &p.target));
                     if let Err(e) = synced {
                         return Ok(Err(e.to_string()));
                     }
+                    self.fault_point(Fault::ParentSynced(p.seq));
                     self.fault_point(Fault::AfterPublish(p.seq));
                 }
                 // A disc of a committed unit is never failed or left: the unit was finished above, so this is its

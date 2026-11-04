@@ -23,7 +23,7 @@ use title_select_api::repair::KeptFileReviewed;
 
 use super::builds::{sha256_of, temps};
 use super::checks::Seen;
-use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
+use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_of};
 use super::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use super::plans::{json, to_json};
 use super::{Error, Fault, Result, Store, now};
@@ -887,9 +887,11 @@ impl Store {
             })?;
             Ok(rows.collect::<Result<_, _>>()?)
         })?;
+        // A file of a disc layout folder is kept under its own name: the retention area holds no folders of them.
+        let leaf = name.rsplit('/').next().unwrap_or(name);
         let mut nth = 1;
         let kept = loop {
-            let candidate = kept_name(name, nth);
+            let candidate = kept_name(leaf, nth);
             match retention.generation.stat(&candidate) {
                 Ok(None) if !taken.contains(&name_key(&candidate)) => break candidate,
                 Ok(_) => nth += 1,
@@ -976,6 +978,10 @@ impl Store {
             .generation
             .sync()
             .and_then(|()| dir.sync())
+            .and_then(|()| match parent_of(dir, name)? {
+                (Some(parent), _) => parent.sync(),
+                (None, _) => Ok(()),
+            })
             .map_err(|e| Error::Io(e.to_string()))?;
         self.fault_point(Fault::AfterKeep(k.seq));
         if !is_kept_entry(&retention.generation, &kept, id, None, directory) {
@@ -2235,12 +2241,7 @@ fn deletion_by_id(c: &Connection, id: i64) -> Result<KeptDeletion> {
 /// The key under which two file names are one file on any file system, including a case-insensitive, normalizing one:
 /// lowercased, as a stand-in for case folding, and in NFC. Every set of names reserved in the kept files is keyed so.
 pub(crate) fn name_key(name: &str) -> String {
-    use unicode_normalization::UnicodeNormalization;
-    name.nfd()
-        .collect::<String>()
-        .to_lowercase()
-        .nfc()
-        .collect()
+    title_select_api::build::name_key(name)
 }
 
 #[cfg(test)]

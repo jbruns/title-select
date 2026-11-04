@@ -1417,6 +1417,7 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
         SystemStorage {
             format: Some(StorageFormat::Loose),
             delete_originals: None,
+            ..Default::default()
         },
     );
     let put = |body: serde_json::Value| {
@@ -1434,13 +1435,13 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
     let refused =
         put(serde_json::json!({"source_sets": {"systems": {"no system": {"format": "loose"}}}}));
     assert_eq!(status_of(refused), 400);
-    let folders_in_libraries = put(
-        serde_json::json!({"play_libraries": {"format": "loose_folder", "delete_originals": false}}),
-    );
+    let layout_of_no_disc_system = put(serde_json::json!({"play_libraries": {
+        "systems": {"No-Intro/Test - System": {"layout": "flat"}}
+    }}));
     assert_eq!(
-        status_of(folders_in_libraries),
+        status_of(layout_of_no_disc_system),
         400,
-        "play libraries don't store loose folders yet"
+        "only a disc system has a disc layout"
     );
 
     let job: Job = client

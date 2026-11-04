@@ -18,7 +18,8 @@ pub enum StorageFormat {
     /// TorrentZip.
     Loose,
     /// `<game>/`, holding each of the Game's ROMs loose under its DAT name: for any Game, and the default for disc
-    /// systems' Source Sets (ADR 0013). Only Source Sets store it for now; a Play Library's disc layout is #100.
+    /// systems' Source Sets (ADR 0013). A disc system's Play Library lays a disc's files out as its [`DiscLayout`]
+    /// says (ADR 0014); in any other Play Library it stores a single-ROM Game loose, and any other stays TorrentZip.
     LooseFolder,
     /// `<game>.chd`, one CHD per disc, built by chdman from its `.cue` and `.bin` tracks or its `.iso`: only a disc
     /// system's Play Libraries store it, never a Source Set, which holds the DAT's exact bytes (ADR 0013). A disc
@@ -73,6 +74,49 @@ impl StorageScope {
     }
 }
 
+/// How a disc system's Play Library lays out the files of its discs stored loose or as CHD (ADR 0014). A disc
+/// stored as TorrentZip is `<game>.zip` in the system folder whatever the layout.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscLayout {
+    /// The layout ES-DE reads: a disc stored as one file, `.chd` or `.iso`, directly in the system folder; a
+    /// single disc of several files, a `.cue` and its tracks, in a folder named exactly for its `.cue`,
+    /// `<cue>/`; and every file of a Multi-disc Game flat in [`MULTIDISC`], with an `.m3u` named for the release,
+    /// without its disc tag, in the system folder listing each disc's entry file in disc order.
+    #[default]
+    EsDe,
+    /// Every file of every disc directly in the system folder, and no `.m3u`.
+    Flat,
+}
+
+impl DiscLayout {
+    pub fn label(self) -> &'static str {
+        match self {
+            DiscLayout::EsDe => "ES-DE",
+            DiscLayout::Flat => "flat",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DiscLayout::EsDe => "es_de",
+            DiscLayout::Flat => "flat",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<DiscLayout> {
+        match s {
+            "es_de" => Some(DiscLayout::EsDe),
+            "flat" => Some(DiscLayout::Flat),
+            _ => None,
+        }
+    }
+}
+
+/// The folder, in a disc system's Play Library folder, that holds every file of its Multi-disc Games in the ES-DE
+/// layout.
+pub const MULTIDISC: &str = ".multidisc";
+
 /// One system's overrides of its scope's defaults; `None` follows the default.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SystemStorage {
@@ -80,6 +124,23 @@ pub struct SystemStorage {
     pub format: Option<StorageFormat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delete_originals: Option<bool>,
+    /// A disc system's Play Library layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<DiscLayout>,
+    /// Whether a disc system's Play Libraries put each disc's SBI file, from the system's latest fetched SBI pack,
+    /// beside its `.cue` or `.chd`. Only a system opts in; there is no default to follow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sbi: Option<bool>,
+}
+
+impl SystemStorage {
+    /// Whether it overrides nothing.
+    pub fn is_empty(&self) -> bool {
+        self.format.is_none()
+            && self.delete_originals.is_none()
+            && self.layout.is_none()
+            && self.sbi.is_none()
+    }
 }
 
 /// One scope's policy: its defaults, and the overrides of each system, keyed by its DAT as `<provider>/<name>`.
@@ -91,6 +152,9 @@ pub struct ScopePolicy {
     /// Kept Files.
     #[serde(default)]
     pub delete_originals: bool,
+    /// The layout of disc systems' Play Libraries; Source Sets have none.
+    #[serde(default)]
+    pub layout: DiscLayout,
     #[serde(default)]
     pub systems: BTreeMap<String, SystemStorage>,
 }
@@ -112,11 +176,14 @@ impl ScopePolicy {
             StorageScope::SourceSets if is_disc_system(system) => StorageFormat::LooseFolder,
             _ => self.format,
         };
+        let discs = scope == StorageScope::PlayLibraries && is_disc_system(system);
         Storage {
             format: own.and_then(|s| s.format).unwrap_or(default),
             delete_originals: own
                 .and_then(|s| s.delete_originals)
                 .unwrap_or(self.delete_originals),
+            layout: discs.then(|| own.and_then(|s| s.layout).unwrap_or(self.layout)),
+            sbi: discs && own.and_then(|s| s.sbi).unwrap_or(false),
         }
     }
 }
@@ -150,6 +217,12 @@ impl StoragePolicy {
 pub struct Storage {
     pub format: StorageFormat,
     pub delete_originals: bool,
+    /// How a disc system's Play Library lays out its discs; `None` for any other folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<DiscLayout>,
+    /// Whether a disc system's Play Library puts each disc's SBI file beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sbi: bool,
 }
 
 /// Whether `storage` is the default, TorrentZip with originals kept, which a plan leaves out of its JSON.
@@ -324,6 +397,172 @@ pub fn release_of(game: &str) -> String {
     crate::discs::disc(game).map_or_else(|| game.to_owned(), |d| d.release)
 }
 
+/// Why a disc of several files is stored as TorrentZip where the policy says loose folder in the ES-DE layout: no one
+/// `.cue` sheet names the disc for an emulator.
+pub const NOT_A_CUE_FOLDER: &str = "it has several files but not exactly one .cue sheet for an emulator to open, so \
+     it can't be stored as a loose folder, and it stays TorrentZip";
+
+/// How a Play Library stores one Game, as [`lay_out`] decides.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Laid {
+    /// TorrentZip, loose, or CHD: a loose folder's files are each loose.
+    pub format: StorageFormat,
+    /// Every file it is made of, relative to the folder: `<game>.zip`, the CHD, or one loose file per ROM, in ROM
+    /// order.
+    pub files: Vec<String>,
+    /// The file an emulator is pointed at, for a disc of a disc layout: its `.chd`, its one image, or its `.cue`.
+    pub entry: Option<String>,
+    /// Why it is stored as TorrentZip where the policy says otherwise.
+    pub note: Option<&'static str>,
+}
+
+impl Laid {
+    fn zip(game: &str, note: Option<&'static str>) -> Laid {
+        Laid {
+            format: StorageFormat::TorrentZip,
+            files: vec![format!("{game}.zip")],
+            entry: None,
+            note,
+        }
+    }
+}
+
+/// How a Play Library stores each of `games`, by name with its ROMs' names and sizes, under `storage`: the one
+/// decision of each Game's files and format. A disc system's layout ([`DiscLayout`]) places its discs stored loose or
+/// as CHD; a Multi-disc Game is a release with more than one disc among `games`. Every disc of a release is stored
+/// alike: once one can't be stored as the policy says, each stays TorrentZip.
+pub fn lay_out<'a>(
+    storage: Storage,
+    games: impl IntoIterator<Item = (&'a str, Vec<(&'a str, u64)>)>,
+) -> BTreeMap<String, Laid> {
+    let games: Vec<(&str, Vec<(&str, u64)>)> = games.into_iter().collect();
+    let chds = chd_targets(storage, games.iter().map(|(g, r)| (*g, r.clone())));
+    let mut discs: BTreeMap<String, usize> = BTreeMap::new();
+    for (game, _) in &games {
+        if let Some(disc) = crate::discs::disc(game) {
+            *discs.entry(disc.release).or_default() += 1;
+        }
+    }
+    let multidisc = |game: &str| {
+        crate::discs::disc(game).is_some_and(|d| discs.get(&d.release).is_some_and(|n| *n > 1))
+    };
+    let usable = |name: &str| is_plain_name(name) && invalid_name(name).is_none();
+    let ext = |name: &str| {
+        name.rsplit_once('.')
+            .map(|(_, e)| e.to_ascii_lowercase())
+            .unwrap_or_default()
+    };
+    let mut out: BTreeMap<String, Laid> = BTreeMap::new();
+    for (game, roms) in &games {
+        let names: Vec<&str> = roms.iter().map(|(n, _)| *n).collect();
+        let laid = match (storage.format, storage.layout) {
+            (StorageFormat::Chd, _) => match chds.get(*game) {
+                Some(Ok(_)) => {
+                    let target = format!("{game}.chd");
+                    Laid {
+                        format: StorageFormat::Chd,
+                        files: vec![target.clone()],
+                        entry: storage.layout.map(|_| target),
+                        note: None,
+                    }
+                }
+                Some(Err(note)) => Laid::zip(game, Some(note)),
+                None => Laid::zip(game, None),
+            },
+            (StorageFormat::LooseFolder, Some(layout)) if names.len() > 1 => {
+                let distinct: std::collections::BTreeSet<String> =
+                    names.iter().map(|r| crate::build::name_key(r)).collect();
+                let cues: Vec<&str> = names.iter().copied().filter(|n| ext(n) == "cue").collect();
+                if distinct.len() != names.len() || !names.iter().all(|n| usable(n)) {
+                    let reserved = names.iter().any(|r| is_reserved_name(r));
+                    Laid::zip(
+                        game,
+                        Some(match reserved {
+                            true => RESERVED_NAME_STAYS_ZIP,
+                            false => NOT_FOLDER_NAMES,
+                        }),
+                    )
+                } else if layout == DiscLayout::EsDe && cues.len() != 1 {
+                    Laid::zip(game, Some(NOT_A_CUE_FOLDER))
+                } else {
+                    let dir = match (layout, cues.as_slice()) {
+                        (DiscLayout::EsDe, [cue]) if !multidisc(game) => Some((*cue).to_owned()),
+                        _ => None,
+                    };
+                    let at = |name: &str| match &dir {
+                        Some(dir) => format!("{dir}/{name}"),
+                        None => name.to_owned(),
+                    };
+                    Laid {
+                        format: StorageFormat::Loose,
+                        files: names.iter().map(|n| at(n)).collect(),
+                        entry: match cues.as_slice() {
+                            [cue] => Some(at(cue)),
+                            _ => None,
+                        },
+                        note: None,
+                    }
+                }
+            }
+            (StorageFormat::Loose | StorageFormat::LooseFolder, layout) => {
+                match target_of(storage, game, &names) {
+                    (target, true, _) => Laid {
+                        format: StorageFormat::Loose,
+                        entry: layout.map(|_| target.clone()),
+                        files: vec![target],
+                        note: None,
+                    },
+                    (_, false, note) => Laid::zip(game, note),
+                }
+            }
+            (StorageFormat::TorrentZip, _) => Laid::zip(game, None),
+        };
+        out.insert((*game).to_owned(), laid);
+    }
+    // Every disc of a release alike: CHD already is, by [`chd_targets`].
+    if matches!(
+        storage.format,
+        StorageFormat::Loose | StorageFormat::LooseFolder
+    ) {
+        let refused: std::collections::BTreeSet<String> = out
+            .iter()
+            .filter(|(g, l)| l.note.is_some() && multidisc(g))
+            .map(|(g, _)| release_of(g))
+            .collect();
+        for (game, laid) in out.iter_mut() {
+            if laid.format != StorageFormat::TorrentZip && refused.contains(&release_of(game)) {
+                *laid = Laid::zip(game, Some(RELEASE_STAYS_ZIP));
+            }
+        }
+    }
+    if storage.layout == Some(DiscLayout::EsDe) {
+        for (game, laid) in out.iter_mut() {
+            if laid.format != StorageFormat::TorrentZip && multidisc(game) {
+                let within = |name: &String| format!("{MULTIDISC}/{name}");
+                laid.files = laid.files.iter().map(within).collect();
+                laid.entry = laid.entry.as_ref().map(within);
+            }
+        }
+    }
+    out
+}
+
+/// The `.m3u` a Multi-disc Game's release is listed by in the ES-DE layout, in the system folder.
+pub fn playlist_name(release: &str) -> String {
+    format!("{release}.m3u")
+}
+
+/// What an `.m3u` holds: each disc's entry file, relative to the system folder, one to a line, in disc order.
+pub fn playlist(entries: &[&str]) -> String {
+    entries.iter().map(|e| format!("{e}\n")).collect()
+}
+
+/// Where a disc's SBI file goes: beside its entry file `entry`, a `.cue` or a `.chd`, named for it.
+pub fn sbi_beside(entry: &str) -> Option<String> {
+    let (stem, ext) = entry.rsplit_once('.')?;
+    matches!(ext.to_ascii_lowercase().as_str(), "cue" | "chd").then(|| format!("{stem}.sbi"))
+}
+
 /// Where a Repair stores a Game in a Source Set's folder, relative to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Placement {
@@ -361,7 +600,7 @@ impl Placement {
 pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Option<&'static str>) {
     if storage.format == StorageFormat::LooseFolder {
         let distinct: std::collections::BTreeSet<String> =
-            roms.iter().map(|r| r.to_lowercase()).collect();
+            roms.iter().map(|r| crate::build::name_key(r)).collect();
         let usable = |name: &str| is_plain_name(name) && invalid_name(name).is_none();
         if !roms.is_empty()
             && usable(game)
@@ -404,6 +643,7 @@ mod tests {
             SystemStorage {
                 format: Some(StorageFormat::Loose),
                 delete_originals: None,
+                ..Default::default()
             },
         );
         let of = |system| scope.of(StorageScope::SourceSets, system);
@@ -422,6 +662,7 @@ mod tests {
         let loose = Storage {
             format: StorageFormat::Loose,
             delete_originals: false,
+            ..Default::default()
         };
         assert_eq!(
             target_of(loose, "Pong", &["pong.a26"]),
@@ -453,6 +694,7 @@ mod tests {
             SystemStorage {
                 format: Some(StorageFormat::TorrentZip),
                 delete_originals: None,
+                ..Default::default()
             },
         );
         assert_eq!(
@@ -466,6 +708,7 @@ mod tests {
         let folder = Storage {
             format: StorageFormat::LooseFolder,
             delete_originals: false,
+            ..Default::default()
         };
         let (placed, note) = placement(
             folder,
@@ -493,6 +736,7 @@ mod tests {
         let folder = Storage {
             format: StorageFormat::LooseFolder,
             delete_originals: false,
+            ..Default::default()
         };
         for (game, roms) in [
             (".deleting", &["a.bin", "b.bin"][..]),
@@ -549,6 +793,7 @@ mod tests {
         let chd = Storage {
             format: StorageFormat::Chd,
             delete_originals: false,
+            ..Default::default()
         };
         let good = |n: &'static str| vec![(n, 90), ("t.bin", CD_SECTOR)];
         let targets = chd_targets(
@@ -563,5 +808,217 @@ mod tests {
         assert_eq!(targets["Saga (USA) (Disc 2)"], Err(NOT_WHOLE_SECTORS));
         assert_eq!(targets["Solo (USA)"], Ok(ChdKind::Cd));
         assert!(chd_targets(Storage::default(), [("Solo (USA)", good("s.cue"))]).is_empty());
+    }
+
+    fn play(format: StorageFormat, layout: DiscLayout) -> Storage {
+        Storage {
+            format,
+            layout: Some(layout),
+            ..Storage::default()
+        }
+    }
+
+    /// A PlayStation-like DAT: a cue/bin single disc, a one-image single disc, and a cue/bin release on two discs.
+    fn psx() -> Vec<(&'static str, Vec<(&'static str, u64)>)> {
+        vec![
+            (
+                "Orbit (USA)",
+                vec![
+                    ("Orbit (USA).cue", 90),
+                    ("Orbit (USA) (Track 1).bin", CD_SECTOR * 4),
+                    ("Orbit (USA) (Track 2).bin", CD_SECTOR),
+                ],
+            ),
+            ("Atlas (USA)", vec![("Atlas (USA).iso", DVD_SECTOR * 4)]),
+            (
+                "Saga (USA) (Disc 1)",
+                vec![
+                    ("Saga (USA) (Disc 1).cue", 90),
+                    ("Saga (USA) (Disc 1).bin", CD_SECTOR * 2),
+                ],
+            ),
+            (
+                "Saga (USA) (Disc 2)",
+                vec![
+                    ("Saga (USA) (Disc 2).cue", 90),
+                    ("Saga (USA) (Disc 2).bin", CD_SECTOR * 2),
+                ],
+            ),
+        ]
+    }
+
+    fn files(
+        laid: &BTreeMap<String, Laid>,
+        game: &str,
+    ) -> (StorageFormat, Vec<String>, Option<String>) {
+        let l = &laid[game];
+        (l.format, l.files.clone(), l.entry.clone())
+    }
+
+    fn owned(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| (*n).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_es_de_layout_puts_a_cue_folder_in_a_folder_named_for_its_cue_and_every_disc_of_a_release_in_multidisc()
+     {
+        let laid = lay_out(play(StorageFormat::LooseFolder, DiscLayout::EsDe), psx());
+        assert_eq!(
+            files(&laid, "Orbit (USA)"),
+            (
+                StorageFormat::Loose,
+                owned(&[
+                    "Orbit (USA).cue/Orbit (USA).cue",
+                    "Orbit (USA).cue/Orbit (USA) (Track 1).bin",
+                    "Orbit (USA).cue/Orbit (USA) (Track 2).bin"
+                ]),
+                Some("Orbit (USA).cue/Orbit (USA).cue".into())
+            )
+        );
+        assert_eq!(
+            files(&laid, "Atlas (USA)"),
+            (
+                StorageFormat::Loose,
+                owned(&["Atlas (USA).iso"]),
+                Some("Atlas (USA).iso".into())
+            )
+        );
+        assert_eq!(
+            files(&laid, "Saga (USA) (Disc 2)"),
+            (
+                StorageFormat::Loose,
+                owned(&[
+                    ".multidisc/Saga (USA) (Disc 2).cue",
+                    ".multidisc/Saga (USA) (Disc 2).bin"
+                ]),
+                Some(".multidisc/Saga (USA) (Disc 2).cue".into())
+            )
+        );
+    }
+
+    #[test]
+    fn the_es_de_layout_puts_a_chd_in_the_system_folder_or_in_multidisc() {
+        let laid = lay_out(play(StorageFormat::Chd, DiscLayout::EsDe), psx());
+        assert_eq!(
+            files(&laid, "Orbit (USA)"),
+            (
+                StorageFormat::Chd,
+                owned(&["Orbit (USA).chd"]),
+                Some("Orbit (USA).chd".into())
+            )
+        );
+        assert_eq!(
+            files(&laid, "Saga (USA) (Disc 1)"),
+            (
+                StorageFormat::Chd,
+                owned(&[".multidisc/Saga (USA) (Disc 1).chd"]),
+                Some(".multidisc/Saga (USA) (Disc 1).chd".into())
+            )
+        );
+    }
+
+    #[test]
+    fn the_flat_layout_puts_every_file_in_the_system_folder() {
+        let laid = lay_out(play(StorageFormat::LooseFolder, DiscLayout::Flat), psx());
+        assert_eq!(
+            files(&laid, "Saga (USA) (Disc 1)").1,
+            owned(&["Saga (USA) (Disc 1).cue", "Saga (USA) (Disc 1).bin"])
+        );
+        let laid = lay_out(play(StorageFormat::Chd, DiscLayout::Flat), psx());
+        assert_eq!(
+            files(&laid, "Saga (USA) (Disc 1)").1,
+            owned(&["Saga (USA) (Disc 1).chd"])
+        );
+    }
+
+    #[test]
+    fn a_disc_of_several_files_without_one_cue_stays_zip_and_takes_its_release_with_it() {
+        let mut games = psx();
+        games[3].1 = vec![("Saga (USA) (Disc 2).gdi", 90), ("track01.raw", 4)];
+        let laid = lay_out(play(StorageFormat::LooseFolder, DiscLayout::EsDe), games);
+        let zip = |game: &str| (laid[game].format, laid[game].files.clone(), laid[game].note);
+        assert_eq!(
+            zip("Saga (USA) (Disc 2)"),
+            (
+                StorageFormat::TorrentZip,
+                owned(&["Saga (USA) (Disc 2).zip"]),
+                Some(NOT_A_CUE_FOLDER)
+            )
+        );
+        assert_eq!(
+            zip("Saga (USA) (Disc 1)"),
+            (
+                StorageFormat::TorrentZip,
+                owned(&["Saga (USA) (Disc 1).zip"]),
+                Some(RELEASE_STAYS_ZIP)
+            )
+        );
+    }
+
+    #[test]
+    fn loose_stores_only_a_single_file_disc_loose_and_a_release_alike() {
+        let laid = lay_out(play(StorageFormat::Loose, DiscLayout::EsDe), psx());
+        assert_eq!(laid["Atlas (USA)"].files, owned(&["Atlas (USA).iso"]));
+        assert_eq!(laid["Orbit (USA)"].note, Some(MULTI_ROM_STAYS_ZIP));
+        assert_eq!(
+            laid["Saga (USA) (Disc 1)"].format,
+            StorageFormat::TorrentZip
+        );
+    }
+
+    #[test]
+    fn without_a_disc_layout_a_loose_folder_stores_only_a_single_rom_game_loose() {
+        let storage = Storage {
+            format: StorageFormat::LooseFolder,
+            ..Storage::default()
+        };
+        let laid = lay_out(storage, psx());
+        assert_eq!(laid["Atlas (USA)"].files, owned(&["Atlas (USA).iso"]));
+        assert_eq!(laid["Atlas (USA)"].entry, None);
+        assert_eq!(laid["Orbit (USA)"].files, owned(&["Orbit (USA).zip"]));
+    }
+
+    #[test]
+    fn a_playlist_lists_each_entry_on_its_own_line() {
+        assert_eq!(
+            playlist(&[".multidisc/A (Disc 1).cue", ".multidisc/A (Disc 2).chd"]),
+            ".multidisc/A (Disc 1).cue\n.multidisc/A (Disc 2).chd\n"
+        );
+        assert_eq!(sbi_beside("X.cue/X.cue").as_deref(), Some("X.cue/X.sbi"));
+        assert_eq!(
+            sbi_beside(".multidisc/X.CHD").as_deref(),
+            Some(".multidisc/X.sbi")
+        );
+        assert_eq!(sbi_beside("X.iso"), None);
+    }
+
+    #[test]
+    fn only_a_disc_systems_play_libraries_have_a_disc_layout() {
+        let mut policy = StoragePolicy::default();
+        let psx = "Redump/Sony - PlayStation";
+        assert_eq!(
+            policy.of(StorageScope::PlayLibraries, psx).layout,
+            Some(DiscLayout::EsDe)
+        );
+        assert_eq!(policy.of(StorageScope::SourceSets, psx).layout, None);
+        assert_eq!(
+            policy
+                .of(StorageScope::PlayLibraries, "No-Intro/Atari")
+                .layout,
+            None
+        );
+        policy.play_libraries.systems.insert(
+            psx.into(),
+            SystemStorage {
+                layout: Some(DiscLayout::Flat),
+                sbi: Some(true),
+                ..SystemStorage::default()
+            },
+        );
+        let storage = policy.of(StorageScope::PlayLibraries, psx);
+        assert_eq!(
+            (storage.layout, storage.sbi),
+            (Some(DiscLayout::Flat), true)
+        );
     }
 }

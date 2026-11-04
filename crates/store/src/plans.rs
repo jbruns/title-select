@@ -10,14 +10,15 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{
     Approval, Blocker, BlockerKind, Cause, CheckSummary, CleanupAction, ExpectedRom, FileIdentity,
-    FileOutcome, FileStat, FolderCheck, ItemKind, KeepAside, KeepReason, Plan, PlanAddition,
-    PlanBuild, PlanChange, PlanChoices, PlanContent, PlanItem, PlanRemoval, PlanSource, RETENTION,
-    RemovalKind, STAGING, invalid_name,
+    FileOutcome, FileStat, FolderCheck, GeneratedFile, GeneratedKind, ItemKind, KeepAside,
+    KeepReason, Plan, PlanAddition, PlanBuild, PlanChange, PlanChoices, PlanContent, PlanItem,
+    PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING, invalid_name,
 };
 use title_select_api::report::{Entry, EvidenceLevel, Finding};
 use title_select_api::selection::{ReleaseRow, Role, Selection, SelectionProfile, diff_rows};
 use title_select_api::storage::{
-    ChdKind, Storage, StorageFormat, StorageScope, chd_targets, target_of as storage_target,
+    Laid, MULTIDISC, Storage, StorageFormat, StorageScope, lay_out, playlist, playlist_name,
+    release_of, sbi_beside,
 };
 use title_select_api::{DatRevisionRecord, Job, Workers};
 use title_select_engine::build::{Probe, holds_as, is_torrentzip};
@@ -31,7 +32,7 @@ use super::folders::{
     FolderRow, MARKER_NEW, folder_by_id, is_own, marker_problem, open_folder, store_id,
 };
 use super::jobs::{build_hold, job_by_id};
-use super::kept::{deletion_active, folder_dirs, is_dir_temp};
+use super::kept::{deletion_active, folder_dirs, is_dir_temp, name_key};
 use super::selections::{read_rows, read_selection, record_by_id};
 use super::sets::{resolve, set_by_id};
 use super::{Error, Result, Store, now};
@@ -202,6 +203,8 @@ struct Inputs {
     originals: HashSet<(String, String, Identity)>,
     /// The active Additions of the folder's system, when its Selection Profile opts in to them.
     additions: Vec<crate::additions::AdditionRow>,
+    /// The system's latest SBI pack, when the storage policy puts each disc's SBI file beside it.
+    sbi: Option<crate::sbi_packs::SbiPack>,
 }
 
 fn load(
@@ -352,6 +355,7 @@ fn load(
     Ok(Inputs {
         storage,
         additions,
+        sbi: None,
         unrecovered,
         choices: choices.clone(),
         selected,
@@ -405,9 +409,11 @@ struct Found {
     file: FileStat,
     identity: Identity,
     regular: bool,
+    directory: bool,
 }
 
-/// The entries in a Library Folder, other than its own, by lowercased name.
+/// The entries in a Library Folder, other than its own, by lowercased name; a disc layout folder's by its path in
+/// the folder, as `<folder>/<entry>`.
 type Files = HashMap<String, Found>;
 
 /// The folder as a plan found it.
@@ -456,6 +462,7 @@ fn check_folder(
     };
     let mut files = HashMap::new();
     let mut leftovers = Vec::new();
+    let mut names = Vec::new();
     for (name, _) in &listing {
         if is_own(name) {
             // A folder Title Select was creating that was never renamed into place is recorded, and left.
@@ -466,16 +473,29 @@ fn check_folder(
             }
             continue;
         }
+        names.push(name.clone());
+    }
+    // A disc layout folder is listed itself as well as by what it holds, so that the plan knows whether a build
+    // made it.
+    let layout_dirs: Vec<String> = names
+        .iter()
+        .filter(|n| crate::checks::is_layout_dir(n))
+        .cloned()
+        .collect();
+    let mut entries = crate::checks::deepen(&dir, names);
+    entries.sort();
+    for name in entries.iter().chain(&layout_dirs) {
         let Ok(Some(st)) = dir.stat(name) else {
             continue;
         };
         files.insert(
-            name.to_lowercase(),
+            name_key(name),
             Found {
                 name: name.clone(),
                 file: file_stat(&st),
                 identity: Identity::of(&st),
                 regular: FolderDir::kind(&st) == rustix::fs::FileType::RegularFile,
+                directory: FolderDir::kind(&st) == rustix::fs::FileType::Directory,
             },
         );
     }
@@ -493,27 +513,19 @@ fn check_folder(
             blockers.push(blocker(BlockerKind::Marker, problem.clone()));
             None
         }
-        None => {
-            let mut entries: Vec<String> = listing
-                .into_iter()
-                .map(|(name, _)| name)
-                .filter(|name| !is_own(name))
-                .collect();
-            entries.sort();
-            Some(scan(
-                &dir,
-                &entries,
-                &ScanInput {
-                    built: &inputs.built,
-                    selected: &inputs.selected,
-                    dat,
-                    storage: inputs.storage,
-                    cached: &inputs.cached,
-                    acks: &inputs.acks,
-                },
-                None,
-            ))
-        }
+        None => Some(scan(
+            &dir,
+            &entries,
+            &ScanInput {
+                built: &inputs.built,
+                selected: &inputs.selected,
+                dat,
+                storage: inputs.storage,
+                cached: &inputs.cached,
+                acks: &inputs.acks,
+            },
+            None,
+        )),
     };
     Some(Folder {
         files,
@@ -616,12 +628,16 @@ fn removals(
         return Vec::new();
     };
     let targets: HashSet<&str> = items.iter().map(|i| i.target.as_str()).collect();
-    let lowered: HashSet<String> = items.iter().map(|i| i.target.to_lowercase()).collect();
+    let lowered: HashSet<String> = items.iter().map(|i| name_key(&i.target)).collect();
     // Files a selected game's item converts, kept aside by that item once its new file is written.
     let converted: HashSet<&str> = items
         .iter()
         .filter_map(|i| i.converts.as_ref().map(|k| k.name.as_str()))
         .collect();
+    // The game's files in a disc layout the storage policy no longer says: where a format or a layout moved them.
+    let moved = |built: &Built, target: &str, item: &PlanItem| {
+        !built.stored_as(item) || target.contains('/') || item.target.contains('/')
+    };
     let mut out = Vec::new();
     for (target, built) in &inputs.built {
         if targets.contains(target.as_str())
@@ -630,7 +646,14 @@ fn removals(
         {
             continue;
         }
-        if let Some(item) = items.iter().find(|i| i.game == built.game) {
+        // A file generated beside its discs that the plan no longer writes, an SBI file or an `.m3u`, is no longer
+        // needed, whether or not its games are still selected.
+        let generated = built.roms.is_empty();
+        if let Some(item) = items
+            .iter()
+            .find(|i| i.game == built.game)
+            .filter(|_| !generated)
+        {
             let outcome = scan
                 .files
                 .iter()
@@ -647,7 +670,7 @@ fn removals(
                 keep: None,
                 converts_to: None,
             };
-            let intact = folder.files.get(&target.to_lowercase()).filter(|f| {
+            let intact = folder.files.get(&name_key(target)).filter(|f| {
                 f.regular
                     && f.name == *target
                     && matches!(
@@ -690,7 +713,8 @@ fn removals(
                 ));
                 removal.converts_to = Some(item.target.clone());
             } else if let Some(found) = intact.filter(|_| {
-                !built.stored_as(item) && (item.kind == ItemKind::Unchanged || item.kind.writes())
+                moved(built, target, item)
+                    && (item.kind == ItemKind::Unchanged || item.kind.writes())
             }) {
                 // Another file for the game, not a conversion of this one: it is replaced, and only ever kept.
                 removal.kind = RemovalKind::Keep;
@@ -708,7 +732,7 @@ fn removals(
             out.push(removal);
             continue;
         }
-        let lower = target.to_lowercase();
+        let lower = name_key(target);
         let checked = scan.files.iter().find(|f| f.target == *target);
         let found = folder.files.get(&lower);
         let mut removal = PlanRemoval {
@@ -720,16 +744,31 @@ fn removals(
             converts_to: None,
         };
         let outcome = checked.map(|c| c.outcome);
-        if lowered.contains(&lower) {
+        let gone = match generated {
+            true => format!("{target} is no longer needed"),
+            false => format!("{} is no longer selected", built.game),
+        };
+        // A generated file of a release the plan writes goes with the release's unit, so only once all of it can
+        // be written. A release written as it was, or no longer selected, needs it no more.
+        let release = release_of(&built.game);
+        let of_release: Vec<&PlanItem> = items
+            .iter()
+            .filter(|i| generated && i.addition.is_none() && release_of(&i.game) == release)
+            .collect();
+        let held = of_release.iter().find(|i| !builds(i.kind));
+        let replaced = of_release.iter().any(|i| i.kind != ItemKind::Unchanged);
+        if lowered.contains(&name_key(target)) {
             removal.reason = format!(
                 "{target} differs from a selected game's file only in case; it is left as it is"
             );
+        } else if let Some(item) = held {
+            removal.reason = format!(
+                "{target} stays until {} can be written as the storage policy says",
+                item.target
+            );
         } else if outcome == Some(FileOutcome::Missing) {
             removal.kind = RemovalKind::Forget;
-            removal.reason = format!(
-                "{} is no longer selected, and {target} is gone already; its record is dropped",
-                built.game
-            );
+            removal.reason = format!("{gone}, and {target} is gone already; its record is dropped");
         } else if let Some(found) = found.filter(|f| {
             f.regular
                 && f.name == *target
@@ -739,20 +778,21 @@ fn removals(
                 )
         }) {
             removal.kind = RemovalKind::Keep;
-            removal.reason = format!(
-                "{} is no longer selected; {target} is kept aside in the folder's retention area",
-                built.game
-            );
+            removal.reason =
+                format!("{gone}; {target} is kept aside in the folder's retention area");
             removal.keep = Some(keep_of(
-                KeepReason::Removal,
+                if replaced {
+                    KeepReason::Replacement
+                } else {
+                    KeepReason::Removal
+                },
                 found,
                 Some(scan),
                 built.sha256.as_ref(),
             ));
         } else {
             removal.reason = format!(
-                "{} is no longer selected, but {target} changed since it was built{}; it is left as it is",
-                built.game,
+                "{gone}, but {target} changed since it was built{}; it is left as it is",
                 checked
                     .and_then(|c| c.detail.as_deref())
                     .map(|d| format!(" ({d})"))
@@ -987,13 +1027,14 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
                 .chain(group.alternatives.iter().map(|a| &a.title))
                 .chain(group.exclusions.iter().map(|e| &e.title));
             let titles: HashSet<&String> = titles.collect();
+            let releases: HashSet<String> = titles.iter().map(|t| release_of(t)).collect();
             untouched.extend(titles.iter().map(|t| format!("{t}.zip")));
             // A file built for one of them in either format, under its own name.
             untouched.extend(
                 inputs
                     .built
                     .iter()
-                    .filter(|(_, b)| titles.contains(&b.game))
+                    .filter(|(_, b)| titles.contains(&b.game) || releases.contains(&b.game))
                     .map(|(target, _)| target.clone()),
             );
         } else {
@@ -1070,6 +1111,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             cleanup: None,
             storage: inputs.storage,
             notes,
+            sbi_pack: inputs.sbi.as_ref().map(|p| p.sha256.clone()),
         },
         previous,
         changes,
@@ -1146,64 +1188,140 @@ fn plan_items(
             }
         }
     }
-    let chds = chd_targets_of(inputs.storage, dat);
-    // Where the storage policy stores each game, whether loose, and whether as a CHD.
-    let target_of = |game: &str| -> (String, bool, bool) {
-        if let Some(Ok(_)) = chds.get(game) {
-            return (format!("{game}.chd"), false, true);
+    let laid = laid_out(inputs.storage, dat);
+    // Each file the storage policy stores a game as: its target, whether loose, whether a CHD, and which of the
+    // game's ROMs it holds, when it holds one of several.
+    let files_of = |game: &str| -> Vec<(String, bool, bool, Option<usize>)> {
+        match laid.get(game) {
+            Some(l) if l.files.len() > 1 => l
+                .files
+                .iter()
+                .enumerate()
+                .map(|(i, f)| (f.clone(), true, false, Some(i)))
+                .collect(),
+            Some(l) => vec![(
+                l.files[0].clone(),
+                l.format == StorageFormat::Loose,
+                l.format == StorageFormat::Chd,
+                None,
+            )],
+            None => vec![(format!("{game}.zip"), false, false, None)],
         }
-        let names: Vec<&str> = games
-            .get(game)
-            .map(|&i| roms_of[i].iter().map(|r| r.name.as_str()).collect())
-            .unwrap_or_default();
-        let (target, loose, _) = storage_target(inputs.storage, game, &names);
-        (target, loose, false)
     };
+    // Each selected Multi-disc Game's release, listed by its `.m3u`, with its discs in disc order; and each disc's
+    // SBI file, where the system opts in.
+    let mut playlists: BTreeMap<String, Vec<(u32, &str)>> = BTreeMap::new();
+    let mut sbis: Vec<(&str, &str, String, &crate::sbi_packs::SbiMember)> = Vec::new();
+    for (group, title) in &winners {
+        let Some(entry) = laid.get(*title).and_then(|l| l.entry.as_ref()) else {
+            continue;
+        };
+        if entry.starts_with(&format!("{MULTIDISC}/"))
+            && let Some(disc) = title_select_api::discs::disc(title)
+        {
+            playlists
+                .entry(release_of(title))
+                .or_default()
+                .push((disc.number, title));
+        }
+        if let (Some(pack), Some(target)) = (&inputs.sbi, sbi_beside(entry)) {
+            let stem = entry
+                .rsplit('/')
+                .next()
+                .and_then(|leaf| leaf.rsplit_once('.'))
+                .map(|(stem, _)| stem.to_lowercase())
+                .unwrap_or_default();
+            if let Some(member) = pack.members.get(&stem) {
+                sbis.push((group, title, target, member));
+            }
+        }
+    }
+    for discs in playlists.values_mut() {
+        discs.sort();
+    }
+    // Every file and every disc layout folder the plan lays out, by the key names collide by on a share.
     let mut lowered: HashMap<String, usize> = HashMap::new();
+    let mut folders: HashMap<String, String> = HashMap::new();
+    let mut reserve = |target: &str| {
+        *lowered.entry(name_key(target)).or_default() += 1;
+        if let Some((dir, _)) = target.rsplit_once('/') {
+            folders.insert(name_key(dir), dir.to_owned());
+        }
+    };
     for (_, title) in &winners {
-        *lowered
-            .entry(target_of(title).0.to_lowercase())
-            .or_default() += 1;
+        for (target, ..) in files_of(title) {
+            reserve(&target);
+        }
+    }
+    for release in playlists.keys() {
+        reserve(&playlist_name(release));
+    }
+    for (_, _, target, _) in &sbis {
+        reserve(target);
     }
     // An Addition is built under its own name, after every selected Game: one whose file name a Game's
     // differs from only in case is blocked, never the Game.
     let mut added: HashMap<String, usize> = HashMap::new();
     for a in &inputs.additions {
         *added
-            .entry(
-                crate::additions::built_target(inputs.storage, &a.addition)
-                    .0
-                    .to_lowercase(),
-            )
+            .entry(name_key(
+                &crate::additions::built_target(inputs.storage, &a.addition).0,
+            ))
             .or_default() += 1;
     }
     let wanted = winners
-        .into_iter()
-        .map(|(group, game)| (group, game, None))
-        .chain(
-            inputs
-                .additions
-                .iter()
-                .map(|a| (a.addition.name.as_str(), a.addition.name.as_str(), Some(a))),
-        );
+        .iter()
+        .flat_map(|&(group, game)| {
+            files_of(game)
+                .into_iter()
+                .map(move |file| (group, game, None, Some(file)))
+        })
+        .chain(inputs.additions.iter().map(|a| {
+            (
+                a.addition.name.as_str(),
+                a.addition.name.as_str(),
+                Some(a),
+                None,
+            )
+        }))
+        .collect::<Vec<_>>();
     let mut sources = Sources::new(config, inputs);
     let mut items = Vec::new();
-    for (group, game, addition) in wanted {
-        let (target, loose, chd) = match addition {
-            Some(a) => {
+    // The additions come after every selected game, one item each: they are set apart below, whatever became of
+    // them, so that an addition only ever blocks itself.
+    let officials = wanted.iter().filter(|w| w.2.is_none()).count();
+    let wanted_len = wanted.len();
+    for (group, game, addition, file) in wanted {
+        let (target, loose, chd, part) = match (addition, file) {
+            (Some(a), _) => {
                 let (target, loose) = crate::additions::built_target(inputs.storage, &a.addition);
-                (target, loose, false)
+                (target, loose, false, None)
             }
-            None => target_of(game),
+            (None, Some(file)) => file,
+            (None, None) => unreachable!("every selected game has its files"),
         };
-        let roms = match addition {
+        let roms: Vec<ExpectedRom> = match addition {
             Some(a) => a.addition.rom.iter().cloned().collect(),
-            None => games
-                .get(game)
-                .map(|&i| roms_of[i].clone())
-                .unwrap_or_default(),
+            None => {
+                let all = games
+                    .get(game)
+                    .map(|&i| roms_of[i].clone())
+                    .unwrap_or_default();
+                match part {
+                    Some(i) => all.into_iter().skip(i).take(1).collect(),
+                    None => all,
+                }
+            }
         };
-        let existing = files.and_then(|f| f.get(&target.to_lowercase()));
+        // A disc layout folder at the target holds the release's files in its other layout: they are kept aside
+        // before the target is written, and the folder goes with them.
+        let existing = files
+            .and_then(|f| f.get(&name_key(&target)))
+            .filter(|found| {
+                let inside = format!("{}/", name_key(&target));
+                !(found.directory
+                    && files.is_some_and(|f| f.keys().any(|k| k.starts_with(&inside))))
+            });
         let mut item = PlanItem {
             group: group.to_owned(),
             game: game.to_owned(),
@@ -1220,6 +1338,7 @@ fn plan_items(
             keep: None,
             converts: None,
             addition: None,
+            generated: None,
         };
         if addition.is_none() && unresolved.contains(group) {
             item.kind = ItemKind::Unresolved;
@@ -1234,13 +1353,13 @@ fn plan_items(
             let mut names = BTreeSet::new();
             item.roms
                 .iter()
-                .find(|r| !names.insert(r.name.as_str()))
+                .find(|r| !names.insert(name_key(&r.name)))
                 .map(|r| r.name.clone())
         };
         let built = inputs.built.get(&target);
         let blocked = if let Some(a) = addition {
-            let lower = target.to_lowercase();
-            if lowered.contains_key(&lower) {
+            let lower = name_key(&target);
+            if lowered.contains_key(&lower) || folders.contains_key(&lower) {
                 Some(format!(
                     "a selected game's file is {target}, or differs from it only in case; rename the addition"
                 ))
@@ -1256,7 +1375,11 @@ fn plan_items(
             }
         } else if !games.contains_key(game) {
             Some(format!("the DAT revision lists no game named {game}"))
-        } else if let Some(reason) = invalid_name(&target) {
+        } else if let Some(reason) = invalid_game(game) {
+            Some(reason)
+        } else if let Some(reason) = invalid_path(&target) {
+            Some(reason)
+        } else if let Some(reason) = in_the_way(inputs, files, scan, &target, game) {
             Some(reason)
         } else if let Some(reason) = item
             .roms
@@ -1264,11 +1387,8 @@ fn plan_items(
             .find_map(|r| invalid_name(&r.name).map(|why| format!("a ROM's name: {why}")))
         {
             Some(reason)
-        } else if lowered[&target.to_lowercase()] > 1 {
-            Some(format!(
-                "another selected game's file differs from {target} only in case, which Windows and SMB cannot tell \
-                 apart"
-            ))
+        } else if let Some(reason) = clash(&lowered, &folders, &target) {
+            Some(reason)
         } else {
             duplicate.map(|name| format!("the DAT lists two ROMs named {name} in it"))
         };
@@ -1442,7 +1562,401 @@ fn plan_items(
         }
         items.push(item);
     }
+    debug_assert_eq!(items.len(), wanted_len, "one item for each file wanted");
+    let additions = items.split_off(officials);
+    let parts_of = |items: &[PlanItem], games: &[&str]| -> Vec<(ItemKind, String)> {
+        items
+            .iter()
+            .filter(|i| games.contains(&i.game.as_str()))
+            .map(|i| (i.kind, i.group.clone()))
+            .collect()
+    };
+    let mut generated = Vec::new();
+    for (release, discs) in &playlists {
+        let entries: Vec<&str> = discs
+            .iter()
+            .filter_map(|(_, t)| laid[*t].entry.as_deref())
+            .collect();
+        let text = playlist(&entries);
+        let games: Vec<&str> = discs.iter().map(|(_, t)| *t).collect();
+        let file = GeneratedFile {
+            kind: GeneratedKind::M3u,
+            sha256: sha256_hex(text.as_bytes()),
+            size: text.len() as u64,
+            text: Some(text),
+            pack: None,
+            member: None,
+        };
+        let group = winners
+            .iter()
+            .find(|(_, t)| *t == games[0])
+            .map_or(release.as_str(), |(g, _)| *g);
+        let parts = parts_of(&items, &games);
+        generated.push((
+            games,
+            generate(
+                &GeneratedAt {
+                    inputs,
+                    files,
+                    scan,
+                    lowered: &lowered,
+                    folders: &folders,
+                    unresolved,
+                },
+                group,
+                release,
+                playlist_name(release),
+                file,
+                &parts,
+            ),
+        ));
+    }
+    for (group, game, target, member) in sbis {
+        let file = GeneratedFile {
+            kind: GeneratedKind::Sbi,
+            sha256: member.sha256.clone(),
+            size: member.size,
+            text: None,
+            pack: inputs.sbi.as_ref().map(|p| p.sha256.clone()),
+            member: Some(member.name.clone()),
+        };
+        let parts = parts_of(&items, &[game]);
+        generated.push((
+            vec![game],
+            generate(
+                &GeneratedAt {
+                    inputs,
+                    files,
+                    scan,
+                    lowered: &lowered,
+                    folders: &folders,
+                    unresolved,
+                },
+                group,
+                game,
+                target,
+                file,
+                &parts,
+            ),
+        ));
+    }
+    // Each generated file follows the last file of its games, so that it is written with them.
+    for (games, item) in generated {
+        let at = items
+            .iter()
+            .rposition(|i| games.contains(&i.game.as_str()))
+            .map_or(items.len(), |i| i + 1);
+        let at = items[at..]
+            .iter()
+            .position(|i| i.generated.is_none())
+            .map_or(items.len(), |n| at + n);
+        items.insert(at, item);
+    }
+    whole_releases(&mut items);
+    items.extend(additions);
     items
+}
+
+/// Whether an item of `kind` is in place once its unit commits.
+fn builds(kind: ItemKind) -> bool {
+    matches!(
+        kind,
+        ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged | ItemKind::Adopt
+    )
+}
+
+/// A release goes in place whole or not at all: every disc, every track, its `.m3u` and its SBI files. Once one of
+/// them can't be built, or is left as it is, nothing else of the release is written, and each says which one.
+fn whole_releases(items: &mut [PlanItem]) {
+    let mut stopped: HashMap<String, String> = HashMap::new();
+    for item in items.iter().filter(|i| !builds(i.kind)) {
+        stopped
+            .entry(release_of(&item.game))
+            .or_insert_with(|| match &item.reason {
+                Some(why) => format!("{} can't be built: {why}", item.target),
+                None => format!("{} can't be built", item.target),
+            });
+    }
+    for item in items
+        .iter_mut()
+        .filter(|i| i.kind != ItemKind::Unchanged && builds(i.kind))
+    {
+        if let Some(why) = stopped.get(&release_of(&item.game)) {
+            item.kind = ItemKind::Blocked;
+            item.reason = Some(format!(
+                "{} goes in place only with every file of its release, and {why}",
+                item.target
+            ));
+            item.keep = None;
+            item.converts = None;
+        }
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Why `game`, a name from the DAT, can't name what a play library lays out for it: it must be one name, not one
+/// Title Select keeps its own work under, as every file and folder the layout makes from it is.
+fn invalid_game(game: &str) -> Option<String> {
+    invalid_name(game)
+        .or_else(|| {
+            title_select_api::storage::is_reserved_name(game)
+                .then(|| format!("{game} is a name Title Select keeps its own work under"))
+        })
+        .map(|why| format!("the game's name: {why}"))
+}
+
+/// Why `target`, a path in the folder, cannot be written: why one of its names cannot, or why it is in a folder no
+/// disc layout makes. A disc layout makes only `.multidisc/` and `<game>.cue/`, one level deep.
+fn invalid_path(target: &str) -> Option<String> {
+    let reserved = |name: &str| {
+        title_select_api::storage::is_reserved_name(name)
+            .then(|| format!("{name} is a name Title Select keeps its own work under"))
+    };
+    if let Some(why) = target
+        .split('/')
+        .find_map(|name| invalid_name(name).or_else(|| reserved(name)))
+    {
+        return Some(why);
+    }
+    match target.split('/').collect::<Vec<_>>().as_slice() {
+        [_] => None,
+        [dir, _] if *dir == MULTIDISC || dir.to_ascii_lowercase().ends_with(".cue") => None,
+        _ => Some(format!("{target} is in a folder no disc layout makes")),
+    }
+}
+
+/// Why `target` clashes with another file or folder the plan lays out, as a share that ignores case and Unicode
+/// normalization sees them: two files at one name, or a file where a disc layout folder would be.
+fn clash(
+    lowered: &HashMap<String, usize>,
+    folders: &HashMap<String, String>,
+    target: &str,
+) -> Option<String> {
+    let key = name_key(target);
+    if lowered.get(&key).is_some_and(|n| *n > 1) {
+        return Some(format!(
+            "another selected game's file differs from {target} only in case or Unicode form, which Windows and SMB \
+             cannot tell apart"
+        ));
+    }
+    if let Some(dir) = folders.get(&key) {
+        return Some(format!(
+            "the folder {dir} holds another selected game's files where this file would be"
+        ));
+    }
+    let (dir, _) = target.rsplit_once('/')?;
+    lowered
+        .contains_key(&name_key(dir))
+        .then(|| format!("another selected game's file is where the folder {dir} would be"))
+}
+
+/// Why something in the folder is in the way of `target`, a file of `game`: a file where its disc layout folder
+/// would be, or a disc layout folder holding files where it would be. A file of `game`'s own release, still as a
+/// Build wrote it, is not: the release's other layout moved it, and it is kept aside as its unit goes in place.
+fn in_the_way(
+    inputs: &Inputs,
+    files: Option<&Files>,
+    scan: Option<&Scan>,
+    target: &str,
+    game: &str,
+) -> Option<String> {
+    let files = files?;
+    let release = title_select_api::storage::release_of(game);
+    // A file the release's unit keeps aside before it puts its own files in place.
+    let ours = |found: &Found| {
+        found.regular
+            && inputs
+                .built
+                .get(&found.name)
+                .is_some_and(|b| title_select_api::storage::release_of(&b.game) == release)
+            && scan.is_some_and(|s| {
+                s.files.iter().any(|f| {
+                    f.target == found.name
+                        && matches!(
+                            f.outcome,
+                            FileOutcome::Unchanged | FileOutcome::Refreshed | FileOutcome::Repacked
+                        )
+                })
+            })
+    };
+    if let Some((dir, _)) = target.split_once('/') {
+        let found = files.get(&name_key(dir))?;
+        if (found.directory && found.name == dir) || ours(found) {
+            return None;
+        }
+        return Some(format!(
+            "{} is in the folder where the folder {dir} would be; move it out of the folder to build here",
+            found.name
+        ));
+    }
+    // A folder where the file goes is cleared only if a build made it: it is one the build can remove once empty.
+    if let Some(found) = files.get(&name_key(target))
+        && found.directory
+        && inputs.dirs.get(&found.name) != Some(&found.identity)
+    {
+        return Some(format!(
+            "the folder {} is one you made, not one a build made, so it stays and this file can't go there; move \
+             it out of the play library to build here",
+            found.name
+        ));
+    }
+    let inside = format!("{}/", name_key(target));
+    let held: Vec<&Found> = files
+        .iter()
+        .filter(|(name, _)| name.starts_with(&inside))
+        .map(|(_, found)| found)
+        .collect();
+    if held.is_empty() {
+        return None;
+    }
+    held.iter()
+        .find(|found| !found.directory && !ours(found))
+        .or_else(|| held.iter().find(|found| found.directory))
+        .map(|found| {
+            format!(
+                "the folder {target} holds {}, which is not this game's file as a build wrote it, where this file \
+                 would be; move it out of the folder to build here",
+                found.name
+            )
+        })
+}
+
+/// Whether the build keeps `removal`, a file a Build wrote, aside before it puts `target` in place: it is at, or
+/// in a folder at, a path `target` needs.
+pub(crate) fn clears(removal: &str, target: &str) -> bool {
+    let (removal, target) = (name_key(removal), name_key(target));
+    removal.starts_with(&format!("{target}/"))
+        || target
+            .split_once('/')
+            .is_some_and(|(dir, _)| removal == dir)
+}
+
+/// What a generated file is planned beside.
+struct GeneratedAt<'a> {
+    inputs: &'a Inputs,
+    files: Option<&'a Files>,
+    scan: Option<&'a Scan>,
+    lowered: &'a HashMap<String, usize>,
+    folders: &'a HashMap<String, String>,
+    unresolved: &'a BTreeSet<&'a str>,
+}
+
+/// The item that writes `file`, generated for `game` at `target`, given its `parts`: the kind and group of each
+/// item of the games it belongs with. It is written only when all of them can be.
+fn generate(
+    at: &GeneratedAt,
+    group: &str,
+    game: &str,
+    target: String,
+    file: GeneratedFile,
+    parts: &[(ItemKind, String)],
+) -> PlanItem {
+    let existing = at.files.and_then(|f| f.get(&name_key(&target)));
+    let mut item = PlanItem {
+        group: group.to_owned(),
+        game: game.to_owned(),
+        target: target.clone(),
+        kind: ItemKind::Blocked,
+        loose: true,
+        chd: false,
+        roms: Vec::new(),
+        sources: Vec::new(),
+        reason: None,
+        existing: existing.map(|found| found.file.clone()),
+        adoptable: false,
+        keepable: false,
+        keep: None,
+        converts: None,
+        addition: None,
+        generated: Some(file),
+    };
+    let what = match item.generated.as_ref().map(|g| g.kind) {
+        Some(GeneratedKind::Sbi) => "its disc",
+        _ => "every disc it lists",
+    };
+    if parts.iter().any(|(kind, group)| {
+        *kind == ItemKind::Unresolved || at.unresolved.contains(group.as_str())
+    }) {
+        item.kind = ItemKind::Unresolved;
+        item.reason = Some(format!(
+            "the group {group} is unresolved, and you build the resolved groups only; whatever is at {target} is \
+             left untouched"
+        ));
+        return item;
+    }
+    let blocked = if let Some(reason) = invalid_game(game) {
+        Some(reason)
+    } else if let Some(reason) = invalid_path(&target) {
+        Some(reason)
+    } else if let Some(reason) = in_the_way(at.inputs, at.files, at.scan, &target, game) {
+        Some(reason)
+    } else if let Some(reason) = clash(at.lowered, at.folders, &target) {
+        Some(reason)
+    } else if parts.is_empty()
+        || parts.iter().any(|(kind, _)| {
+            !matches!(
+                kind,
+                ItemKind::Copy | ItemKind::Repack | ItemKind::Unchanged | ItemKind::Adopt
+            )
+        })
+    {
+        Some(format!(
+            "it is written only with {what}, and not all of them can be built"
+        ))
+    } else {
+        None
+    };
+    if let Some(reason) = blocked {
+        item.reason = Some(reason);
+        return item;
+    }
+    let sha256 = item.generated.as_ref().map(|g| g.sha256.clone());
+    let keep_chosen = at.inputs.choices.keep_aside.contains(&target);
+    if let Some(built) = at.inputs.built.get(&target) {
+        let intact = at.scan.is_some_and(|s| {
+            s.files.iter().any(|c| {
+                c.target == target
+                    && matches!(c.outcome, FileOutcome::Unchanged | FileOutcome::Refreshed)
+            })
+        });
+        match existing {
+            Some(found) if found.name == target && intact => {
+                if built.sha256 == sha256 && built.game == item.game && built.stored_as(&item) {
+                    item.kind = ItemKind::Unchanged;
+                    return item;
+                }
+                item.keep = Some(keep_of(
+                    KeepReason::Replacement,
+                    found,
+                    at.scan,
+                    built.sha256.as_ref(),
+                ));
+            }
+            Some(found) => {
+                let changed = format!("{target} changed since it was built");
+                if !conflict(&mut item, found, keep_chosen, at.scan, &changed) {
+                    return item;
+                }
+            }
+            None => {}
+        }
+    } else if let Some(found) = existing {
+        let why = format!(
+            "{} is in the folder and was not built by Title Select",
+            found.name
+        );
+        if !conflict(&mut item, found, keep_chosen, at.scan, &why) {
+            return item;
+        }
+    }
+    item.kind = ItemKind::Repack;
+    item
 }
 
 /// The file built for `item`'s game in the other format, under its other name, that writing `item` converts: only
@@ -1460,7 +1974,7 @@ fn converts(
             && same_roms(&b.roms, &item.roms)
     })?;
     let found = files?
-        .get(&target.to_lowercase())
+        .get(&name_key(target))
         .filter(|f| f.regular && f.name == *target)?;
     let intact = scan?.files.iter().any(|c| {
         c.target == *target
@@ -1472,36 +1986,29 @@ fn converts(
     intact.then(|| keep_of(KeepReason::Replacement, found, scan, built.sha256.as_ref()))
 }
 
-/// The games of `dat` the storage policy stores as CHD, with their kind, or why each stays TorrentZip: none unless it
-/// says CHD.
-pub(crate) fn chd_targets_of(
-    storage: Storage,
-    dat: &Dat,
-) -> BTreeMap<String, std::result::Result<ChdKind, &'static str>> {
-    if storage.format != StorageFormat::Chd {
-        return BTreeMap::new();
-    }
+/// How the storage policy stores each game of `dat`, as [`lay_out`] decides.
+pub(crate) fn laid_out(storage: Storage, dat: &Dat) -> BTreeMap<String, Laid> {
     let mut roms: Vec<Vec<(&str, u64)>> = vec![Vec::new(); dat.games.len()];
     for rom in &dat.roms {
         roms[rom.game].push((&rom.name, rom.size));
     }
-    chd_targets(storage, dat.games.iter().map(String::as_str).zip(roms))
+    lay_out(storage, dat.games.iter().map(String::as_str).zip(roms))
 }
 
 /// Why games the storage policy would store loose or as CHD stay TorrentZip, with how many each reason covers.
 fn storage_notes(storage: Storage, dat: Option<&Dat>, items: &[PlanItem]) -> Vec<String> {
-    let chds = dat.map(|d| chd_targets_of(storage, d)).unwrap_or_default();
+    let laid = dat.map(|d| laid_out(storage, d)).unwrap_or_default();
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
     for item in items
         .iter()
         .filter(|i| !i.loose && !i.chd && !i.roms.is_empty())
     {
-        let why = match storage.format {
-            StorageFormat::Chd => chds.get(&item.game).and_then(|c| c.err()),
-            _ => {
+        let why = match &item.addition {
+            Some(_) => {
                 let names: Vec<&str> = item.roms.iter().map(|r| r.name.as_str()).collect();
-                storage_target(storage, &item.game, &names).2
+                title_select_api::storage::target_of(storage, &item.game, &names).2
             }
+            None => laid.get(&item.game).and_then(|l| l.note),
         };
         if let Some(why) = why {
             *counts.entry(why).or_default() += 1;
@@ -1673,10 +2180,13 @@ impl Store {
         selection: i64,
         choices: &PlanChoices,
     ) -> Result<Planned> {
-        let inputs = self.read(|c| {
+        let mut inputs = self.read(|c| {
             let tx = c.unchecked_transaction()?;
             load(&tx, folder, selection, choices)
         })?;
+        if inputs.storage.sbi {
+            inputs.sbi = self.latest_sbi_pack(&inputs.folder.system)?;
+        }
         let dat = if inputs.revision.blob_present {
             let blob = self.blob_path(&inputs.revision.sha256);
             Some(Dat::read(&blob)?)

@@ -5114,6 +5114,7 @@ fn set_play_policy(env: &Env, default: StorageFormat, own: Option<StorageFormat>
             SystemStorage {
                 format: Some(format),
                 delete_originals: None,
+                ..Default::default()
             },
         );
     }
