@@ -573,8 +573,8 @@ disc, set by `timeout_seconds` and `timeout_seconds_per_gib` under `[chd]`; one 
 disc fails. The discs of one game are put in place together: every disc is made and checked first, and if one fails,
 or you cancel, none is, and the game stays as it was. Once the first is in place, the rest follow, even if you cancel
 or the service stops. When the new CHDs replace a game's earlier files, an earlier file is deleted, if you chose
-that, only while its CHD is still the file that was checked, with the same size and modification time; otherwise it
-stays in your kept files. A CHD not written by a build, or put back from kept files, isn't adopted: the next plan keeps it aside and
+that, only while its CHD is still the file that was checked: the same size and modification time, and, read whole
+again just before, the same SHA-256. Otherwise it stays in your kept files. A CHD not written by a build, or put back from kept files, isn't adopted: the next plan keeps it aside and
 builds the disc again.
 
 A game's ROMs are never split between formats, and every disc of a game released on several discs, named alike but

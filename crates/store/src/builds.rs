@@ -615,9 +615,11 @@ fn staged_mtime(file: &File) -> std::result::Result<i128, Failure> {
         .map_err(|e| Failure::Folder(e.to_string()))
 }
 
-/// What was recorded of a CHD as it was verified: its header's SHA-1, and the stamp of the file put in place.
+/// What was recorded of a CHD as it was verified: its header's SHA-1, and the SHA-256 and stamp of the file put in
+/// place.
 struct Verified {
     sha1: String,
+    sha256: String,
     identity: Identity,
     file: FileStat,
 }
@@ -647,17 +649,25 @@ fn converted_verified(
         return Ok(Err(format!("{target} changed once it was written")));
     }
     let verified = match (item.chd, item.loose, item.roms.as_slice()) {
-        // A CHD was checked by extracting it once it was built, and is not read whole again: it is the same CHD while
-        // this descriptor's stamp is the one recorded then, and its header says so.
+        // A CHD was checked by extracting it once it was built. Before its original is deleted it is read whole again
+        // through this descriptor: it is the same CHD while its stamp is the one recorded then, its SHA-256 is too,
+        // and its header says so. An overwrite that puts the modification time back is caught by the SHA-256.
         (true, ..) => match chd {
             None => Err("there is no record of it as it was checked".into()),
             Some(v) if Identity::of(&before) != v.identity || file_stat(&before) != v.file => Err(
                 "it is not the file that was checked: its size or modification time changed".into(),
             ),
-            Some(v) => match chd::header(&file) {
-                Ok(h) if h.sha1 == v.sha1 => Ok(()),
-                Ok(_) => Err("its CHD header is not the one recorded when it was checked".into()),
-                Err(why) => Err(why),
+            Some(v) => match sha256_of(&file).map_err(io)? {
+                (sha256, size) if sha256 != v.sha256 || size != v.file.size => {
+                    Err("it is not the file that was checked: its SHA-256 changed".into())
+                }
+                _ => match chd::header(&file) {
+                    Ok(h) if h.sha1 == v.sha1 => Ok(()),
+                    Ok(_) => {
+                        Err("its CHD header is not the one recorded when it was checked".into())
+                    }
+                    Err(why) => Err(why),
+                },
             },
         },
         (false, true, [rom]) => verify_loose(&file, rom),
@@ -1901,7 +1911,7 @@ impl Store {
         let chd: Option<Verified> = match item.chd {
             true => self.read(|c| {
                 Ok(c.query_row(
-                    "SELECT f.chd_sha1, i.dev, i.ino, i.size, i.mtime_ns
+                    "SELECT f.chd_sha1, i.dev, i.ino, i.size, i.mtime_ns, f.sha256
                      FROM built_files f
                      JOIN build_items i ON i.build_id = f.build_id AND i.target = f.target AND i.sha256 = f.sha256
                      WHERE f.folder_id = ?1 AND f.target = ?2 AND f.chd_sha1 IS NOT NULL AND i.dev IS NOT NULL
@@ -1910,6 +1920,7 @@ impl Store {
                     |r| {
                         Ok(Verified {
                             sha1: r.get(0)?,
+                            sha256: r.get(5)?,
                             identity: Identity::from_sql(r.get(1)?, r.get(2)?),
                             file: FileStat {
                                 size: r.get::<_, i64>(3)? as u64,

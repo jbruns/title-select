@@ -647,7 +647,17 @@ fn a_disc_zipped_in_its_source_set_is_read_once_for_all_its_tracks() {
 #[test]
 fn a_chd_damaged_once_in_place_never_lets_its_original_be_deleted() {
     let Some(_) = chdman() else { return };
-    for damaged in [false, true] {
+    /// How the CHD is damaged in place, once it is put in place and before its original is disposed of.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    enum Damage {
+        None,
+        /// Cut to half its length.
+        Truncated,
+        /// Bytes past its header overwritten, at the same length, and its modification time put back.
+        Overwritten,
+    }
+    for damage in [Damage::None, Damage::Truncated, Damage::Overwritten] {
+        let damaged = damage != Damage::None;
         let env = Env::new(None);
         env.set_format(None, false);
         let (folder, selection) = env.folder(&[CD]);
@@ -679,9 +689,24 @@ fn a_chd_damaged_once_in_place_never_lets_its_original_be_deleted() {
                 #[allow(clippy::permissions_set_readonly_false)]
                 perms.set_readonly(false);
                 std::fs::set_permissions(&path, perms).unwrap();
-                let file = std::fs::File::options().write(true).open(&path).unwrap();
-                let len = file.metadata().unwrap().len();
-                file.set_len(len / 2).unwrap();
+                let mut file = std::fs::File::options().write(true).open(&path).unwrap();
+                let meta = file.metadata().unwrap();
+                let len = meta.len();
+                match damage {
+                    Damage::Truncated => file.set_len(len / 2).unwrap(),
+                    _ => {
+                        use std::io::{Seek, SeekFrom, Write};
+                        file.seek(SeekFrom::Start(len / 2)).unwrap();
+                        file.write_all(&[0x5a; 64]).unwrap();
+                        file.sync_all().unwrap();
+                        file.set_modified(meta.modified().unwrap()).unwrap();
+                        let after = file.metadata().unwrap();
+                        assert_eq!(
+                            (after.len(), after.modified().unwrap()),
+                            (len, meta.modified().unwrap())
+                        );
+                    }
+                }
             }
         });
 
@@ -691,7 +716,7 @@ fn a_chd_damaged_once_in_place_never_lets_its_original_be_deleted() {
             assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
             continue;
         }
-        assert_eq!(env.kept(&folder), ["Orbit (USA).zip"]);
+        assert_eq!(env.kept(&folder), ["Orbit (USA).zip"], "{damage:?}");
         let build = env.store.build_of_job(ended.id).unwrap().unwrap();
         let detail = env.store.build(build.id).unwrap();
         let said: Vec<_> = detail
@@ -702,7 +727,7 @@ fn a_chd_damaged_once_in_place_never_lets_its_original_be_deleted() {
         assert!(
             said.iter().any(|e| e.contains("stays in the kept files")
                 && e.contains("not the file that was checked")),
-            "{said:?}"
+            "{damage:?}: {said:?}"
         );
     }
 }
