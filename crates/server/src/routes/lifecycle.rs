@@ -11,8 +11,8 @@ use title_select_api::ProfileRecord;
 use title_select_api::additions::SystemQuery;
 use title_select_api::build::{ApprovePlan, Plan, PlanKeptDeletion};
 use title_select_api::lifecycle::{
-    AdditionsSetAside, FolderMove, Forgotten, Holds, PlanFolderMove, RegistrationKind,
-    UnregisteredRecord, Unregistration,
+    AdditionsSetAside, FolderMove, Forgotten, Holds, PlanFolderMove, RegistrationHistory,
+    RegistrationKind, UnregisteredRecord, Unregistration,
 };
 use title_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
 
@@ -58,6 +58,10 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/profiles/{name}/restoration", post(restore_profile))
         .route("/unregistered", get(unregistered))
         .route("/unregistered/{kind}/{id}", delete(forget))
+        .route(
+            "/unregistered/{kind}/{id}/history",
+            get(unregistered_history),
+        )
         .route(
             "/unregistered/source_set/{id}/kept-files",
             get(unregistered_source_kept_files),
@@ -317,6 +321,17 @@ async fn restore_profile(
 async fn unregistered(State(state): State<AppState>) -> ApiResult<Json<Vec<UnregisteredRecord>>> {
     Ok(Json(
         blocking(&state, move |store| store.unregistered()).await?,
+    ))
+}
+
+/// The history an Unregistered registration left in the store, read-only, by its id.
+async fn unregistered_history(
+    State(state): State<AppState>,
+    path: Result<Path<(RegistrationKind, i64)>, PathRejection>,
+) -> ApiResult<Json<RegistrationHistory>> {
+    let Path((kind, id)) = path?;
+    Ok(Json(
+        blocking(&state, move |store| store.unregistered_history(kind, id)).await?,
     ))
 }
 

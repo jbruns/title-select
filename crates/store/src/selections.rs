@@ -466,6 +466,17 @@ impl Store {
         })
     }
 
+    /// Every Selection made for Source Set `id`, newest first, whether it is registered or Unregistered.
+    pub(super) fn selections_by_set_id(&self, id: i64) -> Result<Vec<SelectionRecord>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "{SELECTION_QUERY} WHERE sel.source_set_id = ?1 ORDER BY sel.id DESC"
+            ))?;
+            let rows = stmt.query_map([id], record_from_row)?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
     pub fn selection_record(&self, id: i64) -> Result<SelectionRecord> {
         self.read(|c| record_by_id(c, id))
     }

@@ -237,6 +237,14 @@ enum ProfileCommand {
 enum UnregisteredCommand {
     /// List what you unregistered, newest first, with the history the store still holds for each.
     List,
+    /// Show the history an unregistered source set, play library folder, additions set or ingest folder left: its
+    /// audits, selections, builds and jobs, newest first. Read by its id, as its name may be registered again.
+    History {
+        /// `source_set`, `library_folder`, `additions_set` or `ingest_folder`.
+        #[arg(value_parser = parse_kind)]
+        kind: RegistrationKind,
+        id: i64,
+    },
     /// Forget an unregistered source set, play library folder, additions set or ingest folder: its audits,
     /// selections, builds and jobs are removed from the store. No file is touched.
     Forget {
@@ -745,6 +753,56 @@ fn run(cli: Cli) -> Result<(), String> {
                     record.builds,
                     record.jobs,
                     record.kept_files
+                );
+            }
+            Ok(())
+        }
+        Command::Unregistered {
+            command: UnregisteredCommand::History { kind, id },
+        } => {
+            let history = open_store(store)?
+                .unregistered_history(kind, id)
+                .map_err(|e| e.to_string())?;
+            let record = &history.record;
+            println!(
+                "{} {} ({}:{}): registered {}, unregistered {}",
+                record.kind.label(),
+                record.name,
+                record.root,
+                record.path,
+                record.registered_at,
+                record.unregistered_at
+            );
+            for audit in &history.audits {
+                println!(
+                    "audit\t{}\t{}\t{}",
+                    audit.id, audit.finished_at, audit.dat_revision_version
+                );
+            }
+            for selection in &history.selections {
+                println!(
+                    "selection\t{}\t{}\t{} v{}",
+                    selection.id,
+                    selection.created_at,
+                    selection.profile.name,
+                    selection.profile.version
+                );
+            }
+            for build in &history.builds {
+                println!(
+                    "build\t{}\t{}\t{}",
+                    build.id,
+                    build.state.as_str(),
+                    build.started_at
+                );
+            }
+            for job in &history.jobs {
+                println!(
+                    "job\t{}\t{}\t{}\t{}",
+                    job.id,
+                    job.kind.as_str(),
+                    job.state.as_str(),
+                    job.created_at
                 );
             }
             Ok(())

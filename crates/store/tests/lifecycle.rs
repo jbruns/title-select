@@ -1302,3 +1302,52 @@ fn a_rebound_library_folders_built_files_are_still_removed() {
     );
     assert_eq!(env.store.kept_files(folder.id).unwrap().len(), 2);
 }
+
+#[test]
+fn an_unregistered_registrations_history_is_read_by_its_id_and_not_by_a_name_reused_since() {
+    let env = Env::new();
+    let folder = env.built();
+    let set = env.set_id();
+    assert!(matches!(
+        env.store.unregistered_history(RegistrationKind::SourceSet, set),
+        Err(Error::Refused(ref why)) if why.contains("registered")
+    ));
+    env.store
+        .unregister_library_folder(&env.config, folder.id)
+        .unwrap();
+    env.store.unregister_source_set(&env.config, SET).unwrap();
+
+    let history = env
+        .store
+        .unregistered_history(RegistrationKind::SourceSet, set)
+        .unwrap();
+    assert_eq!(history.record.name, SET);
+    assert_eq!(history.audits.len(), 1);
+    assert_eq!(history.selections.len(), 1);
+    assert!(history.builds.is_empty());
+    assert!(
+        history.jobs.iter().any(|j| j.kind == JobKind::Selection),
+        "{:?}",
+        history.jobs
+    );
+    let built = env
+        .store
+        .unregistered_history(RegistrationKind::LibraryFolder, folder.id)
+        .unwrap();
+    assert_eq!(built.builds.len(), 1);
+    assert!(built.jobs.iter().any(|j| j.kind == JobKind::Build));
+
+    env.store
+        .add_source_set(&env.config, "sets", SET, SYSTEM)
+        .unwrap();
+    assert!(env.store.history(SET).unwrap().is_empty());
+    assert!(env.store.selections(SET).unwrap().is_empty());
+    assert_eq!(
+        env.store
+            .unregistered_history(RegistrationKind::SourceSet, set)
+            .unwrap()
+            .audits
+            .len(),
+        1
+    );
+}

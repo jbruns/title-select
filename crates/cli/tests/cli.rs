@@ -238,6 +238,13 @@ fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
         "{listed}"
     );
 
+    let history = run_ok(ts().args(["unregistered", "history", "source-set", "1"]));
+    assert!(
+        history.starts_with(&format!("source set {rel} "))
+            && history.lines().any(|l| l.starts_with("audit\t")),
+        "{history}"
+    );
+
     let forgotten = run_ok(ts().args(["unregistered", "forget", "source-set", "1"]));
     assert!(forgotten.contains("forgotten: 1 audits"), "{forgotten}");
     assert!(run_ok(ts().args(["unregistered", "list"])).is_empty());

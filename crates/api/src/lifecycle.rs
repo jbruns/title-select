@@ -73,6 +73,17 @@ pub struct UnregisteredRecord {
     pub kept_files: u64,
 }
 
+/// The history an Unregistered registration left in the store, read-only: what it is, its finished Audits, its
+/// Selections, its Builds and its Jobs, newest first. Each is empty for a kind that has none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistrationHistory {
+    pub record: UnregisteredRecord,
+    pub audits: Vec<crate::AuditSummary>,
+    pub selections: Vec<crate::SelectionRecord>,
+    pub builds: Vec<crate::build::BuildSummary>,
+    pub jobs: Vec<crate::Job>,
+}
+
 /// What forgetting an Unregistered registration removed from the store. No file was touched.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Forgotten {

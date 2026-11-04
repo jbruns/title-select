@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::FileType;
 use title_select_api::build::{MARKER, RETENTION};
 use title_select_api::lifecycle::{
-    Forgotten, Holds, RegistrationKind, UnregisteredRecord, Unregistration,
+    Forgotten, Holds, RegistrationHistory, RegistrationKind, UnregisteredRecord, Unregistration,
 };
 
 use super::folder_dir::{FolderDir, Identity};
@@ -622,6 +622,53 @@ impl Store {
             }
             found.sort_by(|a, b| b.unregistered_at.cmp(&a.unregistered_at));
             Ok(found)
+        })
+    }
+
+    /// The history Unregistered registration `id` of `kind` left in the store, read-only, by its id: a name may
+    /// have been registered again since. Refused while it is registered.
+    pub fn unregistered_history(
+        &self,
+        kind: RegistrationKind,
+        id: i64,
+    ) -> Result<RegistrationHistory> {
+        let record = self.read(|c| {
+            let reg = registration(c, kind, id)?;
+            if reg.unregistered_at.is_none() {
+                return Err(Error::Refused(format!(
+                    "{} {} is registered; its history is where it is listed",
+                    kind.label(),
+                    reg.name
+                )));
+            }
+            unregistered_record(c, kind, id)
+        })?;
+        let (audits, selections) = match kind {
+            RegistrationKind::SourceSet => (
+                self.source_set_history_by_id(id)?,
+                self.selections_by_set_id(id)?,
+            ),
+            _ => (Vec::new(), Vec::new()),
+        };
+        let builds = match kind {
+            RegistrationKind::LibraryFolder => self.builds(id)?,
+            _ => Vec::new(),
+        };
+        let jobs = self.read(|c| {
+            let mut stmt = c.prepare(&format!(
+                "{} WHERE j.{} = ?1 ORDER BY j.id DESC",
+                crate::jobs::JOB_QUERY,
+                job_column(kind)
+            ))?;
+            let rows = stmt.query_map([id], crate::jobs::job_from_row)?;
+            Ok(rows.collect::<std::result::Result<_, _>>()?)
+        })?;
+        Ok(RegistrationHistory {
+            record,
+            audits,
+            selections,
+            builds,
+            jobs,
         })
     }
 

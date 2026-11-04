@@ -1284,6 +1284,13 @@ fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_f
     assert_eq!(unregistered.len(), 1, "{unregistered:?}");
     let id = unregistered[0].id;
     assert_eq!(unregistered[0].kept_files, 3);
+    let history: title_select_api::lifecycle::RegistrationHistory =
+        client.json(&format!("/unregistered/source_set/{id}/history"));
+    assert_eq!(
+        (history.record.id, history.audits.len()),
+        (id, 1),
+        "its audits stay readable by its id"
+    );
     let refused = agent()
         .delete(format!("{}/unregistered/source_set/{id}", client.base))
         .header(&auth.0, &auth.1)

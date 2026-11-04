@@ -6,11 +6,12 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
+use leptos_router::components::A;
 use serde::Deserialize;
 use title_select_api::build::PlanKeptDeletion;
 use title_select_api::lifecycle::{
-    AdditionsSetAside, FolderMove, Forgotten, Holds, PlanFolderMove, RegistrationKind,
-    UnregisteredRecord, Unregistration,
+    AdditionsSetAside, FolderMove, Forgotten, Holds, PlanFolderMove, RegistrationHistory,
+    RegistrationKind, UnregisteredRecord, Unregistration,
 };
 
 use crate::api;
@@ -268,10 +269,90 @@ fn detail(row: Row, refresh: RwSignal<u64>) -> AnyView {
             <dt>"Kept files"</dt>
             <dd>{r.kept_files.to_string()}</dd>
         </dl>
+        <History kind=r.kind id=r.id />
         <DeleteKept record=r.clone() refresh />
         <Forget record=r refresh />
     }
     .into_any()
+}
+
+/// What an unregistered registration left in the store, read-only, newest first, each linked to where it is shown.
+#[component]
+fn History(kind: RegistrationKind, id: i64) -> impl IntoView {
+    let history = LocalResource::new(move || async move {
+        api::get::<RegistrationHistory>(&format!("/unregistered/{}/{id}/history", kind.as_str()))
+            .await
+    });
+    view! {
+        <section aria-label="History">
+            {move || match history.get() {
+                None => view! { <Loading what="its history" /> }.into_any(),
+                Some(Err(message)) => view! { <Problem message /> }.into_any(),
+                Some(Ok(h)) => history_view(h),
+            }}
+        </section>
+    }
+}
+
+fn history_view(h: RegistrationHistory) -> AnyView {
+    let empty =
+        h.audits.is_empty() && h.selections.is_empty() && h.builds.is_empty() && h.jobs.is_empty();
+    if empty {
+        return view! { <p class="note">"It left no history in the store."</p> }.into_any();
+    }
+    let audits = (!h.audits.is_empty()).then(|| {
+        view! {
+            <h3>"Audits"</h3>
+            <ul>
+                {h.audits.into_iter().map(|a| view! {
+                    <li>
+                        <A href=format!("/audits/{}", a.id)>{format!("Audit #{}", a.id)}</A>
+                        {format!(" finished {}, against DAT revision {}", when(&a.finished_at), a.dat_revision_version)}
+                    </li>
+                }).collect_view()}
+            </ul>
+        }
+    });
+    let selections = (!h.selections.is_empty()).then(|| {
+        view! {
+            <h3>"Selections"</h3>
+            <ul>
+                {h.selections.into_iter().map(|s| view! {
+                    <li>
+                        <A href=format!("/selections/{}", s.id)>{format!("Selection #{}", s.id)}</A>
+                        {format!(" made {} with selection profile {} v{}", when(&s.created_at), s.profile.name, s.profile.version)}
+                    </li>
+                }).collect_view()}
+            </ul>
+        }
+    });
+    let builds = (!h.builds.is_empty()).then(|| {
+        view! {
+            <h3>"Builds"</h3>
+            <ul>
+                {h.builds.into_iter().map(|b| view! {
+                    <li>
+                        <A href=format!("/builds/{}", b.id)>{format!("Build #{}", b.id)}</A>
+                        {format!(" started {}: {} files put in place, {} failed", when(&b.started_at), b.applied, b.failed)}
+                    </li>
+                }).collect_view()}
+            </ul>
+        }
+    });
+    let jobs = (!h.jobs.is_empty()).then(|| {
+        view! {
+            <h3>"Jobs"</h3>
+            <ul>
+                {h.jobs.into_iter().map(|j| view! {
+                    <li>
+                        {format!("{} job #{}, queued {}: ", super::jobs::kind_label(j.kind), j.id, when(&j.created_at))}
+                        {super::jobs::state_view(j.state)}
+                    </li>
+                }).collect_view()}
+            </ul>
+        }
+    });
+    view! { {audits} {selections} {builds} {jobs} }.into_any()
 }
 
 /// Deleting every kept file an unregistered registration left, after you review and approve the plan.

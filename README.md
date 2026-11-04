@@ -349,6 +349,7 @@ title-select ingest holds|unregister <ingest root>
 title-select root holds <root>
 title-select profile retire|restore <selection profile>
 title-select unregistered list
+title-select unregistered history <source-set|library-folder|additions-set|ingest-folder> <id>
 title-select unregistered forget <source-set|library-folder|additions-set|ingest-folder> <id>
 ```
 
@@ -356,8 +357,8 @@ title-select unregistered forget <source-set|library-folder|additions-set|ingest
 from a source set or a job working on it. `unregister` unregisters it when nothing does; see "Unregistering". `root
 holds` lists what is registered in a root, which you unregister before you remove the root from your configuration.
 `profile retire` hides a selection profile from new choices, and `profile restore` offers it again. `unregistered
-list` lists what you unregistered with the history the store still holds for it, and `unregistered forget` removes
-that history.
+list` lists what you unregistered with the history the store still holds for it, `unregistered history` shows that
+history (its audits, selections, builds and jobs) by the id `list` prints, and `unregistered forget` removes it.
 
 ## Service
 
@@ -776,8 +777,8 @@ stay too, and you can still delete them; until you do, its marker stays, so the 
 again. An ingest folder's kept files are left as files Title Select no longer manages. Registering the same path
 again is a new registration, with a history of its own. Forgetting an unregistered registration removes its history
 from the store and touches no file; DAT revisions nothing else uses are then dropped by the store's usual cleanup.
-You forget it once its kept files are deleted, and a source set once every library folder that was bound to it is
-forgotten.
+You forget it once its kept files are deleted, and a source set once every library folder built from it is
+unregistered and forgotten.
 
 Instead of unregistering in place, you can:
 
@@ -907,6 +908,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/profiles/{name}/retirement`          | retire a selection profile no library folder uses            |
 | `POST /api/v1/profiles/{name}/restoration`         | restore a retired selection profile                          |
 | `GET /api/v1/unregistered`                         | everything unregistered, with the history the store holds for each |
+| `GET /api/v1/unregistered/{kind}/{id}/history`     | its audits, selections, builds and jobs, read-only, by its id |
 | `DELETE /api/v1/unregistered/{kind}/{id}`          | forget it: `kind` is `source_set`, `library_folder`, `additions_set` or `ingest_folder`; touches no file |
 | `GET /api/v1/unregistered/{source_set,additions_set}/{id}/kept-files` | an unregistered set's kept files            |
 | `POST /api/v1/unregistered/{source_set,additions_set}/{id}/kept-deletions` | plan deleting them: `{"ids"?, "all"?}`; `201`, approved as the set's kept deletions |
@@ -1124,8 +1126,9 @@ Its screens:
   additions set's lists the additions it retires before you approve; a library folder's "Move…" shows where it goes
   before you approve. A selection profile's page retires or restores it; a retired profile isn't offered in the
   pickers.
-- **Unregistered** (`/settings/unregistered`) lists what you unregistered. Opening one shows its history, plans and
-  approves deleting its kept files, and forgets it after you confirm.
+- **Unregistered** (`/settings/unregistered`) lists what you unregistered. Opening one shows its history, each audit,
+  selection and build linked to its page, plans and approves deleting its kept files, and forgets it after you
+  confirm.
 - **Activity** (`/activity`) has two tabs. **Jobs** counts the running, queued and failed jobs above a list of the
   latest jobs, each with its state, kind, what it works on, progress and when it was queued. Choosing a counter shows
   only those jobs (`?state=`); choosing it again shows every job. Opening a job (`?row=<job id>`) shows its progress,
