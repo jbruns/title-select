@@ -268,6 +268,20 @@ fn live_kept(c: &Connection, kind: RegistrationKind, id: i64) -> Result<u64> {
     Ok(c.query_row(sql, [id], |r| r.get::<_, i64>(0))? as u64)
 }
 
+/// Refuses a change to registration `id` of `kind` once it is Unregistered. Called in the transaction that approves
+/// or queues the change, so that an Unregistering can't come in between the check and the change.
+pub(crate) fn check_live(c: &Connection, kind: RegistrationKind, id: i64) -> Result<()> {
+    let reg = registration(c, kind, id)?;
+    match reg.unregistered_at {
+        Some(_) => Err(Error::Conflict(format!(
+            "{} {} was unregistered; nothing was changed",
+            kind.label(),
+            reg.name
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Unregisters registration `id` of `kind` in `tx`: refused, saying what holds it, while anything does.
 pub(crate) fn unregister_in(tx: &Transaction, kind: RegistrationKind, id: i64) -> Result<String> {
     let reg = registration(tx, kind, id)?;

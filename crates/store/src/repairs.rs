@@ -876,6 +876,7 @@ impl Store {
         self.write(|tx| {
             // The reservation: checked again in the transaction that queues the Repair Job, which Audits and Builds
             // of the Source Set check in theirs.
+            crate::lifecycle::check_live(tx, RegistrationKind::SourceSet, content.set_id)?;
             if let Some(why) = reserved(tx, content.set_id)? {
                 return Err(Error::Conflict(why));
             }
@@ -1142,6 +1143,12 @@ impl Store {
             }
             Ok(Err(why))
         };
+        // Nothing is written to, nor a marker made in, the folder of a Source Set once it is Unregistered.
+        if let Err(Error::Conflict(why)) = self
+            .read(|c| crate::lifecycle::check_live(c, RegistrationKind::SourceSet, content.set_id))
+        {
+            return stop(why);
+        }
         let dir = match open_repairable(self, config, content.set_id, rule)? {
             Ok(dir) => dir,
             Err(why) => return stop(why),

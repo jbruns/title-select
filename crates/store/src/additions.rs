@@ -263,9 +263,13 @@ fn additions_where(
         .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// The active additions of the Additions Set of DAT `dat`: what a build that opts in reads.
+/// The active additions of the registered Additions Set of DAT `dat`: what a build that opts in reads.
 pub(crate) fn active_additions(c: &Connection, dat: i64) -> Result<Vec<AdditionRow>> {
-    additions_where(c, "s.dat_id = ?1 AND a.state = 'active'", [dat])
+    additions_where(
+        c,
+        "s.dat_id = ?1 AND s.unregistered_at IS NULL AND a.state = 'active'",
+        [dat],
+    )
 }
 
 /// Why `name` cannot be an addition's name, or `None` when it can: it is the name a build writes it as, `<name>.zip`,
@@ -312,7 +316,7 @@ fn name_taken(c: &Connection, dat: i64, name: &str, except: Option<i64>) -> Resu
     let taken: Option<String> = c
         .query_row(
             "SELECT a.name FROM additions a JOIN additions_sets s ON s.id = a.set_id
-             WHERE s.dat_id = ?1 AND lower(a.name) = lower(?2) AND a.id IS NOT ?3
+             WHERE s.dat_id = ?1 AND s.unregistered_at IS NULL AND lower(a.name) = lower(?2) AND a.id IS NOT ?3
              AND a.state IN ('pending', 'staging', 'active')",
             params![dat, name, except],
             |r| r.get(0),
@@ -875,6 +879,7 @@ fn holds_exactly(file: &std::fs::File, rom: &ExpectedRom, loose: bool) -> bool {
 /// Retires addition `id`, as [`Store::retire_addition`] does, leaving its Additions Job to be queued.
 fn retire_in(tx: &Transaction, id: i64) -> Result<()> {
     let row = addition_by_id(tx, id)?;
+    crate::lifecycle::check_live(tx, RegistrationKind::AdditionsSet, row.set_id)?;
     let Some(p) = row.published.as_ref().filter(|_| row.raw_state == "active") else {
         return Err(Error::Refused(format!(
             "addition {id} is {}; only an added addition can be retired",
@@ -1006,6 +1011,7 @@ impl Store {
     pub fn edit_addition(&self, id: i64, edit: &EditAddition) -> Result<Addition> {
         self.write(|tx| {
             let row = addition_by_id(tx, id)?;
+            crate::lifecycle::check_live(tx, RegistrationKind::AdditionsSet, row.set_id)?;
             if matches!(
                 row.addition.state,
                 AdditionState::Retired | AdditionState::Failed
@@ -1590,6 +1596,12 @@ impl Store {
     ) -> Result<std::result::Result<bool, String>> {
         let _guard = self.publishing.lock().unwrap_or_else(|e| e.into_inner());
         let row = self.read(|c| set_by_id(c, set))?;
+        // Nothing is written to the folder of an Additions Set once it is Unregistered.
+        if let Err(Error::Conflict(why)) =
+            self.read(|c| crate::lifecycle::check_live(c, RegistrationKind::AdditionsSet, set))
+        {
+            return Ok(Err(why));
+        }
         if row.identity.is_some()
             && let Ok(dir) = self.open_set(config, &row)?
             && let Err(why) = settle_dir_temps(self, Scope::Additions(set), &dir)?

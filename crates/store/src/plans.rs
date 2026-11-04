@@ -204,7 +204,24 @@ fn load(
         )
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no selection {selection_id}")))?;
-    if set_id != folder.source_set_id || profile_id != folder.profile_id {
+    // Removing every built file reads the Selection the folder was last built from, whatever it is bound to now.
+    if choices.remove_all {
+        let built_from: Option<i64> = match folder.current_build {
+            Some(build) => Some(c.query_row(
+                "SELECT selection_id FROM builds WHERE id = ?1",
+                [build],
+                |r| r.get(0),
+            )?),
+            None => None,
+        };
+        if built_from != Some(selection_id) {
+            return Err(Error::Refused(format!(
+                "removing every built file of library folder {} reads the selection it was last built from, not \
+                 selection {selection_id}",
+                folder.id
+            )));
+        }
+    } else if set_id != folder.source_set_id || profile_id != folder.profile_id {
         let record = record_by_id(c, selection_id)?;
         return Err(Error::Refused(format!(
             "selection {selection_id} was made for source set {} with profile {}, but library folder {} builds \

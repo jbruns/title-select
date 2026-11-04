@@ -22,7 +22,7 @@ use title_select_api::selection::{
 };
 use title_select_api::{AuditEvidence, Job, JobKind, JobState};
 use title_select_store::config::Config;
-use title_select_store::{Error, Store, Workers};
+use title_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Test - System";
 const SYSTEM: &str = "Test/Test - System";
@@ -1073,4 +1073,232 @@ fn an_approved_move_reserves_its_destination_against_new_registrations() {
         matches!(refused, Err(Error::Refused(ref why)) if why.contains("being moved")),
         "{refused:?}"
     );
+}
+
+/// Copies `from` to `to`, a file or a folder, as a step that raced an unregistering would have seen it.
+fn copy_all(from: &Path, to: &Path) {
+    if from.is_dir() {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            copy_all(&entry.path(), &to.join(entry.file_name()));
+        }
+    } else {
+        std::fs::copy(from, to).unwrap();
+    }
+}
+
+#[test]
+fn an_ingest_plan_made_before_its_folder_was_unregistered_is_never_carried_out() {
+    let env = Env::new();
+    env.ingest("junk.bin", |p| write_file(p, b"junk"));
+    let item = env.store.ingest_items("in").unwrap()[0].id;
+    let plan = env
+        .store
+        .plan_ingest(
+            &env.config,
+            "in",
+            &PlanIngest {
+                action: IngestAction::Discard,
+                items: vec![item],
+                provider: None,
+                additions: BTreeMap::new(),
+            },
+        )
+        .unwrap();
+    let marker = env.tmp.path().join("in/.title-select");
+    let saved = env.tmp.path().join("saved-marker");
+    copy_all(&marker, &saved);
+    env.store
+        .unregister_ingest_folder(&env.config, "in")
+        .unwrap();
+    // The marker as the approval's own check of the folder saw it, before the unregistering removed it.
+    copy_all(&saved, &marker);
+
+    let refused =
+        env.store
+            .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS);
+    assert!(
+        matches!(refused, Err(Error::Conflict(ref why)) if why.contains("unregistered")),
+        "{refused:?}"
+    );
+    assert!(
+        env.tmp.path().join("in/junk.bin").is_file(),
+        "nothing moved"
+    );
+}
+
+#[test]
+fn a_repair_is_refused_when_its_source_set_is_unregistered_while_it_is_being_approved() {
+    let env = Env::new();
+    env.audit();
+    let plan = env.store.plan_set_aside(&env.config, SET).unwrap();
+    let before = files(&env.set());
+    let (reached, wait) = std::sync::mpsc::channel::<()>();
+    let (resume, resumed) = std::sync::mpsc::channel::<()>();
+    let (reached, resumed) = (
+        std::sync::Mutex::new(reached),
+        std::sync::Mutex::new(resumed),
+    );
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairApproving {
+                reached.lock().unwrap().send(()).unwrap();
+                resumed.lock().unwrap().recv().unwrap();
+            }
+        })));
+
+    let approved = std::thread::scope(|s| {
+        let approving = s.spawn(|| {
+            env.store
+                .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        });
+        wait.recv().unwrap();
+        env.store.unregister_source_set(&env.config, SET).unwrap();
+        resume.send(()).unwrap();
+        approving.join().unwrap()
+    });
+    env.store.hook_faults(None);
+
+    assert!(
+        matches!(&approved, Err(Error::Conflict(why)) if why.contains("unregistered")),
+        "{approved:?}"
+    );
+    assert!(env.store.claim_job().unwrap().is_none(), "nothing queued");
+    assert_eq!(files(&env.set()), before, "nothing moved");
+}
+
+#[test]
+fn an_unregistered_additions_sets_additions_are_no_longer_changed() {
+    let env = Env::new();
+    env.audit();
+    env.add_addition("My Hack", b"hack");
+    let a = env.store.additions_set(SYSTEM).unwrap().additions.remove(0);
+    let dir = env.tmp.path().join("additions").join(SET);
+    env.store
+        .unregister_additions_set(&env.config, SYSTEM)
+        .unwrap();
+    let before = files(&dir);
+
+    let retired = env.store.retire_addition(a.id);
+    assert!(
+        matches!(&retired, Err(Error::Conflict(why)) if why.contains("unregistered")),
+        "{retired:?}"
+    );
+    let renamed = env.store.edit_addition(
+        a.id,
+        &title_select_api::additions::EditAddition {
+            name: Some("Renamed".into()),
+            parent: None,
+        },
+    );
+    assert!(
+        matches!(&renamed, Err(Error::Conflict(why)) if why.contains("unregistered")),
+        "{renamed:?}"
+    );
+    assert_eq!(env.store.addition(a.id).unwrap().name, "My Hack");
+    assert!(env.store.claim_job().unwrap().is_none(), "nothing queued");
+    assert_eq!(files(&dir), before, "nothing moved");
+}
+
+#[test]
+fn builds_and_new_additions_no_longer_see_an_unregistered_additions_sets_additions() {
+    let env = Env::new();
+    env.audit();
+    env.add_addition("My Hack", b"hack");
+    let mut profile = SelectionProfile::default();
+    profile.systems.insert(
+        SYSTEM.into(),
+        title_select_api::selection::SystemSettings {
+            additions: true,
+            ..Default::default()
+        },
+    );
+    let latest = env.store.profile(PROFILE).unwrap();
+    env.store
+        .save_profile(
+            PROFILE,
+            &profile,
+            latest.latest.map(|v| v.version),
+            "Operator",
+            &[],
+            WORKERS,
+        )
+        .unwrap();
+    let selection = env.record(&both(&env.sha256));
+    let folder = env.folder();
+    let opted = env
+        .store
+        .plan_build(&env.config, folder.id, selection)
+        .unwrap();
+    assert!(format!("{opted:?}").contains("My Hack"), "{opted:#?}");
+
+    env.store
+        .unregister_additions_set(&env.config, SYSTEM)
+        .unwrap();
+    let plan = env
+        .store
+        .plan_build(&env.config, folder.id, selection)
+        .unwrap();
+    assert!(!format!("{plan:?}").contains("My Hack"), "{plan:#?}");
+
+    // Its file name stays taken, as its file may still be there; its name is free again in a new additions set.
+    std::fs::remove_dir_all(env.tmp.path().join("additions").join(SET)).unwrap();
+    env.add_addition("Other Hack", b"another hack");
+    let other = env.store.additions_set(SYSTEM).unwrap().additions.remove(0);
+    assert!(other.error.is_none(), "{other:?}");
+    let renamed = env
+        .store
+        .edit_addition(
+            other.id,
+            &title_select_api::additions::EditAddition {
+                name: Some("My Hack".into()),
+                parent: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(renamed.name, "My Hack");
+}
+
+#[test]
+fn a_rebound_library_folders_built_files_are_still_removed() {
+    let env = Env::new();
+    let folder = env.built();
+    std::fs::create_dir_all(env.tmp.path().join("sets/Other")).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "Other", SYSTEM)
+        .unwrap();
+    env.store
+        .change_library_folder(
+            &env.config,
+            folder.id,
+            &ChangeLibraryFolder {
+                profile: None,
+                source_set: Some("Other".into()),
+            },
+        )
+        .unwrap();
+
+    let plan = env
+        .store
+        .plan_library_removal(&env.config, folder.id)
+        .unwrap();
+    assert_eq!(
+        plan.content.removals.len(),
+        2,
+        "{:#?}",
+        plan.content.removals
+    );
+    assert!(
+        plan.content.blockers.is_empty(),
+        "{:#?}",
+        plan.content.blockers
+    );
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let left = files(&env.play().join("atari"));
+    assert!(
+        !left.contains("Pong (USA).zip") && !left.contains("Combat (USA).zip"),
+        "{left:?}"
+    );
+    assert_eq!(env.store.kept_files(folder.id).unwrap().len(), 2);
 }

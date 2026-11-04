@@ -1755,6 +1755,11 @@ impl Store {
             return Err(Error::Refused(why));
         }
         let approve = |tx: &Transaction| {
+            crate::lifecycle::check_live(
+                tx,
+                title_select_api::lifecycle::RegistrationKind::IngestFolder,
+                row.id,
+            )?;
             let advanced = tx.execute(
                 "UPDATE ingest_folders SET generation = ?2 WHERE id = ?1 AND generation = ?3",
                 params![row.id, content.generation as i64, row.generation as i64],
