@@ -138,6 +138,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/selections/{id}/releases", get(selection_releases))
         .route("/selections/{id}/availability", get(availability))
         .route("/selections/{id}/diff", get(selection_diff))
+        .route("/selections/{id}/shadow", get(selection_shadow))
         .route("/libraries", get(library_folders).post(add_library_folder))
         .route(
             "/libraries/{id}",
@@ -1618,15 +1619,20 @@ async fn preview(
     let cancel = guard.flag();
     let started = std::time::Instant::now();
     let store = state.store.clone();
+    let config = state.config.clone();
     let made = tokio::task::spawn_blocking(move || -> ApiResult<Preview> {
         let (revision, blob) =
             store.selection_revision(&request.source_set, request.revision.as_deref())?;
-        let selection = crate::selections::select(
+        let (selection, _) = crate::selections::select(
             &store,
             &engine,
             &blob,
             &revision.file,
             &request.profile,
+            crate::selections::Engines {
+                engine: config.selections.engine,
+                shadow: false,
+            },
             Some(cancel),
         )?;
         let against = store.latest_selection(&request.source_set, &revision.sha256)?;
@@ -1698,6 +1704,17 @@ async fn selection_record(
     let Path(id) = id?;
     Ok(Json(
         blocking(&state, move |store| store.selection_record(id)).await?,
+    ))
+}
+
+/// The shadow run recorded beside the Selection, or null when shadow mode was off.
+async fn selection_shadow(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<Option<title_select_api::selection::ShadowRun>>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.selection_shadow(id)).await?,
     ))
 }
 

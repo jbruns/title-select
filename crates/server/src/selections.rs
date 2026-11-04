@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use title_select_api::selection::{Selection, SelectionProfile};
+use title_select_api::selection::{Selection, SelectionEngine, SelectionProfile, ShadowRun};
 use title_select_selection::{Engine, Error, RunOptions};
 use title_select_store::{Store, TMP};
 
@@ -14,15 +14,24 @@ use title_select_store::{Store, TMP};
 pub const UNAVAILABLE: &str = "the selection engine is not installed on this server, so selections and previews \
     are unavailable; start the server with --retool, or set TITLE_SELECT_RETOOL";
 
-/// Runs the engine on the DAT blob `blob`, staged under its imported file name `file`.
+/// Which engine runs, and whether the other runs in its shadow.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Engines {
+    pub engine: SelectionEngine,
+    pub shadow: bool,
+}
+
+/// Runs the engine on the DAT blob `blob`, staged under its imported file name `file`, with the shadow run when
+/// `engines` asks for one.
 pub fn select(
     store: &Store,
     engine: &Engine,
     blob: &Path,
     file: &str,
     profile: &SelectionProfile,
+    engines: Engines,
     cancel: Option<Arc<AtomicBool>>,
-) -> Result<Selection, Error> {
+) -> Result<(Selection, Option<ShadowRun>), Error> {
     let work = store.dir().join(TMP);
     let io = |context: String| move |source| Error::Io { context, source };
     std::fs::create_dir_all(&work).map_err(io(work.display().to_string()))?;
@@ -40,12 +49,72 @@ pub fn select(
     }
     let mut options = RunOptions::new(&work);
     options.cancel = cancel;
+    options.engine = engines.engine;
+    options.shadow = engines.shadow;
     let outcome = engine.run(&dat, profile, &options)?;
     for warning in &outcome.warnings {
         eprintln!("title-select: selection engine warning for {file}: {warning}");
     }
+    if let Some(shadow) = &outcome.shadow {
+        eprintln!("title-select: {}", shadow_summary(file, shadow));
+    }
     drop(staged);
-    Ok(outcome.selection)
+    Ok((outcome.selection, outcome.shadow))
+}
+
+/// One line on how a shadow run compared, for the Service log.
+pub fn shadow_summary(file: &str, shadow: &ShadowRun) -> String {
+    let engines = format!(
+        "{} engine in the shadow of the {} engine",
+        engine_name(shadow.shadow),
+        engine_name(shadow.engine)
+    );
+    match (&shadow.comparison, &shadow.error) {
+        (_, Some(error)) => format!("shadow run for {file}: the {engines} failed: {error}"),
+        (Some(c), None) if c.is_identical() => {
+            format!(
+                "shadow run for {file}: the {engines} made the same selection in all {} groups",
+                c.groups
+            )
+        }
+        (Some(c), None) => {
+            let mut groups: Vec<&str> = c
+                .differences
+                .iter()
+                .filter(|d| !d.explanation_only)
+                .map(|d| d.group.as_str())
+                .take(10)
+                .collect();
+            if c.differing > groups.len() {
+                groups.push("…");
+            }
+            format!(
+                "shadow run for {file}: the {engines} placed releases differently in {} of {} groups{}, explained {} \
+                 more differently{}",
+                c.differing,
+                c.groups,
+                if groups.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", groups.join(", "))
+                },
+                c.explained_differently,
+                if c.warnings.is_some() {
+                    ", and warned differently"
+                } else {
+                    ""
+                },
+            )
+        }
+        (None, None) => format!("shadow run for {file}: the {engines} made no comparison"),
+    }
+}
+
+fn engine_name(engine: SelectionEngine) -> &'static str {
+    match engine {
+        SelectionEngine::Bundled => "bundled",
+        SelectionEngine::Builtin => "built-in",
+    }
 }
 
 /// The preview each actor has in flight. A newer preview from the same actor cancels the older one.

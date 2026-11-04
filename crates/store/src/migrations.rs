@@ -30,6 +30,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0019_fetches.sql"),
     include_str!("migrations/0020_chd.sql"),
     include_str!("migrations/0021_disc_layout.sql"),
+    include_str!("migrations/0022_selection_shadows.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {

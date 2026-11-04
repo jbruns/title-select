@@ -9,6 +9,7 @@ use title_select_api::Workers;
 use title_select_api::paths::{
     DEFAULT_LIBRARY_FOLDER_TEMPLATE, DEFAULT_SOURCE_SET_TEMPLATE, PathTemplate, relative_path,
 };
+use title_select_api::selection::SelectionEngine;
 
 /// How many full Audits a Source Set keeps when the configuration does not say.
 pub const DEFAULT_AUDITS_KEPT: usize = 20;
@@ -153,6 +154,12 @@ pub struct Selections {
     /// The latest full Selections kept per Source Set; older ones are pruned to their record.
     #[serde(default = "default_selections_keep")]
     pub keep: usize,
+    /// The engine that makes Selections and previews.
+    #[serde(default)]
+    pub engine: SelectionEngine,
+    /// Also run the other engine for each Selection Job, and record how its Selection compares.
+    #[serde(default)]
+    pub shadow: bool,
 }
 
 fn default_selections_keep() -> usize {
@@ -163,6 +170,8 @@ impl Default for Selections {
     fn default() -> Self {
         Selections {
             keep: DEFAULT_SELECTIONS_KEPT,
+            engine: SelectionEngine::default(),
+            shadow: false,
         }
     }
 }
@@ -484,6 +493,21 @@ mod tests {
         let off = Config::parse("[source_sets]\ncheck_every_minutes = 0").unwrap();
         assert_eq!(off.source_sets.check_every_minutes, 0);
         assert!(Config::parse("[source_sets]\ncheck_every = 5").is_err());
+    }
+
+    #[test]
+    fn selections_use_the_bundled_engine_without_a_shadow_unless_configured() {
+        let default = Config::default().selections;
+        assert_eq!(
+            (default.engine, default.shadow),
+            (SelectionEngine::Bundled, false)
+        );
+        let config = Config::parse("[selections]\nengine = \"builtin\"\nshadow = true").unwrap();
+        assert_eq!(
+            (config.selections.engine, config.selections.shadow),
+            (SelectionEngine::Builtin, true)
+        );
+        assert!(Config::parse("[selections]\nengine = \"python\"").is_err());
     }
 
     #[test]

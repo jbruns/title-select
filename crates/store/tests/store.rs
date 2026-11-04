@@ -1014,8 +1014,8 @@ mod profiles_and_selections {
     use super::*;
     use std::collections::BTreeSet;
     use title_select_api::selection::{
-        Alternative, ChoiceStatus, CoverageDrift, GroupChoice, Rule, Selection, SelectionGroup,
-        SelectionPins, SelectionProfile, SelectionSummary, Winner,
+        Alternative, ChoiceStatus, CoverageDrift, GroupChoice, Rule, Selection, SelectionEngine,
+        SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, ShadowRun, Winner,
     };
     use title_select_api::{GameStatus, JobKind, JobState, StartSelectionFor};
 
@@ -1265,6 +1265,15 @@ mod profiles_and_selections {
 
         assert_eq!(env.store.selection(id).unwrap(), made);
         assert_eq!(env.store.selection_rows(id).unwrap(), made.rows());
+        assert_eq!(env.store.selection_shadow(id).unwrap(), None);
+        let shadow = ShadowRun {
+            engine: SelectionEngine::Bundled,
+            shadow: SelectionEngine::Builtin,
+            comparison: None,
+            error: Some("too many combinations".into()),
+        };
+        env.store.record_shadow(id, &shadow).unwrap();
+        assert_eq!(env.store.selection_shadow(id).unwrap(), Some(shadow));
         let record = env.store.selection_record(id).unwrap();
         assert_eq!(
             (record.profile.version, record.latest_profile_version),

@@ -401,13 +401,23 @@ fn run_selection(store: &Store, config: &Config, engine: Option<&Engine>, id: i6
             &input.dat,
             &input.dat_revision.file,
             &input.profile,
+            crate::selections::Engines {
+                engine: config.selections.engine,
+                shadow: config.selections.shadow,
+            },
             None,
         )
         .map_err(|e| e.to_string())
     })();
     let ended = match made {
-        Ok(selection) => store
+        Ok((selection, shadow)) => store
             .record_selection(config, id, &selection)
+            .and_then(|job| {
+                if let (Some(shadow), Some(selection)) = (shadow, job.selection) {
+                    store.record_shadow(selection, &shadow)?;
+                }
+                Ok(job)
+            })
             .map_err(|e| e.to_string()),
         Err(message) => Err(message),
     };
