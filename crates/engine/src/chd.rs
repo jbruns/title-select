@@ -114,11 +114,72 @@ pub fn cue_tracks(cue: &[u8]) -> Result<Vec<String>, String> {
     Ok(files.into_iter().map(|(name, _)| name).collect())
 }
 
-/// The chdman a Build runs, and how many threads it compresses with.
+/// The DAT's ROM for each track the cue sheet names, `names` as [`cue_tracks`] gives them, in its order: only when the
+/// sheet names each of the DAT's `.bin` files exactly once, and nothing else. A track named twice could stand in for
+/// one never named, which extraction would then never check.
+pub fn cue_matches<'a>(
+    names: &[String],
+    roms: &'a [ExpectedRom],
+) -> Result<Vec<&'a ExpectedRom>, String> {
+    let bins: Vec<&ExpectedRom> = roms
+        .iter()
+        .filter(|r| !r.name.to_ascii_lowercase().ends_with(".cue"))
+        .collect();
+    let mut problems = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        if !bins.iter().any(|r| r.name == *name) {
+            problems.push(format!("names {name}, which the DAT doesn't list"));
+        } else if names[..i].iter().filter(|n| *n == name).count() == 1 {
+            problems.push(format!("names {name} more than once"));
+        }
+    }
+    for rom in &bins {
+        if !names.contains(&rom.name) {
+            problems.push(format!("leaves out {}", rom.name));
+        }
+    }
+    if !problems.is_empty() {
+        return Err(format!(
+            "its cue sheet must name each of the DAT's tracks once, but it {}",
+            problems.join(", and ")
+        ));
+    }
+    Ok(names
+        .iter()
+        .map(|name| {
+            *bins
+                .iter()
+                .find(|r| r.name == *name)
+                .expect("checked above")
+        })
+        .collect())
+}
+
+/// How long chdman may run on one disc: `base`, and `per_gib` for each GiB of the disc's tracks, prorated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    pub base: Duration,
+    pub per_gib: Duration,
+}
+
+impl Limits {
+    /// The time chdman may take over a disc of `bytes`.
+    pub fn for_bytes(&self, bytes: u64) -> Duration {
+        let per_gib = self.per_gib.as_nanos();
+        let extra = per_gib.saturating_mul(u128::from(bytes)) >> 30;
+        self.base.saturating_add(Duration::from_nanos(
+            u64::try_from(extra).unwrap_or(u64::MAX),
+        ))
+    }
+}
+
+/// The chdman a Build runs, how many threads it compresses with, and how long each run may take before it is
+/// stopped.
 #[derive(Debug, Clone)]
 pub struct Chdman {
     pub program: PathBuf,
     pub threads: usize,
+    pub deadline: Duration,
 }
 
 /// Where chdman is: `configured`, else the program [`CHDMAN_ENV`] names, else `chdman` on the `PATH`.
@@ -176,8 +237,8 @@ fn tail(path: &Path) -> String {
 }
 
 impl Chdman {
-    /// Runs chdman with `args` in `dir`, its output appended to `chdman.log` there, until it exits or `cancelled`
-    /// says to stop it: then it is killed and waited for.
+    /// Runs chdman with `args` in `dir`, its output appended to `chdman.log` there, until it exits, `cancelled` says
+    /// to stop it, or it outruns its deadline: then it is killed and waited for.
     pub fn run<S: AsRef<OsStr>>(
         &self,
         dir: &Path,
@@ -199,6 +260,11 @@ impl Chdman {
             .stderr(err)
             .spawn()
             .map_err(|e| format!("chdman could not be run as {}: {e}", self.program.display()))?;
+        let verb = args
+            .first()
+            .map(|a| a.as_ref().to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let started = std::time::Instant::now();
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break status,
@@ -206,6 +272,18 @@ impl Chdman {
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err(Stop::Cancelled);
+                }
+                Ok(None) if started.elapsed() > self.deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(Stop::Failed(format!(
+                        "chdman {verb} took longer than {}, the most this disc is given, and was stopped. If your \
+                         host needs longer, raise timeout_seconds under [chd] in the configuration",
+                        match self.deadline.as_secs() {
+                            1 => "1 second".to_string(),
+                            n => format!("{n} seconds"),
+                        }
+                    )));
                 }
                 Ok(None) => std::thread::sleep(POLL),
                 Err(e) => {
@@ -218,10 +296,6 @@ impl Chdman {
         if status.success() {
             return Ok(());
         }
-        let verb = args
-            .first()
-            .map(|a| a.as_ref().to_string_lossy().into_owned())
-            .unwrap_or_default();
         Err(Stop::Failed(format!(
             "chdman {verb} failed ({status}): {}",
             tail(&log_path)
@@ -273,26 +347,11 @@ impl Chdman {
         let out = dir.join("x");
         std::fs::create_dir(&out).map_err(|e| format!("{}: {e}", out.display()))?;
         let expected: Vec<&ExpectedRom> = match (kind, cue) {
-            (ChdKind::Cd, Some(cue)) => cue_tracks(cue)?
-                .iter()
-                .map(|name| {
-                    roms.iter().find(|r| r.name == *name).ok_or_else(|| {
-                        format!("its cue sheet names {name}, which the DAT doesn't list")
-                    })
-                })
-                .collect::<Result<_, _>>()?,
+            (ChdKind::Cd, Some(cue)) => cue_matches(&cue_tracks(cue)?, roms)?,
             (ChdKind::Dvd, None) => roms.iter().collect(),
             _ => return Err(Stop::Failed("a CD is checked by its cue sheet".into())),
         };
         let tracks = expected.len();
-        let bins = roms
-            .iter()
-            .filter(|r| !r.name.to_ascii_lowercase().ends_with(".cue"));
-        if kind == ChdKind::Cd && bins.count() != tracks {
-            return Err(Stop::Failed(format!(
-                "its cue sheet names {tracks} tracks, and the DAT lists another number of .bin files"
-            )));
-        }
         let args: &[&str] = match kind {
             ChdKind::Cd => &[
                 "extractcd",
@@ -414,5 +473,72 @@ mod tests {
         assert!(cue_tracks(b"FILE \"../a.bin\" BINARY\n TRACK 01 AUDIO\n").is_err());
         assert!(cue_tracks(b"TRACK 01 AUDIO\n").is_err());
         assert!(cue_tracks(b"REM nothing\n").is_err());
+    }
+
+    fn rom(name: &str) -> ExpectedRom {
+        ExpectedRom {
+            name: name.into(),
+            size: 2352,
+            crc: None,
+            md5: None,
+            sha1: None,
+            sha256: None,
+        }
+    }
+
+    #[test]
+    fn a_cue_sheet_names_each_of_the_dats_tracks_exactly_once() {
+        let roms = [rom("x.cue"), rom("a.bin"), rom("b.bin"), rom("c.bin")];
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let matched = cue_matches(&names(&["a.bin", "b.bin", "c.bin"]), &roms).unwrap();
+        assert_eq!(
+            matched.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+            ["a.bin", "b.bin", "c.bin"]
+        );
+        // A repeated track hides an omitted one.
+        let error = cue_matches(&names(&["a.bin", "c.bin", "a.bin"]), &roms).unwrap_err();
+        assert!(
+            error.contains("a.bin") && error.contains("b.bin"),
+            "{error}"
+        );
+        let error = cue_matches(&names(&["a.bin", "c.bin"]), &roms).unwrap_err();
+        assert!(error.contains("b.bin"), "{error}");
+        let error = cue_matches(&names(&["a.bin", "b.bin", "c.bin", "d.bin"]), &roms).unwrap_err();
+        assert!(error.contains("d.bin"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn chdman_running_past_its_deadline_is_stopped() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("slow");
+        std::fs::write(&program, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let chdman = Chdman {
+            program,
+            threads: 1,
+            deadline: Duration::from_millis(300),
+        };
+        let started = std::time::Instant::now();
+        let stop = chdman
+            .run(dir.path(), &["createcd"], &|| false)
+            .unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(10));
+        let Stop::Failed(why) = stop else {
+            panic!("{stop:?}")
+        };
+        assert!(why.contains("longer than"), "{why}");
+    }
+
+    #[test]
+    fn the_deadline_grows_with_the_disc() {
+        let limits = Limits {
+            base: Duration::from_secs(600),
+            per_gib: Duration::from_secs(120),
+        };
+        assert_eq!(limits.for_bytes(0), Duration::from_secs(600));
+        assert_eq!(limits.for_bytes(1 << 30), Duration::from_secs(720));
+        assert_eq!(limits.for_bytes(3 << 29), Duration::from_secs(780));
     }
 }

@@ -34,6 +34,8 @@ const CD: &str = "Orbit (USA)";
 const DVD: &str = "Atlas (USA)";
 /// A disc whose track is not whole sectors: it can't come back whole from a CHD, so it stays TorrentZip.
 const ODD: &str = "Ragged (USA)";
+/// A CD whose cue sheet names its first track twice and its second never.
+const ECHO: &str = "Echo (USA)";
 
 /// A CD of a data track and an audio track, each whole 2352-byte sectors, with its cue sheet.
 fn cd() -> Vec<RomSpec> {
@@ -48,11 +50,27 @@ fn cd() -> Vec<RomSpec> {
     ]
 }
 
+fn echo() -> Vec<RomSpec> {
+    let track = |n: u8| {
+        format!(
+            "FILE \"{ECHO} (Track {n}).bin\" BINARY\n  TRACK 0{n} AUDIO\n    INDEX 01 00:00:00\n"
+        )
+    };
+    let cue = [track(1), track(3), track(1)].concat();
+    vec![
+        rom("Echo (USA).cue", cue.as_bytes()),
+        rom("Echo (USA) (Track 1).bin", &noise(5, 2352 * 10)),
+        rom("Echo (USA) (Track 2).bin", &noise(6, 2352 * 10)),
+        rom("Echo (USA) (Track 3).bin", &noise(7, 2352 * 10)),
+    ]
+}
+
 fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
     vec![
         (CD, cd()),
         (DVD, vec![rom("Atlas (USA).iso", &noise(3, 2048 * 400))]),
         (ODD, disc(ODD, 1, 2352 * 4 + 1, 4)),
+        (ECHO, echo()),
     ]
 }
 
@@ -81,13 +99,23 @@ struct Env {
 impl Env {
     /// An Env whose configuration names `chdman`, or leaves it to be found.
     fn new(chdman: Option<&Path>) -> Env {
+        Env::with(chdman, "")
+    }
+
+    /// As [`Env::new`], with `chd` added to the configuration's `[chd]` table.
+    fn with(chdman: Option<&Path>, chd: &str) -> Env {
+        Env::setup(chdman, chd, &[])
+    }
+
+    /// As [`Env::with`], with the games `zipped` in the source set as ZIPs rather than loose folders.
+    fn setup(chdman: Option<&Path>, chd: &str, zipped: &[&str]) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("roots/sets");
         let play = tmp.path().join("roots/play");
         std::fs::create_dir_all(sets.join(SET)).unwrap();
         std::fs::create_dir_all(&play).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
-        let config = config(tmp.path(), chdman);
+        let config = config_with(tmp.path(), chdman, chd);
         let store = Store::open(&tmp.path().join("store")).unwrap();
         let dat = write_dat_version(&tmp.path().join("in"), "test.dat", "1", &games());
         let (revision, _) = store.import_dat(&dat, "Redump", None).unwrap();
@@ -103,7 +131,15 @@ impl Env {
             )
             .unwrap();
         for (game, roms) in games() {
-            write_loose_folder(&sets.join(SET), game, &roms);
+            if zipped.contains(&game) {
+                let members: Vec<(&str, &[u8])> = roms
+                    .iter()
+                    .map(|r| (r.name, r.payload.as_slice()))
+                    .collect();
+                write_zip(&sets.join(SET).join(format!("{game}.zip")), &members);
+            } else {
+                write_loose_folder(&sets.join(SET), game, &roms);
+            }
         }
         store
             .audit_source_set(&config, SET, None, title_select_engine::AuditEvidence::Full)
@@ -205,13 +241,18 @@ impl Env {
 }
 
 fn config(root: &Path, chdman: Option<&Path>) -> Config {
+    config_with(root, chdman, "")
+}
+
+fn config_with(root: &Path, chdman: Option<&Path>, chd: &str) -> Config {
     let mut text = format!(
         "[roots.sets]\npath = {:?}\n\n[roots.play]\npath = {:?}\nwritable = true\n",
         root.join("roots/sets").display().to_string(),
         root.join("roots/play").display().to_string(),
     );
+    text += &format!("\n[chd]\n{chd}\n");
     if let Some(chdman) = chdman {
-        text += &format!("\n[chd]\nchdman = {:?}\n", chdman.display().to_string());
+        text += &format!("chdman = {:?}\n", chdman.display().to_string());
     }
     Config::parse(&text).unwrap()
 }
@@ -496,6 +537,96 @@ fn a_build_you_cancel_while_chdman_runs_stops_it_and_leaves_no_work_space() {
     let build = env.store.library_folder(&env.config, folder.id).unwrap();
     let detail = env.store.build(build.unfinished.unwrap().build).unwrap();
     assert_eq!(detail.items[0].state, ItemState::Pending, "{detail:?}");
+}
+
+#[test]
+fn a_disc_zipped_in_its_source_set_is_read_once_for_all_its_tracks() {
+    let Some(_) = chdman() else { return };
+    let env = Env::setup(None, "", &[CD]);
+    let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = reads.clone();
+    env.store.hook_faults(Some(std::sync::Arc::new(move |at| {
+        if let title_select_store::Fault::ChdSourceRead(_) = at {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })));
+    let (folder, selection) = env.folder(&[CD]);
+    let plan = env.plan(&folder, selection);
+    let item = &plan.content.items[0];
+    assert!(
+        item.chd && item.sources.iter().all(|s| s.member.is_some()),
+        "{item:?}"
+    );
+    let ended = env.build(&plan);
+
+    assert_eq!(only_item(&env, &ended).state, ItemState::Applied);
+    assert!(env.dir().join("Orbit (USA).chd").is_file());
+    assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+/// The single item of the Build that ended as `job`.
+fn only_item(env: &Env, job: &title_select_api::Job) -> title_select_api::build::BuildItem {
+    let build = env.store.build_of_job(job.id).unwrap().unwrap();
+    let detail = env.store.build(build.id).unwrap();
+    assert_eq!(detail.items.len(), 1, "{detail:?}");
+    detail.items[0].clone()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_cue_sheet_that_names_a_track_twice_is_refused_before_chdman_runs() {
+    let root = tempfile::tempdir().unwrap();
+    let ran = root.path().join("ran");
+    let fake = fake_chdman(
+        root.path(),
+        &format!("touch {:?}; exit 1", ran.display().to_string()),
+    );
+    let env = Env::new(Some(&fake));
+    let (folder, selection) = env.folder(&[ECHO]);
+    let ended = env.build(&env.plan(&folder, selection));
+
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    assert!(!ran.exists(), "chdman ran");
+    let item = only_item(&env, &ended);
+    assert_eq!(item.state, ItemState::Failed, "{item:?}");
+    let error = item.error.unwrap();
+    assert!(
+        error.contains("leaves out Echo (USA) (Track 2).bin"),
+        "{error}"
+    );
+    assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
+}
+
+#[cfg(unix)]
+#[test]
+fn chdman_that_outruns_its_deadline_is_stopped_and_fails_the_disc() {
+    let root = tempfile::tempdir().unwrap();
+    let fake = fake_chdman(root.path(), "exec sleep 30");
+    let env = Env::with(
+        Some(&fake),
+        "timeout_seconds = 1\ntimeout_seconds_per_gib = 0",
+    );
+    let (folder, selection) = env.folder(&[CD]);
+    let started = std::time::Instant::now();
+    let ended = env.build(&env.plan(&folder, selection));
+
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "chdman was left to run"
+    );
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    let item = only_item(&env, &ended);
+    assert_eq!(item.state, ItemState::Failed, "{item:?}");
+    assert!(
+        item.error
+            .as_deref()
+            .unwrap()
+            .contains("took longer than 1 second,"),
+        "{item:?}"
+    );
+    assert!(env.chd_scratch().is_empty(), "{:?}", env.chd_scratch());
+    assert!(!env.dir().join("Orbit (USA).chd").exists());
+    assert!(!env.dir().join(title_select_api::build::STAGING).exists());
 }
 
 /// A source set keeps each file exactly as the DAT lists it, so the storage policy never lets one hold a CHD.

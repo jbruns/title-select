@@ -263,6 +263,9 @@ pub enum Fault {
     /// After a Build keeps aside the original of the conversion of the item with this sequence number, before it
     /// verifies the converted file to delete the original.
     ConversionKept(i64),
+    /// Before a Build reads a file of its Source Set to write the ROMs it holds for the disc of the item with this
+    /// sequence number, which it makes a CHD of.
+    ChdSourceRead(i64),
     /// After an Additions Set's folder is made and recorded under its temporary name, before its marker is written.
     AdditionSetMade,
     /// After an Additions Set's folder is renamed into place, before the Root is synced and the folder recorded.

@@ -28,7 +28,7 @@ use title_select_api::storage::chd_of;
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{
-    Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
+    self, Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
 };
 use title_select_engine::chd::{self, Chdman};
 
@@ -80,7 +80,10 @@ struct Staged {
 /// What a Build needs to make a CHD: chdman, or why it can't be run, the store's scratch directory, and whether you
 /// cancelled the Build.
 struct ChdWork<'a> {
+    store: &'a Store,
     chdman: std::result::Result<Chdman, String>,
+    /// How long each run of chdman may take, by the size of the disc.
+    limits: chd::Limits,
     tmp: PathBuf,
     build: i64,
     cancelled: &'a dyn Fn() -> bool,
@@ -131,7 +134,12 @@ fn stage_chd(
         .map(|r| (r.name.as_str(), r.size))
         .collect();
     let kind = chd_of(&item.game, &sized).map_err(|why| Failure::Item(why.into()))?;
-    let chdman = work.chdman.as_ref().map_err(|e| Failure::Item(e.clone()))?;
+    let chdman = Chdman {
+        deadline: work
+            .limits
+            .for_bytes(item.roms.iter().map(|r| r.size).sum()),
+        ..work.chdman.clone().map_err(Failure::Item)?
+    };
     let cancelled = work.cancelled;
     let stop = |s: chd::Stop| match s {
         chd::Stop::Cancelled => Failure::Cancelled,
@@ -143,27 +151,69 @@ fn stage_chd(
     std::fs::create_dir_all(&input)
         .map_err(|e| Failure::Item(format!("{}: {e}", input.display())))?;
     let _scratch = Scratch(dir.clone());
-    let mut cue = None;
+    // Each file of the Source Set is opened and read once, for all the ROMs it holds: a ZIP holding every track of
+    // the disc is read through once, not once a track.
+    let mut by_source: Vec<(&PlanSource, Vec<&ExpectedRom>)> = Vec::new();
     for rom in &item.roms {
-        if cancelled() {
-            return Err(Failure::Cancelled);
-        }
         let source = item
             .sources
             .iter()
             .find(|s| s.rom == rom.name)
             .ok_or_else(|| Failure::Item(format!("{}: no source", rom.name)))?;
-        let opened = open_source(set_fd, source).map_err(Failure::Item)?;
-        let path = input.join(&rom.name);
-        let dest = File::create_new(&path)
-            .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))?;
-        write_loose(&dest, &[(rom, 0, source.member.as_deref())], &[&opened])
-            .and_then(|_| verify_loose(&dest, rom))
-            .map_err(Failure::Item)?;
-        if rom.name.to_ascii_lowercase().ends_with(".cue") {
-            cue = Some(chd::read_cue(&dest).map_err(Failure::Item)?);
+        match by_source.iter_mut().find(|(s, _)| s.path == source.path) {
+            Some((_, roms)) => roms.push(rom),
+            None => by_source.push((source, vec![rom])),
         }
     }
+    let mut written: Vec<(&ExpectedRom, File)> = Vec::with_capacity(item.roms.len());
+    for (source, roms) in &by_source {
+        if cancelled() {
+            return Err(Failure::Cancelled);
+        }
+        let opened = open_source(set_fd, source).map_err(Failure::Item)?;
+        work.store.fault_point(Fault::ChdSourceRead(seq));
+        let dests = roms
+            .iter()
+            .map(|rom| {
+                let path = input.join(&rom.name);
+                File::create_new(&path)
+                    .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))
+            })
+            .collect::<std::result::Result<Vec<File>, _>>()?;
+        let members: Option<Vec<(&ExpectedRom, &str)>> = roms
+            .iter()
+            .map(|rom| {
+                item.sources
+                    .iter()
+                    .find(|s| s.rom == rom.name)
+                    .and_then(|s| s.member.as_deref())
+                    .map(|m| (*rom, m))
+            })
+            .collect();
+        match (members, roms.as_slice(), dests.as_slice()) {
+            (Some(members), ..) => {
+                let refs: Vec<&File> = dests.iter().collect();
+                build::write_loose_members(&refs, &members, &opened).map(|_| ())
+            }
+            (None, [rom], [dest]) => write_loose(dest, &[(rom, 0, None)], &[&opened]).map(|_| ()),
+            (None, ..) => Err(format!("{}: a loose file holds one ROM", source.path)),
+        }
+        .map_err(Failure::Item)?;
+        written.extend(roms.iter().copied().zip(dests));
+    }
+    let mut cue = None;
+    for (rom, dest) in &written {
+        verify_loose(dest, rom).map_err(Failure::Item)?;
+        if rom.name.to_ascii_lowercase().ends_with(".cue") {
+            let read = chd::read_cue(dest).map_err(Failure::Item)?;
+            // Before chdman reads it: each track it names is then checked once extracted.
+            chd::cue_tracks(&read)
+                .and_then(|names| chd::cue_matches(&names, &item.roms).map(|_| ()))
+                .map_err(Failure::Item)?;
+            cue = Some(read);
+        }
+    }
+    drop(written);
     let main = item
         .roms
         .iter()
@@ -1324,9 +1374,12 @@ impl Store {
                 true => chd::locate(config.chd.chdman.as_deref()).map(|program| Chdman {
                     program,
                     threads: config.jobs.workers().hashers,
+                    deadline: config.chd.limits().base,
                 }),
                 false => Err("no item is a CHD".into()),
             },
+            store: self,
+            limits: config.chd.limits(),
             tmp: self.dir().join(crate::TMP),
             build: id,
             cancelled: &cancel_asked,
