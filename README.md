@@ -567,16 +567,26 @@ each system. The default is the ES-DE layout:
 
 The flat layout puts every file of every disc directly in the system folder, and writes no `.m3u`. A disc stored as
 TorrentZip is `<game>.zip` in the system folder in either layout. Under the ES-DE layout, a disc of several files that
-isn't one `.cue` with its tracks stays TorrentZip, with every other disc of its game, and the plan says why. The `.multidisc/` and `<game>.cue/` folders and each `.m3u` belong to the
-library folder: a check reads every file in them, an `.m3u` that changed since it was built is drift and is never
-written over, and a file a build no longer needs there, an `.m3u` too, goes to your kept files like any other; a
-folder left empty is removed. A game's `.m3u` is written with its discs: it goes in place only once every disc does.
-Changing a game from one layout to the other while files of a `<game>.cue/` folder are where a single file would go,
-or the other way round, is refused until you build that game once as TorrentZip.
+isn't one `.cue` with its tracks stays TorrentZip, with every other disc of its game, and the plan says why. A game's
+name must be one plain name, not a path and not a name Title Select keeps its own work under: the plan refuses any
+other, so the only folders a layout makes are `.multidisc/` and `<game>.cue/`. Names that differ only in case or
+Unicode form are the same name, so a plan refuses two files, or a file and a folder, that would share one.
+
+The `.multidisc/` and `<game>.cue/` folders and each `.m3u` belong to the library folder: a check reads every file in
+them, an `.m3u` that changed since it was built is drift and is never written over, and a file a build no longer needs
+there, an `.m3u` or SBI file too, goes to your kept files like any other. A build removes a layout folder it left
+empty only if a build made it and it is still that folder: one you made stays.
+
+Every file of a game, across all its discs, goes in place together: each disc, each track, its `.m3u` and its SBI
+files. If any of them can't be built, the plan builds none of them and names the one in the way; if one fails or you
+cancel before they go in place, none does, and the files they replace stay where they are. The files they replace go
+to your kept files only once every new file is in place. Changing a game from one layout to the other rebuilds it from
+its source set the same way, and keeps its old files aside.
 
 A disc system's own setting can also put each disc's SBI file beside it: with "Put SBI files beside discs" on, a build
 writes each disc's `.sbi` from the system's latest fetched SBI pack, named for and beside its `.cue` or `.chd`. A disc
-the pack has no SBI file for gets none. Turning it off keeps the SBI files aside in your kept files.
+the pack has no SBI file for gets none. Turning it off keeps the SBI files aside in your kept files. A plan records
+the SBI pack it uses: if a newer pack arrives before you run it, the plan is out of date and you review a new one.
 
 A disc system's play libraries can also store each disc as CHD, `<game>.chd`. Only a system's own setting can say CHD,
 not the global one, and source sets never can: a source set keeps each file exactly as the DAT lists it. A disc is
