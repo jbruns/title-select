@@ -1,4 +1,5 @@
-//! Reading a Logiqx XML DAT into a DAT Revision.
+//! Reading a DAT into a DAT Revision: Logiqx XML, MAME's ListXML (`<mame>`, named `MAME` and versioned by its build),
+//! or a MAME software list (`<softwarelist>`, named by its list name, unversioned).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -16,6 +17,14 @@ pub struct Rom {
     pub md5: Option<String>,
     pub sha1: Option<String>,
     pub sha256: Option<String>,
+}
+
+/// The root element a DAT is read by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Root {
+    Logiqx,
+    ListXml,
+    SoftwareList,
 }
 
 pub struct Dat {
@@ -66,22 +75,41 @@ impl Dat {
             by_size_without_crc: HashMap::new(),
         };
         let mut stack: Vec<String> = Vec::new();
-        let mut saw_root = false;
+        let mut root = None;
         loop {
             let event = reader
                 .read_event_into(&mut buf)
                 .map_err(|err| Error::Dat(format!("{}: {err}", path.display())))?;
             match event {
+                Event::Start(e) if stack.is_empty() => {
+                    let tag = e.local_name().as_ref().to_string();
+                    let a = attrs(&e)?;
+                    root = match tag.as_str() {
+                        "datafile" => Some(Root::Logiqx),
+                        "mame" => {
+                            dat.name = "MAME".into();
+                            dat.version = a.get("build").cloned().unwrap_or_default();
+                            Some(Root::ListXml)
+                        }
+                        "softwarelist" => {
+                            dat.name = a.get("name").cloned().unwrap_or_default();
+                            Some(Root::SoftwareList)
+                        }
+                        _ => None,
+                    };
+                    stack.push(tag);
+                }
                 Event::Start(e) => {
-                    let tag = dat.open(&e)?;
-                    saw_root |= tag == "datafile";
+                    let tag = dat.open(&e, root)?;
                     stack.push(tag);
                 }
                 Event::Empty(e) => {
-                    dat.open(&e)?;
+                    dat.open(&e, root)?;
                 }
                 Event::Text(t) => {
-                    let in_header = stack.len() >= 2 && stack[stack.len() - 2] == "header";
+                    let in_header = root == Some(Root::Logiqx)
+                        && stack.len() >= 2
+                        && stack[stack.len() - 2] == "header";
                     match stack.last().map(String::as_str) {
                         Some("name") if in_header => dat.name.push_str(&t.xml10_content()),
                         Some("version") if in_header => dat.version.push_str(&t.xml10_content()),
@@ -96,21 +124,24 @@ impl Dat {
             }
             buf.clear();
         }
-        if !saw_root {
+        if root.is_none() {
             return Err(Error::Dat(format!(
-                "{}: not a Logiqx XML DAT",
+                "{}: not a Logiqx XML DAT, MAME ListXML or MAME software list",
                 path.display()
             )));
         }
         Ok(dat)
     }
 
-    /// Handles an opening or empty tag and returns its name.
-    fn open(&mut self, e: &BytesStart) -> Result<String, Error> {
+    /// Handles an opening or empty tag inside the root and returns its name.
+    fn open(&mut self, e: &BytesStart, root: Option<Root>) -> Result<String, Error> {
         let tag = e.local_name().as_ref().to_string();
-        match tag.as_str() {
-            "game" | "machine" => self.start_game(e)?,
-            "rom" => self.add_rom(e)?,
+        match (root, tag.as_str()) {
+            (Some(Root::Logiqx | Root::ListXml), "game" | "machine") => self.start_game(e)?,
+            (Some(Root::SoftwareList), "software") => self.start_game(e)?,
+            // A software list's unnamed ROM continues or reloads the one before it: no file of its own.
+            (Some(Root::SoftwareList), "rom") if !attrs(e)?.contains_key("name") => {}
+            (Some(_), "rom") => self.add_rom(e)?,
             _ => {}
         }
         Ok(tag)
