@@ -346,6 +346,20 @@ fn next_at(
     Ok((next > jiff::Timestamp::now()).then_some(next))
 }
 
+/// Records the unfinished fetch `fetch` as bringing the pack `sha256`: while it runs, that holds the pack's file
+/// against retention. Run under the writer that keeps the pack, so that no retention comes between.
+pub(crate) fn hold_pack(c: &Connection, fetch: i64, sha256: &str) -> Result<()> {
+    c.execute(
+        "UPDATE fetches SET pack_sha256 = ?2 WHERE id = ?1 AND finished_at IS NULL",
+        params![fetch, sha256],
+    )?;
+    Ok(())
+}
+
+/// The condition, on a pack `pack`, that no running fetch holds it.
+pub(crate) const NOT_HELD: &str =
+    "NOT EXISTS (SELECT 1 FROM fetches h WHERE h.pack_sha256 = {pack} AND h.finished_at IS NULL)";
+
 /// When the latest request to `provider` that any Service recorded was sent, or finished if it did.
 fn last_request(c: &Connection, provider: FetchProvider) -> Result<Option<jiff::Timestamp>> {
     let at: Option<String> = c
@@ -554,7 +568,7 @@ impl Store {
                         trigger,
                         actor,
                         &url,
-                        |s, f| s.check_mame_release(f, &url, web),
+                        |s, _, f| s.check_mame_release(f, &url, web),
                     )?;
                     if let Some(attempt) = attempt {
                         let failed = attempt.outcome == Some(FetchOutcome::Failed);
@@ -641,7 +655,7 @@ impl Store {
                 trigger,
                 actor,
                 &step.url,
-                |s, f| {
+                |s, fetch, f| {
                     let mut brought = match step.artifact {
                         FetchArtifact::Dat
                             if provider == FetchProvider::Mame && step.system == "mame" =>
@@ -658,7 +672,7 @@ impl Store {
                             let (file, bytes) = zip_member(&f.bytes, ".dat", MAX_DAT)?;
                             s.import_fetched(&step, &file, &bytes, &f.url, None)?
                         }
-                        artifact => s.keep_pack(&step, artifact, f)?,
+                        artifact => s.keep_pack(&step, artifact, fetch, f)?,
                     };
                     brought.release = tag;
                     Ok(brought)
@@ -691,7 +705,7 @@ impl Store {
         trigger: FetchTrigger,
         actor: &str,
         url: &str,
-        then: impl FnOnce(&Store, Fetched) -> std::result::Result<Brought, String>,
+        then: impl FnOnce(&Store, i64, Fetched) -> std::result::Result<Brought, String>,
     ) -> Result<Option<FetchAttempt>> {
         let id = self.write(|tx| {
             if next_at(tx, provider, system, artifact)?.is_some() {
@@ -722,7 +736,7 @@ impl Store {
         let result = fetcher
             .get(provider, url, accept, limit)
             .map_err(|e| e.to_string())
-            .and_then(|f| then(self, f));
+            .and_then(|f| then(self, id, f));
         let (brought, error) = match result {
             Ok(brought) => (brought, None),
             Err(e) => (Brought::new(FetchOutcome::Failed), Some(e)),
@@ -807,6 +821,7 @@ impl Store {
         &self,
         step: &Step,
         artifact: FetchArtifact,
+        fetch: i64,
         fetched: Fetched,
     ) -> std::result::Result<Brought, String> {
         let dat = format!("{}/{}", step.provider, step.dat);
@@ -816,15 +831,16 @@ impl Store {
             .unwrap_or_else(|| format!("{} ({}).zip", step.dat, artifact.as_str()));
         let (sha, outcome) = match artifact {
             FetchArtifact::Cues => self
-                .import_cue_pack_bytes(
+                .import_cue_pack_held(
                     &fetched.bytes,
                     &file,
                     &dat,
                     Some(&fetched.url),
                     CuePackOrigin::Fetch,
+                    Some(fetch),
                 )
                 .map(|(record, outcome)| (record.sha256, outcome)),
-            _ => self.import_sbi_pack_bytes(&fetched.bytes, &file, &dat, &fetched.url),
+            _ => self.import_sbi_pack_bytes(&fetched.bytes, &file, &dat, &fetched.url, fetch),
         }
         .map_err(|e| e.to_string())?;
         Ok(Brought {
@@ -1006,5 +1022,107 @@ mod tests {
         );
         let kt = systems.iter().find(|s| s.code == "kt").unwrap();
         assert_eq!(redump_artifacts(kt), []);
+    }
+
+    fn zip_of(member: &str, bytes: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file(member, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(bytes).unwrap();
+        zip.finish().unwrap().into_inner()
+    }
+
+    /// Records a request for `artifact` of `psx`, finished as bringing `pack` if `pack` is given.
+    fn record(store: &Store, artifact: FetchArtifact, pack: Option<&str>) -> i64 {
+        store
+            .write(|tx| {
+                tx.execute(
+                    "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at, finished_at,
+                                          outcome, pack_sha256)
+                     VALUES ('redump', 'psx', ?1, 'manual', 'Operator', 'x', ?2, ?3, ?4, ?5)",
+                    params![
+                        artifact.as_str(),
+                        now(),
+                        pack.map(|_| now()),
+                        pack.map(|_| "added"),
+                        pack
+                    ],
+                )?;
+                Ok(tx.last_insert_rowid())
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn a_pack_a_fetch_is_restoring_survives_retention_before_the_fetch_finishes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let dat = br#"<?xml version="1.0"?><datafile><header><name>Sony - PlayStation</name>
+            <version>1</version></header></datafile>"#;
+        store
+            .import_dat_bytes(dat, "psx.dat", "Redump", None)
+            .unwrap();
+        let keep = |artifact, version: &str, fetch| -> String {
+            let dat = "Redump/Sony - PlayStation";
+            match artifact {
+                FetchArtifact::Cues => {
+                    let cue = format!("FILE \"Game.bin\" BINARY {version}");
+                    let bytes = zip_of("Game.cue", cue.as_bytes());
+                    store
+                        .import_cue_pack_held(
+                            &bytes,
+                            "c.zip",
+                            dat,
+                            None,
+                            CuePackOrigin::Fetch,
+                            Some(fetch),
+                        )
+                        .unwrap()
+                        .0
+                        .sha256
+                }
+                _ => {
+                    let bytes = zip_of("Game.sbi", version.as_bytes());
+                    store
+                        .import_sbi_pack_bytes(&bytes, "s.zip", dat, "x", fetch)
+                        .unwrap()
+                        .0
+                }
+            }
+        };
+        for (artifact, packs) in [
+            (FetchArtifact::Cues, crate::cue_packs::CUE_PACKS),
+            (FetchArtifact::Sbi, crate::sbi_packs::SBI_PACKS),
+        ] {
+            let first = record(&store, artifact, None);
+            let a = keep(artifact, "a", first);
+            store.write(|tx| {
+                tx.execute(
+                    "UPDATE fetches SET finished_at = ?2, outcome = 'added', pack_sha256 = ?3 WHERE id = ?1",
+                    params![first, now(), a],
+                )?;
+                Ok(())
+            }).unwrap();
+            let second = record(&store, artifact, None);
+            let b = keep(artifact, "b", second);
+            record(&store, artifact, Some(&b));
+            store.retain_cue_packs().unwrap();
+            store.retain_sbi_packs().unwrap();
+            assert!(
+                !dir.path().join(packs).join(&a).exists(),
+                "{artifact:?}: a was let go"
+            );
+
+            let third = record(&store, artifact, None);
+            assert_eq!(keep(artifact, "a", third), a);
+            // A retention another import or fetch runs before this one finishes.
+            store.retain_cue_packs().unwrap();
+            store.retain_sbi_packs().unwrap();
+            assert!(
+                dir.path().join(packs).join(&a).is_file(),
+                "{artifact:?}: a is held"
+            );
+        }
     }
 }

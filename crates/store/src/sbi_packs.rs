@@ -10,6 +10,7 @@ use rusqlite::{TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
 use super::blobs::{remove_blob, write_blob};
+use super::fetch::{NOT_HELD, hold_pack};
 use super::{Error, Result, Store, io_error, now};
 
 use title_select_api::ImportOutcome;
@@ -20,13 +21,15 @@ pub const SBI_PACKS: &str = "sbi_packs";
 impl Store {
     /// Keeps the unmodified bytes of an SBI pack fetched from `source_url` as `file`, for `dat`, named
     /// `<provider>/<name>`, once they are found to be a ZIP holding at least one `.sbi` file. Returns its SHA-256.
-    /// Bytes already kept are not written again, unless their file was deleted.
+    /// Bytes already kept are not written again, unless their file was deleted. The unfinished fetch `fetch` is
+    /// recorded as bringing it as it is kept, so that no retention between deletes it before that fetch finishes.
     pub(crate) fn import_sbi_pack_bytes(
         &self,
         bytes: &[u8],
         file: &str,
         dat: &str,
         source_url: &str,
+        fetch: i64,
     ) -> Result<(String, ImportOutcome)> {
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
             .map_err(|e| Error::Refused(format!("{file}: not a ZIP: {e}")))?;
@@ -49,6 +52,7 @@ impl Store {
         let packs = self.dir.join(SBI_PACKS);
         let outcome = self.with_writer(|conn| {
             std::fs::create_dir_all(&packs).map_err(|e| io_error(&packs, e))?;
+            hold_pack(conn, fetch, &sha)?;
             let known: Option<bool> = conn
                 .query_row(
                     "SELECT blob_dropped_at IS NULL FROM sbi_packs WHERE sha256 = ?1",
@@ -90,6 +94,7 @@ impl Store {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let shas = tx
                 .prepare(
+                    &format!(
                     "SELECT p.sha256 FROM sbi_packs p
                      WHERE p.blob_dropped_at IS NULL
                        AND EXISTS (SELECT 1 FROM fetches f WHERE f.pack_sha256 = p.sha256)
@@ -99,9 +104,12 @@ impl Store {
                              AND f.id = (SELECT max(g.id) FROM fetches g
                                          WHERE g.provider = f.provider AND g.system = f.system
                                            AND g.artifact = 'sbi' AND g.outcome IN ('added', 'unchanged')))
+                       AND {not_held}
                        AND NOT EXISTS (SELECT 1 FROM repair_plans r WHERE instr(r.content, p.sha256) > 0)
                        AND NOT EXISTS (SELECT 1 FROM repair_steps s WHERE instr(s.detail, p.sha256) > 0)
                      ORDER BY p.id",
+                    not_held = NOT_HELD.replace("{pack}", "p.sha256")
+                ),
                 )?
                 .query_map([], |r| r.get(0))?
                 .collect::<Result<Vec<String>, _>>()?;

@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 use super::blobs::{remove_blob, write_blob};
 use super::dats::split_dat;
+use super::fetch::{NOT_HELD, hold_pack};
 use super::repairs::planning::CueSheet;
 use super::{Error, Result, Store, io_error, now};
 
@@ -93,6 +94,20 @@ impl Store {
         source_url: Option<&str>,
         origin: CuePackOrigin,
     ) -> Result<(CuePackRecord, ImportOutcome)> {
+        self.import_cue_pack_held(bytes, file, dat, source_url, origin, None)
+    }
+
+    /// As [`Store::import_cue_pack_bytes`], recording the unfinished fetch `fetch`, if given, as bringing the pack as
+    /// it is kept, so that no retention between deletes it before that fetch finishes.
+    pub(crate) fn import_cue_pack_held(
+        &self,
+        bytes: &[u8],
+        file: &str,
+        dat: &str,
+        source_url: Option<&str>,
+        origin: CuePackOrigin,
+        fetch: Option<i64>,
+    ) -> Result<(CuePackRecord, ImportOutcome)> {
         let (provider, name) = split_dat(dat)?;
         if bytes.len() as u64 > CUE_PACK_LIMIT {
             return Err(Error::Refused(format!(
@@ -119,6 +134,9 @@ impl Store {
         let _ = std::fs::remove_file(&tmp);
         let sheets = sheets?;
         let imported = self.with_writer(|conn| {
+            if let Some(fetch) = fetch {
+                hold_pack(conn, fetch, &sha)?;
+            }
             if let Some(existing) = pack_by_sha(conn, &sha)? {
                 if existing.dat != dat {
                     return Err(Error::Refused(format!(
@@ -193,6 +211,7 @@ impl Store {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let shas = tx
                 .prepare(
+                    &format!(
                     "SELECT c.sha256 FROM cue_packs c
                      WHERE c.blob_dropped_at IS NULL
                        AND CASE c.origin
@@ -206,12 +225,15 @@ impl Store {
                                                  WHERE g.provider = f.provider AND g.system = f.system
                                                    AND g.artifact = 'cues'
                                                    AND g.outcome IN ('added', 'unchanged')))
+                               AND {not_held}
                            ELSE c.restored_at IS NULL
                                AND c.id <> (SELECT max(n.id) FROM cue_packs n WHERE n.dat = c.dat)
                            END
                        AND NOT EXISTS (SELECT 1 FROM repair_plans p WHERE instr(p.content, c.sha256) > 0)
                        AND NOT EXISTS (SELECT 1 FROM repair_steps s WHERE instr(s.detail, c.sha256) > 0)
                      ORDER BY c.id",
+                    not_held = NOT_HELD.replace("{pack}", "c.sha256")
+                ),
                 )?
                 .query_map([], |r| r.get(0))?
                 .collect::<Result<Vec<String>, _>>()?;
