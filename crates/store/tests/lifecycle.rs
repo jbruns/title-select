@@ -967,3 +967,110 @@ fn forgetting_a_source_set_waits_for_every_library_folder_bound_to_it() {
     assert!(env.store.unregistered().unwrap().is_empty());
     assert!(env.play().join("atari/Pong (USA).zip").exists());
 }
+
+#[test]
+fn forgetting_a_source_set_leaves_a_rebound_library_folders_builds_alone() {
+    let env = Env::new();
+    let folder = env.built();
+    std::fs::create_dir_all(env.tmp.path().join("sets/Other")).unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "Other", SYSTEM)
+        .unwrap();
+    env.store
+        .change_library_folder(
+            &env.config,
+            folder.id,
+            &ChangeLibraryFolder {
+                profile: None,
+                source_set: Some("Other".into()),
+            },
+        )
+        .unwrap();
+    let old = env.set_id();
+    env.store.unregister_source_set(&env.config, SET).unwrap();
+    let before = env.store.library_folder(&env.config, folder.id).unwrap();
+    assert!(before.build.is_some());
+
+    let refused = env.store.forget(RegistrationKind::SourceSet, old);
+    assert!(
+        matches!(refused, Err(Error::Refused(ref why)) if why.contains("play/atari")),
+        "{refused:?}"
+    );
+    let after = env.store.library_folder(&env.config, folder.id).unwrap();
+    assert_eq!(after.build, before.build, "its current build is untouched");
+    assert_eq!(env.store.built_files(folder.id).unwrap().len(), 2);
+}
+
+#[test]
+fn a_move_is_refused_at_approval_when_its_destination_now_overlaps_a_registration() {
+    let env = Env::new();
+    let folder = env.built();
+    let plan = env
+        .store
+        .plan_library_folder_move(
+            &env.config,
+            folder.id,
+            &PlanFolderMove {
+                path: "outer/atari".into(),
+            },
+        )
+        .unwrap();
+    env.store
+        .add_library_folder(
+            &env.config,
+            &AddLibraryFolder {
+                root: "play".into(),
+                path: Some("outer".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            },
+        )
+        .unwrap();
+    let refused =
+        env.store
+            .approve_library_folder_move(&env.config, plan.id, &plan.digest, "Operator");
+    assert!(
+        matches!(refused, Err(Error::Conflict(ref why)) if why.contains("overlap")),
+        "{refused:?}"
+    );
+    assert!(env.play().join("atari/Pong (USA).zip").is_file());
+    assert!(!env.play().join("outer/atari").exists());
+}
+
+#[test]
+fn an_approved_move_reserves_its_destination_against_new_registrations() {
+    let env = Env::new();
+    let folder = env.built();
+    let plan = env
+        .store
+        .plan_library_folder_move(
+            &env.config,
+            folder.id,
+            &PlanFolderMove {
+                path: "next".into(),
+            },
+        )
+        .unwrap();
+    // As an approval would leave it just before the rename.
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "UPDATE library_folder_moves SET approved_by = 'Operator', approved_at = '2026-01-01T00:00:00Z' WHERE id = ?1",
+        [plan.id],
+    )
+    .unwrap();
+    let refused = env.store.add_library_folder(
+        &env.config,
+        &AddLibraryFolder {
+            root: "play".into(),
+            path: Some("next/inner".into()),
+            template: None,
+            source_set: SET.into(),
+            profile: PROFILE.into(),
+        },
+    );
+    assert!(
+        matches!(refused, Err(Error::Refused(ref why)) if why.contains("being moved")),
+        "{refused:?}"
+    );
+}

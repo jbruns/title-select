@@ -632,6 +632,107 @@ fn overlaps(a: &Path, b: &Path) -> bool {
     a.starts_with(b) || b.starts_with(a)
 }
 
+/// Checks that `rel` in the Root `root_name` may be a Library Folder: a writable Root that is not an Ingest Folder, a
+/// relative path, not a registered Library Folder's, and overlapping no folder Title Select reads or writes nor the
+/// destination of a move under way. Returns it normalized.
+pub(super) fn check_library_path(
+    c: &Connection,
+    config: &Config,
+    root_name: &str,
+    rel: &str,
+) -> Result<String> {
+    let root = config
+        .root(root_name)
+        .ok_or_else(|| Error::Refused(format!("no root named {} is configured", root_name)))?;
+    if !root.writable {
+        return Err(Error::Refused(format!(
+            "root {} is read-only; a library folder needs a root with writable = true",
+            root_name
+        )));
+    }
+    if root.is_ingest() {
+        return Err(Error::Refused(format!(
+            "root {} is an ingest folder; a library folder needs another writable root",
+            root_name
+        )));
+    }
+    let rel = relative_path(rel)
+        .map_err(|e| Error::Refused(format!("{rel}: a library folder's path {e}")))?;
+    if !Path::new(&rel)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_)))
+    {
+        return Err(Error::Refused(format!(
+            "{rel}: a library folder's path must be relative to its root"
+        )));
+    }
+    let canonical_root = root.path.canonicalize().map_err(|e| {
+        Error::Refused(format!("root {} ({}): {e}", root_name, root.path.display()))
+    })?;
+    let others = {
+        let clash: Option<i64> = c
+            .query_row(
+                "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
+                params![root_name, rel],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(clash) = clash {
+            return Err(Error::Refused(format!(
+                "library folder {clash} already uses {rel} in root {}",
+                root_name
+            )));
+        }
+        // An approved move that hasn't finished holds its destination, as though the folder were there already.
+        let mut stmt = c.prepare(
+            "SELECT root, path, 'a source set' FROM source_sets WHERE unregistered_at IS NULL
+             UNION ALL SELECT root, path, 'another library folder' FROM library_folders
+             WHERE unregistered_at IS NULL
+             UNION ALL SELECT root, to_path, 'a library folder being moved there' FROM library_folder_moves
+             WHERE approved_at IS NOT NULL AND finished_at IS NULL",
+        )?;
+        let others = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        others
+    };
+    // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
+    // Select reads or writes.
+    let would_be = rel
+        .split('/')
+        .fold(canonical_root.clone(), |p, part| p.join(part));
+    let ingest = config
+        .roots
+        .iter()
+        .filter(|(_, r)| r.is_ingest())
+        .map(|(name, _)| (name.clone(), String::new(), "an ingest folder".to_owned()));
+    for (root, path, what) in others.into_iter().chain(ingest) {
+        let Some(other) = config.root(&root).and_then(|r| {
+            path.split('/')
+                .filter(|part| !part.is_empty())
+                .fold(r.path.clone(), |p, part| p.join(part))
+                .canonicalize()
+                .ok()
+        }) else {
+            continue;
+        };
+        if overlaps(&would_be, &other) {
+            return Err(Error::Refused(format!(
+                "{rel} in root {} would overlap {what} at {}",
+                root_name,
+                other.display()
+            )));
+        }
+    }
+    Ok(rel)
+}
+
 impl Store {
     /// The path a Path Template proposes for a Library Folder of the Source Set `source_set`'s system: `template` if
     /// given, else the configured default.
@@ -661,93 +762,7 @@ impl Store {
         root_name: &str,
         rel: &str,
     ) -> Result<String> {
-        let root = config
-            .root(root_name)
-            .ok_or_else(|| Error::Refused(format!("no root named {} is configured", root_name)))?;
-        if !root.writable {
-            return Err(Error::Refused(format!(
-                "root {} is read-only; a library folder needs a root with writable = true",
-                root_name
-            )));
-        }
-        if root.is_ingest() {
-            return Err(Error::Refused(format!(
-                "root {} is an ingest folder; a library folder needs another writable root",
-                root_name
-            )));
-        }
-        let rel = relative_path(rel)
-            .map_err(|e| Error::Refused(format!("{rel}: a library folder's path {e}")))?;
-        if !Path::new(&rel)
-            .components()
-            .all(|c| matches!(c, Component::Normal(_)))
-        {
-            return Err(Error::Refused(format!(
-                "{rel}: a library folder's path must be relative to its root"
-            )));
-        }
-        let canonical_root = root.path.canonicalize().map_err(|e| {
-            Error::Refused(format!("root {} ({}): {e}", root_name, root.path.display()))
-        })?;
-        let others = self.read(|c| {
-            let clash: Option<i64> = c
-                .query_row(
-                    "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
-                    params![root_name, rel],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            if let Some(clash) = clash {
-                return Err(Error::Refused(format!(
-                    "library folder {clash} already uses {rel} in root {}",
-                    root_name
-                )));
-            }
-            let mut stmt = c.prepare(
-                "SELECT root, path, 'a source set' FROM source_sets WHERE unregistered_at IS NULL
-                 UNION ALL SELECT root, path, 'another library folder' FROM library_folders
-                 WHERE unregistered_at IS NULL",
-            )?;
-            let others = stmt
-                .query_map([], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(others)
-        })?;
-        // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
-        // Select reads or writes.
-        let would_be = rel
-            .split('/')
-            .fold(canonical_root.clone(), |p, part| p.join(part));
-        let ingest = config
-            .roots
-            .iter()
-            .filter(|(_, r)| r.is_ingest())
-            .map(|(name, _)| (name.clone(), String::new(), "an ingest folder".to_owned()));
-        for (root, path, what) in others.into_iter().chain(ingest) {
-            let Some(other) = config.root(&root).and_then(|r| {
-                path.split('/')
-                    .filter(|part| !part.is_empty())
-                    .fold(r.path.clone(), |p, part| p.join(part))
-                    .canonicalize()
-                    .ok()
-            }) else {
-                continue;
-            };
-            if overlaps(&would_be, &other) {
-                return Err(Error::Refused(format!(
-                    "{rel} in root {} would overlap {what} at {}",
-                    root_name,
-                    other.display()
-                )));
-            }
-        }
-        Ok(rel)
+        self.read(|c| check_library_path(c, config, root_name, rel))
     }
 
     /// Registers a Library Folder: `add.path` (or the path its template proposes) in the writable Root `add.root`,
@@ -777,6 +792,8 @@ impl Store {
         })?;
         let folder = create_or_check_empty(&root.path, &rel)?;
         self.write(|tx| {
+            // Again where it is recorded, so that nothing registered or reserved since is overlapped.
+            check_library_path(tx, config, &add.root, &rel)?;
             let store = store_id(tx)?;
             tx.execute(
                 "INSERT INTO library_folders (root, path, source_set_id, profile_id, created_at)

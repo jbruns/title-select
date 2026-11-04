@@ -668,11 +668,38 @@ impl Store {
                 stmt.query_map([id], |r| r.get(0))?
                     .collect::<Result<_, _>>()?
             };
-            graph.purge(tx, "jobs", &jobs, table(kind))?;
-            if kind == RegistrationKind::SourceSet {
-                tx.execute("DELETE FROM source_folders WHERE source_set_id = ?1", [id])?;
+            let mut others = Others::new();
+            for write in [false, true] {
+                if write && !others.is_empty() {
+                    let mut why = Vec::new();
+                    for (other, other_id) in &others {
+                        let o = registration(tx, *other, *other_id)?;
+                        why.push(match o.unregistered_at {
+                            Some(_) => format!(
+                                "{} {} refers to its history; forget that first",
+                                other.label(),
+                                o.name
+                            ),
+                            None => format!(
+                                "{} {} still refers to its history",
+                                other.label(),
+                                o.name
+                            ),
+                        });
+                    }
+                    return Err(Error::Refused(format!(
+                        "{} {} can't be forgotten yet: {}",
+                        kind.label(),
+                        reg.name,
+                        why.join("; ")
+                    )));
+                }
+                graph.purge(tx, "jobs", &jobs, (kind, id), &mut others, write)?;
+                if write && kind == RegistrationKind::SourceSet {
+                    tx.execute("DELETE FROM source_folders WHERE source_set_id = ?1", [id])?;
+                }
+                graph.purge(tx, table(kind), &[id], (kind, id), &mut others, write)?;
             }
-            graph.purge(tx, table(kind), &[id], table(kind))?;
             Ok(Forgotten {
                 kind,
                 id,
@@ -743,9 +770,21 @@ const SHARED: [&str; 9] = [
     "meta",
 ];
 
+/// The registration tables, in the order a row referring to more than one is owned by: a Job of a Library Folder
+/// names its Source Set too, and is the folder's.
+const OWNERS: [(&str, RegistrationKind); 4] = [
+    ("library_folders", RegistrationKind::LibraryFolder),
+    ("ingest_folders", RegistrationKind::IngestFolder),
+    ("additions_sets", RegistrationKind::AdditionsSet),
+    ("source_sets", RegistrationKind::SourceSet),
+];
+
 /// The schema's foreign keys, by the table they refer to: each referring table and column, and whether the column
 /// must hold a value (NOT NULL, or part of the primary key).
 struct ForeignKeys(BTreeMap<String, Vec<(String, String, bool)>>);
+
+/// What a purge reaches that belongs to another registration, which it must leave alone.
+type Others = BTreeSet<(RegistrationKind, i64)>;
 
 impl ForeignKeys {
     fn read(c: &Connection) -> Result<ForeignKeys> {
@@ -774,46 +813,128 @@ impl ForeignKeys {
         Ok(ForeignKeys(graph))
     }
 
+    /// The registrations owning rows `rows` of `table`: a registration's own row is its own; any other row is owned
+    /// by the registrations its columns name, those that must hold a value first, then in [`OWNERS`] order.
+    fn owners(&self, c: &Connection, table: &str, rows: &str) -> Result<Others> {
+        let mut found = Others::new();
+        if let Some((_, kind)) = OWNERS.iter().find(|(t, _)| *t == table) {
+            let mut stmt = c.prepare("SELECT value FROM json_each(?1)")?;
+            for id in stmt.query_map([rows], |r| r.get::<_, i64>(0))? {
+                found.insert((*kind, id?));
+            }
+            return Ok(found);
+        }
+        let mut columns: Vec<(bool, usize, &str, RegistrationKind)> = Vec::new();
+        for (rank, (parent, kind)) in OWNERS.iter().enumerate() {
+            for (child, column, not_null) in self.0.get(*parent).into_iter().flatten() {
+                if child == table {
+                    columns.push((!not_null, rank, column, *kind));
+                }
+            }
+        }
+        if columns.is_empty() {
+            return Ok(found);
+        }
+        columns.sort();
+        // Each row's owner is its first column that holds a value.
+        let owner = columns
+            .iter()
+            .map(|(_, _, column, kind)| {
+                format!(
+                    "WHEN \"{column}\" IS NOT NULL THEN '{}' || ':' || \"{column}\"",
+                    kind.as_str()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut stmt = c.prepare(&format!(
+            "SELECT DISTINCT CASE {owner} END FROM \"{table}\" WHERE rowid IN (SELECT value FROM json_each(?1))"
+        ))?;
+        for value in stmt.query_map([rows], |r| r.get::<_, Option<String>>(0))? {
+            let Some(value) = value? else { continue };
+            let (kind, id) = value.split_once(':').expect("kind:id");
+            let kind = OWNERS
+                .iter()
+                .map(|(_, k)| *k)
+                .find(|k| k.as_str() == kind)
+                .expect("a registration kind");
+            found.insert((kind, id.parse().expect("an id")));
+        }
+        Ok(found)
+    }
+
     /// Deletes rows `ids` of `table`, first deleting every row that must refer to one of them and clearing every
-    /// reference that may be empty. Refused if that would reach a table in [`SHARED`] other than `root`.
-    fn purge(&self, tx: &Transaction, table: &str, ids: &[i64], root: &str) -> Result<()> {
+    /// reference that may be empty, all of it the history of registration `root`. Refused if that would reach a
+    /// table in [`SHARED`] other than the root's own; a row another registration owns is collected in `others`
+    /// instead, and while `write` is false nothing is changed, so that a first pass finds them all.
+    fn purge(
+        &self,
+        tx: &Transaction,
+        table: &str,
+        ids: &[i64],
+        root: (RegistrationKind, i64),
+        others: &mut Others,
+        write: bool,
+    ) -> Result<()> {
         if ids.is_empty() {
             return Ok(());
         }
-        if table != root && SHARED.contains(&table) {
+        let root_table = self::table(root.0);
+        if table != root_table && SHARED.contains(&table) {
             return Err(Error::Refused(format!(
                 "what it left in the store is still referred to by {table}; nothing was forgotten"
             )));
         }
         let list = serde_json::to_string(ids).expect("ids serialize");
+        others.extend(
+            self.owners(tx, table, &list)?
+                .into_iter()
+                .filter(|o| *o != root),
+        );
         let mut seen = BTreeSet::new();
         for (child, column, not_null) in self.0.get(table).into_iter().flatten() {
             if !seen.insert((child.clone(), column.clone())) {
                 continue;
             }
+            let rows: Vec<i64> = {
+                let mut stmt = tx.prepare(&format!(
+                    "SELECT rowid FROM \"{child}\" WHERE \"{column}\" IN (SELECT value FROM json_each(?1))"
+                ))?;
+                stmt.query_map([&list], |r| r.get(0))?
+                    .collect::<Result<_, _>>()?
+            };
             if *not_null {
-                let rows: Vec<i64> = {
-                    let mut stmt = tx.prepare(&format!(
-                        "SELECT rowid FROM \"{child}\" WHERE \"{column}\" IN (SELECT value FROM json_each(?1))"
-                    ))?;
-                    stmt.query_map([&list], |r| r.get(0))?
-                        .collect::<Result<_, _>>()?
-                };
-                self.purge(tx, child, &rows, root)?;
-            } else {
-                tx.execute(
-                    &format!(
-                        "UPDATE \"{child}\" SET \"{column}\" = NULL
-                         WHERE \"{column}\" IN (SELECT value FROM json_each(?1))"
-                    ),
-                    [&list],
-                )?;
+                self.purge(tx, child, &rows, root, others, write)?;
+            } else if !rows.is_empty() {
+                // Clearing a reference in another registration's own row, such as a Library Folder's current
+                // Build, would change what it manages.
+                if OWNERS.iter().any(|(t, _)| t == child) {
+                    let rows = serde_json::to_string(&rows).expect("ids serialize");
+                    others.extend(
+                        self.owners(tx, child, &rows)?
+                            .into_iter()
+                            .filter(|o| *o != root),
+                    );
+                }
+                if write {
+                    tx.execute(
+                        &format!(
+                            "UPDATE \"{child}\" SET \"{column}\" = NULL
+                             WHERE \"{column}\" IN (SELECT value FROM json_each(?1))"
+                        ),
+                        [&list],
+                    )?;
+                }
             }
         }
-        tx.execute(
-            &format!("DELETE FROM \"{table}\" WHERE rowid IN (SELECT value FROM json_each(?1))"),
-            [&list],
-        )?;
+        if write {
+            tx.execute(
+                &format!(
+                    "DELETE FROM \"{table}\" WHERE rowid IN (SELECT value FROM json_each(?1))"
+                ),
+                [&list],
+            )?;
+        }
         Ok(())
     }
 }

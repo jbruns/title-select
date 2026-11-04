@@ -10,7 +10,9 @@ use sha2::{Digest, Sha256};
 use title_select_api::lifecycle::{FolderMove, PlanFolderMove, RegistrationKind};
 
 use super::folder_dir::{FolderDir, Identity};
-use super::folders::{folder_by_id, marker_problem, open_writable_folder, store_id};
+use super::folders::{
+    check_library_path, folder_by_id, marker_problem, open_writable_folder, store_id,
+};
 use super::lifecycle::{holds_of, library_folder_work};
 use super::{Error, Result, Store, now};
 use crate::config::Config;
@@ -191,6 +193,13 @@ impl Store {
                     holds.join("; ")
                 )));
             }
+            // What was registered since the plan may overlap where it goes; approving reserves the destination.
+            check_library_path(tx, config, &row.plan.root, &row.plan.to_path).map_err(
+                |e| match e {
+                    Error::Refused(why) => Error::Conflict(format!("{why}; plan the move again")),
+                    other => other,
+                },
+            )?;
             tx.execute(
                 "UPDATE library_folder_moves SET approved_by = ?2, approved_at = ?3 WHERE id = ?1",
                 params![id, actor, now()],
