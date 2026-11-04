@@ -495,6 +495,7 @@ A game's ROMs are never split between formats, and every disc of a game released
 for its `(Disc …)` tag, is stored the same way: if one disc has to stay TorrentZip, so do the others, and the plan
 says why. This holds whatever the format: a repair proposes, and you choose, alike for every disc of a game. Leaving
 one disc as it is leaves every disc, and a plan made with choices that would store the discs differently is refused.
+A disc that can't be repaired now stays stored as it is, so no other disc of its game is converted until it can be.
 
 Every write of a game into a folder follows it: a build writes each system's play library in that system's format,
 and a repair, including a fill from an ingest folder, writes a source set in its system's format. Saving the policy
@@ -726,8 +727,8 @@ approving approves the plan as it was made, so it waits while you have changes y
   pack imported for the source set's DAT whose sheet matches every checksum the DAT gives: on by default when there
   is one;
 - a game stored as a loose folder is filled file by file: each ROM it lacks, or holds mismatched, is written into
-  `<game>/` from an ingest folder item holding it, whether that item is the one track or a ZIP of the whole disc. A
-  loose track is moved, and deleted from the ingest folder only once what was written is exactly its ROM; a ZIP is
+  `<game>/` from an ingest folder item holding it, whether that item is the one track or a ZIP of the whole disc, each track read from the ZIP once. A
+  loose track is moved, or copied while another file it fills is still to be written, and deleted from the ingest folder only once what was written is exactly its ROM; a ZIP is
   kept in the ingest folder's kept files once every file it fills is written. What no file holds yet stays missing,
   and the plan says which ROMs;
 - an entry whose payload is one ROM while its name gives another is a conflict: nothing is proposed, and you choose
