@@ -2914,7 +2914,7 @@ impl Store {
     }
 
     /// Records the intent to keep the staged file `staged_name`, `staged`, that could not be published as `target`,
-    /// aside under the first name free in this repair's generation, and why. Returns that name, or why the file was
+    /// aside under the first name free in this repair's generation and reserved by no other step of it, and why. Returns that name, or why the file was
     /// left where it is.
     fn record_aside(
         &self,
@@ -2930,9 +2930,23 @@ impl Store {
                 Ok(Some(retention)) => retention.generation,
                 _ => return Ok(Err(format!("{why}; it was left at {staged_name}"))),
             };
+        // Neither a name a Keep step of this repair keeps a file as, nor one another step means to keep a new file
+        // aside as, though nothing is there yet.
+        let reserved: BTreeSet<String> = self
+            .read(|c| steps_of(c, r.plan.id))?
+            .into_iter()
+            .filter(|s| s.id != step.id)
+            .flat_map(|s| {
+                let keep = match s.step {
+                    RepairStep::Keep { kept_name, .. } => Some(kept_name),
+                    _ => None,
+                };
+                keep.into_iter().chain(s.aside_name)
+            })
+            .collect();
         let kept = (1..)
             .map(|n| kept_name(base_name(target), n))
-            .find(|name| matches!(generation.stat(name), Ok(None)))
+            .find(|name| !reserved.contains(name) && matches!(generation.stat(name), Ok(None)))
             .expect("a free name");
         let (dev, ino) = staged.to_sql();
         self.write(|tx| {

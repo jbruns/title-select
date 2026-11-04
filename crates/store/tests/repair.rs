@@ -797,6 +797,92 @@ fn a_file_read_only_by_its_claim_is_never_touched() {
 }
 
 #[test]
+fn a_new_file_kept_aside_never_takes_the_kept_name_of_an_original_kept_after_it() {
+    let adventure = &alpha_games()[3].1;
+    // Adventure's ROMs are in old.zip; Pong's is in a file named as Adventure's, so both originals are kept aside
+    // once their new files are in place, and the name the second one is kept as is Adventure's new file's name.
+    let publish_of = |target: &'static str| move |s: &RepairStep| matches!(s, RepairStep::Publish { target: t, .. } if t == target);
+    for stop in [None, Some("moved"), Some("done")] {
+        let env = Env::new();
+        let members: Vec<(&str, &[u8])> = adventure
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(&env.set().join("old.zip"), &members);
+        std::fs::create_dir(env.set().join("incoming")).unwrap();
+        write_zip(
+            &env.set().join("incoming/Adventure (USA).zip"),
+            &[("Pong (USA).a26", b"pong")],
+        );
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan();
+        let fault = match stop {
+            Some("moved") => Some(Fault::RepairMoved(step_seq(
+                &plan,
+                publish_of("Adventure (USA).zip"),
+            ))),
+            Some(_) => Some(Fault::RepairStepDone(step_seq(
+                &plan,
+                publish_of("Pong (USA).zip"),
+            ))),
+            None => None,
+        };
+        let approved = env
+            .store
+            .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        // A file appears where Adventure's new file goes, so that new file is kept aside instead.
+        env.put("Adventure (USA).zip", b"in the way");
+        if fault.is_some() {
+            env.store.inject_fault(fault);
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                env.run_repair_job(&approved)
+            }));
+            assert!(ran.is_err(), "{stop:?}: {ran:?}");
+            env.store.inject_fault(None);
+            let requeued = env.store.recover_jobs(WORKERS).unwrap()[0]
+                .requeued
+                .clone()
+                .expect("a repair runs on");
+            assert_eq!(requeued.repair, Some(plan.id));
+            env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+        } else {
+            env.run_repair_job(&approved);
+        }
+
+        let done = env.store.repair_plan(plan.id).unwrap();
+        let pong = done
+            .outcomes
+            .iter()
+            .find(|o| o.item == "game:Pong (USA)")
+            .unwrap();
+        assert!(pong.done, "{stop:?}: {pong:?}");
+        let listing = env.listing();
+        assert!(
+            !listing.contains(&"incoming/Adventure (USA).zip".to_string()),
+            "{stop:?}: {listing:?}"
+        );
+        assert!(
+            listing.contains(&"old.zip".to_string()),
+            "{stop:?}: {listing:?}"
+        );
+        assert!(
+            listing.contains(&"Pong (USA).zip".to_string()),
+            "{stop:?}: {listing:?}"
+        );
+        let kept: Vec<&String> = listing
+            .iter()
+            .filter(|p| p.starts_with(".title-select-retained/"))
+            .collect();
+        assert_eq!(
+            kept.len(),
+            2,
+            "{stop:?}: both the new Adventure and the old Pong are kept: {listing:?}"
+        );
+    }
+}
+
+#[test]
 fn a_repair_the_service_stopped_in_is_finished_when_it_next_starts() {
     for stop in [
         Fault::RepairStaged(0),
