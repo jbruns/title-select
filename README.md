@@ -188,8 +188,8 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
 - A group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
   compilation tie-breaker. It is also unresolved when it holds a multi-disc game whose selected discs come from
-  different releases, or whose selected release lacks a disc another release in the group has: a game is selected
-  whole, never half. The engine's pick stays as the provisional winner: review it. Confirming it, or choosing other
+  different releases, or whose selected release lacks a disc: one of its own, even one your settings exclude, or one
+  another release in the group has that your settings don't exclude. A game is selected whole, never half. The engine's pick stays as the provisional winner: review it. Confirming it, or choosing other
   releases, resolves it.
 - A group with your choice carries `choice`: the releases you checked, its `status` (`applied`, `matches_default`,
   `conflicting` or `stale`), the engine's `picks` and whether the engine left it unresolved. Releases it moved carry

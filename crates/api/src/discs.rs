@@ -102,8 +102,11 @@ pub fn disc(title: &str) -> Option<Disc> {
 /// group has between all its releases.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscCheck {
-    /// Every disc number a release of the group has, whether selected, an alternative or excluded.
+    /// The disc numbers each selected release must have: those of the group's titles your settings don't exclude,
+    /// and every disc of a selected release, excluded or not.
     pub discs: BTreeSet<u32>,
+    /// The disc numbers of the selected releases that your settings exclude.
+    pub excluded: BTreeSet<u32>,
     /// Each release a selected disc comes from, with its selected disc numbers.
     pub chosen: BTreeMap<String, BTreeSet<u32>>,
 }
@@ -136,8 +139,13 @@ impl DiscCheck {
         } else {
             let (release, discs) = self.chosen.iter().next().expect("a check has a release");
             let lacking: BTreeSet<u32> = self.discs.difference(discs).copied().collect();
+            let why = if lacking.is_subset(&self.excluded) {
+                "which your settings exclude"
+            } else {
+                "which another release in the group has"
+            };
             format!(
-                "{release} is selected without {}, which another release in the group has",
+                "{release} is selected without {}, {why}",
                 numbers("disc", &lacking)
             )
         }
@@ -165,7 +173,9 @@ fn titles(group: &SelectionGroup) -> impl Iterator<Item = &str> {
 }
 
 /// Checks `selected`, titles of `group`: when some are discs, each release they come from must have every disc
-/// number the group has. `None` when they do, or when none is a disc.
+/// number the group's other titles have, excluded ones aside, and every disc of its own, even an excluded one. So
+/// an excluded demo disc never flags a group, but an excluded disc of the selected release does. `None` when they
+/// do, or when none is a disc.
 pub fn check<'a>(
     group: &SelectionGroup,
     selected: impl IntoIterator<Item = &'a str>,
@@ -177,11 +187,26 @@ pub fn check<'a>(
     if chosen.is_empty() {
         return None;
     }
-    let discs: BTreeSet<u32> = titles(group).filter_map(disc).map(|d| d.number).collect();
+    let excluded: BTreeSet<&str> = group.exclusions.iter().map(|e| e.title.as_str()).collect();
+    let discs: BTreeSet<u32> = titles(group)
+        .filter_map(|title| Some((excluded.contains(title), disc(title)?)))
+        .filter(|(excluded, d)| !excluded || chosen.contains_key(&d.release))
+        .map(|(_, d)| d.number)
+        .collect();
     chosen
         .values()
         .any(|have| !discs.is_subset(have))
-        .then_some(DiscCheck { discs, chosen })
+        .then(|| DiscCheck {
+            excluded: group
+                .exclusions
+                .iter()
+                .filter_map(|e| disc(&e.title))
+                .filter(|d| chosen.contains_key(&d.release))
+                .map(|d| d.number)
+                .collect(),
+            discs,
+            chosen,
+        })
 }
 
 /// The check of the group's picks: the engine's winners, before any choice of the Operator's replaced them.
@@ -226,7 +251,7 @@ mod tests {
 
     use super::*;
     use crate::selection::{
-        CoverageDrift, Exclusion, Rule, SelectionPins, SelectionSummary, Winner,
+        Alternative, CoverageDrift, Exclusion, Rule, SelectionPins, SelectionSummary, Winner,
     };
 
     #[test]
@@ -343,10 +368,16 @@ mod tests {
 
     #[test]
     fn a_selected_release_without_a_disc_another_release_has_is_unresolved() {
-        let mut s = selection(vec![group(
-            &["Title (USA) (Disc 1)"],
-            &["Title (Europe) (Disc 1)", "Title (Europe) (Disc 2)"],
-        )]);
+        let mut usa = group(&["Title (USA) (Disc 1)"], &[]);
+        usa.alternatives = ["Title (Europe) (Disc 1)", "Title (Europe) (Disc 2)"]
+            .into_iter()
+            .map(|title| Alternative {
+                title: title.into(),
+                clone_of: "Title (USA) (Disc 1)".into(),
+                rule: rule(),
+            })
+            .collect();
+        let mut s = selection(vec![usa]);
         mark_unresolved(&mut s);
         assert!(s.groups[0].unresolved);
         assert_eq!(
@@ -356,6 +387,40 @@ mod tests {
         assert_eq!(
             missing(&s.groups[0]),
             BTreeMap::from([(2, vec!["Title (Europe) (Disc 2)".to_owned()])])
+        );
+    }
+
+    #[test]
+    fn an_excluded_disc_of_another_release_never_flags_the_group() {
+        let mut s = selection(vec![group(
+            &["Title (USA) (Disc 1)", "Title (USA) (Disc 2)"],
+            &[
+                "Title (USA) (Demo) (Disc 3)",
+                "Title (Europe) (Disc 1)",
+                "Title (Europe) (Disc 2)",
+                "Title (Europe) (Disc 3)",
+            ],
+        )]);
+        mark_unresolved(&mut s);
+        assert!(!s.groups[0].unresolved);
+        assert!(missing(&s.groups[0]).is_empty());
+    }
+
+    #[test]
+    fn an_excluded_disc_of_the_selected_release_still_flags_the_group() {
+        let mut s = selection(vec![group(
+            &["Title (USA) (Disc 1)"],
+            &["Title (USA) (Disc 2)"],
+        )]);
+        mark_unresolved(&mut s);
+        assert!(s.groups[0].unresolved);
+        assert_eq!(
+            check_picks(&s.groups[0]).unwrap().reason(),
+            "Title (USA) is selected without disc 2, which your settings exclude"
+        );
+        assert_eq!(
+            missing(&s.groups[0]),
+            BTreeMap::from([(2, vec!["Title (USA) (Disc 2)".to_owned()])])
         );
     }
 
