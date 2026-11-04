@@ -1132,3 +1132,47 @@ fn a_layout_folder_you_made_is_never_removed_even_once_empty() {
     assert!(env.dir().join("Orbit (USA).cue").is_dir());
     assert!(!env.dir().join(".multidisc").exists());
 }
+
+#[test]
+fn switching_to_flat_leaves_a_cue_folder_you_made_and_its_release_as_they_are() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let folder = env.folder();
+    std::fs::create_dir(env.dir().join("Orbit (USA).cue")).unwrap();
+    let selection = env.selection(&ALL);
+    env.built(&folder, selection);
+    assert_eq!(env.files(), ES_DE_LOOSE);
+
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        layout: Some(DiscLayout::Flat),
+        ..Default::default()
+    });
+    let plan = env.plan(&folder, selection);
+    let orbit = items_of(&plan, "Orbit (USA)");
+    assert!(!orbit.is_empty());
+    for item in &orbit {
+        assert_eq!(item.kind, ItemKind::Blocked, "{}", item.target);
+    }
+    assert!(
+        orbit.iter().any(|i| i
+            .reason
+            .as_deref()
+            .is_some_and(|r| r.contains("Orbit (USA).cue") && r.contains("you made"))),
+        "{orbit:?}"
+    );
+    env.run(&plan);
+    let orbit_files: Vec<String> = env
+        .files()
+        .into_iter()
+        .filter(|f| f.starts_with("Orbit"))
+        .collect();
+    assert_eq!(
+        orbit_files,
+        [
+            "Orbit (USA).cue/Orbit (USA) (Track 1).bin",
+            "Orbit (USA).cue/Orbit (USA) (Track 2).bin",
+            "Orbit (USA).cue/Orbit (USA).cue",
+        ]
+    );
+    assert!(env.kept(&folder).iter().all(|k| !k.starts_with("Orbit")));
+}

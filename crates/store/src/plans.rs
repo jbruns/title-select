@@ -475,9 +475,16 @@ fn check_folder(
         }
         names.push(name.clone());
     }
+    // A disc layout folder is listed itself as well as by what it holds, so that the plan knows whether a build
+    // made it.
+    let layout_dirs: Vec<String> = names
+        .iter()
+        .filter(|n| crate::checks::is_layout_dir(n))
+        .cloned()
+        .collect();
     let mut entries = crate::checks::deepen(&dir, names);
     entries.sort();
-    for name in &entries {
+    for name in entries.iter().chain(&layout_dirs) {
         let Ok(Some(st)) = dir.stat(name) else {
             continue;
         };
@@ -1765,6 +1772,17 @@ fn in_the_way(
         }
         return Some(format!(
             "{} is in the folder where the folder {dir} would be; move it out of the folder to build here",
+            found.name
+        ));
+    }
+    // A folder where the file goes is cleared only if a build made it: it is one the build can remove once empty.
+    if let Some(found) = files.get(&name_key(target))
+        && found.directory
+        && inputs.dirs.get(&found.name) != Some(&found.identity)
+    {
+        return Some(format!(
+            "the folder {} is one you made, not one a build made, so it stays and this file can't go there; move \
+             it out of the play library to build here",
             found.name
         ));
     }
