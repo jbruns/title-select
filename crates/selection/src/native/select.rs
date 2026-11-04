@@ -26,16 +26,22 @@ fn usa_europe_japan(region: &str) -> bool {
 }
 
 /// `choose_string` with one of Retool's own patterns.
-fn string_re(run: &mut Run, titles: &mut Titles, pattern: fn(&Regexes) -> &Re, with: bool) {
+fn string_re(
+    run: &mut Run,
+    titles: &mut Titles,
+    pattern: fn(&Regexes) -> &Re,
+    with: bool,
+) -> PyResult<()> {
     let re = pattern(&run.s.regex).clone();
-    choose::string(run, titles, Pat::Re(&re), with);
+    choose::string(run, titles, Pat::Re(&re), with)
 }
 
 /// `choose_string` for each of a list of edition tags.
-fn string_tags(run: &mut Run, titles: &mut Titles, tags: &[Tag], with: bool) {
+fn string_tags(run: &mut Run, titles: &mut Titles, tags: &[Tag], with: bool) -> PyResult<()> {
     for tag in tags {
-        choose::string(run, titles, Pat::of(tag), with);
+        choose::string(run, titles, Pat::of(tag), with)?;
     }
+    Ok(())
 }
 
 /// The name a clone points at its parent by.
@@ -50,8 +56,9 @@ fn parent_name(run: &Run, id: Id) -> String {
 
 /// `production_retail`, nested in `choose_1g1r`: of two equivalent titles, drops the one only it matches one of
 /// `patterns`. It removes as it goes.
-fn production_retail(run: &mut Run, titles: &mut Titles, patterns: &[Re]) {
-    for (a, b) in pairs(titles) {
+fn production_retail(run: &mut Run, titles: &mut Titles, patterns: &[Re]) -> PyResult<()> {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, None) {
             continue;
         }
@@ -93,6 +100,7 @@ fn production_retail(run: &mut Run, titles: &mut Titles, patterns: &[Re]) {
             titles.shift_remove(&b);
         }
     }
+    Ok(())
 }
 
 /// The patterns a modern edition tag compiles to when `production_retail` looks for it.
@@ -260,44 +268,44 @@ pub(crate) fn choose_1g1r(
                     .context(None, &group_name, &format!("{region} | {short_name}"));
                 run.trace_title("REF0001", &[], &titles, false);
                 if titles.len() > 1 && run.s.options.retroachievements {
-                    choose::retroachievements(run, &mut titles);
+                    choose::retroachievements(run, &mut titles)?;
                 }
                 if titles.len() > 1 {
-                    choose::good(run, &mut titles);
+                    choose::good(run, &mut titles)?;
                 }
                 run.trace_title("REF0003", &[], &titles, false);
                 if titles.len() > 1 {
-                    choose::language(run, &mut titles, true);
+                    choose::language(run, &mut titles, true)?;
                 }
                 run.trace_title("REF0005", &[], &titles, false);
                 if titles.len() > 1 {
-                    choose::superset(run, &mut titles);
+                    choose::superset(run, &mut titles)?;
                 }
                 run.trace_title("REF0076", &[], &titles, false);
                 if titles.len() > 1 {
-                    choose::priority(run, &mut titles);
+                    choose::priority(run, &mut titles)?;
                 }
                 run.trace_title("REF0002", &[], &titles, false);
                 if titles.len() > 1 {
-                    string_tags(run, &mut titles, &modern_tags, modern);
+                    string_tags(run, &mut titles, &modern_tags, modern)?;
                 }
                 run.trace_title("REF0004", &[], &titles, false);
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.unlicensed, false);
+                    string_re(run, &mut titles, |r| &r.unlicensed, false)?;
                 }
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.aftermarket, false);
+                    string_re(run, &mut titles, |r| &r.aftermarket, false)?;
                 }
                 run.trace_title("REF0060", &[], &titles, false);
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.sega32x, true);
+                    string_re(run, &mut titles, |r| &r.sega32x, true)?;
                 }
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.fmtowns_marty, true);
+                    string_re(run, &mut titles, |r| &r.fmtowns_marty, true)?;
                 }
                 run.trace_title("REF0006", &[], &titles, false);
                 if titles.len() > 1 {
-                    string_tags(run, &mut titles, &budget_tags, !oldest);
+                    string_tags(run, &mut titles, &budget_tags, !oldest)?;
                     run.trace_title("REF0113", &[], &titles, false);
                 }
                 for key in [
@@ -319,40 +327,40 @@ pub(crate) fn choose_1g1r(
                 run.trace_title("REF0007", &[], &titles, false);
                 if titles.len() > 1 {
                     for standard in &video_order {
-                        choose::video_standard(run, &mut titles, &standard.to_lowercase());
+                        choose::video_standard(run, &mut titles, &standard.to_lowercase())?;
                     }
                     run.trace_title("REF0096", &[], &titles, false);
                 }
                 if titles.len() > 1 {
-                    choose::language(run, &mut titles, false);
+                    choose::language(run, &mut titles, false)?;
                     run.trace_title("REF0043", &[], &titles, false);
                 }
                 if titles.len() > 1 {
-                    choose::region(run, &mut titles, &region_order, false);
+                    choose::region(run, &mut titles, &region_order, false)?;
                     run.trace_title("REF0008", &[], &titles, false);
                 }
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.alt, false);
+                    string_re(run, &mut titles, |r| &r.alt, false)?;
                 }
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.oem, false);
+                    string_re(run, &mut titles, |r| &r.oem, false)?;
                 }
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.not_for_resale, false);
+                    string_re(run, &mut titles, |r| &r.not_for_resale, false)?;
                 }
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.covermount, false);
+                    string_re(run, &mut titles, |r| &r.covermount, false)?;
                 }
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.rerelease, false);
+                    string_re(run, &mut titles, |r| &r.rerelease, false)?;
                 }
                 if titles.len() > 1 {
-                    string_re(run, &mut titles, |r| &r.edc, true);
+                    string_re(run, &mut titles, |r| &r.edc, true)?;
                 }
                 run.trace_title("REF0010", &[], &titles, false);
                 if titles.len() > 1 {
-                    string_tags(run, &mut titles, &promote_tags, true);
-                    string_tags(run, &mut titles, &demote_tags, false);
+                    string_tags(run, &mut titles, &promote_tags, true)?;
+                    string_tags(run, &mut titles, &demote_tags, false)?;
                     run.trace_title("REF0011", &[], &titles, false);
                 }
                 if titles.len() > 1 {
@@ -363,7 +371,7 @@ pub(crate) fn choose_1g1r(
                     choose::version_revision(run, &mut titles, "build")?;
                 }
                 if titles.len() > 1 {
-                    choose::made_in(run, &mut titles);
+                    choose::made_in(run, &mut titles)?;
                     run.trace_title("REF0012", &[], &titles, false);
                 }
                 if titles.len() > 1 {
@@ -371,7 +379,7 @@ pub(crate) fn choose_1g1r(
                     run.trace_title("REF0061", &[], &titles, false);
                 }
                 if !is_compilations && titles.len() > 1 {
-                    choose::highest_string(run, &mut titles);
+                    choose::highest_string(run, &mut titles)?;
                 }
                 run.trace_title("REF0059", &[], &titles, false);
             } else if titles.len() == 1 {
@@ -388,29 +396,30 @@ pub(crate) fn choose_1g1r(
 
     if cross.len() > 1 {
         if run.s.options.retroachievements {
-            choose::retroachievements(run, &mut cross);
+            choose::retroachievements(run, &mut cross)?;
         }
         if !run.s.options.region_bias {
-            choose::language_top(run, &mut cross, &top_languages);
+            choose::language_top(run, &mut cross, &top_languages)?;
         }
         let r = &run.s.regex;
         let preproduction: Vec<Re> = r.preproduction().into_iter().cloned().collect();
         let bad = [r.bad.clone()];
         let pirate = [r.pirate.clone()];
         let unl: Vec<Re> = r.unl_group().into_iter().cloned().collect();
-        production_retail(run, &mut cross, &preproduction);
-        production_retail(run, &mut cross, &bad);
-        production_retail(run, &mut cross, &pirate);
+        production_retail(run, &mut cross, &preproduction)?;
+        production_retail(run, &mut cross, &bad)?;
+        production_retail(run, &mut cross, &pirate)?;
         if !modern {
-            production_retail(run, &mut cross, &modern_patterns(&modern_tags));
+            production_retail(run, &mut cross, &modern_patterns(&modern_tags))?;
         }
         if run.s.options.demote_unl {
-            production_retail(run, &mut cross, &unl);
+            production_retail(run, &mut cross, &unl)?;
         }
         run.trace_title("REF0119", &[], &cross, false);
 
         let region_bias = run.s.options.region_bias;
-        for (a, b) in pairs(&cross) {
+        for pair in pairs(&run.limits, &cross) {
+            let (a, b) = pair?;
             if !equivalent(run, a, b, Some(&cross)) {
                 continue;
             }
@@ -431,7 +440,8 @@ pub(crate) fn choose_1g1r(
         run.trace_title("REF0014", &[], &cross, false);
 
         if cross.len() > 1 {
-            for (a, b) in pairs(&cross) {
+            for pair in pairs(&run.limits, &cross) {
+                let (a, b) = pair?;
                 if !equivalent(run, a, b, Some(&cross)) {
                     continue;
                 }
@@ -445,7 +455,8 @@ pub(crate) fn choose_1g1r(
             run.trace_title("REF0103", &[], &cross, false);
         }
         if cross.len() > 1 {
-            for (a, b) in pairs(&cross) {
+            for pair in pairs(&run.limits, &cross) {
+                let (a, b) = pair?;
                 let (x, y) = (run.n(a), run.n(b));
                 if !(x.is_superset && y.is_superset) {
                     continue;
@@ -468,12 +479,13 @@ pub(crate) fn choose_1g1r(
                     .copied()
                     .filter(|&t| run.n(t).regions.contains(region))
                     .collect();
-                for (a, b) in pairs(&in_region) {
+                for pair in pairs(&run.limits, &in_region) {
+                    let (a, b) = pair?;
                     if !equivalent(run, a, b, None) {
                         continue;
                     }
                     let mut winner: Titles = [a, b].into_iter().collect();
-                    choose::language(run, &mut winner, true);
+                    choose::language(run, &mut winner, true)?;
                     if winner.len() == 1 {
                         let left = *winner.first().expect("one title");
                         if run.n(a).full_name == run.n(left).full_name {
@@ -487,7 +499,8 @@ pub(crate) fn choose_1g1r(
             cross.retain(|&t| !remove_names.contains(&run.n(t).full_name));
             run.trace_title("REF0104", &[], &cross, false);
         }
-        for (a, b) in pairs(&cross) {
+        for pair in pairs(&run.limits, &cross) {
+            let (a, b) = pair?;
             let (ra, rb) = (&run.n(a).primary_region, &run.n(b).primary_region);
             let usa_and_world =
                 (usa_europe_japan(ra) && rb == "World") || (usa_europe_japan(rb) && ra == "World");
@@ -504,19 +517,19 @@ pub(crate) fn choose_1g1r(
                                 .into(),
                         )
                     })?;
-                    string_tags(run, titles, &modern_tags, modern);
+                    string_tags(run, titles, &modern_tags, modern)?;
                 }
-                string_tags(run, &mut cross, &promote_tags, true);
-                string_tags(run, &mut cross, &demote_tags, false);
+                string_tags(run, &mut cross, &promote_tags, true)?;
+                string_tags(run, &mut cross, &demote_tags, false)?;
             }
             run.trace_title("REF0140", &[], &cross, false);
         }
         if cross.len() > 1 {
-            choose::region(run, &mut cross, &region_order, false);
+            choose::region(run, &mut cross, &region_order, false)?;
             run.trace_title("REF0102", &[], &cross, false);
         }
         if cross.len() > 1 {
-            choose::language(run, &mut cross, true);
+            choose::language(run, &mut cross, true)?;
             run.trace_title("REF0101", &[], &cross, false);
         }
         let supersets: Titles = cross
@@ -568,6 +581,7 @@ pub(crate) fn choose_1g1r(
                 cross.retain(|&t| !run.n(t).is_superset);
                 let mut superset_removes = Titles::new();
                 for title in cross.clone() {
+                    run.limits.check()?;
                     for superset in superset_final.clone() {
                         if !equivalent(run, title, superset, None) || !cross.contains(&title) {
                             continue;
@@ -1122,11 +1136,11 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
         run.trace.context(Some("Compilations"), "", key);
         run.trace_title("REF0067", &vars, &set, false);
         if run.s.options.retroachievements {
-            choose::retroachievements(run, &mut set);
+            choose::retroachievements(run, &mut set)?;
             run.trace_title("REF0139", &vars, &set, false);
         }
         if set.len() > 1 {
-            choose::good(run, &mut set);
+            choose::good(run, &mut set)?;
             run.trace_title("REF0092", &vars, &set, false);
         }
         if set.len() > 1 && mode == "i" {
@@ -1136,14 +1150,14 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
             run.trace_title("REF0126", &vars, &set, false);
         }
         if set.len() > 1 {
-            choose::superset(run, &mut set);
+            choose::superset(run, &mut set)?;
             run.trace_title("REF0127", &vars, &set, false);
         }
         if set.len() > 1 {
             for &title in &set {
                 run.m(title).primary_region = "compilation".into();
             }
-            choose::language(run, &mut set, true);
+            choose::language(run, &mut set, true)?;
             run.trace_title("REF0068", &vars, &set, false);
         }
         for &title in &set {
@@ -1152,11 +1166,11 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
             n.primary_region = n.primary_region_original.clone();
         }
         if set.len() > 1 {
-            choose::priority(run, &mut set);
+            choose::priority(run, &mut set)?;
             run.trace_title("REF0080", &vars, &set, false);
         }
         if set.len() > 1 {
-            choose::region(run, &mut set, &region_order, true);
+            choose::region(run, &mut set, &region_order, true)?;
             run.trace_title("REF0069", &vars, &set, false);
         }
         for &title in &set {
@@ -1166,7 +1180,8 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
         run.trace_title("REF0070", &vars, &set, false);
         if set.len() > 1 && mode != "o" {
             let mut remove = Titles::new();
-            for (a, b) in pairs(&set) {
+            for pair in pairs(&run.limits, &set) {
+                let (a, b) = pair?;
                 if !equivalent(run, a, b, None) {
                     continue;
                 }
@@ -1187,10 +1202,11 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
             remove_all(&mut set, &remove);
         }
         if set.len() > 1 {
-            choose::language(run, &mut set, false);
+            choose::language(run, &mut set, false)?;
         }
         if set.len() > 1 {
-            for (a, b) in pairs(&set) {
+            for pair in pairs(&run.limits, &set) {
+                let (a, b) = pair?;
                 let (x, y) = (run.n(a), run.n(b));
                 if x.contains_titles.is_empty() || y.contains_titles.is_empty() {
                     continue;
@@ -1245,6 +1261,7 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
         }
     }
     for i in 0..related_names.len() {
+        run.limits.check()?;
         for j in 0..related_names.len() {
             if related_names[i]
                 .intersection(&related_names[j])
@@ -1300,6 +1317,7 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
                 .filter(|&t| contained_lower(run, t).contains(&superset_short))
                 .collect();
             for title in replace {
+                run.limits.check()?;
                 let mut contained = contained_lower(run, title);
                 if let Some(i) = contained.iter().position(|x| *x == superset_short) {
                     contained.remove(i);
@@ -1338,6 +1356,7 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
     let mut available: IndexMap<String, PySet<Grouping>> = IndexMap::new();
     let keys: Vec<String> = related.keys().cloned().collect();
     for key in keys {
+        run.limits.check()?;
         let titles = related[&key].clone();
         if titles.len() <= 1 {
             for &title in &titles {
@@ -1544,6 +1563,7 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
     let sorted_discards = by_name(run, &all[DISCARDS]);
     let sorted_winners = by_name(run, &all[WINNERS]);
     for &title in &sorted_discards {
+        run.limits.check()?;
         for &winner in &sorted_winners {
             if !run.n(title).cloneof.is_empty() {
                 continue;

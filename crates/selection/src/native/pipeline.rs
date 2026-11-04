@@ -241,6 +241,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use super::*;
+    use crate::native::py;
     use crate::native::tests::{internal_config, upstream};
 
     fn fixture(name: &str) -> std::path::PathBuf {
@@ -294,5 +295,49 @@ mod tests {
         profile.overrides.exclude = vec!["/(?a)^Pong".into()];
         let ran = run_with(&profile, &Limits::default()).unwrap();
         assert!(ran.warnings.is_empty(), "{:?}", ran.warnings);
+    }
+
+    /// A DAT of one group of `n` releases, all equivalent, so every chooser compares every pair.
+    fn one_large_group(dir: &std::path::Path, n: usize) -> std::path::PathBuf {
+        let mut dat = String::from(
+            "<?xml version=\"1.0\"?>\n<datafile>\n<header><name>Synthetic - Large group</name>\
+             <description>Synthetic - Large group</description></header>\n",
+        );
+        for i in 0..n {
+            let name = format!("Pong (USA) (Rev {i})");
+            dat.push_str(&format!(
+                "<game name=\"{name}\"><category>Games</category><description>{name}</description>\
+                 <rom name=\"{name}.bin\" size=\"1\" crc=\"{i:08x}\" sha1=\"{i:040x}\"/></game>\n"
+            ));
+        }
+        dat.push_str("</datafile>\n");
+        let path = dir.join("Large group.dat");
+        std::fs::write(&path, dat).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_cancelled_run_stops_inside_a_large_group() {
+        let work = tempfile::tempdir().unwrap();
+        let path = one_large_group(work.path(), 3000);
+        let profile = SelectionProfile::default();
+        let text = process::read_text(&path).unwrap();
+        let settings = Settings::new(&internal_config(), &profile, "").unwrap();
+        let dat = dat::read_header(&path, &text, &settings).unwrap();
+        let mut run = Run::new(settings);
+        let processed =
+            process::process_dat(&mut run, &path, dat, &upstream().join("tests"), false).unwrap();
+        let (_, titles) = processed.titles.first().unwrap();
+        assert_eq!(titles.len(), 3000);
+        // Cancelled once the group's choosing has begun: only the choosers' own checks can see it.
+        run.limits.cancel = Some(Arc::new(AtomicBool::new(true)));
+        let started = std::time::Instant::now();
+        let chosen = select::choose_1g1r(&mut run, &mut Default::default(), false, false, titles);
+        assert!(
+            matches!(&chosen, Err(py::Crash(m)) if m == super::super::CANCELLED),
+            "{:?}",
+            chosen.map(|(g, _)| g)
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 }

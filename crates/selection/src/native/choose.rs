@@ -5,6 +5,7 @@
 
 use std::cmp::Ordering;
 
+use super::Limits;
 use super::json::py_repr;
 use super::node::{Id, Run, Titles};
 use super::py::{self, Crash, PyResult};
@@ -14,25 +15,33 @@ use super::settings::{Settings, Tag};
 use super::titletools::{self, VersionValue};
 
 /// `itertools.combinations(titles, 2)`: snapshots the set, as `combinations` copies its pool, and yields the
-/// pairs one at a time, so a large set doesn't hold every pair at once.
-pub(crate) fn pairs(titles: &Titles) -> Pairs {
+/// pairs one at a time, so a large set doesn't hold every pair at once. It checks `limits` before the first pair and
+/// every `CHECK_EVERY` pairs after, so a run can stop inside a large group.
+pub(crate) fn pairs(limits: &Limits, titles: &Titles) -> Pairs {
     Pairs {
+        limits: limits.clone(),
         pool: titles.iter().copied().collect(),
         a: 0,
         b: 1,
+        n: 0,
     }
 }
 
+/// How many pairs a chooser compares between checks of its run's limits.
+pub(crate) const CHECK_EVERY: u64 = 4096;
+
 pub(crate) struct Pairs {
+    limits: Limits,
     pool: Vec<Id>,
     a: usize,
     b: usize,
+    n: u64,
 }
 
 impl Iterator for Pairs {
-    type Item = (Id, Id);
+    type Item = PyResult<(Id, Id)>;
 
-    fn next(&mut self) -> Option<(Id, Id)> {
+    fn next(&mut self) -> Option<PyResult<(Id, Id)>> {
         if self.b >= self.pool.len() {
             self.a += 1;
             self.b = self.a + 1;
@@ -40,9 +49,16 @@ impl Iterator for Pairs {
                 return None;
             }
         }
+        if self.n.is_multiple_of(CHECK_EVERY)
+            && let Err(stop) = self.limits.check()
+        {
+            self.pool.clear();
+            return Some(Err(stop));
+        }
+        self.n += 1;
         let pair = (self.pool[self.a], self.pool[self.b]);
         self.b += 1;
-        Some(pair)
+        Some(Ok(pair))
     }
 }
 
@@ -104,9 +120,10 @@ pub(crate) fn regex_string(pattern: &str) -> String {
 }
 
 /// `choose_good`: prefers good, production dumps, and a revision over a version.
-pub(crate) fn good(run: &mut Run, titles: &mut Titles) {
+pub(crate) fn good(run: &mut Run, titles: &mut Titles) -> PyResult<()> {
     let mut remove = Titles::new();
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -142,12 +159,14 @@ pub(crate) fn good(run: &mut Run, titles: &mut Titles) {
         }
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 /// `choose_highest_string`.
-pub(crate) fn highest_string(run: &mut Run, titles: &mut Titles) {
+pub(crate) fn highest_string(run: &mut Run, titles: &mut Titles) -> PyResult<()> {
     let mut remove = Titles::new();
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -161,10 +180,11 @@ pub(crate) fn highest_string(run: &mut Run, titles: &mut Titles) {
         }
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 /// `choose_made_in`.
-pub(crate) fn made_in(run: &mut Run, titles: &mut Titles) {
+pub(crate) fn made_in(run: &mut Run, titles: &mut Titles) -> PyResult<()> {
     let mut remove = Titles::new();
     let shown = run
         .s
@@ -173,7 +193,8 @@ pub(crate) fn made_in(run: &mut Run, titles: &mut Titles) {
         .py_str()
         .replace("re.compile(", "")
         .replace(", re.IGNORECASE)", "");
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         let r = &run.s.regex.madein;
         let (x, y) = (run.n(a), run.n(b));
         let found_1 = r
@@ -207,12 +228,14 @@ pub(crate) fn made_in(run: &mut Run, titles: &mut Titles) {
         }
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 /// `choose_priority`: prefers the clone list's priority, or its oldest title. It removes as it goes.
-pub(crate) fn priority(run: &mut Run, titles: &mut Titles) {
+pub(crate) fn priority(run: &mut Run, titles: &mut Titles) -> PyResult<()> {
     let oldest = run.s.options.oldest;
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -251,6 +274,7 @@ pub(crate) fn priority(run: &mut Run, titles: &mut Titles) {
             titles.shift_remove(&a);
         }
     }
+    Ok(())
 }
 
 /// `choose_region`.
@@ -259,9 +283,10 @@ pub(crate) fn region(
     titles: &mut Titles,
     region_order: &[String],
     world_is_usa_europe_japan: bool,
-) {
+) -> PyResult<()> {
     let mut remove = Titles::new();
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -310,12 +335,14 @@ pub(crate) fn region(
         }
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 /// `choose_retroachievements`.
-pub(crate) fn retroachievements(run: &mut Run, titles: &mut Titles) {
+pub(crate) fn retroachievements(run: &mut Run, titles: &mut Titles) -> PyResult<()> {
     let mut remove = Titles::new();
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -334,13 +361,15 @@ pub(crate) fn retroachievements(run: &mut Run, titles: &mut Titles) {
         }
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 /// `choose_superset`.
-pub(crate) fn superset(run: &mut Run, titles: &mut Titles) {
+pub(crate) fn superset(run: &mut Run, titles: &mut Titles) -> PyResult<()> {
     let oldest = run.s.options.oldest;
     let mut remove = Titles::new();
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -371,13 +400,15 @@ pub(crate) fn superset(run: &mut Run, titles: &mut Titles) {
         }
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 /// `choose_string`: prefers the title that matches `pat` (`with` true) or the one that doesn't.
-pub(crate) fn string(run: &mut Run, titles: &mut Titles, pat: Pat<'_>, with: bool) {
+pub(crate) fn string(run: &mut Run, titles: &mut Titles, pat: Pat<'_>, with: bool) -> PyResult<()> {
     let mut remove = Titles::new();
     let shown = regex_string(&pat.py_str());
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -426,23 +457,26 @@ pub(crate) fn string(run: &mut Run, titles: &mut Titles, pat: Pat<'_>, with: boo
         }
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 /// `choose_video_standard`.
-pub(crate) fn video_standard(run: &mut Run, titles: &mut Titles, standard: &str) {
+pub(crate) fn video_standard(run: &mut Run, titles: &mut Titles, standard: &str) -> PyResult<()> {
     let standard = standard.replace(' ', "_");
     let count = run.s.regex.video_standard(&standard).len();
     for i in 0..count {
         let re = run.s.regex.video_standard(&standard)[i].clone();
-        string(run, titles, Pat::Re(&re), true);
+        string(run, titles, Pat::Re(&re), true)?;
     }
+    Ok(())
 }
 
 /// `choose_date`.
 pub(crate) fn date(run: &mut Run, titles: &mut Titles) -> PyResult<()> {
     let oldest = run.s.options.oldest;
     let mut remove = Titles::new();
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -702,7 +736,8 @@ pub(crate) fn version_revision(run: &mut Run, titles: &mut Titles, key: &str) ->
         Some(VersionValue::Flag) => Some(String::new()),
         None => None,
     };
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -812,7 +847,7 @@ fn padded_languages(languages: &[String], width: usize) -> String {
 }
 
 /// `choose_language`.
-pub(crate) fn language(run: &mut Run, titles: &mut Titles, first_time: bool) {
+pub(crate) fn language(run: &mut Run, titles: &mut Titles, first_time: bool) -> PyResult<()> {
     let order = language_order(&run.s);
     let fallback = fallback_language_order(&run.s);
     let implied = implied_languages(&run.s);
@@ -826,7 +861,8 @@ pub(crate) fn language(run: &mut Run, titles: &mut Titles, first_time: bool) {
             n.full_name
         )
     };
-    for (a, b) in pairs(titles) {
+    for pair in pairs(&run.limits, titles) {
+        let (a, b) = pair?;
         if !equivalent(run, a, b, Some(titles)) {
             continue;
         }
@@ -896,6 +932,7 @@ pub(crate) fn language(run: &mut Run, titles: &mut Titles, first_time: bool) {
         }
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 /// A `(short name, language priority, language)` tuple in `choose_1g1r`'s `short_name_top_languages`.
@@ -917,7 +954,11 @@ impl PyHash for TopLanguage {
 }
 
 /// `choose_language_top`.
-pub(crate) fn language_top(run: &mut Run, titles: &mut Titles, top: &PySet<TopLanguage>) {
+pub(crate) fn language_top(
+    run: &mut Run,
+    titles: &mut Titles,
+    top: &PySet<TopLanguage>,
+) -> PyResult<()> {
     run.trace_ref("REF0015", &[]);
     run.note("Highest language priority per short name:\n");
     let mut keep = Titles::new();
@@ -966,6 +1007,7 @@ pub(crate) fn language_top(run: &mut Run, titles: &mut Titles, top: &PySet<TopLa
         run.note(&line);
     }
     remove_all(titles, &remove);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -974,13 +1016,41 @@ mod tests {
 
     #[test]
     fn pairs_follow_itertools_one_at_a_time() {
-        let titles: Titles = [3, 1, 2].into_iter().collect();
-        assert_eq!(pairs(&titles).collect::<Vec<_>>(), [(3, 1), (3, 2), (1, 2)]);
-        assert_eq!(pairs(&[7].into_iter().collect()).count(), 0);
-        assert_eq!(pairs(&Titles::new()).count(), 0);
+        let none = Limits::default();
+        let all = |titles: &Titles| pairs(&none, titles).map(Result::unwrap).collect::<Vec<_>>();
+        assert_eq!(
+            all(&[3, 1, 2].into_iter().collect()),
+            [(3, 1), (3, 2), (1, 2)]
+        );
+        assert_eq!(all(&[7].into_iter().collect()), []);
+        assert_eq!(all(&Titles::new()), []);
         // Five billion pairs, which only fit if they come one at a time.
         let many: Titles = (0..100_000).collect();
-        assert_eq!(pairs(&many).nth(99_999), Some((1, 2)));
+        assert_eq!(pairs(&none, &many).nth(99_999).unwrap().unwrap(), (1, 2));
+    }
+
+    #[test]
+    fn pairs_stop_soon_after_their_run_is_cancelled() {
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let limits = Limits {
+            cancel: Some(cancel.clone()),
+            deadline: None,
+        };
+        let many: Titles = (0..100_000).collect();
+        let mut seen = 0u64;
+        let mut stopped = false;
+        for pair in pairs(&limits, &many) {
+            if pair.is_err() {
+                stopped = true;
+                break;
+            }
+            seen += 1;
+            if seen == 10 {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        assert!(stopped);
+        assert_eq!(seen, CHECK_EVERY);
     }
 
     #[test]
