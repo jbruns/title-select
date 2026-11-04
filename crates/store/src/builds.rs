@@ -73,6 +73,8 @@ enum Failure {
 struct Staged {
     sha256: String,
     size: u64,
+    /// Its modification time once written and synced.
+    mtime_ns: i128,
     chd_sha1: Option<String>,
     chd_raw_sha1: Option<String>,
 }
@@ -227,6 +229,16 @@ fn stage_chd(
     // The ROMs read are no longer needed once the CHD holds them: what it gives back is checked against the DAT.
     std::fs::remove_dir_all(&input)
         .map_err(|e| Failure::Item(format!("{}: {e}", input.display())))?;
+    // The CHD extracted is the one copied and hashed: held open, and unchanged from before it is extracted until it is
+    // copied.
+    let mut built =
+        File::open(&out).map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
+    let seen = |file: &File| {
+        rustix::fs::fstat(file)
+            .map(|st| crate::checks::Seen::of(&st))
+            .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))
+    };
+    let before = seen(&built)?;
     let header = chdman
         .verify(&dir, kind, cue.as_deref(), &item.roms, cancelled)
         .map_err(|s| match stop(s) {
@@ -236,8 +248,6 @@ fn stage_chd(
             other => other,
         })?;
     let _ = std::fs::remove_dir_all(dir.join("x"));
-    let mut built =
-        File::open(&out).map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
     loop {
@@ -252,6 +262,12 @@ fn stage_chd(
             .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
     }
     let copied = hex(&hasher.finalize());
+    if seen(&built)? != before {
+        return Err(Failure::Item(format!(
+            "{} changed while it was checked",
+            out.display()
+        )));
+    }
     file.set_modified(built_at)
         .and_then(|()| file.sync_all())
         .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
@@ -267,6 +283,7 @@ fn stage_chd(
     Ok(Staged {
         sha256,
         size,
+        mtime_ns: staged_mtime(file)?,
         chd_sha1: Some(header.sha1),
         chd_raw_sha1: Some(header.raw_sha1),
     })
@@ -512,6 +529,7 @@ fn stage(
         return Ok(Staged {
             sha256,
             size,
+            mtime_ns: staged_mtime(file)?,
             chd_sha1: None,
             chd_raw_sha1: None,
         });
@@ -584,9 +602,24 @@ fn stage(
     Ok(Staged {
         sha256,
         size,
+        mtime_ns: staged_mtime(file)?,
         chd_sha1: None,
         chd_raw_sha1: None,
     })
+}
+
+/// The modification time of the staged file `file`, as written and synced.
+fn staged_mtime(file: &File) -> std::result::Result<i128, Failure> {
+    rustix::fs::fstat(file)
+        .map(|st| file_stat(&st).mtime_ns)
+        .map_err(|e| Failure::Folder(e.to_string()))
+}
+
+/// What was recorded of a CHD as it was verified: its header's SHA-1, and the stamp of the file put in place.
+struct Verified {
+    sha1: String,
+    identity: Identity,
+    file: FileStat,
 }
 
 /// Whether the file a conversion wrote for `item` is in place as it was recorded built, and, read through one
@@ -595,7 +628,7 @@ fn stage(
 fn converted_verified(
     dir: &FolderDir,
     item: &PlanItem,
-    chd_sha1: Option<&str>,
+    chd: Option<&Verified>,
 ) -> std::result::Result<std::result::Result<(), String>, Error> {
     let io = |e: io::Error| Error::Io(e.to_string());
     let target = &item.target;
@@ -614,11 +647,18 @@ fn converted_verified(
         return Ok(Err(format!("{target} changed once it was written")));
     }
     let verified = match (item.chd, item.loose, item.roms.as_slice()) {
-        // A CHD was checked by extracting it once it was built; it is the same CHD while its header says so.
-        (true, ..) => match chd::header(&file) {
-            Ok(h) if Some(h.sha1.as_str()) == chd_sha1 => Ok(()),
-            Ok(_) => Err("its CHD header is not the one recorded when it was checked".into()),
-            Err(why) => Err(why),
+        // A CHD was checked by extracting it once it was built, and is not read whole again: it is the same CHD while
+        // this descriptor's stamp is the one recorded then, and its header says so.
+        (true, ..) => match chd {
+            None => Err("there is no record of it as it was checked".into()),
+            Some(v) if Identity::of(&before) != v.identity || file_stat(&before) != v.file => Err(
+                "it is not the file that was checked: its size or modification time changed".into(),
+            ),
+            Some(v) => match chd::header(&file) {
+                Ok(h) if h.sha1 == v.sha1 => Ok(()),
+                Ok(_) => Err("its CHD header is not the one recorded when it was checked".into()),
+                Err(why) => Err(why),
+            },
         },
         (false, true, [rom]) => verify_loose(&file, rom),
         (false, true, _) => Err("a loose file holds one ROM".into()),
@@ -1500,7 +1540,7 @@ impl Store {
                         self.write(|tx| {
                         tx.execute(
                             "UPDATE build_items SET state = 'publishing', sha256 = ?3, size = ?4, dev = ?5, ino = ?6,
-                                                    chd_sha1 = ?7, chd_raw_sha1 = ?8
+                                                    chd_sha1 = ?7, chd_raw_sha1 = ?8, mtime_ns = ?9
                              WHERE build_id = ?1 AND seq = ?2",
                             params![
                                 id,
@@ -1510,7 +1550,8 @@ impl Store {
                                 dev,
                                 ino,
                                 staged.chd_sha1,
-                                staged.chd_raw_sha1
+                                staged.chd_raw_sha1,
+                                staged.mtime_ns as i64
                             ],
                         )?;
                         Ok(())
@@ -1719,19 +1760,33 @@ impl Store {
                 "{name} stays in the kept files: the conversion has no record of it as it read it"
             ))));
         }
-        let chd_sha1: Option<String> = match item.chd {
+        // The CHD as the Build that wrote it verified it: its header's SHA-1, and the stamp it recorded once the file
+        // was written, with its SHA-256, before it was put in place.
+        let chd: Option<Verified> = match item.chd {
             true => self.read(|c| {
                 Ok(c.query_row(
-                    "SELECT chd_sha1 FROM built_files WHERE folder_id = ?1 AND target = ?2",
+                    "SELECT f.chd_sha1, i.dev, i.ino, i.size, i.mtime_ns
+                     FROM built_files f
+                     JOIN build_items i ON i.build_id = f.build_id AND i.target = f.target AND i.sha256 = f.sha256
+                     WHERE f.folder_id = ?1 AND f.target = ?2 AND f.chd_sha1 IS NOT NULL AND i.dev IS NOT NULL
+                       AND i.ino IS NOT NULL AND i.size IS NOT NULL AND i.mtime_ns IS NOT NULL",
                     params![k.folder, item.target],
-                    |r| r.get(0),
+                    |r| {
+                        Ok(Verified {
+                            sha1: r.get(0)?,
+                            identity: Identity::from_sql(r.get(1)?, r.get(2)?),
+                            file: FileStat {
+                                size: r.get::<_, i64>(3)? as u64,
+                                mtime_ns: r.get::<_, i64>(4)? as i128,
+                            },
+                        })
+                    },
                 )
-                .optional()?
-                .flatten())
+                .optional()?)
             })?,
             false => None,
         };
-        let note = match converted_verified(dir, item, chd_sha1.as_deref())? {
+        let note = match converted_verified(dir, item, chd.as_ref())? {
             Err(why) => format!("{name} stays in the kept files: {why}"),
             Ok(()) => match self.delete_converted_kept(dir, kept, actor)? {
                 outcome if outcome.deleted => {

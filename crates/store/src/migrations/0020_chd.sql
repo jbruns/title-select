@@ -29,3 +29,7 @@ ALTER TABLE built_files ADD COLUMN chd_raw_sha1 TEXT;
 -- records it built as the Build would have.
 ALTER TABLE build_items ADD COLUMN chd_sha1 TEXT;
 ALTER TABLE build_items ADD COLUMN chd_raw_sha1 TEXT;
+
+-- The modification time of the file an item verified and is putting in place, with its SHA-256, size, device and
+-- inode: the stamp a CHD's converted original is deleted against, since a CHD is not read again whole once verified.
+ALTER TABLE build_items ADD COLUMN mtime_ns INTEGER;

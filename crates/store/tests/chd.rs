@@ -161,6 +161,44 @@ impl Env {
         }
     }
 
+    /// Stores the system's games in play libraries as `format`, else the default, deleting converted originals if
+    /// `delete`.
+    fn set_format(&self, format: Option<StorageFormat>, delete: bool) {
+        let mut policy = self.store.storage_policy().unwrap();
+        policy.play_libraries.systems.insert(
+            SYSTEM.into(),
+            SystemStorage {
+                format,
+                delete_originals: Some(delete),
+            },
+        );
+        self.store.set_storage_policy(&policy, "Operator").unwrap();
+    }
+
+    /// Runs `plan`'s Build with `hook` called at each fault it passes.
+    fn build_hooked(
+        &self,
+        plan: &Plan,
+        hook: impl Fn(title_select_store::Fault) + Send + Sync + 'static,
+    ) -> title_select_api::Job {
+        self.store.hook_faults(Some(std::sync::Arc::new(hook)));
+        let job = self.build(plan);
+        self.store.hook_faults(None);
+        job
+    }
+
+    fn kept(&self, folder: &LibraryFolder) -> Vec<String> {
+        let mut kept: Vec<String> = self
+            .store
+            .kept_files(folder.id)
+            .unwrap()
+            .into_iter()
+            .map(|k| k.name)
+            .collect();
+        kept.sort();
+        kept
+    }
+
     fn dir(&self) -> PathBuf {
         self.tmp.path().join("roots/play/discs")
     }
@@ -562,6 +600,69 @@ fn a_disc_zipped_in_its_source_set_is_read_once_for_all_its_tracks() {
     assert_eq!(only_item(&env, &ended).state, ItemState::Applied);
     assert!(env.dir().join("Orbit (USA).chd").is_file());
     assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_chd_damaged_once_in_place_never_lets_its_original_be_deleted() {
+    let Some(_) = chdman() else { return };
+    for damaged in [false, true] {
+        let env = Env::new(None);
+        env.set_format(None, false);
+        let (folder, selection) = env.folder(&[CD]);
+        assert_eq!(
+            env.build(&env.plan(&folder, selection)).state,
+            JobState::Succeeded
+        );
+        assert!(env.dir().join("Orbit (USA).zip").is_file());
+
+        env.set_format(Some(StorageFormat::Chd), true);
+        let plan = env.plan(&folder, selection);
+        assert!(
+            plan.content
+                .items
+                .iter()
+                .any(|i| i.chd && i.converts.is_some()),
+            "{:?}",
+            plan.content.items
+        );
+        // Cut short once it is in place, before its original is disposed of; its header still reads as it did.
+        let cd = env.dir().join("Orbit (USA).chd");
+        let path = cd.clone();
+        let ended = env.build_hooked(&plan, move |fault| {
+            if damaged
+                && matches!(fault, title_select_store::Fault::ConversionKept(_))
+                && path.exists()
+            {
+                let mut perms = std::fs::metadata(&path).unwrap().permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                std::fs::set_permissions(&path, perms).unwrap();
+                let file = std::fs::File::options().write(true).open(&path).unwrap();
+                let len = file.metadata().unwrap().len();
+                file.set_len(len / 2).unwrap();
+            }
+        });
+
+        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        assert!(cd.is_file());
+        if !damaged {
+            assert!(env.kept(&folder).is_empty(), "{:?}", env.kept(&folder));
+            continue;
+        }
+        assert_eq!(env.kept(&folder), ["Orbit (USA).zip"]);
+        let build = env.store.build_of_job(ended.id).unwrap().unwrap();
+        let detail = env.store.build(build.id).unwrap();
+        let said: Vec<_> = detail
+            .items
+            .iter()
+            .filter_map(|i| i.error.as_deref())
+            .collect();
+        assert!(
+            said.iter().any(|e| e.contains("stays in the kept files")
+                && e.contains("not the file that was checked")),
+            "{said:?}"
+        );
+    }
 }
 
 /// The single item of the Build that ended as `job`.
