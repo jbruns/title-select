@@ -126,10 +126,20 @@ is searched for `*.dat` files. Without `--profile`, the profile is empty: every 
 
 Some of the bundled engine's tie-breaks follow the order in which it happens to meet titles, which no other engine can
 reproduce. Where the engines differ, the bundled engine runs again, up to `--orders` times (32 by default), meeting
-titles in other orders; a difference it reproduces that way is reported as order-sensitive, since either result is one
-the bundled engine can give. Each DAT is reported as the same, the same apart from order-sensitive differences, or
-different, with each remaining difference. The command exits 1 when any DAT is different, and `--json` prints the
-report as JSON.
+titles in other orders. Differences that depend on each other, in one group or in groups linked by a compilation or a
+clone list, are judged together: they are order-sensitive only when a single one of those runs gives the built-in
+engine's whole result for them, and the report names that run's order (its seed), since that result is one the
+bundled engine can give. Each DAT is reported as:
+
+- the same, or the same apart from order-sensitive differences;
+- different, with each remaining difference;
+- inconclusive: some reruns matched only part of the built-in engine's result, or both engines failed for
+  different or unrecognised reasons;
+- unsupported: your selection profile uses a pattern the built-in engine can't read, which it names. It never skips a
+  pattern.
+
+Both engines failing for the same reason, such as a file that isn't a DAT, counts as the same. The command exits 1 when
+any DAT is different, inconclusive or unsupported, and `--json` prints the report as JSON.
 
 Your selection profile is JSON; every field is optional, and an unknown field, region, language or video standard is
 refused:
@@ -495,9 +505,11 @@ may have one audit job and one selection job queued or running at once. Afterwar
 
 `[selections] engine` chooses the engine that makes selections and previews, as `select --engine` does. With
 `[selections] shadow = true`, each selection job also runs the other engine on the same DAT revision and selection
-profile, after the selection is made, and records how the two compare beside the selection: the groups they place
-differently or explain differently, and their warnings where those differ. The shadow run never changes the
-selection, and a shadow run that fails is recorded as failed without failing the job. The server's log gets one line
+profile, after the selection is recorded, and records how the two compare beside the selection: the groups they place
+differently or explain differently, and their warnings where those differ. The shadow run is a separate process with
+the job's timeout and an 8 GiB memory limit; it is stopped when it overruns either. It never changes or delays the
+selection, and a shadow run that fails for any reason, including a pattern the built-in engine can't read, is
+recorded as failed without failing the job. Pruning a selection also deletes its shadow comparison. The server's log gets one line
 per shadow run saying whether the engines agreed, and naming the first groups where they didn't;
 `GET /api/v1/selections/{id}/shadow` returns the full comparison. A shadow run compares one run of each engine, so
 its differences are unclassified: some may come only from the order the bundled engine meets titles in. The log line
@@ -1442,7 +1454,11 @@ or a patch; the tests fail, rather than skip, without it.
   `TITLE_SELECT_REGENERATE_GOLDENS=1 cargo test -p title-select-selection --test conformance` and review the diff.
 - **Built-in engine conformance:** `crates/selection/tests/builtin.rs` runs both engines over Retool's fixture DATs
   with its test configs. Pull-request CI checks every feature DAT and two system DATs; the `conformance` workflow
-  checks every DAT nightly and on demand. Run the full set locally with
+  checks every DAT nightly and on demand. The oracle is `crates/selection/src/conformance.rs`: dependent differing
+  units form components, a component is order-sensitive only with a single witness seed reproducing all of it, and a
+  component no rerun reproduces is different; one reruns reproduce only partly, or a mismatched failure, is
+  inconclusive. Both fail the test.
+  Profile patterns go through `native/userre.rs`, which rewrites Python `re` syntax for `fancy-regex` or refuses it. Run the full set locally with
   `CONFORMANCE_FULL=1 cargo test -p title-select-selection --test builtin`.
 - **A real DAT:** `TITLE_SELECT_ATARI_DAT=<DAT file> cargo test -p title-select-selection --test selection --
   --ignored --nocapture` selects from it, checks every group has a rule and prints the counts. Never commit the DAT.
