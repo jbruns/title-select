@@ -313,6 +313,67 @@ fn revisions_of_one_version_order_by_their_headers_date() {
     );
 }
 
+#[test]
+fn a_dat_imported_under_another_spelling_of_its_provider_is_a_revision_of_the_same_dat() {
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    env.store.set_follow("Alpha", true).unwrap();
+    let (newer, _) = env
+        .store
+        .import_dat_bytes(&dated("2", "", "a"), "v2.dat", "test", None)
+        .unwrap();
+
+    assert_eq!(newer.provider, "Test", "imported under the spelling it has");
+    assert!(
+        matches!(&env.stale("Alpha")[..], [SourceSetStale::NewerRevision { sha256, .. }] if *sha256 == newer.sha256),
+        "{:?}",
+        env.stale("Alpha")
+    );
+}
+
+#[test]
+fn a_newer_revision_makes_source_sets_bound_to_either_spelling_of_its_provider_stale() {
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    env.audit("Beta", AuditEvidence::Incremental);
+    // A store from before spellings were folded may hold the DAT twice, a source set bound to each.
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO dats (provider, name) VALUES ('test', 'Test - System')",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE source_sets SET dat_id = last_insert_rowid() WHERE name = 'Beta'",
+        [],
+    )
+    .unwrap();
+    env.store.set_follow("Alpha", true).unwrap();
+    env.store.set_follow("Beta", true).unwrap();
+
+    let (newer, _) = env
+        .store
+        .import_dat_bytes(&dated("2", "", "a"), "v2.dat", "Test", None)
+        .unwrap();
+    for set in ["Alpha", "Beta"] {
+        assert!(
+            matches!(&env.stale(set)[..], [SourceSetStale::NewerRevision { sha256, .. }] if *sha256 == newer.sha256),
+            "{set}: {:?}",
+            env.stale(set)
+        );
+    }
+
+    env.store
+        .audit_source_set(
+            &env.config,
+            "Beta",
+            Some(&newer.sha256),
+            AuditEvidence::Incremental,
+        )
+        .unwrap();
+    assert_eq!(env.stale("Beta"), [], "an audit against it clears it");
+}
+
 fn newest_sha(env: &Env) -> String {
     env.store
         .dat_revisions()

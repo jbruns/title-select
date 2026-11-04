@@ -216,7 +216,8 @@ first use. Only one Title Select process may have a store open at a time: it hol
   of its DAT. Otherwise the file is deleted after the next import or audit; the DAT revision's row stays, so
   history still names it. Importing the same file again restores it and keeps it until an audit using it finishes or a
   newer revision of its DAT is imported.
-- A cue pack's file is kept while it is the newest imported for its DAT or while a repair plan refers to it.
+- A cue pack's file is kept while it is the newest imported for its DAT or while a repair plan refers to it. A
+  fetched cue pack is kept instead while it is the one the latest successful fetch of its system brought.
   Otherwise the file is deleted after the next import or audit; its row stays, and so does the index of its cue
   sheets, so the cue pack still lists, without its file. Importing the same file again restores it and keeps it until
   a newer cue pack for its DAT is imported.
@@ -316,7 +317,8 @@ title-select dat import <DAT file> --provider <name> [--source-url <url>]
 
 Imports an unmodified DAT file as a DAT revision, recording its SHA-256, header `name` and `version`, original
 filename, import time, provider and source URL. A DAT is identified by its provider and header name, written
-`<provider>/<name>`; each import of new bytes adds a DAT revision of it. Importing the same bytes again changes
+`<provider>/<name>`; each import of new bytes adds a DAT revision of it. The provider matches whatever its case:
+importing under `redump` adds a revision of `Redump/<name>` if you have it, under that spelling. Importing the same bytes again changes
 nothing and prints the existing DAT revision, restoring its file if the store had dropped it.
 
 ```sh
@@ -494,7 +496,7 @@ for the systems a registered source set follows, and only those DATs:
 
 - **Redump**: the system's DAT, and its cue pack and SBI pack where Redump publishes them; nothing Redump doesn't
   publish for a system is asked for. A source set follows a
-  Redump DAT when it is bound to one imported with provider `Redump`, under the DAT's own header name (such as
+  Redump DAT when it is bound to one imported with provider `Redump`, in any case, under the DAT's own header name (such as
   `Sony - PlayStation`).
 - **MAME**: it checks for MAME's latest release, then fetches the ListXML (the DAT named `MAME`) and the software
   lists your source sets follow (imported with provider `MAME`, each named as its list, such as `nes`) from that

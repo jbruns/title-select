@@ -31,7 +31,10 @@ const SET_QUERY: &str =
      LEFT JOIN stat_walks w ON w.id = (SELECT id FROM stat_walks WHERE source_set_id = s.id ORDER BY id DESC LIMIT 1)
                            AND w.audit_id = a.id AND w.changed + w.added + w.removed > 0
      LEFT JOIN dat_revisions n ON s.follow AND a.id IS NOT NULL
-                               AND n.id = (SELECT id FROM dat_revisions WHERE dat_id = s.dat_id
+                               AND n.id = (SELECT id FROM dat_revisions
+                                           WHERE dat_id IN (SELECT f.id FROM dats f
+                                                            WHERE f.name = d.name
+                                                              AND f.provider = d.provider COLLATE NOCASE)
                                            ORDER BY header_order DESC LIMIT 1)
                                AND n.header_order > r.header_order";
 
@@ -164,13 +167,8 @@ impl Store {
         };
         let (provider, dat_name) = split_dat(dat)?;
         self.read(|c| {
-            c.query_row(
-                "SELECT 1 FROM dats WHERE provider = ?1 AND name = ?2",
-                params![provider, dat_name],
-                |_| Ok(()),
-            )
-            .optional()?
-            .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))
+            crate::dats::find_dat(c, provider, dat_name)?
+                .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))
         })?;
         template
             .render(&TokenValues::for_dat(provider, dat_name))
@@ -214,13 +212,7 @@ impl Store {
                     other.display()
                 )));
             }
-            let dat_id: i64 = tx
-                .query_row(
-                    "SELECT id FROM dats WHERE provider = ?1 AND name = ?2",
-                    params![provider, dat_name],
-                    |r| r.get(0),
-                )
-                .optional()?
+            let dat_id: i64 = crate::dats::find_dat(tx, provider, dat_name)?
                 .ok_or_else(|| Error::Refused(format!("no DAT {dat} has been imported")))?;
             let clash: Option<String> = tx
                 .query_row(

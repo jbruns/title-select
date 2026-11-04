@@ -193,14 +193,16 @@ fn record(tx: &Transaction, set: i64, audit: i64, job: i64, counts: &Counts) -> 
 /// latest Audit's: what makes it Stale now. Called as a revision is imported, an Audit finishes or you follow.
 pub(crate) fn note_followed_revisions(tx: &Transaction) -> Result<()> {
     tx.execute(
-        "INSERT OR IGNORE INTO followed_revisions (source_set_id, dat_revision_id, found_at)
+        &format!("INSERT OR IGNORE INTO followed_revisions (source_set_id, dat_revision_id, found_at)
          SELECT s.id, n.id, ?1 FROM source_sets s
          JOIN audits a ON a.id = (SELECT id FROM audits WHERE source_set_id = s.id AND status = 'finished'
                                   ORDER BY finish_seq DESC LIMIT 1)
-         JOIN dat_revisions n ON n.id = (SELECT id FROM dat_revisions WHERE dat_id = s.dat_id
+         JOIN dat_revisions n ON n.id = (SELECT id FROM dat_revisions WHERE dat_id IN {same}
                                          ORDER BY header_order DESC LIMIT 1)
          JOIN dat_revisions v ON v.id = a.dat_revision_id
          WHERE s.follow AND n.header_order > v.header_order AND s.unregistered_at IS NULL",
+            same = crate::dats::same_dat("s.dat_id")
+        ),
         [now()],
     )?;
     Ok(())

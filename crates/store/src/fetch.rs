@@ -158,14 +158,15 @@ impl Fetcher {
         limit: u64,
     ) -> Result<Fetched, FetchError> {
         let allowed = self.endpoints.allowed(provider);
-        self.http.get_paced(url, allowed, accept, limit, &mut || {
-            let mut last = self.last.lock().unwrap();
-            if let Some(at) = last.get(&provider) {
-                let wait = MIN_GAP.saturating_sub(at.elapsed());
-                std::thread::sleep(wait);
-            }
-            last.insert(provider, Instant::now());
-        })
+        // The gap runs from when the last request was answered, so the provider sees at least it between requests.
+        self.http
+            .get_paced(url, allowed, accept, limit, &mut |answered| {
+                let mut last = self.last.lock().unwrap();
+                if !answered && let Some(at) = last.get(&provider) {
+                    std::thread::sleep(MIN_GAP.saturating_sub(at.elapsed()));
+                }
+                last.insert(provider, Instant::now());
+            })
     }
 }
 

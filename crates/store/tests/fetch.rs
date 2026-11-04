@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use title_select_api::fetch::{
     FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
 };
-use title_select_api::{AuditEvidence, CuePackOrigin};
+use title_select_api::{AuditEvidence, CuePackOrigin, SourceSetStale};
 use title_select_store::config::Config;
 use title_select_store::fetch::{Allowed, Endpoints, FetchError, Fetcher, Http};
 use title_select_store::{Error, Store};
@@ -692,6 +692,9 @@ fn a_system_whose_dat_is_followed_under_two_spellings_of_its_provider_is_request
     env.store
         .add_source_set(&env.config, "sets", "PSX2", "redump/Sony - PlayStation")
         .unwrap();
+    env.store
+        .audit_source_set(&env.config, "PSX2", None, AuditEvidence::Incremental)
+        .unwrap();
     env.store.set_follow("PSX2", true).unwrap();
     env.serve_psx("2");
 
@@ -703,6 +706,12 @@ fn a_system_whose_dat_is_followed_under_two_spellings_of_its_provider_is_request
     paths.sort();
     assert_eq!(paths, ["/cues/psx/", "/datfile/psx/", "/sbi/psx/"]);
     assert_eq!(report.attempts.len(), 3);
+    for set in ["PSX", "PSX2"] {
+        assert!(
+            matches!(&env.store.source_set(set).unwrap().stale[..], [SourceSetStale::NewerRevision { version, .. }] if version == "2"),
+            "{set}"
+        );
+    }
 }
 
 #[test]

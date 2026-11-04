@@ -99,13 +99,7 @@ impl Store {
                 "{file}: a cue pack is at most {CUE_PACK_LIMIT} bytes"
             )));
         }
-        let known: bool = self.read(|c| {
-            Ok(c.query_row(
-                "SELECT EXISTS (SELECT 1 FROM dats WHERE provider = ?1 AND name = ?2)",
-                params![provider, name],
-                |r| r.get(0),
-            )?)
-        })?;
+        let known: bool = self.read(|c| Ok(super::dats::find_dat(c, provider, name)?.is_some()))?;
         if !known {
             return Err(Error::Refused(format!(
                 "{dat}: import the DAT before a cue pack for it"

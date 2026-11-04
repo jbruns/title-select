@@ -171,24 +171,25 @@ impl Http {
         accept: Option<&str>,
         limit: u64,
     ) -> Result<Fetched, FetchError> {
-        self.get_paced(url, allowed, accept, limit, &mut || {})
+        self.get_paced(url, allowed, accept, limit, &mut |_| {})
     }
 
-    /// As [`Http::get`], running `pace` before each request it sends, redirects included.
+    /// As [`Http::get`], running `pace(false)` before each request it sends, redirects included, and `pace(true)` once
+    /// it is answered or fails.
     pub fn get_paced(
         &self,
         url: &str,
         allowed: &Allowed,
         accept: Option<&str>,
         limit: u64,
-        pace: &mut dyn FnMut(),
+        pace: &mut dyn FnMut(bool),
     ) -> Result<Fetched, FetchError> {
         let mut url = url.to_owned();
         for _ in 0..=MAX_REDIRECTS {
             if let Some(why) = allowed.refusal(&url) {
                 return Err(FetchError::Forbidden(why));
             }
-            pace();
+            pace(false);
             let transport = |e: ureq::Error| FetchError::Transport {
                 url: url.clone(),
                 message: e.to_string(),
@@ -197,7 +198,9 @@ impl Http {
             if let Some(accept) = accept {
                 request = request.header("Accept", accept);
             }
-            let mut response = request.call().map_err(transport)?;
+            let answered = request.call();
+            pace(true);
+            let mut response = answered.map_err(transport)?;
             let status = response.status().as_u16();
             if (300..400).contains(&status) {
                 let location = response

@@ -125,13 +125,9 @@ pub(crate) fn set_of_system(c: &Connection, system: &str) -> Result<SetRow> {
 /// The DAT `system` names, as `<provider>/<name>`: its id and name.
 fn dat_of(c: &Connection, system: &str) -> Result<(i64, String)> {
     let (provider, name) = system.split_once('/').unwrap_or(("", system));
-    c.query_row(
-        "SELECT id, name FROM dats WHERE provider = ?1 AND name = ?2",
-        params![provider, name],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )
-    .optional()?
-    .ok_or_else(|| {
+    crate::dats::find_dat(c, provider, name)?
+        .map(|id| (id, name.to_owned()))
+        .ok_or_else(|| {
         Error::Refused(format!(
             "{system} is not a registered DAT; choose the system an addition belongs to by its DAT"
         ))

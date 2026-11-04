@@ -88,11 +88,35 @@ impl HeaderKey {
     }
 }
 
-/// Renumbers `header_order` within the DAT `dat_id`: by version, then date, then import where the headers don't tell.
+/// The DAT `<provider>/<name>`, matching the provider whatever its case: one spelled exactly so if there is one, else
+/// the first imported.
+pub(crate) fn find_dat(c: &Connection, provider: &str, name: &str) -> Result<Option<i64>> {
+    Ok(c.query_row(
+        "SELECT id FROM dats WHERE name = ?2 AND provider = ?1 COLLATE NOCASE
+         ORDER BY provider = ?1 DESC, id LIMIT 1",
+        params![provider, name],
+        |r| r.get(0),
+    )
+    .optional()?)
+}
+
+/// A subquery for the ids of every DAT that is the DAT `dat_id` under a spelling of its provider: a store from before
+/// imports matched providers whatever their case may hold one DAT more than once. Their revisions are ordered
+/// together, so `header_order` compares across them.
+pub(crate) fn same_dat(dat_id: &str) -> String {
+    format!(
+        "(SELECT f.id FROM dats f JOIN dats o ON o.id = {dat_id}
+          WHERE f.name = o.name AND f.provider = o.provider COLLATE NOCASE)"
+    )
+}
+
+/// Renumbers `header_order` within the DAT `dat_id`, under every spelling of its provider: by version, then date,
+/// then import where the headers don't tell.
 pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
-    let mut stmt = c.prepare(
-        "SELECT id, version, header_date FROM dat_revisions WHERE dat_id = ?1 ORDER BY id",
-    )?;
+    let mut stmt = c.prepare(&format!(
+        "SELECT id, version, header_date FROM dat_revisions WHERE dat_id IN {} ORDER BY id",
+        same_dat("?1")
+    ))?;
     let revisions = stmt
         .query_map([dat_id], |r| {
             Ok((
@@ -133,7 +157,7 @@ pub(crate) fn would_be_newest(
     let key = HeaderKey::new(version, date);
     let mut stmt = c.prepare(
         "SELECT r.version, r.header_date FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
-         WHERE d.provider = ?1 AND d.name = ?2",
+         WHERE d.provider = ?1 COLLATE NOCASE AND d.name = ?2",
     )?;
     let headers = stmt
         .query_map(params![provider, name], |r| {
@@ -226,15 +250,16 @@ impl Store {
             }
             write_blob(&dats, &dat.sha256, bytes)?;
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            tx.execute(
-                "INSERT INTO dats (provider, name) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
-                params![provider, dat.name],
-            )?;
-            let dat_id: i64 = tx.query_row(
-                "SELECT id FROM dats WHERE provider = ?1 AND name = ?2",
-                params![provider, dat.name],
-                |r| r.get(0),
-            )?;
+            let dat_id = match find_dat(&tx, provider, &dat.name)? {
+                Some(id) => id,
+                None => {
+                    tx.execute(
+                        "INSERT INTO dats (provider, name) VALUES (?1, ?2)",
+                        params![provider, dat.name],
+                    )?;
+                    tx.last_insert_rowid()
+                }
+            };
             // A newer revision releases any restored revision of the same DAT.
             tx.execute(
                 "UPDATE dat_revisions SET restored_at = NULL WHERE dat_id = ?1",

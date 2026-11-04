@@ -7,8 +7,8 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
 use sha2::{Digest, Sha256};
 
-use super::dats::revision_by_id;
 use super::dats::{DatRevisionRecord, REVISION_COLUMNS, revision_from_row};
+use super::dats::{revision_by_id, same_dat};
 use super::jobs::JobRow;
 use super::repairs::open_repair;
 use super::sets::{Resolved, SourceSetRow, resolve, set_by_id, set_by_name};
@@ -307,7 +307,7 @@ fn timestamp(s: &str) -> Result<jiff::Timestamp> {
 }
 
 /// The DAT Revision an Audit of `set` uses: the one whose SHA-256 starts with `prefix`; else the latest
-/// Audit's; else the newest revision of the bound DAT.
+/// Audit's; else the newest revision of the bound DAT, under any spelling of its provider.
 pub(super) fn choose_revision(
     c: &Connection,
     set: &SourceSetRow,
@@ -324,7 +324,8 @@ pub(super) fn choose_revision(
             )));
         }
         let mut stmt = c.prepare(&format!(
-            "{base} WHERE r.dat_id = ?1 AND substr(r.sha256, 1, length(?2)) = ?2 ORDER BY r.id"
+            "{base} WHERE r.dat_id IN {same} AND substr(r.sha256, 1, length(?2)) = ?2 ORDER BY r.id",
+            same = same_dat("?1")
         ))?;
         let mut found = stmt
             .query_map(params![set.dat_id, prefix], revision_from_row)?
@@ -354,7 +355,10 @@ pub(super) fn choose_revision(
         return Ok(found);
     }
     c.query_row(
-        &format!("{base} WHERE r.dat_id = ?1 ORDER BY r.header_order DESC LIMIT 1"),
+        &format!(
+            "{base} WHERE r.dat_id IN {} ORDER BY r.header_order DESC LIMIT 1",
+            same_dat("?1")
+        ),
         [set.dat_id],
         revision_from_row,
     )
