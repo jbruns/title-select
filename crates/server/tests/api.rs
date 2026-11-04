@@ -2007,6 +2007,42 @@ mod selections {
     }
 
     #[test]
+    fn a_service_starts_again_straight_after_stopping_with_a_shadow_run_in_flight() {
+        let env = Env::new();
+        drop(ready(&env));
+        let pid_file = env.tmp.path().join("grandchild");
+        let settings = || {
+            shell_shadow(
+                &env,
+                &format!("sleep 300 & echo $! > '{}'; wait", pid_file.display()),
+            )
+        };
+        let service = title_select_server::spawn(settings()).unwrap();
+        let client = Client::new(&service);
+        let (_, made) = save(&client, json!({"region_order": ["Europe", "USA"]}));
+        assert!(
+            (0..600).any(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                pid_file.exists()
+            }),
+            "the shadow run starts"
+        );
+        drop((client, service));
+        let service = title_select_server::spawn(settings()).unwrap();
+        let client = Client::new(&service);
+        let shadow: Option<ShadowRun> = client.json(&format!("/selections/{}/shadow", made.id));
+        let error = shadow
+            .expect("the stopped shadow run was recorded before the service stopped")
+            .error
+            .unwrap();
+        assert!(!error.is_empty());
+        assert_eq!(
+            winners(&selection(&client, made.id), "pong"),
+            ["Pong (Europe)"]
+        );
+    }
+
+    #[test]
     fn a_choice_is_recorded_as_the_rule_and_flagged_as_the_profile_and_dat_change() {
         let env = Env::new();
         let (_service, client) = ready(&env);

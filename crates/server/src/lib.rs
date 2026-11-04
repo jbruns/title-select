@@ -250,6 +250,10 @@ impl StopShadows {
         {
             eprintln!("title-select: a shadow run's processes were not reaped in time");
         }
+        // The running shadow run holds the store until it has recorded how it ended.
+        if !self.waiting.join(std::time::Duration::from_secs(30)) {
+            eprintln!("title-select: a shadow run did not end in time");
+        }
     }
 }
 

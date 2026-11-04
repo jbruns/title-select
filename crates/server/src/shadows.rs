@@ -2,6 +2,8 @@
 //! shadow mode holds a bounded number of Selections and child processes however fast Selection Jobs end.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 /// Why a shadow run that waited never ran: a newer one took its place.
 pub const BUSY: &str =
@@ -25,7 +27,7 @@ pub struct Shadows {
 #[derive(Default)]
 struct State {
     waiting: Option<Task>,
-    worker: bool,
+    worker: Option<JoinHandle<()>>,
     stopped: bool,
 }
 
@@ -43,10 +45,9 @@ impl Shadows {
             return;
         }
         let replaced = state.waiting.replace(task);
-        if !state.worker {
-            state.worker = true;
+        if state.worker.is_none() {
             let shadows = self.clone();
-            std::thread::spawn(move || shadows.work());
+            state.worker = Some(std::thread::spawn(move || shadows.work()));
         }
         drop(state);
         self.wake.notify_all();
@@ -56,7 +57,7 @@ impl Shadows {
     }
 
     /// Skips the waiting task, if any, as `STOPPED`, and every task submitted after. The running one, if any, is the
-    /// engine's to stop.
+    /// engine's to stop; `join` then waits for it.
     pub fn stop(&self) {
         let mut state = self.lock();
         state.stopped = true;
@@ -66,6 +67,22 @@ impl Shadows {
         if let Some(waiting) = waiting {
             (waiting.skip)(STOPPED);
         }
+    }
+
+    /// Waits up to `within` for the worker, and with it the running task and all it holds, to end once `stop` has
+    /// stopped it. False when it hasn't ended by then.
+    pub fn join(&self, within: Duration) -> bool {
+        let Some(worker) = self.lock().worker.take() else {
+            return true;
+        };
+        let until = Instant::now() + within;
+        while !worker.is_finished() {
+            if Instant::now() >= until {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        worker.join().is_ok()
     }
 
     fn work(&self) {
@@ -132,7 +149,10 @@ mod tests {
         assert_eq!(next(), format!("fifth {STOPPED}"));
         shadows.submit(task("sixth", &events, None));
         assert_eq!(next(), format!("sixth {STOPPED}"));
+        assert!(!shadows.join(Duration::from_millis(100)));
         go.send(()).unwrap();
         assert!(seen.recv_timeout(Duration::from_millis(200)).is_err());
+        assert!(shadows.join(Duration::from_secs(10)));
+        assert_eq!(Arc::strong_count(&shadows), 1);
     }
 }
