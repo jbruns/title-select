@@ -104,7 +104,8 @@ impl Grid for ProfileItem {
         match col {
             ProfileCol::Name => {
                 let name = self.0.name.clone();
-                view! { <A href=profile_href(&name)>{name.clone()}</A> }.into_any()
+                let retired = self.0.retired_at.is_some().then_some(" (retired)");
+                view! { <A href=profile_href(&name)>{name.clone()}</A> {retired} }.into_any()
             }
             ProfileCol::Version => latest
                 .map_or("Not saved yet".to_string(), |v| v.version.to_string())
@@ -176,7 +177,9 @@ pub fn ProfileScreen() -> impl IntoView {
     let params = use_params_map();
     let query = use_query_map();
     let name = Memo::new(move |_| params.read().get("name").unwrap_or_default());
+    let refresh = RwSignal::new(0u64);
     let record = LocalResource::new(move || {
+        refresh.track();
         let name = name.get();
         async move { api::get::<ProfileRecord>(&profile_href(&name)).await }
     });
@@ -205,9 +208,60 @@ pub fn ProfileScreen() -> impl IntoView {
                 <Editor name=Some(record.name.clone()) initial=record.latest.clone() />
                 <WhatIfs name=name.clone() />
                 <Versions name />
+                <Retirement record refresh />
             }
             .into_any()
         }
+    }
+}
+
+/// Retiring the profile, which hides it from new choices and keeps its versions for the selections that used them,
+/// or restoring it.
+#[component]
+fn Retirement(record: ProfileRecord, refresh: RwSignal<u64>) -> impl IntoView {
+    let problem = RwSignal::new(None::<String>);
+    let retired = record.retired_at.clone();
+    let path = format!(
+        "{}/{}",
+        profile_href(&record.name),
+        if retired.is_some() {
+            "restoration"
+        } else {
+            "retirement"
+        }
+    );
+    let act = move |_| {
+        let path = path.clone();
+        leptos::task::spawn_local(async move {
+            match api::post::<_, ProfileRecord>(&path, &()).await {
+                Ok(_) => refresh.update(|n| *n += 1),
+                Err(message) => problem.set(Some(message)),
+            }
+        });
+    };
+    let (lede, label) = match &retired {
+        Some(at) => (
+            format!(
+                "You retired this profile {}. It isn't offered for new selections or library folders; its versions \
+                stay for the selections that used them. Restore it to offer it again.",
+                when(at)
+            ),
+            "Restore",
+        ),
+        None => (
+            "Retiring hides the profile from new selections and library folders. Its versions stay for the \
+            selections that used them, and you can restore it later."
+                .to_string(),
+            "Retire",
+        ),
+    };
+    view! {
+        <section aria-labelledby="retire-title">
+            <h2 id="retire-title">"Retire"</h2>
+            <p class="lede">{lede}</p>
+            <button type="button" on:click=act>{label}</button>
+            {move || problem.get().map(|message| view! { <Problem message /> })}
+        </section>
     }
 }
 

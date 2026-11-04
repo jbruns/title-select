@@ -12,6 +12,9 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::events::use_live;
 use crate::model::{short_sha, when};
+use crate::screens::lifecycle::{
+    AdditionsSetAsideAction, LifecycleSection, Paths, UnregisterAction,
+};
 use crate::screens::repair::KeptFiles;
 
 /// The name suggested for an addition made from the file at `path`: its file name, without folders or extension.
@@ -192,6 +195,10 @@ pub fn SetView(set: AdditionsSet, refresh: RwSignal<u64>) -> impl IntoView {
         format!("/additions-set/kept-files{query}"),
         format!("/additions-set/kept-deletions{query}"),
     );
+    let (aside_system, unregister_what) = (
+        set.system.clone(),
+        format!("the additions set of {}", set.system),
+    );
     let leftovers = (!set.leftovers.is_empty()).then(|| {
         view! {
             <h3>"Found entries"</h3>
@@ -246,6 +253,17 @@ pub fn SetView(set: AdditionsSet, refresh: RwSignal<u64>) -> impl IntoView {
                 lede="Files of additions you retired, kept in the additions set. Builds and checks do not read them. \
                     Restore an addition to move its file back. Nothing here is deleted until you approve deleting it."
             />
+            <LifecycleSection>
+                <AdditionsSetAsideAction system=aside_system refresh />
+                <UnregisterAction
+                    what=unregister_what
+                    paths=Paths {
+                        holds: format!("/additions-set/holds{query}"),
+                        unregister: format!("/additions-set/unregistration{query}"),
+                    }
+                    left="Its files stay where they are, no longer managed."
+                />
+            </LifecycleSection>
         </section>
     }
 }

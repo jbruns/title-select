@@ -36,6 +36,7 @@ use crate::parts::url_state::encode;
 use crate::screens::additions::SetView;
 use crate::screens::audit::{EntriesPanel, GamesPanel, load, queued};
 use crate::screens::library_folders::live_jobs;
+use crate::screens::lifecycle::{LifecycleSection, Paths, PlanAction, UnregisterAction};
 use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab, SourceKept};
 use crate::screens::source_sets::{
     new_library_href, preview_href, stale_icons, stale_lines, start_audit, start_check, tab_href,
@@ -400,6 +401,38 @@ fn Overview(
             </dl>
         </section>
         <StartAuditForm name=set.name.clone() latest revisions />
+        <SetLifecycle name=set.name.clone() />
+    }
+}
+
+/// Setting the source set aside, or unregistering it.
+#[component]
+fn SetLifecycle(name: String) -> impl IntoView {
+    let base = format!("/source-sets/{}", api::segment(&name));
+    let review = name.clone();
+    let href = Callback::new(move |plan: i64| {
+        format!("{}&plan={plan}", tab_href(&review, PageTab::Repair))
+    });
+    view! {
+        <LifecycleSection>
+            <PlanAction
+                label="Set aside"
+                explain="Set aside plans to keep every file of the source set aside in its own folder, renamed in \
+                    place so that it takes no more space, and then to unregister it. You review the plan before \
+                    anything moves; once its kept files are deleted, the folder can be registered again."
+                    .to_string()
+                path=format!("{base}/set-aside")
+                href
+            />
+            <UnregisterAction
+                what=format!("the source set {name}")
+                paths=Paths {
+                    holds: format!("{base}/holds"),
+                    unregister: format!("{base}/unregistration"),
+                }
+                left="Its files stay where they are, no longer managed."
+            />
+        </LifecycleSection>
     }
 }
 
