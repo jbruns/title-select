@@ -241,6 +241,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use super::*;
+    use crate::native::node::Titles;
     use crate::native::py;
     use crate::native::tests::{internal_config, upstream};
 
@@ -339,5 +340,53 @@ mod tests {
             chosen.map(|(g, _)| g)
         );
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_cancel_lands_while_a_group_s_choosing_is_prepared() {
+        let work = tempfile::tempdir().unwrap();
+        let path = work.path().join("Many short names.dat");
+        let mut dat = String::from(
+            "<?xml version=\"1.0\"?>\n<datafile>\n<header><name>Synthetic - Many short names</name>\
+             <description>Synthetic - Many short names</description></header>\n",
+        );
+        for i in 0..20_000 {
+            let name = format!("Game {i} (USA)");
+            dat.push_str(&format!(
+                "<game name=\"{name}\"><category>Games</category><description>{name}</description>\
+                 <rom name=\"{name}.bin\" size=\"1\" crc=\"{i:08x}\" sha1=\"{i:040x}\"/></game>\n"
+            ));
+        }
+        dat.push_str("</datafile>\n");
+        std::fs::write(&path, dat).unwrap();
+        let profile = SelectionProfile::default();
+        let text = process::read_text(&path).unwrap();
+        let settings = Settings::new(&internal_config(), &profile, "").unwrap();
+        let dat = dat::read_header(&path, &text, &settings).unwrap();
+        let mut run = Run::new(settings);
+        let processed =
+            process::process_dat(&mut run, &path, dat, &upstream().join("tests"), false).unwrap();
+        // Every title at once: 20,000 short names to prepare before any pair is compared.
+        let titles: Titles = processed
+            .titles
+            .values()
+            .flat_map(|t| t.iter().copied())
+            .collect();
+        assert_eq!(titles.len(), 20_000);
+        let cancel = Arc::new(AtomicBool::new(false));
+        run.limits.cancel = Some(cancel.clone());
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            std::time::Instant::now()
+        });
+        let chosen = select::choose_1g1r(&mut run, &mut Default::default(), false, false, &titles);
+        let cancelled_at = canceller.join().unwrap();
+        assert!(
+            matches!(&chosen, Err(py::Crash(m)) if m == super::super::CANCELLED),
+            "{:?}",
+            chosen.map(|(g, _)| g)
+        );
+        assert!(cancelled_at.elapsed() < std::time::Duration::from_secs(2));
     }
 }

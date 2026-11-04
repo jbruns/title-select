@@ -147,66 +147,76 @@ pub(crate) fn choose_1g1r(
     };
     run.trace.context(Some(stage), &group_name, "");
 
-    // The titles of each short name to read the top language from, preferring good, production titles.
+    // The titles of each short name to read the top language from, preferring good, production titles. Retool keeps
+    // one map across short names, falls back to worse titles only while the whole map is empty, and after each short
+    // name appends the whole map to its list of short names: `snapshots` holds how many of the map's entries each
+    // append took, so the list is never copied out.
     let short_names: PySet<String> = title_set
         .iter()
         .map(|&t| run.n(t).short_name.clone())
         .collect();
+    let mut of_short_name: HashMap<String, Vec<Id>> = HashMap::new();
+    for &title in title_set {
+        of_short_name
+            .entry(run.n(title).short_name.clone())
+            .or_default()
+            .push(title);
+    }
     let mut short_name_titles: IndexMap<String, Vec<Id>> = IndexMap::new();
-    let mut short_name_groups: Vec<(String, Vec<Id>)> = Vec::new();
-    let add = |map: &mut IndexMap<String, Vec<Id>>, short_name: &str, title: Id| {
-        let list = map.entry(short_name.to_owned()).or_default();
-        if !list.contains(&title) {
-            list.push(title);
-        }
-    };
+    let mut snapshots: Vec<usize> = Vec::new();
     for short_name in short_names.iter() {
+        run.limits.check()?;
         let r = &run.s.regex;
-        for &title in title_set {
+        let titles = &of_short_name[short_name];
+        // Only this short name's entry grows while it is prepared.
+        let mut seen: HashSet<Id> = HashSet::new();
+        let mut add = |map: &mut IndexMap<String, Vec<Id>>, title: Id| {
+            let list = map.entry(short_name.clone()).or_default();
+            if seen.insert(title) {
+                list.push(title);
+            }
+        };
+        for &title in titles {
             let n = run.n(title);
-            if n.short_name == *short_name && !r.bad.search(&n.full_name) {
+            if !r.bad.search(&n.full_name) {
                 let preproduction = r.preproduction().iter().any(|p| p.search(&n.full_name));
                 if !preproduction && !r.pirate.search(&n.full_name) {
-                    add(&mut short_name_titles, short_name, title);
+                    add(&mut short_name_titles, title);
                 }
             }
         }
         if short_name_titles.is_empty() {
-            for &title in title_set {
+            for &title in titles {
                 let n = run.n(title);
-                if n.short_name == *short_name {
-                    for p in r.preproduction() {
-                        if p.search(&n.full_name) {
-                            add(&mut short_name_titles, short_name, title);
-                        }
+                for p in r.preproduction() {
+                    if p.search(&n.full_name) {
+                        add(&mut short_name_titles, title);
                     }
                 }
             }
         }
         if short_name_titles.is_empty() {
-            for &title in title_set {
-                let n = run.n(title);
-                if n.short_name == *short_name && r.pirate.search(&n.full_name) {
-                    add(&mut short_name_titles, short_name, title);
+            for &title in titles {
+                if r.pirate.search(&run.n(title).full_name) {
+                    add(&mut short_name_titles, title);
                 }
             }
         }
         if short_name_titles.is_empty() {
-            for &title in title_set {
-                let n = run.n(title);
-                if n.short_name == *short_name && r.bad.search(&n.full_name) {
-                    add(&mut short_name_titles, short_name, title);
+            for &title in titles {
+                if r.bad.search(&run.n(title).full_name) {
+                    add(&mut short_name_titles, title);
                 }
             }
         }
-        for (key, values) in &short_name_titles {
-            short_name_groups.push((key.clone(), values.clone()));
-        }
+        snapshots.push(short_name_titles.len());
     }
-    // Retool doesn't reset the top language between short names: once one is found, it carries over.
-    let mut top_language = String::new();
-    let mut top_languages: PySet<TopLanguage> = PySet::new();
-    for (short_name, titles) in &short_name_groups {
+    // What each short name's titles say of the top language: its best language priority; the language of the first
+    // title of that priority, in region order, that has one in the language order; and the same of only the first
+    // such title, which is all Retool reads once it carries a top language over.
+    let mut found: Vec<(i64, Option<String>, Option<String>)> = Vec::new();
+    for titles in short_name_titles.values() {
+        run.limits.check()?;
         let highest = titles
             .iter()
             .map(|&t| run.n(t).language_priority)
@@ -214,26 +224,42 @@ pub(crate) fn choose_1g1r(
             .expect("a short name has titles");
         let mut by_region = titles.clone();
         by_region.sort_by_key(|&t| run.n(t).region_priority);
-        for title in by_region {
-            if run.n(title).language_priority != highest {
-                continue;
-            }
+        let (mut first, mut any) = (None, None);
+        by_region.retain(|&t| run.n(t).language_priority == highest);
+        for (k, title) in by_region.into_iter().enumerate() {
             let joined = run.n(title).languages.concat();
-            for language in &language_order {
-                if run.search(language, &joined) {
-                    top_language = language.clone();
-                    break;
-                }
+            let language = language_order
+                .iter()
+                .find(|language| run.search(language, &joined))
+                .cloned();
+            if k == 0 {
+                first.clone_from(&language);
             }
-            if !top_language.is_empty() {
+            if language.is_some() {
+                any = language;
                 break;
             }
         }
-        top_languages.add(TopLanguage(
-            short_name.clone(),
-            highest,
-            top_language.clone(),
-        ));
+        found.push((highest, first, any));
+    }
+    // Retool doesn't reset the top language between short names: once one is found, it carries over.
+    let mut top_language = String::new();
+    let mut top_languages: PySet<TopLanguage> = PySet::new();
+    for &taken in &snapshots {
+        run.limits.check()?;
+        for ((short_name, _), (highest, first, any)) in
+            short_name_titles.iter().zip(&found).take(taken)
+        {
+            let language = if top_language.is_empty() { any } else { first };
+            if let Some(language) = language {
+                top_language.clone_from(language);
+            }
+            top_languages.add(TopLanguage(
+                short_name.clone(),
+                *highest,
+                top_language.clone(),
+            ));
+        }
     }
 
     let oldest = run.s.options.oldest;
