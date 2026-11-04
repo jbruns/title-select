@@ -12,7 +12,7 @@ use title_select_api::fetch::{
 };
 use title_select_api::{AuditEvidence, CuePackOrigin};
 use title_select_store::config::Config;
-use title_select_store::fetch::{Endpoints, FetchError, Fetcher, Http};
+use title_select_store::fetch::{Allowed, Endpoints, FetchError, Fetcher, Http};
 use title_select_store::{Error, Store};
 
 /// What the fake provider answers a path with.
@@ -101,6 +101,12 @@ impl FakeProvider {
 #[test]
 fn no_request_can_address_a_no_intro_host() {
     let http = Http::new();
+    // Even an allowlist naming No-Intro's hosts can't let a request through.
+    let allowed = Allowed::hosts(&[
+        "datomatic.no-intro.org",
+        "no-intro.org",
+        "forum.no-intro.org",
+    ]);
     for url in [
         "https://datomatic.no-intro.org/index.php?page=download",
         "http://no-intro.org/",
@@ -108,7 +114,7 @@ fn no_request_can_address_a_no_intro_host() {
         "https://forum.No-Intro.org:443/",
         "http://user@datomatic.no-intro.org/",
     ] {
-        match http.get(url, None, 1 << 20) {
+        match http.get(url, &allowed, None, 1 << 20) {
             Err(FetchError::Forbidden(_)) => {}
             other => panic!("{url}: {other:?}"),
         }
@@ -122,7 +128,12 @@ fn a_redirect_to_a_no_intro_host_is_refused_before_it_is_followed() {
         "/datfile/psx/",
         Reply::Redirect("https://datomatic.no-intro.org/index.php".into()),
     );
-    match Http::new().get(&format!("{}/datfile/psx/", fake.url), None, 1 << 20) {
+    match Http::new().get(
+        &format!("{}/datfile/psx/", fake.url),
+        &Allowed::origin(&fake.url),
+        None,
+        1 << 20,
+    ) {
         Err(FetchError::Forbidden(_)) => {}
         other => panic!("{other:?}"),
     }
@@ -135,7 +146,12 @@ fn a_request_names_title_select_and_follows_an_allowed_redirect() {
     fake.reply("/a", Reply::Redirect(format!("{}/b", fake.url)));
     fake.reply("/b", Reply::Body(b"payload".to_vec()));
     let got = Http::new()
-        .get(&format!("{}/a", fake.url), None, 1 << 20)
+        .get(
+            &format!("{}/a", fake.url),
+            &Allowed::origin(&fake.url),
+            None,
+            1 << 20,
+        )
         .unwrap();
     assert_eq!(got.bytes, b"payload");
     let seen = fake.seen();
@@ -150,14 +166,87 @@ fn a_response_larger_than_its_limit_or_not_ok_fails() {
     fake.reply("/big", Reply::Body(vec![0; 2048]));
     fake.reply("/gone", Reply::Status(503));
     let http = Http::new();
+    let allowed = Allowed::origin(&fake.url);
     assert!(matches!(
-        http.get(&format!("{}/big", fake.url), None, 1024),
+        http.get(&format!("{}/big", fake.url), &allowed, None, 1024),
         Err(FetchError::TooLarge { .. })
     ));
     assert!(matches!(
-        http.get(&format!("{}/gone", fake.url), None, 1024),
+        http.get(&format!("{}/gone", fake.url), &allowed, None, 1024),
         Err(FetchError::Status { status: 503, .. })
     ));
+}
+
+#[test]
+fn each_provider_may_address_only_its_own_hosts_by_name_on_their_default_ports() {
+    let endpoints = Endpoints::official();
+    let redump = endpoints.allowed(FetchProvider::Redump);
+    for url in [
+        "http://redump.org/datfile/psx/",
+        "https://www.redump.org/cues/psx/",
+        "http://Redump.org.:80/sbi/psx/",
+    ] {
+        assert_eq!(redump.refusal(url), None, "{url}");
+    }
+    for url in [
+        "http://93.184.216.34/datfile/psx/",
+        "http://[2001:db8::1]/datfile/psx/",
+        "http://redump.org:8080/datfile/psx/",
+        "https://redump.org:80/datfile/psx/",
+        "http://redump.org@example.com/datfile/psx/",
+        "http://user:pass@redump.org/datfile/psx/",
+        "http://redump.org.example.com/",
+        "http://mirror.redump.org/",
+        "https://api.github.com/repos/mamedev/mame/releases/latest",
+        "ftp://redump.org/",
+    ] {
+        assert!(redump.refusal(url).is_some(), "{url}");
+    }
+    let mame = endpoints.allowed(FetchProvider::Mame);
+    for url in [
+        "https://api.github.com/repos/mamedev/mame/releases/latest",
+        "https://github.com/mamedev/mame/releases/download/mame0270/mame0270lx.zip",
+        "https://release-assets.githubusercontent.com/github-production-release-asset/1",
+        "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1",
+        "https://raw.githubusercontent.com/mamedev/mame/mame0270/hash/nes.xml",
+    ] {
+        assert_eq!(mame.refusal(url), None, "{url}");
+    }
+    for url in [
+        "http://redump.org/datfile/psx/",
+        "https://gist.githubusercontent.com/x",
+        "https://github.com:444/mamedev/mame/",
+        "https://140.82.112.3/mamedev/mame/",
+        "https://github.com@example.com/",
+    ] {
+        assert!(mame.refusal(url).is_some(), "{url}");
+    }
+}
+
+#[test]
+fn a_redirect_off_its_providers_hosts_is_refused_before_it_is_followed() {
+    let fake = FakeProvider::start();
+    let elsewhere = FakeProvider::start();
+    let host = fake.url.trim_start_matches("http://");
+    fake.reply("/ip", Reply::Redirect(format!("{}/x", elsewhere.url)));
+    fake.reply("/off", Reply::Redirect("http://example.com/x".into()));
+    fake.reply(
+        "/userinfo",
+        Reply::Redirect(format!("http://{host}@example.com/x")),
+    );
+    let allowed = Allowed::origin(&fake.url);
+    for path in ["/ip", "/off", "/userinfo"] {
+        match Http::new().get(&format!("{}{path}", fake.url), &allowed, None, 1 << 20) {
+            Err(FetchError::Forbidden(_)) => {}
+            other => panic!("{path}: {other:?}"),
+        }
+    }
+    assert_eq!(
+        fake.seen().len(),
+        3,
+        "only the first request of each was sent"
+    );
+    assert!(elsewhere.seen().is_empty());
 }
 
 /// A Logiqx DAT named `name` at `version`, with one Game.
@@ -448,6 +537,28 @@ fn a_failed_request_stops_the_fetch_and_keeps_the_last_good_revision() {
 }
 
 #[test]
+fn a_redirect_off_its_providers_hosts_fails_the_step_and_stops_the_fetch() {
+    let env = Env::new("redump = true");
+    let elsewhere = FakeProvider::start();
+    env.serve_psx("2");
+    env.fake.reply(
+        "/datfile/psx/",
+        Reply::Redirect(format!("{}/psx.zip", elsewhere.url)),
+    );
+
+    let report = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(
+        outcomes(&report),
+        [("psx".into(), FetchArtifact::Dat, Some(FetchOutcome::Failed))]
+    );
+    assert!(report.stopped.is_some());
+    assert!(elsewhere.seen().is_empty());
+    assert_eq!(env.fake.seen().len(), 1);
+}
+
+#[test]
 fn a_dat_for_another_system_fails_the_fetch() {
     let env = Env::new("redump = true");
     let other = zip_of(&[("x.dat", &dat_xml("Sega - Saturn", "2"))]);
@@ -508,6 +619,56 @@ fn a_system_is_fetched_while_any_registered_source_set_follows_it() {
         .fetch(FetchProvider::Redump, FetchTrigger::Manual)
         .unwrap();
     assert_eq!(report.attempts.len(), 3, "{report:?}");
+}
+
+#[test]
+fn a_system_whose_dat_is_followed_under_two_spellings_of_its_provider_is_requested_once() {
+    let env = Env::new("redump = true");
+    std::fs::create_dir_all(env._tmp.path().join("sets/PSX2")).unwrap();
+    let mut other = dat_xml("Sony - PlayStation", "1");
+    other.push(b'\n');
+    env.store
+        .import_dat_bytes(&other, "v1.dat", "redump", None)
+        .unwrap();
+    env.store
+        .add_source_set(&env.config, "sets", "PSX2", "redump/Sony - PlayStation")
+        .unwrap();
+    env.store.set_follow("PSX2", true).unwrap();
+    env.serve_psx("2");
+
+    let report = env
+        .fetch(FetchProvider::Redump, FetchTrigger::Manual)
+        .unwrap();
+    assert_eq!(report.stopped, None, "{report:?}");
+    let mut paths: Vec<String> = env.fake.seen().into_iter().map(|s| s.path).collect();
+    paths.sort();
+    assert_eq!(paths, ["/cues/psx/", "/datfile/psx/", "/sbi/psx/"]);
+    assert_eq!(report.attempts.len(), 3);
+}
+
+#[test]
+fn two_fetchers_at_once_send_each_request_once() {
+    let env = Env::new("redump = true");
+    env.serve_psx("2");
+    let other = Fetcher::new(Endpoints::at(&env.fake.url));
+
+    std::thread::scope(|scope| {
+        for fetcher in [&env.fetcher, &other] {
+            let env = &env;
+            scope.spawn(move || {
+                let _ = env.store.fetch(
+                    &env.config,
+                    fetcher,
+                    FetchProvider::Redump,
+                    FetchTrigger::Schedule,
+                    "Operator",
+                );
+            });
+        }
+    });
+    let mut paths: Vec<String> = env.fake.seen().into_iter().map(|s| s.path).collect();
+    paths.sort();
+    assert_eq!(paths, ["/cues/psx/", "/datfile/psx/", "/sbi/psx/"]);
 }
 
 #[test]

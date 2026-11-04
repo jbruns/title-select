@@ -1,5 +1,6 @@
-//! The only HTTP client in Title Select. Every request, and every redirect it would follow, is checked first against
-//! the hosts Title Select must never address: No-Intro's (ADR 0012).
+//! The only HTTP client in Title Select. Every request, and every redirect it would follow, is checked first: it must
+//! address one of its provider's own hosts ([`Allowed`]), and never a No-Intro host, whatever any allowlist says
+//! (ADR 0012).
 
 use std::time::Duration;
 
@@ -68,7 +69,76 @@ pub fn refusal(url: &str) -> Option<String> {
     })
 }
 
-/// A blocking HTTP client that follows redirects itself, so that it checks each hop with [`refusal`].
+/// The hosts one provider's requests and redirects may address: named hosts, on their scheme's default port, by
+/// `http` or `https`. A provider stood in for on a local port is allowed its exact origin instead.
+#[derive(Debug, Clone)]
+pub struct Allowed {
+    hosts: Vec<String>,
+    origins: Vec<String>,
+}
+
+impl Allowed {
+    /// The named `hosts`, each matched exactly: no subdomain, IP address or other port.
+    pub fn hosts(hosts: &[&str]) -> Allowed {
+        Allowed {
+            hosts: hosts.iter().map(|h| h.to_ascii_lowercase()).collect(),
+            origins: Vec::new(),
+        }
+    }
+
+    /// Only the exact scheme, host and port of `base`, such as a fake provider on a local port.
+    #[doc(hidden)]
+    pub fn origin(base: &str) -> Allowed {
+        Allowed {
+            hosts: Vec::new(),
+            origins: origin(base).into_iter().collect(),
+        }
+    }
+
+    /// Why `url` may not be requested, if it may not: [`refusal`]'s reasons first, then any address that isn't one
+    /// of these hosts on its default port.
+    pub fn refusal(&self, url: &str) -> Option<String> {
+        if let Some(why) = refusal(url) {
+            return Some(why);
+        }
+        let uri = url.parse::<Uri>().ok()?;
+        if origin(url).is_some_and(|o| self.origins.contains(&o)) {
+            return None;
+        }
+        let authority = uri.authority()?;
+        let host = authority.host().trim_end_matches('.').to_ascii_lowercase();
+        let ip = host.starts_with('[') || host.parse::<std::net::Ipv4Addr>().is_ok();
+        if ip {
+            return Some(format!(
+                "{url} names an IP address, not one of its provider's hosts"
+            ));
+        }
+        let default_port = matches!(
+            (uri.scheme_str(), authority.port_u16()),
+            (_, None) | (Some("http"), Some(80)) | (Some("https"), Some(443))
+        );
+        if !default_port {
+            return Some(format!("{url} names a port other than its scheme's own"));
+        }
+        (!self.hosts.contains(&host)).then(|| format!("{host} is not one of its provider's hosts"))
+    }
+}
+
+/// `scheme://host:port` of `url`, lowercased, with the port its scheme implies if it names none.
+fn origin(url: &str) -> Option<String> {
+    let uri = url.parse::<Uri>().ok()?;
+    let scheme = uri.scheme_str()?.to_ascii_lowercase();
+    let authority = uri.authority()?;
+    let port = authority.port_u16().or(match scheme.as_str() {
+        "http" => Some(80),
+        "https" => Some(443),
+        _ => None,
+    })?;
+    let host = authority.host().trim_end_matches('.').to_ascii_lowercase();
+    Some(format!("{scheme}://{host}:{port}"))
+}
+
+/// A blocking HTTP client that follows redirects itself, so that it checks each hop with [`Allowed::refusal`].
 pub struct Http {
     agent: ureq::Agent,
 }
@@ -92,22 +162,30 @@ impl Http {
         }
     }
 
-    /// Gets `url`, with `accept` as its Accept header if given, reading at most `limit` bytes of body.
-    pub fn get(&self, url: &str, accept: Option<&str>, limit: u64) -> Result<Fetched, FetchError> {
-        self.get_paced(url, accept, limit, &mut || {})
+    /// Gets `url`, which, like each redirect, must be `allowed`, with `accept` as its Accept header if given, reading
+    /// at most `limit` bytes of body.
+    pub fn get(
+        &self,
+        url: &str,
+        allowed: &Allowed,
+        accept: Option<&str>,
+        limit: u64,
+    ) -> Result<Fetched, FetchError> {
+        self.get_paced(url, allowed, accept, limit, &mut || {})
     }
 
     /// As [`Http::get`], running `pace` before each request it sends, redirects included.
     pub fn get_paced(
         &self,
         url: &str,
+        allowed: &Allowed,
         accept: Option<&str>,
         limit: u64,
         pace: &mut dyn FnMut(),
     ) -> Result<Fetched, FetchError> {
         let mut url = url.to_owned();
         for _ in 0..=MAX_REDIRECTS {
-            if let Some(why) = refusal(&url) {
+            if let Some(why) = allowed.refusal(&url) {
                 return Err(FetchError::Forbidden(why));
             }
             pace();

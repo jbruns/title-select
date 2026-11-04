@@ -22,7 +22,7 @@ use title_select_api::fetch::{
 use title_select_api::{CuePackOrigin, ImportOutcome};
 use title_select_engine::dat::Dat;
 
-pub use http::{FetchError, Fetched, Http, USER_AGENT, refusal};
+pub use http::{Allowed, FetchError, Fetched, Http, USER_AGENT, refusal};
 
 use crate::config::Config;
 use crate::{Error, Result, Store, now};
@@ -38,13 +38,28 @@ const MAX_DAT: u64 = 1 << 30;
 /// The largest answer to a release check.
 const MAX_RELEASE: u64 = 4 << 20;
 
-/// Where each provider is reached. Only the official endpoints are ever used outside tests: there is no mirror.
+/// Redump's own hosts.
+const REDUMP_HOSTS: &[&str] = &["redump.org", "www.redump.org"];
+/// GitHub's hosts that MAME's releases are found and fetched from: its API, its web, the raw files software lists
+/// are read from, and the hosts GitHub's documentation names for downloading release assets.
+const GITHUB_HOSTS: &[&str] = &[
+    "api.github.com",
+    "github.com",
+    "raw.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "objects.githubusercontent.com",
+];
+
+/// Where each provider is reached, and the hosts its requests and redirects may address. Only the official endpoints
+/// are ever used outside tests: there is no mirror.
 #[derive(Debug, Clone)]
 pub struct Endpoints {
     pub redump: String,
     pub github_api: String,
     pub github_web: String,
     pub github_raw: String,
+    redump_allowed: Allowed,
+    mame_allowed: Allowed,
 }
 
 impl Endpoints {
@@ -54,10 +69,13 @@ impl Endpoints {
             github_api: "https://api.github.com".into(),
             github_web: "https://github.com".into(),
             github_raw: "https://raw.githubusercontent.com".into(),
+            redump_allowed: Allowed::hosts(REDUMP_HOSTS),
+            mame_allowed: Allowed::hosts(GITHUB_HOSTS),
         }
     }
 
-    /// Every endpoint at `base`, such as a fake provider on a local port.
+    /// Every endpoint at `base`, such as a fake provider on a local port, which is the only origin either provider
+    /// may then address.
     #[doc(hidden)]
     pub fn at(base: &str) -> Endpoints {
         let base = base.trim_end_matches('/').to_owned();
@@ -65,7 +83,17 @@ impl Endpoints {
             redump: base.clone(),
             github_api: base.clone(),
             github_web: base.clone(),
+            redump_allowed: Allowed::origin(&base),
+            mame_allowed: Allowed::origin(&base),
             github_raw: base,
+        }
+    }
+
+    /// The hosts `provider`'s requests and redirects may address.
+    pub fn allowed(&self, provider: FetchProvider) -> &Allowed {
+        match provider {
+            FetchProvider::Redump => &self.redump_allowed,
+            FetchProvider::Mame => &self.mame_allowed,
         }
     }
 }
@@ -114,7 +142,8 @@ impl Fetcher {
         accept: Option<&str>,
         limit: u64,
     ) -> Result<Fetched, FetchError> {
-        self.http.get_paced(url, accept, limit, &mut || {
+        let allowed = self.endpoints.allowed(provider);
+        self.http.get_paced(url, allowed, accept, limit, &mut || {
             let mut last = self.last.lock().unwrap();
             if let Some(at) = last.get(&provider) {
                 let wait = MIN_GAP.saturating_sub(at.elapsed());
@@ -315,29 +344,37 @@ fn artifact_status(
     })
 }
 
-/// The DATs of `provider` that a registered Source Set Follows, by header name, with those Source Sets.
+/// The DATs of `provider` that a registered Source Set Follows, by header name, with those Source Sets. A DAT
+/// imported under several spellings of the provider is one: it is fetched for under the provider's own spelling if
+/// it is one of them, else the first.
 fn followed(c: &Connection, provider: FetchProvider) -> Result<Vec<Followed>> {
     let mut stmt = c.prepare(
         "SELECT d.provider, d.name, s.name FROM source_sets s JOIN dats d ON d.id = s.dat_id
          WHERE s.follow AND s.unregistered_at IS NULL AND d.provider = ?1 COLLATE NOCASE
          ORDER BY d.name, d.provider, s.name",
     )?;
-    let rows = stmt.query_map([provider.dat_provider()], |r| {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-    })?;
+    let own = provider.dat_provider();
+    let rows = stmt.query_map([own], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
     let mut out: Vec<Followed> = Vec::new();
     for row in rows {
-        let (provider, dat, set): (String, String, String) = row?;
+        let (spelling, dat, set): (String, String, String) = row?;
         match out.last_mut() {
-            Some(last) if last.dat == dat && last.provider == provider => {
-                last.source_sets.push(set)
+            Some(last) if last.dat == dat => {
+                if spelling == own {
+                    last.provider = spelling;
+                }
+                last.source_sets.push(set);
             }
             _ => out.push(Followed {
-                provider,
+                provider: spelling,
                 dat,
                 source_sets: vec![set],
             }),
         }
+    }
+    for f in &mut out {
+        f.source_sets.sort();
+        f.source_sets.dedup();
     }
     Ok(out)
 }
@@ -489,11 +526,13 @@ impl Store {
                         &url,
                         |s, f| s.check_mame_release(f, &url, web),
                     )?;
-                    let failed = attempt.outcome == Some(FetchOutcome::Failed);
-                    report.attempts.push(attempt);
-                    if failed {
-                        report.stopped = report.attempts.last().and_then(|a| a.error.clone());
-                        return Ok(report);
+                    if let Some(attempt) = attempt {
+                        let failed = attempt.outcome == Some(FetchOutcome::Failed);
+                        report.attempts.push(attempt);
+                        if failed {
+                            report.stopped = report.attempts.last().and_then(|a| a.error.clone());
+                            return Ok(report);
+                        }
                     }
                 }
                 if let Some((last, asset)) =
@@ -536,7 +575,11 @@ impl Store {
         let (steps, tag) = plan.unwrap_or_default();
         let mut due = Vec::new();
         let mut next = release_next;
+        let mut planned = HashSet::new();
         for step in steps {
+            if !planned.insert((step.system.clone(), step.artifact)) {
+                continue;
+            }
             match self.read(|c| next_at(c, provider, &step.system, step.artifact))? {
                 None => due.push(step),
                 Some(at) => next = Some(next.map_or(at, |n| n.min(at))),
@@ -555,7 +598,7 @@ impl Store {
             let still = self
                 .read(|c| self::followed(c, provider))?
                 .iter()
-                .any(|f| f.provider == step.provider && f.dat == step.dat);
+                .any(|f| f.provider.eq_ignore_ascii_case(&step.provider) && f.dat == step.dat);
             if !still {
                 continue;
             }
@@ -591,6 +634,8 @@ impl Store {
                     Ok(brought)
                 },
             )?;
+            // Another fetch reserved this request first.
+            let Some(attempt) = attempt else { continue };
             let failed = attempt.outcome == Some(FetchOutcome::Failed);
             if failed {
                 report.stopped = attempt.error.clone();
@@ -603,7 +648,9 @@ impl Store {
         Ok(report)
     }
 
-    /// Records a request before it is sent, sends it and runs `then` on its body, and records how it ended.
+    /// Reserves a request by recording it, unless one for the same system's artifact was recorded within a day, sends
+    /// it and runs `then` on its body, and records how it ended. Returns `None`, sending nothing, if it was not due:
+    /// the check and the record are one transaction, so no two fetches can both send it.
     #[allow(clippy::too_many_arguments)]
     fn attempt(
         &self,
@@ -615,8 +662,11 @@ impl Store {
         actor: &str,
         url: &str,
         then: impl FnOnce(&Store, Fetched) -> std::result::Result<Brought, String>,
-    ) -> Result<FetchAttempt> {
+    ) -> Result<Option<FetchAttempt>> {
         let id = self.write(|tx| {
+            if next_at(tx, provider, system, artifact)?.is_some() {
+                return Ok(None);
+            }
             tx.execute(
                 "INSERT INTO fetches (provider, system, artifact, trigger, actor, url, started_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -630,8 +680,9 @@ impl Store {
                     now()
                 ],
             )?;
-            Ok(tx.last_insert_rowid())
+            Ok(Some(tx.last_insert_rowid()))
         })?;
+        let Some(id) = id else { return Ok(None) };
         let accept = (artifact == FetchArtifact::Release).then_some("application/vnd.github+json");
         let limit = if artifact == FetchArtifact::Release {
             MAX_RELEASE
@@ -665,7 +716,7 @@ impl Store {
                 "SELECT {ATTEMPT_COLUMNS} FROM fetches f LEFT JOIN dat_revisions r ON r.id = f.dat_revision_id
                  WHERE f.id = ?1"
             );
-            Ok(tx.query_row(&sql, [id], attempt_from_row)?.0)
+            Ok(Some(tx.query_row(&sql, [id], attempt_from_row)?.0))
         })
     }
 
