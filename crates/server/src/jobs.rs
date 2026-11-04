@@ -3,11 +3,15 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use title_select_api::fetch::{
+    FetchArtifact, FetchOutcome, FetchProvider, FetchReport, FetchTrigger,
+};
 use title_select_api::{Job, JobEvent, JobKind, JobProgress};
 use title_select_engine::Progress;
 use title_select_selection::Engine;
 use title_select_store::Store;
 use title_select_store::config::Config;
+use title_select_store::fetch::Fetcher;
 use tokio::sync::{Notify, Semaphore, broadcast};
 
 /// The least time between two progress events of one Job.
@@ -272,6 +276,84 @@ pub async fn schedule_stat_walks(store: Arc<Store>, config: Arc<Config>, jobs: A
             Err(err) => eprintln!("title-select: cannot queue scheduled checks: {err}"),
         }
     }
+}
+
+/// How often the schedule looks for fetches due, from a minute after the Service starts.
+const FETCH_DUE_EVERY: Duration = Duration::from_secs(60 * 60);
+
+/// Fetches, from each DAT Provider you turned on, what is due for the systems your Source Sets Follow: each at most
+/// once a day (ADR 0012). A fetch runs alongside Jobs, and never queues one.
+pub async fn schedule_fetches(store: Arc<Store>, config: Arc<Config>, fetcher: Arc<Fetcher>) {
+    let providers: Vec<_> = FetchProvider::ALL
+        .into_iter()
+        .filter(|p| config.fetch.enabled(*p))
+        .collect();
+    if providers.is_empty() {
+        return;
+    }
+    let start = tokio::time::Instant::now() + Duration::from_secs(60);
+    let mut tick = tokio::time::interval_at(start, FETCH_DUE_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tick.tick().await;
+        for &provider in &providers {
+            let (store, config, fetcher) = (store.clone(), config.clone(), fetcher.clone());
+            let fetched = tokio::task::spawn_blocking(move || {
+                log_fetch(
+                    provider,
+                    store.fetch(
+                        &config,
+                        &fetcher,
+                        provider,
+                        FetchTrigger::Schedule,
+                        "schedule",
+                    ),
+                )
+            })
+            .await;
+            match fetched {
+                Ok(Ok(_)) | Ok(Err(title_select_store::Error::Conflict(_))) => {}
+                Ok(Err(err)) => eprintln!(
+                    "title-select: cannot fetch from {}: {err}",
+                    provider.dat_provider()
+                ),
+                Err(err) => eprintln!(
+                    "title-select: cannot fetch from {}: {err}",
+                    provider.dat_provider()
+                ),
+            }
+        }
+    }
+}
+
+/// Logs what a fetch brought, and where it stopped if it did.
+pub fn log_fetch(
+    provider: FetchProvider,
+    fetched: Result<FetchReport, title_select_store::Error>,
+) -> Result<FetchReport, title_select_store::Error> {
+    if let Ok(report) = &fetched {
+        let name = provider.dat_provider();
+        for attempt in &report.attempts {
+            if attempt.outcome == Some(FetchOutcome::Added) {
+                let what = match attempt.artifact {
+                    FetchArtifact::Release => "release",
+                    FetchArtifact::Dat => "DAT revision",
+                    FetchArtifact::Cues => "cue pack",
+                    FetchArtifact::Sbi => "SBI pack",
+                };
+                let version = attempt.version.as_deref().or(attempt.release.as_deref());
+                let version = version.map_or_else(String::new, |v| format!(" ({v})"));
+                eprintln!(
+                    "title-select: fetched a new {what} of {}{version} from {name}",
+                    attempt.system
+                );
+            }
+        }
+        if let Some(why) = &report.stopped {
+            eprintln!("title-select: a fetch from {name} stopped, and kept what it had: {why}");
+        }
+    }
+    fetched
 }
 
 /// Queues a scan of each Ingest Folder with a schedule, every `scan_every_minutes`. A scan still queued or running
