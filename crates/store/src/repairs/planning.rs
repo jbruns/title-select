@@ -20,6 +20,7 @@ use title_select_engine::payload::Checksums;
 use super::{as_read, seen_file};
 use crate::checks::Seen;
 use crate::ingest::FillCandidate;
+use crate::kept::name_key;
 use crate::{Error, Result};
 
 pub(super) struct Inputs<'a> {
@@ -1750,7 +1751,7 @@ fn steps_of(i: &Inputs, proposed: &[Proposed]) -> Vec<PlannedStep> {
 }
 
 /// Appends to `keeps` a Keep step for each file `p` displaces whose path is `chosen`, needing the steps `needs`, under
-/// a kept name not yet in `names`; a file another item already keeps aside is kept once, for both.
+/// a kept name whose [`name_key`] is not yet in `names`; a file another item already keeps aside is kept once, for both.
 fn keeps_of(
     i: &Inputs,
     p: &Proposed,
@@ -1781,9 +1782,9 @@ fn keeps_of(
         let base = base_name(path);
         let name = (1..)
             .map(|n| kept_name(base, n))
-            .find(|name| !names.contains(name))
+            .find(|name| !names.contains(&name_key(name)))
             .expect("a free name");
-        names.insert(name.clone());
+        names.insert(name_key(&name));
         keeps.push(PlannedStep {
             item: p.item.key.clone(),
             step: RepairStep::Keep {

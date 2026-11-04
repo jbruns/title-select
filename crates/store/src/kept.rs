@@ -876,19 +876,22 @@ impl Store {
             Some(sha256)
         };
         let size = k.keep.file.size;
+        // Compared as a case-insensitive, normalizing file system compares them.
         let taken: BTreeSet<String> = self.read(|c| {
             let mut stmt = c.prepare(
                 "SELECT kept_name FROM kept_files WHERE folder_id = ?1 AND generation = ?2
                  AND state IN ('keeping', 'kept', 'deleting', 'restoring')",
             )?;
-            let rows = stmt.query_map(params![k.folder, k.generation as i64], |r| r.get(0))?;
+            let rows = stmt.query_map(params![k.folder, k.generation as i64], |r| {
+                r.get::<_, String>(0).map(|name| name_key(&name))
+            })?;
             Ok(rows.collect::<Result<_, _>>()?)
         })?;
         let mut nth = 1;
         let kept = loop {
             let candidate = kept_name(name, nth);
             match retention.generation.stat(&candidate) {
-                Ok(None) if !taken.contains(&candidate) => break candidate,
+                Ok(None) if !taken.contains(&name_key(&candidate)) => break candidate,
                 Ok(_) => nth += 1,
                 Err(e) => return Err(Error::Io(e.to_string())),
             }
@@ -2223,4 +2226,27 @@ fn deletion_by_id(c: &Connection, id: i64) -> Result<KeptDeletion> {
     )
     .optional()?
     .ok_or_else(|| Error::NotFound(format!("no deletion {id}")))
+}
+
+/// The key under which two file names are one file on any file system, including a case-insensitive, normalizing one:
+/// lowercased, as a stand-in for case folding, and in NFC. Every set of names reserved in the kept files is keyed so.
+pub(crate) fn name_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    name.nfd()
+        .collect::<String>()
+        .to_lowercase()
+        .nfc()
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::name_key;
+
+    #[test]
+    fn names_a_case_insensitive_normalizing_file_system_takes_for_one_share_a_key() {
+        assert_eq!(name_key("Alpha.zip.kept"), name_key("alpha.ZIP.kept"));
+        assert_eq!(name_key("Pok\u{e9}mon.zip"), name_key("POKE\u{301}MON.zip"));
+        assert_ne!(name_key("Alpha.zip.kept"), name_key("Beta.zip.kept"));
+    }
 }

@@ -43,7 +43,7 @@ use crate::ingest::OwedAudits;
 use crate::ingest::fill_candidates;
 use crate::ingest::moves::{Destination, Move};
 use crate::jobs::{finish_running, job_by_id};
-use crate::kept::{Scope, open_area_deleting, open_retention, settle_dir_temps, unique};
+use crate::kept::{Scope, name_key, open_area_deleting, open_retention, settle_dir_temps, unique};
 use crate::plans::{json, to_json};
 use crate::sets::{set_by_id, set_by_name};
 use crate::{Error, Fault, Result, Store, now};
@@ -486,17 +486,6 @@ struct StepRow {
     aside_name: Option<String>,
     aside_why: Option<String>,
     discard_slot: Option<String>,
-}
-
-/// The key two file names are the same file under on any file system, including a case-insensitive, normalizing one:
-/// lowercased, as a stand-in for case folding, and in NFC.
-fn name_key(name: &str) -> String {
-    use unicode_normalization::UnicodeNormalization;
-    name.nfd()
-        .collect::<String>()
-        .to_lowercase()
-        .nfc()
-        .collect()
 }
 
 /// One Build step of an [extraction](Store::run_extraction): the ROM it writes loose to `target`, read from
@@ -3533,16 +3522,4 @@ pub(super) fn open_repair(
         },
     )
     .optional()?)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::name_key;
-
-    #[test]
-    fn names_a_case_insensitive_normalizing_file_system_takes_for_one_share_a_key() {
-        assert_eq!(name_key("Alpha.zip.kept"), name_key("alpha.ZIP.kept"));
-        assert_eq!(name_key("Pok\u{e9}mon.zip"), name_key("POKE\u{301}MON.zip"));
-        assert_ne!(name_key("Alpha.zip.kept"), name_key("Beta.zip.kept"));
-    }
 }

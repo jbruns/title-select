@@ -885,6 +885,56 @@ fn a_new_file_kept_aside_never_takes_the_kept_name_of_an_original_kept_after_it(
 }
 
 #[test]
+fn originals_named_alike_but_for_case_are_kept_under_names_that_differ_beyond_case() {
+    let env = Env::new();
+    let games = alpha_games();
+    let adventure: Vec<(&str, &[u8])> = games[3]
+        .1
+        .iter()
+        .map(|r| (r.name, r.payload.as_slice()))
+        .collect();
+    for dir in ["one", "two"] {
+        std::fs::create_dir(env.set().join(dir)).unwrap();
+    }
+    write_zip(&env.set().join("one/Adventure (USA).zip"), &adventure);
+    write_zip(
+        &env.set().join("two/adventure (usa).zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+
+    // A case-insensitive file system takes two names differing only in case for one file.
+    let kept: Vec<String> = plan
+        .content
+        .steps
+        .iter()
+        .filter_map(|s| match &s.step {
+            RepairStep::Keep { kept_name, .. } => Some(kept_name.to_lowercase()),
+            _ => None,
+        })
+        .collect();
+    let unique: std::collections::BTreeSet<&String> = kept.iter().collect();
+    assert_eq!(kept.len(), 2, "{:#?}", plan.content.steps);
+    assert_eq!(unique.len(), 2, "{kept:?}");
+
+    let done = env.approve(&plan);
+    assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
+    let listing = env.listing();
+    for path in ["Adventure (USA).zip", "Pong (USA).zip"] {
+        assert!(listing.contains(&path.to_string()), "{listing:?}");
+    }
+    assert_eq!(
+        listing
+            .iter()
+            .filter(|p| p.starts_with(".title-select-retained/"))
+            .count(),
+        2,
+        "{listing:?}"
+    );
+}
+
+#[test]
 fn a_repair_the_service_stopped_in_is_finished_when_it_next_starts() {
     for stop in [
         Fault::RepairStaged(0),
