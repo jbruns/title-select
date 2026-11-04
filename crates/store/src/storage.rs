@@ -163,6 +163,25 @@ fn check(policy: &StoragePolicy) -> Result<()> {
             "{system} is not a disc system, so its play libraries have no disc layout and no SBI files"
         )));
     }
+    // A play library lays out only a disc system's loose files (ADR 0014); a cartridge game stays TorrentZip or loose.
+    let folder = Some(StorageFormat::LooseFolder);
+    if play.format == StorageFormat::LooseFolder {
+        return Err(Error::Refused(
+            "play libraries store loose files only for disc systems: choose them for each disc system's play \
+             libraries, not as the default"
+                .into(),
+        ));
+    }
+    if let Some((system, _)) = play
+        .systems
+        .iter()
+        .find(|(system, s)| s.format == folder && !is_disc_system(system))
+    {
+        return Err(Error::Refused(format!(
+            "{system} is not a disc system, so its play libraries can't store games as loose files laid out \
+             by disc"
+        )));
+    }
     // A CHD is only ever a play library's copy of a disc: a source set holds the DAT's exact bytes (ADR 0013), and a
     // system that is no disc system has no disc to store as one.
     let chd = Some(StorageFormat::Chd);
@@ -369,5 +388,19 @@ mod tests {
             },
         );
         assert!(store.set_storage_policy(&no_discs, "Operator").is_err());
+
+        // A cartridge game is never laid out loose in a play library, by default or by its system.
+        let mut folders = StoragePolicy::default();
+        folders.play_libraries.format = StorageFormat::LooseFolder;
+        assert!(store.set_storage_policy(&folders, "Operator").is_err());
+        let mut cartridges = StoragePolicy::default();
+        cartridges.play_libraries.systems.insert(
+            "No-Intro/Atari".into(),
+            SystemStorage {
+                format: Some(StorageFormat::LooseFolder),
+                ..SystemStorage::default()
+            },
+        );
+        assert!(store.set_storage_policy(&cartridges, "Operator").is_err());
     }
 }

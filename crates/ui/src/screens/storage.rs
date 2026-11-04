@@ -53,20 +53,21 @@ fn format_label(format: StorageFormat) -> &'static str {
 }
 
 /// The formats you can choose for folders of `scope`, globally or for `system`: only a disc system's play libraries
-/// store CHD.
+/// store a disc's loose files, laid out as their disc layout says, or CHD.
 fn formats(scope: StorageScope, system: Option<&str>) -> &'static [StorageFormat] {
     match scope {
+        StorageScope::SourceSets => &[
+            StorageFormat::TorrentZip,
+            StorageFormat::Loose,
+            StorageFormat::LooseFolder,
+        ],
         StorageScope::PlayLibraries if system.is_some_and(is_disc_system) => &[
             StorageFormat::TorrentZip,
             StorageFormat::Loose,
             StorageFormat::LooseFolder,
             StorageFormat::Chd,
         ],
-        _ => &[
-            StorageFormat::TorrentZip,
-            StorageFormat::Loose,
-            StorageFormat::LooseFolder,
-        ],
+        StorageScope::PlayLibraries => &[StorageFormat::TorrentZip, StorageFormat::Loose],
     }
 }
 

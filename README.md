@@ -552,7 +552,8 @@ game with more stays TorrentZip, and so does a game whose ROM's name isn't a pla
 and why. Any game can be stored as a loose folder, a single `.iso` as well as a `.cue` sheet and its tracks, unless
 its name or a ROM's name isn't a plain file name, is a name Title Select keeps its own work under (one starting
 `.title-select` or `.deleting`), or two ROMs share a name: then it stays TorrentZip. The same holds for a game
-stored loose.
+stored loose. Play libraries store loose folders only for disc systems, chosen for each system, laid out as their
+disc layout says; any other system's play libraries store TorrentZip or loose.
 
 A disc system's play libraries lay out its discs as their disc layout says, set globally for play libraries and for
 each system. The default is the ES-DE layout:
