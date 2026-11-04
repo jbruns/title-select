@@ -190,7 +190,8 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   compilation tie-breaker. It is also unresolved when it holds a multi-disc game whose selected discs come from
   different releases, or whose selected release lacks a disc: one of its own, even one your settings exclude, or one
   another release in the group has that your settings don't exclude. A game is selected whole, never half. The engine's pick stays as the provisional winner: review it. Confirming it, or choosing other
-  releases, resolves it.
+  releases, resolves it. A choice of discs resolves it only while its discs cover the game, even mixed from several
+  releases: a saved choice is flagged again, and kept, when a newer DAT revision adds a disc it doesn't cover.
 - A group with your choice carries `choice`: the releases you checked, its `status` (`applied`, `matches_default`,
   `conflicting` or `stale`), the engine's `picks` and whether the engine left it unresolved. Releases it moved carry
   a rule whose stage is `choice`. The selection's `stale_choices` lists your choices for groups that are gone.

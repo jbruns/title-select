@@ -1201,6 +1201,9 @@ fn GroupPanel(
     };
     let picks: Vec<String> = g.picks().into_iter().collect();
     let explanation = match &g.choice {
+        Some(choice) if choice.status == ChoiceStatus::Applied && g.unresolved => {
+            unresolved_explanation(&g)
+        }
         Some(choice) => match choice.status {
             ChoiceStatus::Applied => format!(
                 "Your choice decides this group. Without it the selection would be: {}.",

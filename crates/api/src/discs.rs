@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::selection::{Selection, SelectionGroup};
+use crate::selection::{ChoiceStatus, GroupChoice, Selection, SelectionGroup};
 
 /// Retool's `discRename` table from its `internal-config.json`, in order: each key found in a name is replaced by
 /// its value, one after another, so a later key sees what an earlier one wrote. A test checks it against the
@@ -172,27 +172,40 @@ fn titles(group: &SelectionGroup) -> impl Iterator<Item = &str> {
         .chain(group.exclusions.iter().map(|e| e.title.as_str()))
 }
 
-/// Checks `selected`, titles of `group`: when some are discs, each release they come from must have every disc
-/// number the group's other titles have, excluded ones aside, and every disc of its own, even an excluded one. So
-/// an excluded demo disc never flags a group, but an excluded disc of the selected release does. `None` when they
-/// do, or when none is a disc.
-pub fn check<'a>(
-    group: &SelectionGroup,
-    selected: impl IntoIterator<Item = &'a str>,
-) -> Option<DiscCheck> {
+/// Each release the disc titles among `selected` come from, with their disc numbers.
+fn chosen<'a>(selected: impl IntoIterator<Item = &'a str>) -> BTreeMap<String, BTreeSet<u32>> {
     let mut chosen: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
     for d in selected.into_iter().filter_map(disc) {
         chosen.entry(d.release).or_default().insert(d.number);
     }
-    if chosen.is_empty() {
-        return None;
-    }
+    chosen
+}
+
+/// The disc numbers the `chosen` releases must cover between them: those of the group's titles your settings don't
+/// exclude, and every disc of a chosen release, even an excluded one. So an excluded demo disc never counts, but an
+/// excluded disc of the chosen release does.
+fn expected(group: &SelectionGroup, chosen: &BTreeMap<String, BTreeSet<u32>>) -> BTreeSet<u32> {
     let excluded: BTreeSet<&str> = group.exclusions.iter().map(|e| e.title.as_str()).collect();
-    let discs: BTreeSet<u32> = titles(group)
+    titles(group)
         .filter_map(|title| Some((excluded.contains(title), disc(title)?)))
         .filter(|(excluded, d)| !excluded || chosen.contains_key(&d.release))
         .map(|(_, d)| d.number)
-        .collect();
+        .collect()
+}
+
+/// Checks `selected`, titles of `group`: when some are discs, each release they come from must have every
+/// [`expected`] disc number. `None` when they do, or when none is a disc.
+pub fn check<'a>(
+    group: &SelectionGroup,
+    selected: impl IntoIterator<Item = &'a str>,
+) -> Option<DiscCheck> {
+    let chosen = chosen(selected);
+    if chosen.is_empty() {
+        return None;
+    }
+    let discs = expected(group, &chosen);
+    // "Different releases" means a release that lacks a disc, not more than one release: several whole releases,
+    // such as USA 1-2 and Europe 1-2 when the profile keeps more than one, are each a whole game.
     chosen
         .values()
         .any(|have| !discs.is_subset(have))
@@ -215,13 +228,32 @@ pub fn check_picks(group: &SelectionGroup) -> Option<DiscCheck> {
     check(group, picks.iter().map(String::as_str))
 }
 
+/// The [`expected`] disc numbers that none of `selected` has, between all their releases: a deliberate mix that
+/// has every disc covers the game. Empty when none of `selected` is a disc.
+pub fn uncovered<'a>(
+    group: &SelectionGroup,
+    selected: impl IntoIterator<Item = &'a str>,
+) -> BTreeSet<u32> {
+    let chosen = chosen(selected);
+    let have: BTreeSet<u32> = chosen.values().flatten().copied().collect();
+    expected(group, &chosen)
+        .difference(&have)
+        .copied()
+        .collect()
+}
+
+/// The Operator's choice for the group, when it is applied.
+fn applied(group: &SelectionGroup) -> Option<&GroupChoice> {
+    group
+        .choice
+        .as_ref()
+        .filter(|c| c.status == ChoiceStatus::Applied)
+}
+
 /// The discs of the group that none of its winners has, each with the titles in the group that have it: what a
 /// Library Folder built from the group lacks. Empty when no winner is a disc.
 pub fn missing(group: &SelectionGroup) -> BTreeMap<u32, Vec<String>> {
-    let Some(check) = check(group, group.winners.iter().map(|w| w.title.as_str())) else {
-        return BTreeMap::new();
-    };
-    let missing = check.missing();
+    let missing = uncovered(group, group.winners.iter().map(|w| w.title.as_str()));
     let mut out: BTreeMap<u32, Vec<String>> = BTreeMap::new();
     for title in titles(group) {
         if let Some(d) = disc(title).filter(|d| missing.contains(&d.number)) {
@@ -231,14 +263,42 @@ pub fn missing(group: &SelectionGroup) -> BTreeMap<u32, Vec<String>> {
     out
 }
 
-/// The pass after Selection: every group whose winners are discs that do not come whole from one release is
-/// unresolved, so that its Build is blocked until the Operator's choice settles it. It runs before choices are
-/// applied, so a choice for such a group is recorded as settling an unresolved group. Winners are never changed.
+/// Why the group is unresolved for its discs, as a phrase that completes "the group … is unresolved: ": your
+/// applied choice that leaves a disc uncovered, or else the engine's picks that don't come whole from one release.
+/// `None` when its discs are not why.
+pub fn unresolved_reason(group: &SelectionGroup) -> Option<String> {
+    match applied(group) {
+        Some(choice) => {
+            let uncovered = uncovered(group, choice.checked.iter().map(String::as_str));
+            (!uncovered.is_empty())
+                .then(|| format!("your choice doesn't cover {}", numbers("disc", &uncovered)))
+        }
+        None => check_picks(group).map(|c| c.reason()),
+    }
+}
+
+/// The pass after Selection, before choices are applied: every group whose winners are discs that do not come
+/// whole from one release is unresolved, so that its Build is blocked until the Operator's choice settles it. A
+/// choice for such a group is then recorded as settling an unresolved group. Winners are never changed.
 pub fn mark_unresolved(selection: &mut Selection) {
     for group in &mut selection.groups {
         if !group.unresolved
             && check(group, group.winners.iter().map(|w| w.title.as_str())).is_some()
         {
+            group.unresolved = true;
+        }
+    }
+    selection.summary.unresolved = selection.groups.iter().filter(|g| g.unresolved).count();
+}
+
+/// The pass after choices are applied: a group whose applied choice leaves a disc of its Multi-disc Game uncovered
+/// is unresolved again, such as when a newer DAT Revision adds a disc. A deliberate mix of releases that covers
+/// every disc is the Operator's settled decision, and stays resolved. The choice is kept either way.
+pub fn mark_uncovered_choices(selection: &mut Selection) {
+    for group in &mut selection.groups {
+        if applied(group).is_some_and(|choice| {
+            !uncovered(group, choice.checked.iter().map(String::as_str)).is_empty()
+        }) {
             group.unresolved = true;
         }
     }

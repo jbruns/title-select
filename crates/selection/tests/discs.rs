@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use title_select_api::discs::{DISC_RENAME, normalize};
+use title_select_api::discs::{self, DISC_RENAME, normalize};
 use title_select_api::selection::{ChoiceStatus, Selection, SelectionProfile};
 
 /// The patched Retool tree of the install.
@@ -89,17 +89,22 @@ fn game(name: &str) -> String {
 
 /// A synthetic DAT where only Europe has Disc 2 of `Saga`, beside a single-disc Game.
 fn only_europe_has_disc_2(dir: &Path) -> PathBuf {
+    write_dat(
+        dir,
+        "discs.dat",
+        &[
+            "Saga (USA) (Disc 1)",
+            "Saga (Europe) (Disc 1)",
+            "Saga (Europe) (Disc 2)",
+            "Solo (USA)",
+        ],
+    )
+}
+
+fn write_dat(dir: &Path, file: &str, games: &[&str]) -> PathBuf {
     let name = "Title Select - Discs";
-    let games: String = [
-        "Saga (USA) (Disc 1)",
-        "Saga (Europe) (Disc 1)",
-        "Saga (Europe) (Disc 2)",
-        "Solo (USA)",
-    ]
-    .iter()
-    .map(|g| game(g))
-    .collect();
-    let path = dir.join("discs.dat");
+    let games: String = games.iter().map(|g| game(g)).collect();
+    let path = dir.join(file);
     std::fs::write(
         &path,
         format!(
@@ -182,4 +187,92 @@ fn only_europe_having_disc_2_leaves_the_group_unresolved_until_your_choice_settl
     let saga = confirmed.groups.iter().find(|g| g.group == "saga").unwrap();
     assert!(!saga.unresolved, "{saga:#?}");
     assert_eq!(saga.choice.as_ref().unwrap().status, ChoiceStatus::Applied);
+    assert_eq!(discs::unresolved_reason(saga), None);
+}
+
+fn europe() -> BTreeSet<String> {
+    ["Saga (Europe) (Disc 1)", "Saga (Europe) (Disc 2)"]
+        .map(String::from)
+        .into()
+}
+
+fn choosing(selection: &Selection, checked: BTreeSet<String>) -> SelectionProfile {
+    let saga = selection.groups.iter().find(|g| g.group == "saga").unwrap();
+    let mut profile = SelectionProfile::default();
+    profile.set_choice(
+        &selection.system,
+        "saga",
+        checked,
+        &saga.picks(),
+        saga.engine_unresolved(),
+    );
+    profile
+}
+
+#[test]
+fn a_choice_that_leaves_out_a_disc_keeps_the_group_unresolved_and_is_kept() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = only_europe_has_disc_2(work.path());
+    let selection = select(work.path(), &dat, &SelectionProfile::default());
+    let partial = BTreeSet::from(["Saga (Europe) (Disc 1)".to_owned()]);
+    let profile = choosing(&selection, partial.clone());
+
+    let chosen = select(work.path(), &dat, &profile);
+    let saga = chosen.groups.iter().find(|g| g.group == "saga").unwrap();
+    assert!(saga.unresolved, "{saga:#?}");
+    let choice = saga.choice.as_ref().unwrap();
+    assert_eq!(
+        (choice.status, &choice.checked),
+        (ChoiceStatus::Applied, &partial)
+    );
+    assert_eq!(
+        discs::unresolved_reason(saga).as_deref(),
+        Some("your choice doesn't cover disc 2")
+    );
+    assert_eq!(chosen.summary.unresolved, 1);
+}
+
+#[test]
+fn a_saved_whole_choice_is_flagged_again_when_a_newer_dat_adds_a_disc() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = only_europe_has_disc_2(work.path());
+    let selection = select(work.path(), &dat, &SelectionProfile::default());
+    let profile = choosing(&selection, europe());
+    let saga = select(work.path(), &dat, &profile)
+        .groups
+        .into_iter()
+        .find(|g| g.group == "saga");
+    assert!(!saga.unwrap().unresolved);
+
+    let newer = write_dat(
+        work.path(),
+        "discs (newer).dat",
+        &[
+            "Saga (USA) (Disc 1)",
+            "Saga (Europe) (Disc 1)",
+            "Saga (Europe) (Disc 2)",
+            "Saga (Europe) (Disc 3)",
+            "Solo (USA)",
+        ],
+    );
+    let again = select(work.path(), &newer, &profile);
+    let saga = again.groups.iter().find(|g| g.group == "saga").unwrap();
+    assert!(saga.unresolved, "{saga:#?}");
+    let choice = saga.choice.as_ref().unwrap();
+    assert_eq!(
+        (choice.status, &choice.checked),
+        (ChoiceStatus::Applied, &europe())
+    );
+    assert_eq!(
+        discs::unresolved_reason(saga).as_deref(),
+        Some("your choice doesn't cover disc 3")
+    );
+    assert!(
+        !again
+            .groups
+            .iter()
+            .find(|g| g.group == "solo")
+            .unwrap()
+            .unresolved
+    );
 }

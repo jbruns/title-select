@@ -637,19 +637,19 @@ pub fn move_item(list: &mut Vec<String>, from: usize, to: usize) {
     list.insert(to, item);
 }
 
-/// Why an unresolved group without your choice needs your decision: its discs, when the selection's picks leave a
+/// Why an unresolved group needs your decision: its discs, when the selection's picks or your choice leave a
 /// multi-disc game mixed or missing a disc, otherwise a tie-break.
 pub fn unresolved_explanation(group: &SelectionGroup) -> String {
-    match title_select_api::discs::check_picks(group) {
-        Some(check) => {
-            let reason = check.reason();
+    match title_select_api::discs::unresolved_reason(group) {
+        Some(reason) => {
             let mut chars = reason.chars();
             let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
-            format!(
-                "{}{}. Check the discs you want, or confirm the pick.",
-                first.unwrap_or_default(),
-                chars.as_str()
-            )
+            let next = if group.choice.is_some() {
+                "Check the discs you want."
+            } else {
+                "Check the discs you want, or confirm the pick."
+            };
+            format!("{}{}. {next}", first.unwrap_or_default(), chars.as_str())
         }
         None => "The selection picked this by a tie-break, so it needs your decision. Check the releases you want, \
                  or confirm the pick."
@@ -730,6 +730,18 @@ mod tests {
             unresolved_explanation(&saga),
             "Its selected discs come from different releases: disc 1 from Saga (USA), disc 2 from Saga (Europe). \
              Check the discs you want, or confirm the pick."
+        );
+        let partial = BTreeSet::from(["Saga (Europe) (Disc 1)".to_owned()]);
+        saga.choice = Some(GroupChoice {
+            checked: partial,
+            status: ChoiceStatus::Applied,
+            picks: saga.winners.iter().map(|w| w.title.clone()).collect(),
+            engine_unresolved: true,
+            problems: vec![],
+        });
+        assert_eq!(
+            unresolved_explanation(&saga),
+            "Your choice doesn't cover disc 2. Check the discs you want."
         );
         let mut tie = group("pong", "Pong (USA)", &["Pong (Europe)"], &[]);
         tie.unresolved = true;

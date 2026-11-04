@@ -400,10 +400,12 @@ impl Engine {
             stale_choices: Default::default(),
             system: derived.system,
         };
-        // A separate pass over the engine's result, before choices: a choice then settles what it flags.
+        // Separate passes over the engine's result: before choices, so that a choice settles what the first flags;
+        // after, so that a choice that leaves a disc uncovered is flagged again.
         title_select_api::discs::mark_unresolved(&mut selection);
         let choices = profile.choices.get(&selection.system);
         choices::apply(&mut selection, choices);
+        title_select_api::discs::mark_uncovered_choices(&mut selection);
         Ok(Outcome {
             selection,
             trace,
