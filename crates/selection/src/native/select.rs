@@ -717,7 +717,7 @@ pub(crate) fn orchestrator(run: &mut Run, mut processed: Groups) -> PyResult<Gro
             let parent = if candidates.len() > 1 {
                 let mut sorted = candidates.clone();
                 if candidates.iter().any(|&x| run.n(x).is_superset) {
-                    sorted.sort_by(|&a, &b| key_of(run, b).cmp(&key_of(run, a)));
+                    sorted.sort_by_key(|&a| std::cmp::Reverse(key_of(run, a)));
                     *sorted
                         .iter()
                         .find(|&&x| run.n(x).is_superset)
@@ -1248,7 +1248,7 @@ fn compilation(run: &mut Run, compilations: &Titles, mut all: Groups) -> PyResul
             }
             continue;
         }
-        run.trace_ref("REF0071", &[key.clone()]);
+        run.trace_ref("REF0071", std::slice::from_ref(&key));
         run.note("Titles in contention:\n");
         for &title in &titles {
             let n = run.n(title);

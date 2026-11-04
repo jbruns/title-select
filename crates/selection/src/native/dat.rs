@@ -379,11 +379,7 @@ pub(crate) fn logiqx_titles(text: &str) -> Vec<TitleData> {
     let mut depth = 0usize;
     // The text being collected for a description or category directly under the title.
     let mut collecting: Option<(String, String)> = None;
-    loop {
-        let event = match reader.read_event() {
-            Ok(event) => event,
-            Err(_) => break,
-        };
+    while let Ok(event) = reader.read_event() {
         match event {
             Event::Start(ref e) | Event::Empty(ref e) => {
                 let is_empty = matches!(event, Event::Empty(_));

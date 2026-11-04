@@ -344,7 +344,7 @@ fn clone_list_variants(
             None => "short",
             Some(t) => match t.as_str() {
                 Some(t @ ("full" | "short" | "regionFree" | "regex")) => t,
-                _ => "short",
+                Some(_) | None => "short",
             },
         }
         .to_owned();

@@ -39,15 +39,14 @@ fn siphash13(data: &[u8]) -> u64 {
         v[1] ^= v[2];
         v[2] = v[2].rotate_left(32);
     }
-    let mut chunks = data.chunks_exact(8);
-    for chunk in &mut chunks {
-        let m = u64::from_le_bytes(chunk.try_into().expect("eight bytes"));
+    let (chunks, rest) = data.as_chunks::<8>();
+    for chunk in chunks {
+        let m = u64::from_le_bytes(*chunk);
         v[3] ^= m;
         round(&mut v);
         v[0] ^= m;
     }
     let mut tail = [0u8; 8];
-    let rest = chunks.remainder();
     tail[..rest.len()].copy_from_slice(rest);
     let b = ((data.len() as u64) << 56) | u64::from_le_bytes(tail);
     v[3] ^= b;
@@ -266,9 +265,9 @@ impl<K: PyHash + Eq + Clone> PySet<K> {
             } else {
                 0
             };
-            for e in i..=i + probes {
-                if matches!(table[e], Slot::Empty) {
-                    table[e] = Slot::Active(hash, key);
+            for slot in &mut table[i..=i + probes] {
+                if matches!(slot, Slot::Empty) {
+                    *slot = Slot::Active(hash, key);
                     return;
                 }
             }
