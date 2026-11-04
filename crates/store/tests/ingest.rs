@@ -582,6 +582,45 @@ fn a_dat_import_imports_the_revision_queues_audits_of_its_source_sets_and_keeps_
     assert!(changed("Beta").is_empty(), "another DAT's set is untouched");
 }
 
+/// The only way a No-Intro DAT Revision arrives: the Operator drops it in, and it is recognized from its header.
+#[test]
+fn a_dropped_in_dat_is_recognized_as_a_newer_revision_and_makes_the_following_source_set_stale() {
+    let env = Env::new();
+    env.store.set_follow("Alpha", true).unwrap();
+    assert_eq!(env.store.source_set("Alpha").unwrap().stale, []);
+    write_named_dat(
+        &env.dir("in"),
+        "whatever I downloaded.dat",
+        "Alpha System",
+        "2",
+        &alpha_games(),
+    );
+    env.scan();
+    env.scan();
+    let dat = env
+        .item("whatever I downloaded.dat")
+        .assessment
+        .dat
+        .unwrap();
+    assert_eq!(
+        (dat.name.as_str(), dat.providers.as_slice(), dat.imported),
+        ("Alpha System", &["Test".to_string()][..], false),
+        "recognized from its header, not its file name"
+    );
+
+    let plan = env.plan(IngestAction::DatImport, &["whatever I downloaded.dat"]);
+    env.store
+        .approve_ingest_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+
+    let stale = env.store.source_set("Alpha").unwrap().stale;
+    assert!(
+        matches!(&stale[..], [title_select_api::SourceSetStale::NewerRevision { version, .. }] if version == "2"),
+        "{stale:?}"
+    );
+    assert_eq!(env.store.source_set("Beta").unwrap().stale, []);
+}
+
 #[test]
 fn a_dat_import_of_many_uses_each_dats_own_provider_and_the_one_you_chose_only_for_the_rest() {
     let env = Env::new();
