@@ -41,6 +41,14 @@ pub struct Dat {
     by_size_without_crc: HashMap<u64, Vec<usize>>,
 }
 
+/// A size as DATs write it: decimal, or hexadecimal after `0x`.
+fn parse_size(text: &str) -> Option<u64> {
+    match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        Some(hex) => u64::from_str_radix(hex, 16).ok(),
+        None => text.parse().ok(),
+    }
+}
+
 fn attrs(e: &BytesStart) -> Result<HashMap<String, String>, Error> {
     let mut out = HashMap::new();
     for a in e.attributes() {
@@ -176,8 +184,22 @@ impl Dat {
         match (root, tag.as_str()) {
             (Some(Root::Logiqx | Root::ListXml), "game" | "machine") => self.start_game(e)?,
             (Some(Root::SoftwareList), "software") => self.start_game(e)?,
-            // A software list's unnamed ROM continues or reloads the one before it: no file of its own.
-            (Some(Root::SoftwareList), "rom") if !attrs(e)?.contains_key("name") => {}
+            // A software list's unnamed ROM has no file of its own. As MAME loads it, one that continues the ROM
+            // before it, or skips bytes of it, reads on in that ROM's file, which is so much larger; one that
+            // reloads it or fills with a value reads nothing more.
+            (Some(Root::SoftwareList), "rom") if !attrs(e)?.contains_key("name") => {
+                let a = attrs(e)?;
+                if matches!(
+                    a.get("loadflag").map(String::as_str),
+                    Some("continue" | "ignore")
+                ) {
+                    let size = a
+                        .get("size")
+                        .and_then(|s| parse_size(s))
+                        .ok_or_else(|| Error::Dat("a continued rom has no valid size".into()))?;
+                    self.grow_last_rom(size);
+                }
+            }
             (Some(_), "rom") => self.add_rom(e)?,
             _ => {}
         }
@@ -234,6 +256,36 @@ impl Dat {
         }
         self.roms.push(rom);
         Ok(())
+    }
+
+    /// Adds `extra` bytes to the last ROM read, if it is in the Game being read.
+    fn grow_last_rom(&mut self, extra: u64) {
+        let idx = match self.roms.len().checked_sub(1) {
+            Some(idx) if self.roms[idx].game + 1 == self.games.len() => idx,
+            _ => return,
+        };
+        let rom = &self.roms[idx];
+        let bucket = match &rom.crc {
+            Some(crc) => self.by_size_crc.get_mut(&(rom.size, crc.clone())),
+            None => self.by_size_without_crc.get_mut(&rom.size),
+        };
+        if let Some(bucket) = bucket {
+            bucket.retain(|&i| i != idx);
+        }
+        let rom = &mut self.roms[idx];
+        rom.size += extra;
+        match &rom.crc {
+            Some(crc) => self
+                .by_size_crc
+                .entry((rom.size, crc.clone()))
+                .or_default()
+                .push(idx),
+            None => self
+                .by_size_without_crc
+                .entry(rom.size)
+                .or_default()
+                .push(idx),
+        }
     }
 
     pub fn roms_named(&self, name: &str) -> &[usize] {

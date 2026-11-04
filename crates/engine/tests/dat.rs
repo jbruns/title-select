@@ -28,7 +28,7 @@ fn mame_listxml_is_the_mame_dat_versioned_by_its_build() {
 }
 
 #[test]
-fn a_mame_software_list_is_named_by_its_list_and_skips_unnamed_continuation_roms() {
+fn a_mame_software_list_is_named_by_its_list_and_skips_unnamed_reloaded_roms() {
     let xml = br#"<?xml version="1.0"?>
 <!DOCTYPE softwarelist SYSTEM "softwarelist.dtd">
 <softwarelist name="nes" description="Nintendo Entertainment System cartridges">
@@ -49,6 +49,36 @@ fn a_mame_software_list_is_named_by_its_list_and_skips_unnamed_continuation_roms
     assert_eq!(dat.games, ["smb"]);
     assert_eq!(dat.roms.len(), 1);
     assert_eq!(dat.roms[0].name, "smb.prg");
+}
+
+#[test]
+fn a_software_list_rom_that_continues_or_skips_in_its_file_adds_to_that_files_size() {
+    let xml = br#"<?xml version="1.0"?>
+<softwarelist name="megadriv" description="Sega Mega Drive cartridges">
+  <software name="game">
+    <description>Game</description>
+    <part name="cart" interface="megadriv_cart">
+      <dataarea name="rom" size="49152">
+        <rom name="game.bin" size="16384" crc="11111111" offset="0"/>
+        <rom size="16384" offset="0x8000" loadflag="continue"/>
+        <rom size="4096" offset="0" loadflag="ignore"/>
+        <rom size="16384" offset="0x4000" loadflag="reload"/>
+        <rom size="4096" offset="0xc000" loadflag="fill" value="0xff"/>
+        <rom name="other.bin" size="8192" crc="22222222" offset="0x10000"/>
+        <rom size="8192" offset="0x12000" loadflag="reload_plain"/>
+      </dataarea>
+    </part>
+  </software>
+</softwarelist>
+"#;
+    let dat = Dat::parse(xml, Path::new("megadriv.xml")).unwrap();
+    let sizes: Vec<(&str, u64)> = dat.roms.iter().map(|r| (r.name.as_str(), r.size)).collect();
+    assert_eq!(
+        sizes,
+        [("game.bin", 16384 + 16384 + 4096), ("other.bin", 8192)]
+    );
+    assert_eq!(dat.candidates(36864, "11111111").collect::<Vec<_>>(), [0]);
+    assert_eq!(dat.candidates(16384, "11111111").count(), 0);
 }
 
 #[test]
