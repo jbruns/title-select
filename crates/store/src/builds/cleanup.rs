@@ -133,6 +133,7 @@ fn built_item(
         keep: None,
         converts: None,
         addition: None,
+        generated: None,
     }
 }
 
@@ -469,6 +470,9 @@ impl Run<'_> {
         if !found(source, &kept.kept_name)?.is_some_and(|st| same(&st)) {
             return back("it changed since you approved the plan");
         }
+        // A file kept from a disc layout folder goes back into it, made again if it was emptied.
+        crate::folder_dir::parent_made(&self.dir, &r.target)
+            .map_err(|e| Error::Io(e.to_string()))?;
         if let Err(err) = source.rename_new(&kept.kept_name, &self.dir, &r.target) {
             return match err.kind() {
                 io::ErrorKind::AlreadyExists => back(&format!(

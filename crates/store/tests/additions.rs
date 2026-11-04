@@ -1746,6 +1746,7 @@ fn an_addition_is_stored_as_the_storage_policy_says_and_built_in_the_play_librar
         SystemStorage {
             format: Some(StorageFormat::Loose),
             delete_originals: None,
+            ..Default::default()
         },
     );
     env.store.set_storage_policy(&policy, "Operator").unwrap();
@@ -1824,6 +1825,7 @@ fn source_sets_store(env: &Env, system: &str, format: title_select_api::storage:
         title_select_api::storage::SystemStorage {
             format: Some(format),
             delete_originals: None,
+            ..Default::default()
         },
     );
     env.store.set_storage_policy(&policy, "Operator").unwrap();

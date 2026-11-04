@@ -2449,6 +2449,7 @@ fn a_systems_own_format_beats_the_default() {
         SystemStorage {
             format: Some(StorageFormat::TorrentZip),
             delete_originals: None,
+            ..Default::default()
         },
     );
     env.store.set_storage_policy(&policy, "Operator").unwrap();
@@ -2982,6 +2983,7 @@ fn set_disc_policy(env: &Env, format: StorageFormat, delete_originals: bool) {
         SystemStorage {
             format: Some(format),
             delete_originals: Some(delete_originals),
+            ..Default::default()
         },
     );
     env.store.set_storage_policy(&policy, "Operator").unwrap();

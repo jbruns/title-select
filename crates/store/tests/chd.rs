@@ -170,6 +170,7 @@ impl Env {
             SystemStorage {
                 format: Some(StorageFormat::Chd),
                 delete_originals: None,
+                ..Default::default()
             },
         );
         store.set_storage_policy(&policy, "Operator").unwrap();
@@ -190,6 +191,7 @@ impl Env {
             SystemStorage {
                 format,
                 delete_originals: Some(delete),
+                ..Default::default()
             },
         );
         self.store.set_storage_policy(&policy, "Operator").unwrap();
@@ -815,6 +817,7 @@ fn saga_converting_over(env: &Env, foreign: bool) -> (LibraryFolder, i64, Plan) 
         JobState::Succeeded
     );
     if foreign {
+        std::fs::create_dir_all(env.dir().join(".multidisc")).unwrap();
         for (n, chd) in SAGA_CHDS.iter().enumerate() {
             std::fs::write(env.dir().join(chd), noise(90 + n as u64, 4096)).unwrap();
         }
@@ -859,19 +862,29 @@ fn saga_converting_over(env: &Env, foreign: bool) -> (LibraryFolder, i64, Plan) 
     (folder, selection, plan)
 }
 
-/// Which formats Saga's discs are in the folder as.
+/// Which formats Saga's discs are in the folder as: in it, or in its `.multidisc` folder.
 fn saga_files(env: &Env) -> Vec<String> {
-    let mut found: Vec<String> = std::fs::read_dir(env.dir())
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|n| n.starts_with("Saga"))
-        .collect();
+    let names = |dir: &Path, prefix: &str| -> Vec<String> {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("Saga") && !n.ends_with(".m3u"))
+            .map(|n| format!("{prefix}{n}"))
+            .collect()
+    };
+    let mut found = names(&env.dir(), "");
+    found.extend(names(&env.dir().join(".multidisc"), ".multidisc/"));
     found.sort();
     found
 }
 
 const SAGA_ZIPS: [&str; 2] = ["Saga (USA) (Disc 1).zip", "Saga (USA) (Disc 2).zip"];
-const SAGA_CHDS: [&str; 2] = ["Saga (USA) (Disc 1).chd", "Saga (USA) (Disc 2).chd"];
+/// A game of two discs goes in the folder's `.multidisc` folder, listed by its `.m3u`.
+const SAGA_CHDS: [&str; 2] = [
+    ".multidisc/Saga (USA) (Disc 1).chd",
+    ".multidisc/Saga (USA) (Disc 2).chd",
+];
 
 #[cfg(unix)]
 #[test]
@@ -1152,7 +1165,7 @@ fn a_build_that_stops_between_two_keeps_finishes_its_game_on_recovery() {
     }));
     env.store.hook_faults(None);
     assert!(ran.is_err(), "{ran:?}");
-    assert_eq!(saga_files(&env), [SAGA_ZIPS[0], SAGA_CHDS[1], SAGA_ZIPS[1]]);
+    assert_eq!(saga_files(&env), [SAGA_CHDS[1], SAGA_ZIPS[0], SAGA_ZIPS[1]]);
 
     let env = env.restart();
     let mut kept = env.kept(&folder);
@@ -1329,6 +1342,7 @@ fn a_chd_is_never_a_source_sets_format_nor_a_play_librarys_for_a_system_without_
     let own = |format| SystemStorage {
         format: Some(format),
         delete_originals: None,
+        ..Default::default()
     };
     let refused = |change: &dyn Fn(&mut StoragePolicy)| {
         let mut policy = store.storage_policy().unwrap();

@@ -60,12 +60,21 @@ fn selected_game(
     index: &GameIndex,
     dat: &Dat,
     selected: &HashMap<String, String>,
-    loose: &HashMap<String, String>,
+    loose: &HashMap<String, Vec<String>>,
 ) -> std::result::Result<(String, Vec<ExpectedRom>, String), String> {
     let Some(game) = index.game_of(probe) else {
         return Err("it holds no game the DAT revision lists".into());
     };
-    let stored_loose = loose.get(game);
+    if loose
+        .get(game)
+        .is_some_and(|t| t.len() > 1 || t.iter().any(|t| t.contains('/')))
+    {
+        return Err(format!(
+            "it holds {game}, which the storage policy lays out as a disc's own files, so it is put in place by a \
+             build, not adopted"
+        ));
+    }
+    let stored_loose = loose.get(game).and_then(|t| t.first());
     let target = stored_loose
         .cloned()
         .unwrap_or_else(|| format!("{game}.zip"));
@@ -653,7 +662,7 @@ impl Store {
         kept: &KeptFile,
         cached: Option<&(i64, Probe)>,
         dat: Option<(&Dat, &GameIndex)>,
-        (selected, loose): (&HashMap<String, String>, &HashMap<String, String>),
+        (selected, loose): (&HashMap<String, String>, &HashMap<String, Vec<String>>),
         names: &mut Names,
     ) -> Result<std::result::Result<Restore, String>> {
         let name = &kept.name;

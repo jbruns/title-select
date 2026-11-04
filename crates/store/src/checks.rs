@@ -11,7 +11,7 @@ use rustix::fs::{FileType, Stat};
 use title_select_api::build::{
     CheckSummary, CheckedFile, DriftEntry, DriftKind, FileOutcome, FileStat, FolderCheck,
 };
-use title_select_api::storage::{Storage, StorageFormat, target_of};
+use title_select_api::storage::{MULTIDISC, Storage, StorageFormat, playlist_name, release_of};
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{GameIndex, Probe, holds_as, probe};
@@ -110,16 +110,48 @@ pub(super) struct ScanInput<'a> {
     pub acks: &'a HashMap<String, Ack>,
 }
 
-/// The names in a folder other than Title Select's own entries, sorted.
+/// The names in a folder other than Title Select's own entries, sorted, with each disc layout folder's entries in
+/// place of it, as [`deepen`].
 pub(super) fn listing(dir: &FolderDir) -> std::io::Result<Vec<String>> {
-    let mut names: Vec<String> = dir
+    let names: Vec<String> = dir
         .entries()?
         .into_iter()
         .map(|(name, _)| name)
         .filter(|name| !is_own(name))
         .collect();
+    let mut names = deepen(dir, names);
     names.sort();
     Ok(names)
+}
+
+/// Whether `name`, at the top of a Library Folder, is a folder a disc layout puts files in: [`MULTIDISC`], or one
+/// named for the `.cue` it holds.
+pub(super) fn is_layout_dir(name: &str) -> bool {
+    name == MULTIDISC || name.to_lowercase().ends_with(".cue")
+}
+
+/// `names`, a folder's top-level entries, with each disc layout folder that is a directory replaced by its entries,
+/// as `<folder>/<entry>`: they belong to the folder as its other files do. One that is empty, or can't be read,
+/// stays itself.
+pub(super) fn deepen(dir: &FolderDir, names: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for name in names {
+        let inner = is_layout_dir(&name)
+            .then(|| dir.stat(&name).ok().flatten())
+            .flatten()
+            .filter(|st| FolderDir::kind(st) == FileType::Directory)
+            .and_then(|_| dir.sub(&name).and_then(|sub| sub.entries()).ok())
+            .filter(|entries| !entries.is_empty());
+        match inner {
+            Some(entries) => out.extend(
+                entries
+                    .into_iter()
+                    .map(|(entry, _)| format!("{name}/{entry}")),
+            ),
+            None => out.push(name),
+        }
+    }
+    out
 }
 
 /// Reads the regular file `name`, found by `lstat` as `seen`, through `dir`: opened without following a symlink, and
@@ -187,52 +219,50 @@ pub(super) fn reuse(
     (read(dir, name, seen), true)
 }
 
-/// Checks the folder `dir`, whose entries are `entries`, against `input`. Nothing in it is changed.
-/// The names the storage policy stores games of `dat` under other than `<game>.zip`, by game: loose, or as CHD; none
-/// unless it says either.
-pub(crate) fn loose_names(storage: Storage, dat: Option<&Dat>) -> HashMap<String, String> {
-    if let Some(dat) = dat.filter(|_| storage.format == StorageFormat::Chd) {
-        return super::plans::chd_targets_of(storage, dat)
-            .into_iter()
-            .filter(|(_, chd)| chd.is_ok())
-            .map(|(game, _)| {
-                let target = format!("{game}.chd");
-                (game, target)
-            })
-            .collect();
-    }
-    let Some(dat) = dat.filter(|_| storage.format == StorageFormat::Loose) else {
+/// The files the storage policy stores games of `dat` as other than `<game>.zip`, by game: loose, as CHD, or laid out
+/// as a disc layout says; none unless it says loose, loose folder or CHD.
+pub(crate) fn loose_names(storage: Storage, dat: Option<&Dat>) -> HashMap<String, Vec<String>> {
+    let Some(dat) = dat.filter(|_| storage.format != StorageFormat::TorrentZip) else {
         return HashMap::new();
     };
-    let mut names: Vec<Vec<&str>> = vec![Vec::new(); dat.games.len()];
-    for rom in &dat.roms {
-        names[rom.game].push(&rom.name);
-    }
-    dat.games
-        .iter()
-        .zip(names)
-        .filter_map(|(game, roms)| match target_of(storage, game, &roms) {
-            (target, true, _) => Some((game.clone(), target)),
-            _ => None,
-        })
+    super::plans::laid_out(storage, dat)
+        .into_iter()
+        .filter(|(_, laid)| laid.format != StorageFormat::TorrentZip)
+        .map(|(game, laid)| (game, laid.files))
         .collect()
 }
 
-/// The selected games of `selected`, keyed by `<game>.zip` lowercased, by the lowercased name the storage policy
-/// stores each under, given the games it stores loose.
+/// The selected games of `selected`, keyed by `<game>.zip` lowercased, by the lowercased name of each file the
+/// storage policy stores each as, given the games it stores otherwise than TorrentZip; and a Multi-disc Game's
+/// release by its `.m3u`.
 pub(crate) fn storage_targets(
     selected: &HashMap<String, String>,
-    loose: &HashMap<String, String>,
+    loose: &HashMap<String, Vec<String>>,
 ) -> HashMap<String, String> {
-    selected
-        .iter()
-        .map(|(key, game)| match loose.get(game) {
-            Some(target) => (target.to_lowercase(), game.clone()),
-            None => (key.clone(), game.clone()),
-        })
-        .collect()
+    let mut out = HashMap::new();
+    for (key, game) in selected {
+        match loose.get(game) {
+            Some(targets) => {
+                for target in targets {
+                    out.insert(target.to_lowercase(), game.clone());
+                }
+                if targets
+                    .first()
+                    .is_some_and(|t| t.starts_with(&format!("{MULTIDISC}/")))
+                {
+                    let release = release_of(game);
+                    out.insert(playlist_name(&release).to_lowercase(), release);
+                }
+            }
+            None => {
+                out.insert(key.clone(), game.clone());
+            }
+        }
+    }
+    out
 }
 
+/// Checks the folder `dir`, whose entries are `entries`, against `input`. Nothing in it is changed.
 pub(super) fn scan(
     dir: &FolderDir,
     entries: &[String],
@@ -362,7 +392,8 @@ pub(super) fn scan(
                             torrentzip: built.torrentzip,
                         });
                     }
-                    Ok(p) if holds_as(&p, &built.roms, built.loose) => {
+                    // A generated file, an `.m3u` or an SBI file, holds no ROM: only its SHA-256 says it is the same.
+                    Ok(p) if !built.roms.is_empty() && holds_as(&p, &built.roms, built.loose) => {
                         file.outcome = FileOutcome::Repacked;
                         file.torrentzip = p.torrentzip || built.loose;
                         if !file.torrentzip {
@@ -376,6 +407,12 @@ pub(super) fn scan(
                             sha256: Some(p.sha256),
                             torrentzip: p.torrentzip,
                         });
+                    }
+                    Ok(_) if built.roms.is_empty() => {
+                        file.outcome = FileOutcome::Conflict;
+                        file.detail = Some(
+                            "it changed since it was built, and no longer holds what was written there".into(),
+                        );
                     }
                     Ok(_) => {
                         file.outcome = FileOutcome::Conflict;
@@ -445,8 +482,8 @@ pub(super) fn scan(
                                     let named = loose
                                         .get(game)
                                         .cloned()
-                                        .unwrap_or_else(|| format!("{game}.zip"));
-                                    entry.kind = if *name != named {
+                                        .unwrap_or_else(|| vec![format!("{game}.zip")]);
+                                    entry.kind = if !named.contains(name) {
                                         DriftKind::Renamed
                                     } else if selected.contains_key(&lower) {
                                         DriftKind::Selected

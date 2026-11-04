@@ -1,12 +1,14 @@
 //! The storage policy: how source sets and play libraries store each game, as TorrentZip, loose, a loose folder or
-//! CHD, set globally and for each system, as a selection profile's settings are.
+//! CHD, set globally and for each system, as a selection profile's settings are; and how a disc system's play
+//! libraries lay out its discs, and whether they put SBI files beside them.
 
 use std::collections::BTreeSet;
 
 use leptos::prelude::*;
 use title_select_api::Dat;
 use title_select_api::storage::{
-    ScopePolicy, StorageFormat, StoragePolicy, StorageScope, SystemStorage, is_disc_system,
+    DiscLayout, ScopePolicy, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
+    is_disc_system,
 };
 
 use crate::api;
@@ -20,6 +22,19 @@ const SCOPES: [(StorageScope, &str); 2] = [
 const DELETE_WARNING: &str = "With this on, a conversion deletes each original as soon as its converted file is verified, instead of keeping it in kept files. You can't get a deleted original back from Title Select. An original that changed, or whose converted file doesn't verify, is always kept.";
 
 const CHD_NOTE: &str = "As CHD, a build makes each disc's CHD with chdman, extracts it once and checks every track against the DAT before it puts it in place. A disc whose CHD doesn't give back the DAT's files is never put in place. A disc that isn't one .cue with its .bin tracks, or one .iso, stays TorrentZip, with every other disc of its game.";
+
+const LAYOUT_NOTE: &str = "In the ES-DE layout, a disc stored as one file, a CHD or an ISO, goes directly in the system folder; a disc stored as a .cue with its tracks goes in a folder named exactly for its .cue; and every file of a game on several discs goes in .multidisc, with an .m3u named for the game, without its disc number, in the system folder listing each disc in order. In the flat layout every file goes directly in the system folder, with no .m3u. A disc stored as TorrentZip is one ZIP in the system folder in either layout.";
+
+const SBI_NOTE: &str = "With this on, a build puts each disc's SBI file, from the system's latest SBI pack, beside its .cue or .chd, named for it. Emulators read it to play discs whose copy protection they otherwise can't.";
+
+const LAYOUTS: [DiscLayout; 2] = [DiscLayout::EsDe, DiscLayout::Flat];
+
+fn layout_label(layout: DiscLayout) -> &'static str {
+    match layout {
+        DiscLayout::EsDe => "ES-DE: .cue folders and .multidisc, with an .m3u",
+        DiscLayout::Flat => "Flat: every file in the system folder",
+    }
+}
 
 fn scope_mut(policy: &mut StoragePolicy, scope: StorageScope) -> &mut ScopePolicy {
     match scope {
@@ -37,21 +52,34 @@ fn format_label(format: StorageFormat) -> &'static str {
     }
 }
 
-/// The formats you can choose for folders of `scope`, globally or for `system`: play libraries don't store loose
-/// folders yet, and only a disc system's play libraries store CHD.
+/// The formats you can choose for folders of `scope`, globally or for `system`: only a disc system's play libraries
+/// store CHD.
 fn formats(scope: StorageScope, system: Option<&str>) -> &'static [StorageFormat] {
     match scope {
-        StorageScope::SourceSets => &[
+        StorageScope::PlayLibraries if system.is_some_and(is_disc_system) => &[
+            StorageFormat::TorrentZip,
+            StorageFormat::Loose,
+            StorageFormat::LooseFolder,
+            StorageFormat::Chd,
+        ],
+        _ => &[
             StorageFormat::TorrentZip,
             StorageFormat::Loose,
             StorageFormat::LooseFolder,
         ],
-        StorageScope::PlayLibraries if system.is_some_and(is_disc_system) => &[
-            StorageFormat::TorrentZip,
-            StorageFormat::Loose,
-            StorageFormat::Chd,
-        ],
-        StorageScope::PlayLibraries => &[StorageFormat::TorrentZip, StorageFormat::Loose],
+    }
+}
+
+/// How `format` reads for folders of `scope` bound to `system`: a disc system's play libraries lay a disc's loose
+/// files out as their disc layout says, not in a folder per game.
+fn format_label_for(scope: StorageScope, system: &str, format: StorageFormat) -> &'static str {
+    match format {
+        StorageFormat::LooseFolder
+            if scope == StorageScope::PlayLibraries && is_disc_system(system) =>
+        {
+            "Loose files: each disc's .cue and tracks, as the disc layout says"
+        }
+        _ => format_label(format),
     }
 }
 
@@ -69,10 +97,7 @@ fn update_own(
     policy.update(|p| {
         let systems = &mut scope_mut(p, scope).systems;
         f(systems.entry(system.to_owned()).or_default());
-        if systems
-            .get(system)
-            .is_some_and(|s| s.format.is_none() && s.delete_originals.is_none())
-        {
+        if systems.get(system).is_some_and(SystemStorage::is_empty) {
             systems.remove(system);
         }
     });
@@ -88,7 +113,7 @@ pub fn StoragePolicyScreen() -> impl IntoView {
     view! {
         <h1>"Storage policy"</h1>
         <p class="lede">
-            "The storage policy says how each folder stores a game: as one TorrentZip per game; loose, as the ROM itself under the name the DAT gives it; as a loose folder, a folder named for the game holding each of its ROMs loose; or, for a disc system's play libraries, as one CHD per disc. Source sets and play libraries each have a global setting, and you can set a system differently."
+            "The storage policy says how each folder stores a game: as one TorrentZip per game; loose, as the ROM itself under the name the DAT gives it; as a loose folder, a folder named for the game holding each of its ROMs loose; or, for a disc system's play libraries, as one CHD per disc. A disc system's play libraries lay out its discs' files as their disc layout says. Source sets and play libraries each have a global setting, and you can set a system differently."
         </p>
         {move || match loaded.get() {
             None => view! { <Loading what="the storage policy" /> }.into_any(),
@@ -242,6 +267,29 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
                                 </label>
                             </p>
                             <p class="note small">{DELETE_WARNING}</p>
+                            {(scope == StorageScope::PlayLibraries)
+                                .then(|| {
+                                    view! {
+                                        <label class="stacked" for="g-play_libraries-layout">
+                                            "Disc layout, for disc systems"
+                                        </label>
+                                        <select
+                                            id="g-play_libraries-layout"
+                                            prop:value=move || policy.with(|p| p.play_libraries.layout.as_str())
+                                            on:change=move |ev| {
+                                                if let Some(l) = DiscLayout::parse(&event_target_value(&ev)) {
+                                                    policy.update(|p| p.play_libraries.layout = l);
+                                                }
+                                            }
+                                        >
+                                            {LAYOUTS
+                                                .iter()
+                                                .map(|&l| view! { <option value=l.as_str()>{layout_label(l)}</option> })
+                                                .collect_view()}
+                                        </select>
+                                        <p class="note small">{LAYOUT_NOTE}</p>
+                                    }
+                                })}
                         </fieldset>
                     }
                 })
@@ -330,7 +378,13 @@ fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoV
                                 </option>
                                 {formats(scope, Some(&s.get_value()))
                                     .iter()
-                                    .map(|&f| view! { <option value=f.as_str()>{format_label(f)}</option> })
+                                    .map(|&f| {
+                                        view! {
+                                            <option value=f.as_str()>
+                                                {format_label_for(scope, &s.get_value(), f)}
+                                            </option>
+                                        }
+                                    })
                                     .collect_view()}
                             </select>
                             {(scope == StorageScope::PlayLibraries && is_disc_system(&s.get_value()))
@@ -361,10 +415,69 @@ fn SystemSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoV
                                 <option value="on">"On: delete each original once its converted file is verified"</option>
                             </select>
                             <p class="note small">{DELETE_WARNING}</p>
+                            {(scope == StorageScope::PlayLibraries && is_disc_system(&s.get_value()))
+                                .then(|| view! { <DiscSettings policy system=s.get_value() /> })}
                         </fieldset>
                     }
                 })
                 .collect_view()}
         </div>
+    }
+}
+
+/// A disc system's play library settings: its disc layout, and whether SBI files go beside its discs.
+#[component]
+fn DiscSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoView {
+    let s = StoredValue::new(system);
+    let scope = StorageScope::PlayLibraries;
+    let own = move || {
+        policy.with(|p| {
+            p.play_libraries
+                .systems
+                .get(&s.get_value())
+                .cloned()
+                .unwrap_or_default()
+        })
+    };
+    view! {
+        <label class="stacked" for="s-play_libraries-layout">
+            "Disc layout"
+        </label>
+        <select
+            id="s-play_libraries-layout"
+            prop:value=move || own().layout.map_or("global", DiscLayout::as_str)
+            on:change=move |ev| {
+                let l = DiscLayout::parse(&event_target_value(&ev));
+                update_own(policy, scope, &s.get_value(), |o| o.layout = l);
+            }
+        >
+            <option value="global">
+                {move || {
+                    format!(
+                        "Global setting: {}",
+                        layout_label(policy.with(|p| p.play_libraries.layout)),
+                    )
+                }}
+            </option>
+            {LAYOUTS
+                .iter()
+                .map(|&l| view! { <option value=l.as_str()>{layout_label(l)}</option> })
+                .collect_view()}
+        </select>
+        <p class="note small">{LAYOUT_NOTE}</p>
+        <p>
+            <label class="inline">
+                <input
+                    type="checkbox"
+                    prop:checked=move || own().sbi == Some(true)
+                    on:change=move |ev| {
+                        let on = event_target_checked(&ev).then_some(true);
+                        update_own(policy, scope, &s.get_value(), |o| o.sbi = on);
+                    }
+                />
+                "Put SBI files beside discs"
+            </label>
+        </p>
+        <p class="note small">{SBI_NOTE}</p>
     }
 }

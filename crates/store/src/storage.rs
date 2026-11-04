@@ -3,7 +3,8 @@
 
 use rusqlite::{Connection, OptionalExtension, params};
 use title_select_api::storage::{
-    ScopePolicy, Storage, StorageFormat, StoragePolicy, StorageScope, SystemStorage, is_disc_system,
+    DiscLayout, ScopePolicy, Storage, StorageFormat, StoragePolicy, StorageScope, SystemStorage,
+    is_disc_system,
 };
 
 use crate::{Error, Result, Store, now};
@@ -12,7 +13,8 @@ const SCOPES: [StorageScope; 2] = [StorageScope::SourceSets, StorageScope::PlayL
 
 fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
     let mut stmt = c.prepare(
-        "SELECT system, format, delete_originals FROM storage_policy WHERE scope = ?1 ORDER BY system",
+        "SELECT system, format, delete_originals, layout, sbi FROM storage_policy WHERE scope = ?1
+         ORDER BY system",
     )?;
     let rows = stmt
         .query_map([scope.as_str()], |r| {
@@ -20,21 +22,27 @@ fn load_scope(c: &Connection, scope: StorageScope) -> Result<ScopePolicy> {
                 r.get::<_, String>(0)?,
                 r.get::<_, Option<String>>(1)?,
                 r.get::<_, Option<bool>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<bool>>(4)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut policy = ScopePolicy::default();
-    for (system, format, delete_originals) in rows {
+    for (system, format, delete_originals, layout, sbi) in rows {
         let format = format.as_deref().and_then(StorageFormat::parse);
+        let layout = layout.as_deref().and_then(DiscLayout::parse);
         if system.is_empty() {
             policy.format = format.unwrap_or_default();
             policy.delete_originals = delete_originals.unwrap_or(false);
+            policy.layout = layout.unwrap_or_default();
         } else {
             policy.systems.insert(
                 system,
                 SystemStorage {
                     format,
                     delete_originals,
+                    layout,
+                    sbi,
                 },
             );
         }
@@ -53,32 +61,45 @@ pub(crate) fn policy(c: &Connection, scope: StorageScope, system: &str) -> Resul
 /// one saved before its provider's first DAT was imported keeps the spelling it was given until then. Two overrides
 /// that become one system merge, the more cautious winning: an override that keeps originals over one that follows
 /// the default, and that over one that deletes them; the format of the one already under the kept spelling, else the
-/// first by name, unless it sets none.
+/// first by name, unless it sets none; and so the layout and SBI choice.
 pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
+    // A migration before the disc layout's respells too, before its columns exist.
+    let laid: bool = c.query_row(
+        "SELECT count(*) > 0 FROM pragma_table_info('storage_policy') WHERE name = 'layout'",
+        [],
+        |r| r.get(0),
+    )?;
+    let discs = if laid { "layout, sbi" } else { "NULL, NULL" };
     let rows = c
-        .prepare(
-            "SELECT scope, system, format, delete_originals FROM storage_policy WHERE system <> ''
-             ORDER BY scope, system",
-        )?
+        .prepare(&format!(
+            "SELECT scope, system, format, delete_originals, {discs} FROM storage_policy
+             WHERE system <> '' ORDER BY scope, system"
+        ))?
         .query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, Option<String>>(2)?,
                 r.get::<_, Option<bool>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<bool>>(5)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (scope, system, format, delete_originals) in rows {
+    for (scope, system, format, delete_originals, layout, sbi) in rows {
         let canonical = crate::dats::canonical_dat(c, &system)?;
         if canonical == system {
             continue;
         }
-        let kept: Option<(Option<String>, Option<bool>)> = c
+        type Row = (Option<String>, Option<bool>, Option<String>, Option<bool>);
+        let kept: Option<Row> = c
             .query_row(
-                "SELECT format, delete_originals FROM storage_policy WHERE scope = ?1 AND system = ?2",
+                &format!(
+                    "SELECT format, delete_originals, {discs} FROM storage_policy
+                     WHERE scope = ?1 AND system = ?2"
+                ),
                 params![scope, canonical],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
         match kept {
@@ -88,7 +109,7 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
                     params![scope, system, canonical],
                 )?;
             }
-            Some((kept_format, kept_delete)) => {
+            Some((kept_format, kept_delete, kept_layout, kept_sbi)) => {
                 let caution = |d: Option<bool>| match d {
                     Some(false) => 0,
                     None => 1,
@@ -103,6 +124,12 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
                     "UPDATE storage_policy SET format = ?3, delete_originals = ?4 WHERE scope = ?1 AND system = ?2",
                     params![scope, canonical, kept_format.or(format), delete],
                 )?;
+                if laid {
+                    c.execute(
+                        "UPDATE storage_policy SET layout = ?3, sbi = ?4 WHERE scope = ?1 AND system = ?2",
+                        params![scope, canonical, kept_layout.or(layout), kept_sbi.or(sbi)],
+                    )?;
+                }
                 c.execute(
                     "DELETE FROM storage_policy WHERE scope = ?1 AND system = ?2",
                     params![scope, system],
@@ -114,16 +141,27 @@ pub(crate) fn respell_overrides(c: &Connection) -> Result<()> {
 }
 
 fn check(policy: &StoragePolicy) -> Result<()> {
-    // How a play library lays out a disc system's games is still to come (#100).
     let play = &policy.play_libraries;
-    let folder = Some(StorageFormat::LooseFolder);
-    if play.format == StorageFormat::LooseFolder
-        || play.systems.values().any(|s| s.format == folder)
+    // A source set holds each game as the DAT lists it, so only a disc system's play libraries lay out its discs.
+    let sources = &policy.source_sets;
+    if sources.layout != DiscLayout::default()
+        || sources
+            .systems
+            .values()
+            .any(|s| s.layout.is_some() || s.sbi.is_some())
     {
         return Err(Error::Refused(
-            "play libraries can't store games as loose folders yet: choose TorrentZip or loose"
-                .into(),
+            "source sets have no disc layout and no SBI files: set them for play libraries".into(),
         ));
+    }
+    if let Some((system, _)) = play
+        .systems
+        .iter()
+        .find(|(system, s)| (s.layout.is_some() || s.sbi.is_some()) && !is_disc_system(system))
+    {
+        return Err(Error::Refused(format!(
+            "{system} is not a disc system, so its play libraries have no disc layout and no SBI files"
+        )));
     }
     // A CHD is only ever a play library's copy of a disc: a source set holds the DAT's exact bytes (ADR 0013), and a
     // system that is no disc system has no disc to store as one.
@@ -163,7 +201,7 @@ fn check(policy: &StoragePolicy) -> Result<()> {
                     "{system} is not a system: name its DAT as <provider>/<name>"
                 )));
             }
-            if own.format.is_none() && own.delete_originals.is_none() {
+            if own.is_empty() {
                 return Err(Error::Refused(format!(
                     "{system} overrides nothing; remove it to follow the default"
                 )));
@@ -194,12 +232,14 @@ impl Store {
             for scope in SCOPES {
                 let own = policy.scope(scope);
                 tx.execute(
-                    "INSERT INTO storage_policy (scope, system, format, delete_originals, updated_by, updated_at)
-                     VALUES (?1, '', ?2, ?3, ?4, ?5)",
+                    "INSERT INTO storage_policy (scope, system, format, delete_originals, layout, updated_by,
+                                                 updated_at)
+                     VALUES (?1, '', ?2, ?3, ?4, ?5, ?6)",
                     params![
                         scope.as_str(),
                         own.format.as_str(),
                         own.delete_originals,
+                        (scope == StorageScope::PlayLibraries).then(|| own.layout.as_str()),
                         actor,
                         at
                     ],
@@ -214,14 +254,16 @@ impl Store {
                     }
                     let system = &canonical;
                     tx.execute(
-                        "INSERT INTO storage_policy (scope, system, format, delete_originals, updated_by,
-                                                     updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        "INSERT INTO storage_policy (scope, system, format, delete_originals, layout, sbi,
+                                                     updated_by, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                         params![
                             scope.as_str(),
                             system,
                             s.format.map(StorageFormat::as_str),
                             s.delete_originals,
+                            s.layout.map(DiscLayout::as_str),
+                            s.sbi,
                             actor,
                             at
                         ],
@@ -236,6 +278,7 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    use super::policy as policy_of;
     use super::*;
 
     #[test]
@@ -246,6 +289,7 @@ mod tests {
         let own = |format, delete_originals| SystemStorage {
             format,
             delete_originals,
+            ..Default::default()
         };
         let systems = &mut policy.source_sets.systems;
         systems.insert("redump/PSX".into(), own(None, Some(false)));
@@ -277,5 +321,53 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn a_disc_systems_play_libraries_keep_their_layout_and_sbi_choice_and_store_loose_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path()).unwrap();
+        let psx = "Redump/Sony - PlayStation";
+        let mut policy = StoragePolicy::default();
+        policy.play_libraries.layout = DiscLayout::Flat;
+        policy.play_libraries.systems.insert(
+            psx.into(),
+            SystemStorage {
+                format: Some(StorageFormat::LooseFolder),
+                layout: Some(DiscLayout::EsDe),
+                sbi: Some(true),
+                ..SystemStorage::default()
+            },
+        );
+        assert_eq!(
+            store.set_storage_policy(&policy, "Operator").unwrap(),
+            policy
+        );
+        let storage = store
+            .read(|c| policy_of(c, StorageScope::PlayLibraries, psx))
+            .unwrap();
+        assert_eq!(
+            (storage.format, storage.layout, storage.sbi),
+            (StorageFormat::LooseFolder, Some(DiscLayout::EsDe), true)
+        );
+
+        let mut on_sources = StoragePolicy::default();
+        on_sources.source_sets.systems.insert(
+            psx.into(),
+            SystemStorage {
+                sbi: Some(true),
+                ..SystemStorage::default()
+            },
+        );
+        assert!(store.set_storage_policy(&on_sources, "Operator").is_err());
+        let mut no_discs = StoragePolicy::default();
+        no_discs.play_libraries.systems.insert(
+            "No-Intro/Atari".into(),
+            SystemStorage {
+                layout: Some(DiscLayout::Flat),
+                ..SystemStorage::default()
+            },
+        );
+        assert!(store.set_storage_policy(&no_discs, "Operator").is_err());
     }
 }

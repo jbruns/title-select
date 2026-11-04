@@ -13,15 +13,16 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{
-    BuildDetail, BuildItem, BuildSummary, BuiltFile, ExpectedRom, FileStat, IncompleteReason,
-    ItemKind, ItemState, Marker, PlanItem, PlanRemoval, PlanSource, RemovalKind, STAGING,
+    BuildDetail, BuildItem, BuildSummary, BuiltFile, ExpectedRom, FileStat, GeneratedFile,
+    GeneratedKind, IncompleteReason, ItemKind, ItemState, Marker, PlanItem, PlanRemoval,
+    PlanSource, RemovalKind, STAGING,
 };
 use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::storage::chd_of;
@@ -33,7 +34,7 @@ use title_select_engine::build::{
 use title_select_engine::chd::{self, Chdman};
 
 use super::checks::Seen;
-use super::folder_dir::{FolderDir, Identity, file_stat};
+use super::folder_dir::{FolderDir, Identity, file_stat, parent_made, parent_of, remove_emptied};
 use super::folders::{
     MARKER_NEW, MarkerState, build_by_id, builds_where, check_marker, folder_by_id,
     open_writable_folder, read_marker, store_id, write_marker,
@@ -469,6 +470,9 @@ fn stage(
     if item.chd {
         return stage_chd(item, seq, file, staged, set_fd, chd, built_at);
     }
+    if let Some(generated) = &item.generated {
+        return stage_generated(generated, file, staged, chd.store, built_at);
+    }
     if let Some(addition) = &item.addition {
         // An Addition is read from its Additions Set, through a descriptor on the file published there, while
         // it is still that file: copied whole when the play library stores it in the format its Additions Set does,
@@ -607,6 +611,64 @@ fn stage(
         chd_sha1: None,
         chd_raw_sha1: None,
     })
+}
+
+/// Writes `generated`, a file no ROM is, to `file`, new in the staging directory at `staged`: an `.m3u` from its
+/// text, or an SBI file from its pack, kept in `store`. It must be the file the plan was made with.
+fn stage_generated(
+    generated: &GeneratedFile,
+    file: &mut File,
+    staged: &Path,
+    store: &Store,
+    built_at: SystemTime,
+) -> std::result::Result<Staged, Failure> {
+    let bytes = match (
+        generated.kind,
+        &generated.text,
+        &generated.pack,
+        &generated.member,
+    ) {
+        (GeneratedKind::M3u, Some(text), ..) => text.clone().into_bytes(),
+        (GeneratedKind::Sbi, _, Some(pack), Some(member)) => store
+            .sbi_member(pack, member, &generated.sha256)
+            .map_err(|e| Failure::Item(e.to_string()))?,
+        _ => {
+            return Err(Failure::Item(
+                "the plan does not say what the file holds".into(),
+            ));
+        }
+    };
+    let at = |e: io::Error| Failure::Folder(format!("{}: {e}", staged.display()));
+    file.write_all(&bytes).map_err(at)?;
+    file.set_modified(built_at)
+        .and_then(|()| file.sync_all())
+        .map_err(at)?;
+    let (sha256, size) = sha256_of(file).map_err(at)?;
+    if sha256 != generated.sha256 || size != generated.size {
+        return Err(Failure::Item(
+            "it is not the file the plan was made with".into(),
+        ));
+    }
+    Ok(Staged {
+        sha256,
+        size,
+        mtime_ns: staged_mtime(file)?,
+        chd_sha1: None,
+        chd_raw_sha1: None,
+    })
+}
+
+/// Makes the disc layout folders `target` goes in that are missing, so that it can be renamed into place.
+fn make_parents(dir: &FolderDir, target: &str) -> io::Result<()> {
+    parent_made(dir, target).map(|_| ())
+}
+
+/// Syncs the disc layout folder `target` was renamed into, if it is in one.
+fn sync_parent(dir: &FolderDir, target: &str) -> io::Result<()> {
+    match parent_of(dir, target)? {
+        (Some(parent), _) => parent.sync(),
+        (None, _) => Ok(()),
+    }
 }
 
 /// The modification time of the staged file `file`, as written and synced.
@@ -1099,8 +1161,10 @@ fn finish_unit(
     if &hash != sha256 || len as i64 != size {
         return Err("its staged file is not the one that was checked".into());
     }
+    make_parents(dir, &p.target).map_err(|e| e.to_string())?;
     staging
         .rename_new(&name, dir, &p.target)
+        .and_then(|()| sync_parent(dir, &p.target))
         .map_err(|e| e.to_string())
 }
 
@@ -1506,8 +1570,19 @@ impl Store {
         // between two units, or before a unit's first rename.
         let mut units: Vec<Vec<&Work>> = Vec::new();
         let mut releases: HashMap<String, usize> = HashMap::new();
+        let mut files_of: HashMap<&str, usize> = HashMap::new();
         for w in work {
-            if w.item.chd || w.item.converts.is_some() {
+            *files_of.entry(w.item.game.as_str()).or_default() += 1;
+        }
+        for w in work {
+            // A game stored as several files, a disc layout folder's files, and the files generated beside them go in
+            // place with the rest of their release too.
+            if w.item.chd
+                || w.item.converts.is_some()
+                || w.item.target.contains('/')
+                || w.item.generated.is_some()
+                || files_of[w.item.game.as_str()] > 1
+            {
                 let release = title_select_api::storage::release_of(&w.item.game);
                 if let Some(&u) = releases.get(&release) {
                     units[u].push(w);
@@ -1801,6 +1876,7 @@ impl Store {
                                 r.staged_path.display()
                             )),
                         })
+                        .and_then(|()| make_parents(&dir, target).map_err(|e| e.to_string()))
                         .and_then(|()| {
                             staging
                                 .rename_new(name, &dir, target)
@@ -1823,6 +1899,7 @@ impl Store {
                     staging
                         .sync()
                         .and_then(|()| dir.sync())
+                        .and_then(|()| sync_parent(&dir, target))
                         .map_err(folder_io)?;
                     self.fault_point(Fault::AfterPublish(w.seq));
                     let found = dir.stat(target).map_err(folder_io)?;
@@ -1923,6 +2000,21 @@ impl Store {
             }
             remove(*seq, removal, &mut retention)?;
             tick(&mut done);
+        }
+        // A disc layout folder whose every file was kept aside goes too.
+        for target in content
+            .removals
+            .iter()
+            .map(|r| &r.target)
+            .chain(
+                content
+                    .items
+                    .iter()
+                    .filter_map(|i| i.keep.as_ref().map(|k| &k.name)),
+            )
+            .chain(conversions.iter().map(|(_, _, k)| &k.name))
+        {
+            remove_emptied(&dir, target);
         }
         drop(retention);
         if cancelled {

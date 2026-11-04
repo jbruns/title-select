@@ -443,6 +443,7 @@ mod tests {
             chd: false,
             converts: None,
             addition: None,
+            generated: None,
         }
     }
 
