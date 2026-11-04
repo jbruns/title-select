@@ -802,7 +802,15 @@ fn a_new_file_kept_aside_never_takes_the_kept_name_of_an_original_kept_after_it(
     // Adventure's ROMs are in old.zip; Pong's is in a file named as Adventure's, so both originals are kept aside
     // once their new files are in place, and the name the second one is kept as is Adventure's new file's name.
     let publish_of = |target: &'static str| move |s: &RepairStep| matches!(s, RepairStep::Publish { target: t, .. } if t == target);
-    for stop in [None, Some("moved"), Some("done")] {
+    // The name differs from Adventure's new file's only in case, which a case-insensitive file system ignores.
+    for (original, stop) in [
+        ("Adventure (USA).zip", None),
+        ("Adventure (USA).zip", Some("moved")),
+        ("Adventure (USA).zip", Some("done")),
+        ("adventure (usa).zip", None),
+        ("adventure (usa).zip", Some("moved")),
+    ] {
+        let incoming = format!("incoming/{original}");
         let env = Env::new();
         let members: Vec<(&str, &[u8])> = adventure
             .iter()
@@ -810,10 +818,7 @@ fn a_new_file_kept_aside_never_takes_the_kept_name_of_an_original_kept_after_it(
             .collect();
         write_zip(&env.set().join("old.zip"), &members);
         std::fs::create_dir(env.set().join("incoming")).unwrap();
-        write_zip(
-            &env.set().join("incoming/Adventure (USA).zip"),
-            &[("Pong (USA).a26", b"pong")],
-        );
+        write_zip(&env.set().join(&incoming), &[("Pong (USA).a26", b"pong")]);
         env.audit(AuditEvidence::Full);
         let plan = env.plan();
         let fault = match stop {
@@ -858,10 +863,7 @@ fn a_new_file_kept_aside_never_takes_the_kept_name_of_an_original_kept_after_it(
             .unwrap();
         assert!(pong.done, "{stop:?}: {pong:?}");
         let listing = env.listing();
-        assert!(
-            !listing.contains(&"incoming/Adventure (USA).zip".to_string()),
-            "{stop:?}: {listing:?}"
-        );
+        assert!(!listing.contains(&incoming), "{stop:?}: {listing:?}");
         assert!(
             listing.contains(&"old.zip".to_string()),
             "{stop:?}: {listing:?}"

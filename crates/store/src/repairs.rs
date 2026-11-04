@@ -488,6 +488,17 @@ struct StepRow {
     discard_slot: Option<String>,
 }
 
+/// The key two file names are the same file under on any file system, including a case-insensitive, normalizing one:
+/// lowercased, as a stand-in for case folding, and in NFC.
+fn name_key(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    name.nfd()
+        .collect::<String>()
+        .to_lowercase()
+        .nfc()
+        .collect()
+}
+
 /// One Build step of an [extraction](Store::run_extraction): the ROM it writes loose to `target`, read from
 /// `member` of the ZIP every step of it reads.
 struct Extracting {
@@ -2943,10 +2954,13 @@ impl Store {
                 };
                 keep.into_iter().chain(s.aside_name)
             })
+            .map(|name| name_key(&name))
             .collect();
         let kept = (1..)
             .map(|n| kept_name(base_name(target), n))
-            .find(|name| !reserved.contains(name) && matches!(generation.stat(name), Ok(None)))
+            .find(|name| {
+                !reserved.contains(&name_key(name)) && matches!(generation.stat(name), Ok(None))
+            })
             .expect("a free name");
         let (dev, ino) = staged.to_sql();
         self.write(|tx| {
@@ -3519,4 +3533,16 @@ pub(super) fn open_repair(
         },
     )
     .optional()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::name_key;
+
+    #[test]
+    fn names_a_case_insensitive_normalizing_file_system_takes_for_one_share_a_key() {
+        assert_eq!(name_key("Alpha.zip.kept"), name_key("alpha.ZIP.kept"));
+        assert_eq!(name_key("Pok\u{e9}mon.zip"), name_key("POKE\u{301}MON.zip"));
+        assert_ne!(name_key("Alpha.zip.kept"), name_key("Beta.zip.kept"));
+    }
 }
