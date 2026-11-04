@@ -29,7 +29,7 @@ use title_select_api::selection::{
 };
 
 pub use compare::compare;
-pub use conformance::Conformance;
+pub use conformance::{Component, Conformance, Verdict, failure_category};
 pub use isolated::{DEFAULT_SHADOW_MEMORY, SHADOW_SUBCOMMAND, ShadowCommand, serve_shadow};
 pub use title_select_api::selection::SelectionEngine;
 pub use trace::stable_trace;

@@ -361,7 +361,7 @@ fn the_engines_conform_on_synthetic_dats() {
         .sum();
     let units: usize = results.iter().map(|(_, c)| c.units).sum();
     let differing: usize = results.iter().map(|(_, c)| c.differing.len()).sum();
-    let order_sensitive: usize = results.iter().map(|(_, c)| c.order_sensitive.len()).sum();
+    let order_sensitive: usize = results.iter().map(|(_, c)| c.order_sensitive().len()).sum();
     let failed_alike = results
         .iter()
         .filter(|(_, c)| c.failures.iter().all(Option::is_some))
@@ -376,7 +376,13 @@ fn the_engines_conform_on_synthetic_dats() {
         if c.conforms() {
             continue;
         }
-        writeln!(failures, "== {name}: failures {:?}", c.failures).unwrap();
+        writeln!(
+            failures,
+            "== {name}: {:?}, failures {:?}",
+            c.verdict(),
+            c.failures
+        )
+        .unwrap();
         for unit in c.unexplained().into_iter().take(20) {
             let [a, b] = &c.differing[unit];
             writeln!(failures, "unit {unit}:\n- {a:?}\n+ {b:?}").unwrap();

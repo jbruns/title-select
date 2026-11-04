@@ -430,6 +430,28 @@ fn the_built_in_engine_selects_alike_and_conformance_compares_the_engines_on_eac
     assert_eq!(report[0]["groups"], 1);
     assert_eq!(report[0]["differences"], serde_json::json!([]));
 
+    std::fs::write(
+        &profile,
+        r#"{"overrides": {"exclude": ["/\\N{LATIN SMALL LETTER A}"], "include": []}}"#,
+    )
+    .unwrap();
+    let out = title_select()
+        .args(["conformance", "--json", "--profile"])
+        .arg(&profile)
+        .arg(&dat)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report[0]["verdict"], "unsupported");
+    assert!(
+        report[0]["builtin_error"]
+            .as_str()
+            .unwrap()
+            .contains("LATIN SMALL LETTER A"),
+        "{report}"
+    );
+
     let out = title_select()
         .arg("conformance")
         .arg(f.dat_dir.path().join("missing.dat"))

@@ -76,15 +76,18 @@ fn check(dat: &Path, profile: &SelectionProfile, totals: &std::sync::Mutex<Total
         totals.groups += conformance.comparison.as_ref().map_or(0, |c| c.groups);
         totals.units += conformance.units;
         totals.differing += conformance.differing.len();
-        totals.order_sensitive += conformance.order_sensitive.len();
+        totals.order_sensitive += conformance.order_sensitive().len();
     }
     let mut out = Vec::new();
-    if let [Some(_), None] | [None, Some(_)] = &conformance.failures {
-        out.push(format!(
-            "bundled: {:?}; built-in: {:?}",
-            conformance.failures[0], conformance.failures[1]
-        ));
+    if conformance.conforms() {
+        return out;
     }
+    out.push(format!(
+        "{:?}; bundled: {:?}; built-in: {:?}",
+        conformance.verdict(),
+        conformance.failures[0],
+        conformance.failures[1]
+    ));
     for unit in conformance.unexplained() {
         let [a, b] = &conformance.differing[unit];
         out.push(format!("unit {unit}:"));
