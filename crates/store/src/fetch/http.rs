@@ -151,7 +151,10 @@ impl Default for Http {
 
 impl Http {
     pub fn new() -> Http {
+        // Nothing comes from the environment: a proxy named there would carry requests past `Allowed`. The rest of
+        // ureq's defaults read none of it, and its root certificates are built in.
         let config = ureq::Agent::config_builder()
+            .proxy(None)
             .max_redirects(0)
             .http_status_as_error(false)
             .user_agent(USER_AGENT)
