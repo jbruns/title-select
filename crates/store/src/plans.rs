@@ -1262,6 +1262,10 @@ fn plan_items(
         .collect::<Vec<_>>();
     let mut sources = Sources::new(config, inputs);
     let mut items = Vec::new();
+    // The additions come after every selected game, one item each: they are set apart below, whatever became of
+    // them, so that an addition only ever blocks itself.
+    let officials = wanted.iter().filter(|w| w.2.is_none()).count();
+    let wanted_len = wanted.len();
     for (group, game, addition, file) in wanted {
         let (target, loose, chd, part) = match (addition, file) {
             (Some(a), _) => {
@@ -1533,10 +1537,12 @@ fn plan_items(
         }
         items.push(item);
     }
+    debug_assert_eq!(items.len(), wanted_len, "one item for each file wanted");
+    let additions = items.split_off(officials);
     let parts_of = |items: &[PlanItem], games: &[&str]| -> Vec<(ItemKind, String)> {
         items
             .iter()
-            .filter(|i| i.addition.is_none() && games.contains(&i.game.as_str()))
+            .filter(|i| games.contains(&i.game.as_str()))
             .map(|i| (i.kind, i.group.clone()))
             .collect()
     };
@@ -1613,7 +1619,7 @@ fn plan_items(
     for (games, item) in generated {
         let at = items
             .iter()
-            .rposition(|i| i.addition.is_none() && games.contains(&i.game.as_str()))
+            .rposition(|i| games.contains(&i.game.as_str()))
             .map_or(items.len(), |i| i + 1);
         let at = items[at..]
             .iter()
@@ -1622,6 +1628,7 @@ fn plan_items(
         items.insert(at, item);
     }
     whole_releases(&mut items);
+    items.extend(additions);
     items
 }
 
@@ -1635,10 +1642,7 @@ fn whole_releases(items: &mut [PlanItem]) {
         )
     };
     let mut stopped: HashMap<String, String> = HashMap::new();
-    for item in items
-        .iter()
-        .filter(|i| i.addition.is_none() && !builds(i.kind))
-    {
+    for item in items.iter().filter(|i| !builds(i.kind)) {
         stopped
             .entry(release_of(&item.game))
             .or_insert_with(|| match &item.reason {
@@ -1648,7 +1652,7 @@ fn whole_releases(items: &mut [PlanItem]) {
     }
     for item in items
         .iter_mut()
-        .filter(|i| i.addition.is_none() && i.kind != ItemKind::Unchanged && builds(i.kind))
+        .filter(|i| i.kind != ItemKind::Unchanged && builds(i.kind))
     {
         if let Some(why) = stopped.get(&release_of(&item.game)) {
             item.kind = ItemKind::Blocked;

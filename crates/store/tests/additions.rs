@@ -835,6 +835,43 @@ fn an_addition_named_as_a_selected_game_blocks_only_itself() {
 }
 
 #[test]
+fn an_addition_named_exactly_as_a_selected_game_blocks_only_itself() {
+    let env = Env::new();
+    env.audit();
+    env.ingest("hack.a26", |p| write_file(p, b"hack"));
+    env.approve_ingest(&env.plan_ingest("hack.a26", new("Pong (USA)")));
+    env.opt_in(true);
+    let folder = env.folder();
+    let selection = env.record(&pong(&env.sha256));
+    let plan = env
+        .store
+        .plan_build(&env.config, folder.id, selection)
+        .unwrap();
+    let mut kinds: Vec<(ItemKind, Option<String>)> = plan
+        .content
+        .items
+        .iter()
+        .filter(|i| i.target == "Pong (USA).zip")
+        .map(|i| (i.kind, i.reason.clone()))
+        .collect();
+    kinds.sort_by_key(|(k, _)| *k as u8);
+    assert_eq!(kinds.len(), 2, "{:?}", plan.content.items);
+    assert!(
+        kinds
+            .iter()
+            .any(|(k, why)| *k == ItemKind::Repack && why.is_none()),
+        "the game is built as ever: {kinds:?}"
+    );
+    assert!(
+        kinds.iter().any(|(k, why)| *k == ItemKind::Blocked
+            && why
+                .as_deref()
+                .is_some_and(|w| w.contains("rename the addition"))),
+        "{kinds:?}"
+    );
+}
+
+#[test]
 fn a_check_of_an_additions_set_reports_drift_and_changes_nothing() {
     let env = Env::new();
     env.audit();
