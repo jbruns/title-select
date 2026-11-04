@@ -114,6 +114,12 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
              stay recorded, and plans for the folder are blocked, until it is finished when the service next starts"
         );
     }
+    for (id, reason) in store.recover_library_folder_moves(&config)? {
+        eprintln!(
+            "title-select: move {id} of a play library folder stopped and was not finished: {reason}. The folder \
+             stays held until it is settled when the service next starts"
+        );
+    }
     for (id, reason) in store.recover_ingest_moves(&config)? {
         match id {
             0 => eprintln!("title-select: after the last stop: {reason}"),

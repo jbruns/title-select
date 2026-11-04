@@ -23,6 +23,7 @@ use title_select_api::build::{
     BuildDetail, BuildItem, BuildSummary, BuiltFile, ExpectedRom, FileStat, IncompleteReason,
     ItemKind, ItemState, Marker, PlanItem, PlanRemoval, PlanSource, RemovalKind, STAGING,
 };
+use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{
@@ -839,6 +840,15 @@ impl Store {
         let job = self.job(id)?;
         if job.state == JobState::Succeeded {
             self.retain_blobs()?;
+            // A build that removed every built file ends with the folder unregistered, unless something came to
+            // hold it meanwhile; then it stays registered, empty, and you unregister it once nothing does.
+            let content = self.plan(plan_id)?.content;
+            if content.choices.remove_all {
+                match self.unregister(config, RegistrationKind::LibraryFolder, content.folder) {
+                    Ok(_) | Err(Error::Conflict(_)) => {}
+                    Err(err) => return Err(err),
+                }
+            }
         }
         Ok(job)
     }

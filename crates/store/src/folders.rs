@@ -652,39 +652,31 @@ impl Store {
             .map_err(|e| Error::Refused(e.to_string()))
     }
 
-    /// Registers a Library Folder: `add.path` (or the path its template proposes) in the writable Root `add.root`,
-    /// bound to a Source Set and a Selection Profile. The folder is created if absent and must be empty if present;
-    /// its marker is written before the registration commits.
-    pub fn add_library_folder(
+    /// Checks that `rel` in the Root `root_name` may be a Library Folder: a writable Root that is not an Ingest
+    /// Folder, a relative path, not a registered Library Folder's and overlapping no folder Title Select reads or
+    /// writes. Returns it normalized.
+    pub(super) fn check_library_path(
         &self,
         config: &Config,
-        add: &AddLibraryFolder,
-    ) -> Result<LibraryFolder> {
-        let rel = match (&add.path, &add.template) {
-            (Some(_), Some(_)) => {
-                return Err(Error::Refused("give a path or a template, not both".into()));
-            }
-            (Some(path), None) => path.clone(),
-            (None, template) => {
-                self.propose_library_folder_path(config, &add.source_set, template.as_deref())?
-            }
-        };
+        root_name: &str,
+        rel: &str,
+    ) -> Result<String> {
         let root = config
-            .root(&add.root)
-            .ok_or_else(|| Error::Refused(format!("no root named {} is configured", add.root)))?;
+            .root(root_name)
+            .ok_or_else(|| Error::Refused(format!("no root named {} is configured", root_name)))?;
         if !root.writable {
             return Err(Error::Refused(format!(
                 "root {} is read-only; a library folder needs a root with writable = true",
-                add.root
+                root_name
             )));
         }
         if root.is_ingest() {
             return Err(Error::Refused(format!(
                 "root {} is an ingest folder; a library folder needs another writable root",
-                add.root
+                root_name
             )));
         }
-        let rel = relative_path(&rel)
+        let rel = relative_path(rel)
             .map_err(|e| Error::Refused(format!("{rel}: a library folder's path {e}")))?;
         if !Path::new(&rel)
             .components()
@@ -695,22 +687,20 @@ impl Store {
             )));
         }
         let canonical_root = root.path.canonicalize().map_err(|e| {
-            Error::Refused(format!("root {} ({}): {e}", add.root, root.path.display()))
+            Error::Refused(format!("root {} ({}): {e}", root_name, root.path.display()))
         })?;
-        let (set, profile, others) = self.read(|c| {
-            let set = set_by_name(c, &add.source_set)?;
-            let profile = active_profile_id(c, &add.profile)?;
+        let others = self.read(|c| {
             let clash: Option<i64> = c
                 .query_row(
                     "SELECT id FROM library_folders WHERE root = ?1 AND path = ?2 AND unregistered_at IS NULL",
-                    params![add.root, rel],
+                    params![root_name, rel],
                     |r| r.get(0),
                 )
                 .optional()?;
             if let Some(clash) = clash {
                 return Err(Error::Refused(format!(
                     "library folder {clash} already uses {rel} in root {}",
-                    add.root
+                    root_name
                 )));
             }
             let mut stmt = c.prepare(
@@ -727,7 +717,7 @@ impl Store {
                     ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok((set, profile, others))
+            Ok(others)
         })?;
         // The folder's own path need not exist yet; the folder it would be is checked against every folder Title
         // Select reads or writes.
@@ -752,11 +742,39 @@ impl Store {
             if overlaps(&would_be, &other) {
                 return Err(Error::Refused(format!(
                     "{rel} in root {} would overlap {what} at {}",
-                    add.root,
+                    root_name,
                     other.display()
                 )));
             }
         }
+        Ok(rel)
+    }
+
+    /// Registers a Library Folder: `add.path` (or the path its template proposes) in the writable Root `add.root`,
+    /// bound to a Source Set and a Selection Profile. The folder is created if absent and must be empty if present;
+    /// its marker is written before the registration commits.
+    pub fn add_library_folder(
+        &self,
+        config: &Config,
+        add: &AddLibraryFolder,
+    ) -> Result<LibraryFolder> {
+        let rel = match (&add.path, &add.template) {
+            (Some(_), Some(_)) => {
+                return Err(Error::Refused("give a path or a template, not both".into()));
+            }
+            (Some(path), None) => path.clone(),
+            (None, template) => {
+                self.propose_library_folder_path(config, &add.source_set, template.as_deref())?
+            }
+        };
+        let rel = self.check_library_path(config, &add.root, &rel)?;
+        let root = config.root(&add.root).expect("a checked root");
+        let (set, profile) = self.read(|c| {
+            Ok((
+                set_by_name(c, &add.source_set)?,
+                active_profile_id(c, &add.profile)?,
+            ))
+        })?;
         let folder = create_or_check_empty(&root.path, &rel)?;
         self.write(|tx| {
             let store = store_id(tx)?;

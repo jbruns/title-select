@@ -260,6 +260,10 @@ pub struct RepairPlanContent {
     /// approve.
     #[serde(default, skip_serializing_if = "crate::storage::is_default")]
     pub storage: Storage,
+    /// Sets the whole Source Set aside: every file is kept aside where it is, and once each is, the Source Set is
+    /// unregistered.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub set_aside: bool,
 }
 
 /// What a repair of one item did.

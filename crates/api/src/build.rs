@@ -171,6 +171,9 @@ pub struct PlanChoices {
     /// that the game is built there.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keep_aside: Vec<String>,
+    /// Build nothing: keep aside every built file in the folder's retention area, then unregister the folder.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remove_all: bool,
 }
 
 /// The request to approve a plan: the digest of the plan you reviewed.

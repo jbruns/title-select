@@ -20,11 +20,13 @@ use std::io;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use rustix::fs::FileType;
+use sha2::Digest;
 use title_select_api::additions::{
     Addition, AdditionSource, AdditionState, AdditionTarget, AdditionsCheck, AdditionsEntry,
     AdditionsFinding, AdditionsLeftover, AdditionsMarker, AdditionsSet, EditAddition, NewAddition,
 };
 use title_select_api::build::{ExpectedRom, FileStat, MARKER, invalid_name};
+use title_select_api::lifecycle::{AdditionsSetAside, RegistrationKind};
 use title_select_api::storage::{Storage, StorageScope, target_of};
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::build::{
@@ -89,7 +91,7 @@ fn set_from_row(r: &Row) -> rusqlite::Result<SetRow> {
     })
 }
 
-fn set_by_id(c: &Connection, id: i64) -> Result<SetRow> {
+pub(crate) fn set_by_id(c: &Connection, id: i64) -> Result<SetRow> {
     c.query_row(&format!("{SET_QUERY} WHERE s.id = ?1"), [id], set_from_row)
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no additions set {id}")))
@@ -445,11 +447,19 @@ pub(crate) fn ensure_set(tx: &Transaction, dat: i64) -> Result<i64> {
         "INSERT OR IGNORE INTO additions_sets (dat_id, root, path, created_at) VALUES (?1, ?2, ?3, ?4)",
         params![dat, ADDITIONS_ROOT, name, now()],
     )?;
-    Ok(tx.query_row(
-        "SELECT id FROM additions_sets WHERE dat_id = ?1 AND unregistered_at IS NULL",
+    let (id, aside): (i64, bool) = tx.query_row(
+        "SELECT id, setting_aside_at IS NOT NULL FROM additions_sets WHERE dat_id = ?1 AND unregistered_at IS NULL",
         [dat],
-        |r| r.get(0),
-    )?)
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if aside {
+        return Err(Error::Conflict(
+            "the additions set of this system is being set aside, so nothing can be added to it; add it once the \
+             additions set is unregistered"
+                .into(),
+        ));
+    }
+    Ok(id)
 }
 
 /// Records the intent to add `new`, which came from `origin`, reached by `link`, as approved by `actor`, with `rom`,
@@ -862,6 +872,112 @@ fn holds_exactly(file: &std::fs::File, rom: &ExpectedRom, loose: bool) -> bool {
         && matches!(sole_payload(file), Ok((name, sums)) if name == rom.name && exactly(rom, &sums))
 }
 
+/// Retires addition `id`, as [`Store::retire_addition`] does, leaving its Additions Job to be queued.
+fn retire_in(tx: &Transaction, id: i64) -> Result<()> {
+    let row = addition_by_id(tx, id)?;
+    let Some(p) = row.published.as_ref().filter(|_| row.raw_state == "active") else {
+        return Err(Error::Refused(format!(
+            "addition {id} is {}; only an added addition can be retired",
+            row.addition.state.as_str()
+        )));
+    };
+    if let Some(why) = build_reading(tx, row.set_id)? {
+        return Err(Error::Conflict(why));
+    }
+    let (dev, ino) = p.identity.to_sql();
+    tx.execute(
+        "INSERT INTO additions_kept (additions_set_id, addition_id, generation, name, kept_name, reason,
+                                     sha256, size, mtime_ns, dev, ino, state, kept_at)
+         VALUES (?1, ?2, ?2, ?3, ?3, 'retired', ?4, ?5, ?6, ?7, ?8, 'keeping', ?9)",
+        params![
+            row.set_id,
+            id,
+            row.addition.file_name,
+            p.sha256,
+            p.file.size as i64,
+            p.file.mtime_ns.to_string(),
+            dev,
+            ino,
+            now()
+        ],
+    )?;
+    tx.execute(
+        "UPDATE additions SET state = 'retiring', error = NULL, requests = requests + 1 WHERE id = ?1",
+        [id],
+    )?;
+    Ok(())
+}
+
+/// The plan to set Additions Set `set` aside: the additions it retires. Refused while anything holds the set.
+fn set_aside_of(c: &Connection, set: i64) -> Result<AdditionsSetAside> {
+    let row = set_by_id(c, set)?;
+    let holds = crate::lifecycle::holds_of(c, RegistrationKind::AdditionsSet, set)?;
+    if !holds.is_empty() {
+        return Err(Error::Conflict(format!(
+            "the additions set of {} can't be set aside yet: {}",
+            row.system,
+            holds.join("; ")
+        )));
+    }
+    let aside: bool = c.query_row(
+        "SELECT setting_aside_at IS NOT NULL FROM additions_sets WHERE id = ?1",
+        [set],
+        |r| r.get(0),
+    )?;
+    if aside {
+        return Err(Error::Conflict(format!(
+            "the additions set of {} is already being set aside",
+            row.system
+        )));
+    }
+    let additions: Vec<String> = {
+        let mut stmt = c.prepare(
+            "SELECT file_name FROM additions WHERE set_id = ?1 AND state = 'active' ORDER BY file_name",
+        )?;
+        stmt.query_map([set], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let digest =
+        sha2::Sha256::digest(serde_json::to_vec(&(set, &additions)).expect("a plan serializes"))
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+    Ok(AdditionsSetAside {
+        system: row.system,
+        set,
+        additions,
+        digest,
+    })
+}
+
+/// Unregisters Additions Set `set` once setting it aside is done: nothing holds it any more and no addition in it is
+/// active. Setting it aside stops instead when an addition could not be retired. Returns whether it is now
+/// Unregistered.
+pub(crate) fn settle_set_aside(tx: &Transaction, set: i64) -> Result<bool> {
+    let aside: bool = tx.query_row(
+        "SELECT setting_aside_at IS NOT NULL AND unregistered_at IS NULL FROM additions_sets WHERE id = ?1",
+        [set],
+        |r| r.get(0),
+    )?;
+    if !aside || !crate::lifecycle::holds_of(tx, RegistrationKind::AdditionsSet, set)?.is_empty() {
+        return Ok(false);
+    }
+    let active: i64 = tx.query_row(
+        "SELECT count(*) FROM additions WHERE set_id = ?1 AND state = 'active'",
+        [set],
+        |r| r.get(0),
+    )?;
+    if active > 0 {
+        tx.execute(
+            "UPDATE additions_sets SET setting_aside_at = NULL WHERE id = ?1",
+            [set],
+        )?;
+        return Ok(false);
+    }
+    crate::lifecycle::unregister_in(tx, RegistrationKind::AdditionsSet, set)?;
+    Ok(true)
+}
+
 impl Store {
     /// Every Additions Set, with its additions.
     pub fn additions_sets(&self) -> Result<Vec<AdditionsSet>> {
@@ -936,40 +1052,55 @@ impl Store {
     /// running. Returns it as it is now, retiring.
     pub fn retire_addition(&self, id: i64) -> Result<Addition> {
         self.write(|tx| {
-            let row = addition_by_id(tx, id)?;
-            let Some(p) = row.published.as_ref().filter(|_| row.raw_state == "active") else {
-                return Err(Error::Refused(format!(
-                    "addition {id} is {}; only an added addition can be retired",
-                    row.addition.state.as_str()
-                )));
-            };
-            if let Some(why) = build_reading(tx, row.set_id)? {
-                return Err(Error::Conflict(why));
-            }
-            let (dev, ino) = p.identity.to_sql();
-            tx.execute(
-                "INSERT INTO additions_kept (additions_set_id, addition_id, generation, name, kept_name, reason,
-                                             sha256, size, mtime_ns, dev, ino, state, kept_at)
-                 VALUES (?1, ?2, ?2, ?3, ?3, 'retired', ?4, ?5, ?6, ?7, ?8, 'keeping', ?9)",
-                params![
-                    row.set_id,
-                    id,
-                    row.addition.file_name,
-                    p.sha256,
-                    p.file.size as i64,
-                    p.file.mtime_ns.to_string(),
-                    dev,
-                    ino,
-                    now()
-                ],
-            )?;
-            tx.execute(
-                "UPDATE additions SET state = 'retiring', error = NULL, requests = requests + 1 WHERE id = ?1",
-                [id],
-            )?;
+            retire_in(tx, id)?;
             queue_additions_jobs(tx)?;
             addition_by_id(tx, id).map(|a| a.addition)
         })
+    }
+
+    /// Proposes setting the Additions Set of `system` aside whole: every addition in it is retired, its file moved
+    /// into the set's kept files where it is, and the set is then unregistered. Refused while anything holds it.
+    pub fn plan_additions_set_aside(&self, system: &str) -> Result<AdditionsSetAside> {
+        self.read(|c| set_aside_of(c, set_of_system(c, system)?.id))
+    }
+
+    /// Approves setting the Additions Set of `system` aside, as reviewed with `digest`: retires every addition in it
+    /// and queues the Additions Job that keeps their files, after which the set is unregistered. Nothing can be added
+    /// to it meanwhile. Refused when it changed since you reviewed it, and while anything holds it.
+    pub fn approve_additions_set_aside(
+        &self,
+        config: &Config,
+        system: &str,
+        digest_reviewed: &str,
+    ) -> Result<AdditionsSetAside> {
+        let (plan, now_unregistered) = self.write(|tx| {
+            let set = set_of_system(tx, system)?.id;
+            let plan = set_aside_of(tx, set)?;
+            if plan.digest != digest_reviewed {
+                return Err(Error::Conflict(format!(
+                    "the additions set of {system} changed since you reviewed setting it aside; review it again"
+                )));
+            }
+            tx.execute(
+                "UPDATE additions_sets SET setting_aside_at = ?2 WHERE id = ?1",
+                params![set, now()],
+            )?;
+            let ids: Vec<i64> = {
+                let mut stmt =
+                    tx.prepare("SELECT id FROM additions WHERE set_id = ?1 AND state = 'active' ORDER BY id")?;
+                stmt.query_map([set], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?
+            };
+            for id in &ids {
+                retire_in(tx, *id)?;
+            }
+            queue_additions_jobs(tx)?;
+            Ok((plan, settle_set_aside(tx, set)?))
+        })?;
+        if now_unregistered {
+            self.settle_marker(config, RegistrationKind::AdditionsSet, plan.set)?;
+        }
+        Ok(plan)
     }
 
     /// Restores the retired addition `id`: its Additions Job moves its file back from the Additions Set's kept files,
@@ -982,6 +1113,16 @@ impl Store {
                 return Err(Error::Refused(format!(
                     "addition {id} is {}; only a retired addition can be restored",
                     row.addition.state.as_str()
+                )));
+            }
+            let (aside, gone): (bool, bool) = tx.query_row(
+                "SELECT setting_aside_at IS NOT NULL, unregistered_at IS NOT NULL FROM additions_sets WHERE id = ?1",
+                [row.set_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            if aside || gone {
+                return Err(Error::Refused(format!(
+                    "addition {id}'s additions set is set aside, so it cannot be restored"
                 )));
             }
             let kept: Option<String> = tx
@@ -1426,7 +1567,13 @@ impl Store {
                 }
             }
             queue_additions(tx, Some(&again))?;
-            Ok(())
+            settle_set_aside(tx, set)
+        })
+        .and_then(|unregistered| match unregistered {
+            true => self
+                .settle_marker(config, RegistrationKind::AdditionsSet, set)
+                .map(drop),
+            false => Ok(()),
         })?;
         self.job(id)
     }

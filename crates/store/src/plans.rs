@@ -929,7 +929,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     let mut unresolved = BTreeSet::new();
     let mut untouched = BTreeSet::new();
     for group in &inputs.selection.groups {
-        if !group.unresolved {
+        if !group.unresolved || inputs.choices.remove_all {
             continue;
         }
         if inputs.choices.resolved_only {
@@ -966,7 +966,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     let folder = check_folder(config, inputs, dat, &mut blockers);
 
     let mut items = Vec::new();
-    if let (Some(dat), Some(_)) = (dat, usable_audit) {
+    if let (Some(dat), Some(_), false) = (dat, usable_audit, inputs.choices.remove_all) {
         items = plan_items(config, inputs, dat, folder.as_ref(), &unresolved);
     }
     let removals = match (&folder, dat, usable_audit) {
@@ -1653,6 +1653,29 @@ impl Store {
             };
             insert_plan(tx, &planned, check)
         })
+    }
+
+    /// Plans removing every file built in Library Folder `folder`, keeping each aside in its retention area, after
+    /// which the folder is unregistered. It is planned from the Selection of the folder's current Build.
+    pub fn plan_library_removal(&self, config: &Config, folder: i64) -> Result<Plan> {
+        let selection: Option<i64> = self.read(|c| {
+            folder_by_id(c, folder)?.check_registered()?;
+            Ok(c.query_row(
+                "SELECT b.selection_id FROM library_folders f JOIN builds b ON b.id = f.current_build_id
+                 WHERE f.id = ?1",
+                [folder],
+                |r| r.get(0),
+            )
+            .optional()?)
+        })?;
+        let selection = selection.ok_or_else(|| {
+            Error::Refused(
+                "nothing was built in this play library folder; unregister it instead".into(),
+            )
+        })?;
+        let mut request = PlanBuild::new(selection);
+        request.choices.remove_all = true;
+        self.plan_build_with(config, folder, &request)
     }
 
     pub fn plan(&self, id: i64) -> Result<Plan> {

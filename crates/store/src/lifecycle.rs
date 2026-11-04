@@ -153,6 +153,18 @@ fn source_set_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
 }
 
 fn library_folder_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
+    let mut holds = library_folder_work(c, id)?;
+    holds.extend(strings(
+        c,
+        "SELECT 'its move to ' || to_path || ' is not finished; the service finishes it when it next starts'
+         FROM library_folder_moves WHERE folder_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
+        [id],
+    )?);
+    Ok(holds)
+}
+
+/// What holds Library Folder `id` other than its own move: the work that changes the folder where it is.
+pub(super) fn library_folder_work(c: &Connection, id: i64) -> Result<Vec<String>> {
     let mut holds = active_jobs(c, RegistrationKind::LibraryFolder, id)?;
     holds.extend(strings(
         c,
@@ -173,12 +185,6 @@ fn library_folder_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
         c,
         "SELECT 'its kept file ' || name || ' is being ' || CASE state WHEN 'keeping' THEN 'kept' ELSE 'restored' END
          FROM kept_files WHERE folder_id = ?1 AND state IN ('keeping', 'restoring')",
-        [id],
-    )?);
-    holds.extend(strings(
-        c,
-        "SELECT 'its move to ' || to_path || ' is not finished; the service finishes it when it next starts'
-         FROM library_folder_moves WHERE folder_id = ?1 AND approved_at IS NOT NULL AND finished_at IS NULL",
         [id],
     )?);
     Ok(holds)
@@ -233,7 +239,7 @@ fn ingest_folder_holds(c: &Connection, id: i64) -> Result<Vec<String>> {
     Ok(holds)
 }
 
-fn holds_of(c: &Connection, kind: RegistrationKind, id: i64) -> Result<Vec<String>> {
+pub(crate) fn holds_of(c: &Connection, kind: RegistrationKind, id: i64) -> Result<Vec<String>> {
     match kind {
         RegistrationKind::SourceSet => source_set_holds(c, id),
         RegistrationKind::LibraryFolder => library_folder_holds(c, id),
@@ -242,14 +248,15 @@ fn holds_of(c: &Connection, kind: RegistrationKind, id: i64) -> Result<Vec<Strin
     }
 }
 
-/// The Kept Files of a registration still in its folder, which only its marker lets you delete.
+/// The Kept Files of a registration still in its folder, which only its marker lets you delete. A kept directory is
+/// never deleted by Title Select, so it does not count.
 fn live_kept(c: &Connection, kind: RegistrationKind, id: i64) -> Result<u64> {
     let sql = match kind {
         RegistrationKind::SourceSet => {
             "SELECT count(*) FROM source_kept WHERE source_set_id = ?1 AND state IN ('kept', 'deleting')"
         }
         RegistrationKind::LibraryFolder => {
-            "SELECT count(*) FROM kept_files WHERE folder_id = ?1
+            "SELECT count(*) FROM kept_files WHERE folder_id = ?1 AND directory = 0
              AND state IN ('keeping', 'kept', 'deleting', 'quarantined', 'restoring')"
         }
         RegistrationKind::AdditionsSet => {

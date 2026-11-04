@@ -1439,7 +1439,7 @@ impl Store {
             }
         };
         let pending = self.read(|c| unresolved(c, id, &outcomes))?;
-        self.write(|tx| {
+        let finished = self.write(|tx| {
             match &pending {
                 None => tx.execute(
                     "UPDATE kept_deletions SET finished_at = ?2, outcomes = ?3, recovery_error = NULL WHERE id = ?1",
@@ -1452,7 +1452,13 @@ impl Store {
                 )?,
             };
             deletion_by_id(tx, id)
-        })
+        })?;
+        self.settle_marker(
+            config,
+            title_select_api::lifecycle::RegistrationKind::LibraryFolder,
+            folder,
+        )?;
+        Ok(finished)
     }
 
     fn delete_kept(

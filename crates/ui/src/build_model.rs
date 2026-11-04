@@ -545,6 +545,7 @@ mod tests {
             resolved_only: true,
             adopt: vec!["Pong.zip".into()],
             keep_aside: vec!["Combat.zip".into()],
+            remove_all: false,
         };
         let picked = BTreeMap::from([
             ("Combat.zip".to_string(), ConflictChoice::Adopt),

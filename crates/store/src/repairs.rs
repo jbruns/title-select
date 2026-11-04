@@ -21,6 +21,7 @@ use rustix::fs::{Access, AtFlags, FileType};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, kept_name};
 use title_select_api::ingest::FolderEntry;
+use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::repair::{
     KeptFileReviewed, PlanRepair, PlannedStep, RepairChoice, RepairOutcome, RepairPlan,
     RepairPlanContent, RepairRom, RepairStep, SeenFile, SourceSetMarker,
@@ -652,6 +653,118 @@ impl Store {
             fingerprint,
             notes: planned.notes,
             storage,
+            set_aside: false,
+        };
+        let digest = digest(&content);
+        self.write(|tx| {
+            tx.execute(
+                "INSERT INTO repair_plans (source_set_id, audit_id, content, digest, created_at, readers, hashers)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0, 0)",
+                params![set.id, audit.id, to_json(&content), digest, now()],
+            )?;
+            plan_by_id(tx, tx.last_insert_rowid())
+        })
+    }
+
+    /// Proposes setting Source Set `name` aside whole: a repair that keeps every file in it aside where it is, in
+    /// its kept files, by renaming it there, and once each is kept unregisters the Source Set. Its kept files are
+    /// then deleted, if you want, as any are. Refused while anything holds the Source Set, and until it is audited:
+    /// the plan is approved as a repair is, against the latest Audit.
+    pub fn plan_set_aside(&self, config: &Config, name: &str) -> Result<RepairPlan> {
+        let set = self.read(|c| set_by_name(c, name))?;
+        let record = &set.record;
+        let holds =
+            self.read(|c| crate::lifecycle::holds_of(c, RegistrationKind::SourceSet, set.id))?;
+        if !holds.is_empty() {
+            return Err(Error::Conflict(format!(
+                "source set {name} can't be set aside yet: {}",
+                holds.join("; ")
+            )));
+        }
+        let root = config.root(&record.root).ok_or_else(|| {
+            Error::Refused(format!(
+                "there is no root {} in the configuration",
+                record.root
+            ))
+        })?;
+        if !root.may_write(&record.path) {
+            return Err(Error::Refused(not_writable(
+                &record.name,
+                &record.root,
+                &record.path,
+            )));
+        }
+        let audit = self
+            .history(name)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::Refused(format!("audit {name} before you set it aside")))?;
+        let report = self.report(audit.id)?;
+        let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
+        let folder = dir.identity().map_err(io_err)?;
+        let (fingerprint, files) = walk(&dir).map_err(io_err)?;
+        if files.is_empty() {
+            return Err(Error::Refused(format!(
+                "source set {name} holds no file to set aside; unregister it instead"
+            )));
+        }
+        let mut names = std::collections::BTreeSet::new();
+        let (mut items, mut steps) = (Vec::new(), Vec::new());
+        for (path, seen) in &files {
+            let key = format!("file:{path}");
+            let summary = format!("{path} is set aside with the source set");
+            let base = path.rsplit('/').next().unwrap_or(path);
+            let kept = (1..)
+                .map(|n| kept_name(base, n))
+                .find(|kept| !names.contains(kept))
+                .expect("a free name");
+            names.insert(kept.clone());
+            items.push(title_select_api::repair::RepairItem {
+                key: key.clone(),
+                kind: title_select_api::repair::RepairKind::KeepAside,
+                game: None,
+                path: Some(path.clone()),
+                member: None,
+                summary: summary.clone(),
+                choices: vec![RepairChoice::KeepAside],
+                default: RepairChoice::KeepAside,
+                chosen: RepairChoice::KeepAside,
+                note: None,
+                addition: None,
+                addition_rom: None,
+                addition_target: None,
+            });
+            steps.push(PlannedStep {
+                item: key,
+                step: RepairStep::Keep {
+                    path: path.clone(),
+                    kept_name: kept,
+                    reason: summary,
+                    seen: seen_file(seen),
+                    needs: Vec::new(),
+                    affects: Vec::new(),
+                },
+            });
+        }
+        let (generation, marked) = self.read(|c| source_folder(c, set.id))?;
+        let storage =
+            self.read(|c| crate::storage::policy(c, StorageScope::SourceSets, &record.dat))?;
+        let content = RepairPlanContent {
+            source_set: record.name.clone(),
+            set_id: set.id,
+            root: record.root.clone(),
+            path: record.path.clone(),
+            audit: audit.id,
+            dat_revision: report.dat_revision.sha256.clone(),
+            generation: generation + 1,
+            creates_marker: !marked,
+            folder: folder.into(),
+            items,
+            steps,
+            fingerprint,
+            notes: Vec::new(),
+            storage,
+            set_aside: true,
         };
         let digest = digest(&content);
         self.write(|tx| {
@@ -765,6 +878,16 @@ impl Store {
             // of the Source Set check in theirs.
             if let Some(why) = reserved(tx, content.set_id)? {
                 return Err(Error::Conflict(why));
+            }
+            if content.set_aside {
+                let holds = crate::lifecycle::holds_of(tx, RegistrationKind::SourceSet, content.set_id)?;
+                if !holds.is_empty() {
+                    return Err(Error::Conflict(format!(
+                        "source set {} can't be set aside yet: {}",
+                        content.source_set,
+                        holds.join("; ")
+                    )));
+                }
             }
             let latest: Option<i64> = tx
                 .query_row(
@@ -1073,7 +1196,7 @@ impl Store {
                 });
             }
         }
-        self.finish_repair(&plan, job, cancelled)?;
+        self.finish_repair(config, &plan, job, cancelled)?;
         Ok(Ok(()))
     }
 
@@ -1406,13 +1529,22 @@ impl Store {
 
     /// Records what repair `plan` did, the incremental Audit it owes, and the end of its Job `job`, in one
     /// transaction.
-    fn finish_repair(&self, plan: &RepairPlan, job: i64, cancelled: bool) -> Result<()> {
+    fn finish_repair(
+        &self,
+        config: &Config,
+        plan: &RepairPlan,
+        job: i64,
+        cancelled: bool,
+    ) -> Result<()> {
         let outcomes = self.outcomes(plan)?;
-        self.write(|tx| {
+        // A Source Set set aside whole is unregistered once every file is kept aside, and owes no Audit: there is
+        // nothing left to audit. Otherwise it stays registered, and is audited as after any repair.
+        let aside = plan.content.set_aside && !cancelled && outcomes.iter().all(|o| o.done);
+        let set_aside = self.write(|tx| {
             tx.execute(
-                "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL, audit_owed = 1
+                "UPDATE repair_plans SET finished_at = ?2, outcomes = ?3, recovery_error = NULL, audit_owed = ?4
                  WHERE id = ?1",
-                params![plan.id, now(), to_json(&outcomes)],
+                params![plan.id, now(), to_json(&outcomes), !aside],
             )?;
             match cancelled {
                 true => finish_running(
@@ -1425,8 +1557,21 @@ impl Store {
                     ),
                 ),
                 false => finish_running(tx, job, JobState::Succeeded, None),
+            }?;
+            if !aside {
+                return Ok(false);
             }
+            let set = plan.content.set_id;
+            if crate::lifecycle::holds_of(tx, RegistrationKind::SourceSet, set)?.is_empty() {
+                crate::lifecycle::unregister_in(tx, RegistrationKind::SourceSet, set)?;
+                return Ok(true);
+            }
+            tx.execute("UPDATE repair_plans SET audit_owed = 1 WHERE id = ?1", [plan.id])?;
+            Ok(false)
         })?;
+        if set_aside {
+            self.settle_marker(config, RegistrationKind::SourceSet, plan.content.set_id)?;
+        }
         self.fault_point(Fault::RepairFinished);
         Ok(())
     }

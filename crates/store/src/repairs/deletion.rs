@@ -8,6 +8,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use rustix::fs::FileType;
 use sha2::{Digest, Sha256};
 use title_select_api::build::{Approval, KeptDeletionOutcome, PlanKeptDeletion};
+use title_select_api::lifecycle::RegistrationKind;
 use title_select_api::repair::{
     KeptFileReviewed, SourceKeptDeletion, SourceKeptDeletionContent, SourceKeptFile,
 };
@@ -315,6 +316,22 @@ impl Store {
         self.approve_kept_deletion_of(config, Owner::Source, id, digest_reviewed, actor)
     }
 
+    /// The kept files of Source Set `set`, registered or not, newest generation first.
+    pub fn source_kept_files_by_id(&self, set: i64) -> Result<Vec<SourceKeptFile>> {
+        self.read(|c| kept_of(c, Owner::Source, crate::sets::set_by_id(c, set)?.id, "kept"))
+    }
+
+    /// Plans deleting kept files of Source Set `set`, registered or not, as [`Store::plan_source_kept_deletion`].
+    pub fn plan_source_kept_deletion_by_id(
+        &self,
+        config: &Config,
+        set: i64,
+        request: &PlanKeptDeletion,
+    ) -> Result<SourceKeptDeletion> {
+        let name = self.read(|c| Ok(crate::sets::set_by_id(c, set)?.record.name))?;
+        self.plan_kept_deletion_of(config, Owner::Source, set, &name, request)
+    }
+
     /// The kept files of the Additions Set of `system`, newest generation first: the files of retired additions.
     pub fn additions_kept_files(&self, system: &str) -> Result<Vec<SourceKeptFile>> {
         self.read(|c| additions_kept_of(c, set_of_system(c, system)?.id))
@@ -346,6 +363,23 @@ impl Store {
         actor: &str,
     ) -> Result<SourceKeptDeletion> {
         self.approve_kept_deletion_of(config, Owner::Additions, id, digest_reviewed, actor)
+    }
+
+    /// The kept files of Additions Set `set`, registered or not, newest generation first.
+    pub fn additions_kept_files_by_id(&self, set: i64) -> Result<Vec<SourceKeptFile>> {
+        self.read(|c| additions_kept_of(c, crate::additions::set_by_id(c, set)?.id))
+    }
+
+    /// Plans deleting kept files of Additions Set `set`, registered or not, as
+    /// [`Store::plan_additions_kept_deletion`].
+    pub fn plan_additions_kept_deletion_by_id(
+        &self,
+        config: &Config,
+        set: i64,
+        request: &PlanKeptDeletion,
+    ) -> Result<SourceKeptDeletion> {
+        let system = self.read(|c| Ok(crate::additions::set_by_id(c, set)?.system))?;
+        self.plan_kept_deletion_of(config, Owner::Additions, set, &system, request)
     }
 
     /// Opens the folder of `owner`'s set `set`, which must be in place and this store's.
@@ -501,6 +535,11 @@ impl Store {
         if let Err(why) = self.carry_out_kept_deletion(config, owner, id)? {
             return Err(Error::Refused(why));
         }
+        let kind = match owner {
+            Owner::Source => RegistrationKind::SourceSet,
+            Owner::Additions => RegistrationKind::AdditionsSet,
+        };
+        self.settle_marker(config, kind, set)?;
         self.read(|c| deletion_by_id(c, owner, id))
     }
 

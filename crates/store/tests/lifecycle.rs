@@ -10,9 +10,12 @@ use std::path::{Path, PathBuf};
 
 use common::*;
 use title_select_api::additions::NewAddition;
-use title_select_api::build::{AddLibraryFolder, ChangeLibraryFolder, LibraryFolder, Plan};
+use title_select_api::build::{
+    AddLibraryFolder, ChangeLibraryFolder, LibraryFolder, Plan, PlanKeptDeletion,
+};
 use title_select_api::ingest::{IngestAction, IngestPlan, PlanIngest};
-use title_select_api::lifecycle::RegistrationKind;
+use title_select_api::lifecycle::{PlanFolderMove, RegistrationKind};
+use title_select_api::repair::RepairStep;
 use title_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
     SelectionSummary, Winner,
@@ -533,6 +536,373 @@ fn an_additions_set_is_unregistered_leaving_its_additions_in_place() {
         env.store.additions_set(SYSTEM),
         Err(Error::NotFound(_))
     ));
+}
+
+#[test]
+fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_marker_goes() {
+    let env = Env::new();
+    env.audit();
+    env.add_addition("My Hack", b"hack");
+    let a = env.store.additions_set(SYSTEM).unwrap().additions.remove(0);
+    env.store.retire_addition(a.id).unwrap();
+    env.settle();
+    let set = env.store.additions_set(SYSTEM).unwrap();
+    let dir = env.tmp.path().join("additions").join(SET);
+
+    let done = env
+        .store
+        .unregister_additions_set(&env.config, SYSTEM)
+        .unwrap();
+    assert!(
+        done.notes.iter().any(|n| n.contains("kept files")),
+        "{done:?}"
+    );
+    assert!(files(&dir).contains(".title-select"), "the marker stays");
+    assert!(matches!(
+        env.store.forget(RegistrationKind::AdditionsSet, set.id),
+        Err(Error::Refused(ref why)) if why.contains("kept files")
+    ));
+
+    let kept = env.store.additions_kept_files_by_id(set.id).unwrap();
+    assert_eq!(kept.len(), 1);
+    let deletion = env
+        .store
+        .plan_additions_kept_deletion_by_id(
+            &env.config,
+            set.id,
+            &PlanKeptDeletion {
+                ids: vec![],
+                all: true,
+            },
+        )
+        .unwrap();
+    let deleted = env
+        .store
+        .approve_additions_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .unwrap();
+    assert!(deleted.outcomes.iter().all(|o| o.deleted), "{deleted:#?}");
+    assert!(!files(&dir).contains(".title-select"), "{:?}", files(&dir));
+    env.store
+        .forget(RegistrationKind::AdditionsSet, set.id)
+        .unwrap();
+}
+
+#[test]
+fn setting_aside_a_source_set_keeps_every_file_in_place_then_unregisters_it() {
+    let env = Env::new();
+    let folder = env.folder();
+    assert!(
+        conflict(env.store.plan_set_aside(&env.config, SET)).contains("play/atari"),
+        "a bound library folder holds it"
+    );
+    env.store
+        .unregister_library_folder(&env.config, folder.id)
+        .unwrap();
+    assert!(matches!(
+        env.store.plan_set_aside(&env.config, SET),
+        Err(Error::Refused(ref why)) if why.contains("audit")
+    ));
+    env.audit();
+    let before = files(&env.set());
+    assert_eq!(before.len(), 2, "{before:?}");
+
+    let plan = env.store.plan_set_aside(&env.config, SET).unwrap();
+    assert!(plan.content.set_aside);
+    assert_eq!(plan.content.steps.len(), 2);
+    assert!(
+        plan.content
+            .steps
+            .iter()
+            .all(|s| matches!(s.step, RepairStep::Keep { .. })),
+        "{:#?}",
+        plan.content.steps
+    );
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    let job = env.store.claim_job().unwrap().unwrap();
+    assert_eq!(Some(job.id), approved.job);
+    let ended = env.store.run_repair_job(&env.config, job.id, None).unwrap();
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    let owed = env.store.fulfil_repair_audits().unwrap();
+    assert!(owed.queued.is_empty(), "a set aside owes no audit");
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(!done.audit_owed && done.audit_job.is_none(), "{done:?}");
+
+    assert!(env.store.source_sets().unwrap().is_empty());
+    let kept = env
+        .store
+        .source_kept_files_by_id(plan.content.set_id)
+        .unwrap();
+    assert_eq!(kept.len(), 2);
+    let after = files(&env.set());
+    assert!(
+        after.iter().all(|f| f.starts_with(".title-select")),
+        "every file is kept aside in place: {after:?}"
+    );
+    assert_eq!(after.len(), 3, "two kept files and the marker: {after:?}");
+
+    let deletion = env
+        .store
+        .plan_source_kept_deletion_by_id(
+            &env.config,
+            plan.content.set_id,
+            &PlanKeptDeletion {
+                ids: vec![],
+                all: true,
+            },
+        )
+        .unwrap();
+    env.store
+        .approve_source_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .unwrap();
+    let left = files(&env.set());
+    assert!(!left.contains(".title-select"), "{left:?}");
+}
+
+#[test]
+fn setting_aside_an_additions_set_retires_every_addition_then_unregisters_it() {
+    let env = Env::new();
+    env.audit();
+    env.add_addition("My Hack", b"hack");
+    env.add_addition("Other Hack", b"other");
+    let set = env.store.additions_set(SYSTEM).unwrap();
+    let plan = env.store.plan_additions_set_aside(SYSTEM).unwrap();
+    assert_eq!(plan.additions, ["My Hack.zip", "Other Hack.zip"]);
+
+    env.add_addition("Third Hack", b"third");
+    assert!(
+        conflict(
+            env.store
+                .approve_additions_set_aside(&env.config, SYSTEM, &plan.digest)
+        )
+        .contains("changed"),
+        "a set that changed since the review is refused"
+    );
+    let plan = env.store.plan_additions_set_aside(SYSTEM).unwrap();
+    env.store
+        .approve_additions_set_aside(&env.config, SYSTEM, &plan.digest)
+        .unwrap();
+    assert!(
+        conflict(env.store.plan_additions_set_aside(SYSTEM)).contains("job"),
+        "its additions job holds it"
+    );
+    assert!(
+        env.store.unregistered().unwrap().is_empty(),
+        "not until its files are kept"
+    );
+    env.settle();
+
+    assert!(env.store.additions_sets().unwrap().is_empty());
+    let kept = env.store.additions_kept_files_by_id(set.id).unwrap();
+    assert_eq!(kept.len(), 3);
+    let dir = env.tmp.path().join("additions").join(SET);
+    assert!(
+        files(&dir).iter().all(|f| f.starts_with(".title-select")),
+        "{:?}",
+        files(&dir)
+    );
+}
+
+#[test]
+fn removing_every_built_file_keeps_each_aside_then_unregisters_the_folder() {
+    let env = Env::new();
+    let fresh = env.folder();
+    assert!(matches!(
+        env.store.plan_library_removal(&env.config, fresh.id),
+        Err(Error::Refused(ref why)) if why.contains("unregister it instead")
+    ));
+    env.store
+        .unregister_library_folder(&env.config, fresh.id)
+        .unwrap();
+    let folder = env.built();
+    let dir = env.play().join("atari");
+    let built = files(&dir);
+    assert!(built.contains("Pong (USA).zip"), "{built:?}");
+
+    let plan = env
+        .store
+        .plan_library_removal(&env.config, folder.id)
+        .unwrap();
+    assert!(plan.content.items.is_empty());
+    assert_eq!(
+        plan.content.removals.len(),
+        2,
+        "{:#?}",
+        plan.content.removals
+    );
+    assert!(
+        plan.content.blockers.is_empty(),
+        "{:#?}",
+        plan.content.blockers
+    );
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    assert!(env.store.library_folders(&env.config).unwrap().is_empty());
+    let left = files(&dir);
+    assert!(
+        !left.contains("Pong (USA).zip") && !left.contains("Combat (USA).zip"),
+        "{left:?}"
+    );
+    assert!(
+        left.contains(".title-select"),
+        "the marker stays with the kept files: {left:?}"
+    );
+    let kept = env.store.kept_files(folder.id).unwrap();
+    assert_eq!(kept.len(), 2);
+    let deletion = env
+        .store
+        .plan_kept_deletion(
+            &env.config,
+            folder.id,
+            &PlanKeptDeletion {
+                ids: vec![],
+                all: true,
+            },
+        )
+        .unwrap();
+    env.store
+        .approve_kept_deletion(&env.config, deletion.id, &deletion.digest, "Operator")
+        .unwrap();
+    assert!(files(&dir).is_empty(), "{:?}", files(&dir));
+}
+
+#[test]
+fn moving_a_library_folder_renames_it_in_place_after_approval() {
+    let env = Env::new();
+    let folder = env.built();
+    let old = env.play().join("atari");
+    for refused in ["atari/inner", "", "../elsewhere"] {
+        assert!(
+            env.store
+                .plan_library_folder_move(
+                    &env.config,
+                    folder.id,
+                    &PlanFolderMove {
+                        path: refused.into()
+                    }
+                )
+                .is_err(),
+            "{refused:?}"
+        );
+    }
+    let plan = env
+        .store
+        .plan_library_folder_move(
+            &env.config,
+            folder.id,
+            &PlanFolderMove {
+                path: "consoles/atari 2600".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        (plan.from_path.as_str(), plan.to_path.as_str()),
+        ("atari", "consoles/atari 2600")
+    );
+    assert!(
+        old.join("Pong (USA).zip").is_file(),
+        "planning moves nothing"
+    );
+    assert!(matches!(
+        env.store
+            .approve_library_folder_move(&env.config, plan.id, "wrong", "Operator"),
+        Err(Error::Conflict(_))
+    ));
+
+    let moved = env
+        .store
+        .approve_library_folder_move(&env.config, plan.id, &plan.digest, "Operator")
+        .unwrap();
+    assert_eq!(moved.outcome.as_deref(), Some("moved"));
+    assert!(!old.exists());
+    let new = env.play().join("consoles/atari 2600");
+    assert!(new.join("Pong (USA).zip").is_file());
+    assert!(new.join(".title-select").is_file());
+    let folders = env.store.library_folders(&env.config).unwrap();
+    assert_eq!(folders[0].path, "consoles/atari 2600");
+    assert!(matches!(
+        env.store
+            .approve_library_folder_move(&env.config, plan.id, &plan.digest, "Operator"),
+        Err(Error::Conflict(_))
+    ));
+    assert!(
+        env.store
+            .recover_library_folder_moves(&env.config)
+            .unwrap()
+            .is_empty()
+    );
+
+    // The folder still builds where it is now.
+    let selection = env.record(&both(&env.sha256));
+    let again = env
+        .store
+        .plan_build(&env.config, folder.id, selection)
+        .unwrap();
+    assert_eq!(env.build(&again).state, JobState::Succeeded);
+}
+
+#[test]
+fn a_move_stopped_after_the_rename_is_settled_where_the_folder_is_found() {
+    let env = Env::new();
+    let folder = env.built();
+    let plan = env
+        .store
+        .plan_library_folder_move(
+            &env.config,
+            folder.id,
+            &PlanFolderMove {
+                path: "moved".into(),
+            },
+        )
+        .unwrap();
+    env.store
+        .approve_library_folder_move(&env.config, plan.id, &plan.digest, "Operator")
+        .unwrap();
+    // As a stop between the rename and its record would leave it.
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    db.execute(
+        "UPDATE library_folder_moves SET finished_at = NULL, outcome = NULL WHERE id = ?1",
+        [plan.id],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE library_folders SET path = 'atari' WHERE id = ?1",
+        [folder.id],
+    )
+    .unwrap();
+    let holds = env.store.library_folder_holds(folder.id).unwrap().holds;
+    assert!(
+        holds.iter().any(|h| h.contains("its move to moved")),
+        "{holds:?}"
+    );
+
+    assert!(
+        env.store
+            .recover_library_folder_moves(&env.config)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        env.store.library_folders(&env.config).unwrap()[0].path,
+        "moved"
+    );
+    assert_eq!(
+        env.store
+            .library_folder_move(plan.id)
+            .unwrap()
+            .outcome
+            .as_deref(),
+        Some("moved")
+    );
+    assert!(
+        env.store
+            .library_folder_holds(folder.id)
+            .unwrap()
+            .holds
+            .is_empty()
+    );
 }
 
 #[test]
