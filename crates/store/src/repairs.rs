@@ -855,6 +855,11 @@ impl Store {
             )));
         }
         let content = &plan.content;
+        if let Some(why) = planning::split_release(&content.items) {
+            return Err(Error::Refused(format!(
+                "{why}; nothing was changed. Plan the repair again and review the new plan"
+            )));
+        }
         let set = self.read(|c| set_by_id(c, content.set_id))?;
         if set.record.root != content.root || set.record.path != content.path {
             return Err(Error::Conflict(format!(

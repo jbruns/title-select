@@ -1,7 +1,7 @@
 //! What a repair proposes, from an Audit's Payload Evidence and the assessed items of Ingest Folders, and the steps
 //! that carry out what you choose. Nothing here touches a file.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use title_select_api::additions::NewAddition;
 use title_select_api::build::{ExpectedRom, invalid_name, kept_name};
@@ -171,7 +171,8 @@ fn is_cue(name: &str) -> bool {
 }
 
 /// How a repair stores each Game of the DAT, by its index, with why it is not stored as the policy says; none for a
-/// Game with no ROMs. Every disc of a release is stored alike: when one can't be a loose folder, none is.
+/// Game with no ROMs. Every disc of a release is stored alike, whatever the policy: when one can't be stored as it
+/// says, as when one disc has more ROMs than a loose file holds, every disc stays TorrentZip.
 fn placements_of(i: &Inputs) -> Vec<Option<(Placement, Option<&'static str>)>> {
     let mut placed: Vec<Option<(Placement, Option<&'static str>)>> = (0..i.dat.games.len())
         .map(|index| {
@@ -180,25 +181,80 @@ fn placements_of(i: &Inputs) -> Vec<Option<(Placement, Option<&'static str>)>> {
             (!roms.is_empty()).then(|| placement(i.storage, &i.dat.games[index], &names))
         })
         .collect();
-    if i.storage.format == StorageFormat::LooseFolder {
-        let zipped: BTreeSet<String> = placed
-            .iter()
-            .zip(&i.dat.games)
-            .filter(|(p, _)| matches!(p, Some((Placement::TorrentZip(_), _))))
-            .map(|(_, game)| release_of(game))
-            .collect();
-        for (p, game) in placed.iter_mut().zip(&i.dat.games) {
-            if let Some((Placement::Folder { .. }, _)) = p
-                && zipped.contains(&release_of(game))
-            {
-                *p = Some((
-                    Placement::TorrentZip(format!("{game}.zip")),
-                    Some(RELEASE_STAYS_ZIP),
-                ));
-            }
+    let mut formats: BTreeMap<String, HashSet<StorageFormat>> = BTreeMap::new();
+    for (p, game) in placed.iter().zip(&i.dat.games) {
+        if let Some((placed, _)) = p {
+            formats
+                .entry(release_of(game))
+                .or_default()
+                .insert(placed.format());
+        }
+    }
+    for (p, game) in placed.iter_mut().zip(&i.dat.games) {
+        if let Some((placed, _)) = p
+            && placed.format() != StorageFormat::TorrentZip
+            && formats[&release_of(game)].len() > 1
+        {
+            *p = Some((
+                Placement::TorrentZip(format!("{game}.zip")),
+                Some(RELEASE_STAYS_ZIP),
+            ));
         }
     }
     placed
+}
+
+/// Why `items`, as chosen, would repair one disc of a release while leaving another, which would store the discs of
+/// one game apart; none when every disc of each release is chosen alike.
+pub(crate) fn split_release(items: &[RepairItem]) -> Option<String> {
+    let mut seen: BTreeMap<String, (&str, bool)> = BTreeMap::new();
+    for item in items.iter().filter(|it| it.key.starts_with("game:")) {
+        let Some(game) = item.game.as_deref() else {
+            continue;
+        };
+        let applied = item.chosen != RepairChoice::Leave;
+        match seen.get(&release_of(game)) {
+            Some((other, was)) if *was != applied => {
+                let (repaired, left) = match applied {
+                    true => (game, *other),
+                    false => (*other, game),
+                };
+                return Some(format!(
+                    "{left} would be left as it is while {repaired} is repaired, and every disc of a game is \
+                     repaired alike, so they are stored alike; choose the same for both"
+                ));
+            }
+            Some(_) => {}
+            None => {
+                seen.insert(release_of(game), (game, applied));
+            }
+        }
+    }
+    None
+}
+
+/// Leaves every other disc of the release of game item `left`, which is left, saying why.
+fn leave_release(proposed: &mut [Proposed], left: usize) {
+    let Some(game) = proposed[left].item.game.clone() else {
+        return;
+    };
+    let release = release_of(&game);
+    for (n, p) in proposed.iter_mut().enumerate() {
+        if n != left
+            && p.item.key.starts_with("game:")
+            && p.item.chosen != RepairChoice::Leave
+            && p.item
+                .game
+                .as_deref()
+                .is_some_and(|g| release_of(g) == release)
+        {
+            p.item.chosen = RepairChoice::Leave;
+            p.item.note = Some(format!(
+                "left as it is: {game}, another disc of the same game, is left as it is, and every disc of a game \
+                 is repaired alike"
+            ));
+        }
+    }
 }
 
 fn roms_of(dat: &Dat, game: usize) -> Vec<ExpectedRom> {
@@ -1072,6 +1128,29 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         }
         found.item.chosen = *choice;
     }
+    // Every disc of a release is repaired alike: choosing to repair one and leave another is refused, and leaving one
+    // leaves them all.
+    let explicit: Vec<RepairItem> = proposed
+        .iter()
+        .filter(|p| i.choices.contains_key(&p.item.key))
+        .map(|p| p.item.clone())
+        .collect();
+    if let Some(why) = split_release(&explicit) {
+        return Err(Error::Refused(why));
+    }
+    let left: Vec<usize> = proposed
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.item.key.starts_with("game:")
+                && p.item.chosen == RepairChoice::Leave
+                && i.choices.contains_key(&p.item.key)
+        })
+        .map(|(n, _)| n)
+        .collect();
+    for n in left {
+        leave_release(&mut proposed, n);
+    }
 
     // An item that would keep aside the last copy of a ROM no repair writes is left, as is, in turn, any item that
     // relied on it.
@@ -1109,6 +1188,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         item.note = Some(
             "left as it is: it would keep aside the only copy of a ROM no repair in this plan writes".into(),
         );
+        if proposed[lost].item.key.starts_with("game:") {
+            leave_release(&mut proposed, lost);
+        }
     }
 
     // A file holding nothing a Game needs: Unmatched Entries, or copies of ROMs a Game's own file holds.

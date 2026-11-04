@@ -2963,13 +2963,11 @@ fn every_disc_of_a_game_stays_torrentzip_when_one_cannot_be_a_loose_folder() {
     // A ROM named under a folder of its own can't be a file directly in a loose folder.
     games[2].1[1].name = "tracks/Saga (USA) (Disc 2).bin";
     let env = Env::with("Redump", &games);
-    for (game, roms) in &games[1..] {
-        let members: Vec<(&str, &[u8])> = roms
-            .iter()
-            .map(|r| (r.name, r.payload.as_slice()))
-            .collect();
-        write_zip(&env.set().join(format!("{game}.zip")), &members);
-    }
+    write_games_zipped(
+        &env,
+        &games,
+        &["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"],
+    );
     env.audit(AuditEvidence::Full);
 
     let plan = env.plan();
@@ -2981,6 +2979,95 @@ fn every_disc_of_a_game_stays_torrentzip_when_one_cannot_be_a_loose_folder() {
             "{saga:?}"
         );
     }
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Saga (USA) (Disc 1)") && n.contains("another disc")),
+        "{:?}",
+        plan.content.notes
+    );
+}
+
+/// Writes each game of `games` named `names` as a ZIP of its ROMs, as the DAT names them.
+fn write_games_zipped(env: &Env, games: &[(&str, Vec<RomSpec>)], names: &[&str]) {
+    for (game, roms) in games.iter().filter(|(g, _)| names.contains(g)) {
+        let members: Vec<(&str, &[u8])> = roms
+            .iter()
+            .map(|r| (r.name, r.payload.as_slice()))
+            .collect();
+        write_zip(&env.set().join(format!("{game}.zip")), &members);
+    }
+}
+
+#[test]
+fn leaving_one_disc_of_a_game_leaves_every_disc_and_a_split_choice_is_refused() {
+    let games = disc_games();
+    let env = Env::with("Redump", &games);
+    let discs = ["Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"];
+    write_games_zipped(&env, &games, &discs);
+    env.audit(AuditEvidence::Full);
+    let both = env.plan();
+    for disc in discs {
+        let saga = item(&both, &format!("game:{disc}"));
+        assert_eq!(saga.chosen, RepairChoice::Apply, "{saga:?}");
+        assert_eq!(saga.path.as_deref(), Some(disc));
+    }
+
+    let left = env.plan_with(&[("game:Saga (USA) (Disc 2)", RepairChoice::Leave)]);
+    let first = item(&left, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+    assert!(
+        first
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Saga (USA) (Disc 2)") && n.contains("every disc")),
+        "{first:?}"
+    );
+    assert!(
+        !left
+            .content
+            .steps
+            .iter()
+            .any(|s| s.item.starts_with("game:Saga")),
+        "{:#?}",
+        left.content.steps
+    );
+
+    let request = PlanRepair {
+        choices: [
+            ("game:Saga (USA) (Disc 1)".to_string(), RepairChoice::Apply),
+            ("game:Saga (USA) (Disc 2)".to_string(), RepairChoice::Leave),
+        ]
+        .into(),
+        additions: Default::default(),
+    };
+    let split = env.store.plan_repair(&env.config, "Alpha", &request);
+    assert!(
+        matches!(&split, Err(Error::Refused(why)) if why.contains("every disc")),
+        "{split:?}"
+    );
+}
+
+#[test]
+fn under_a_loose_policy_every_disc_stays_torrentzip_when_one_has_more_than_one_rom() {
+    let mut games = disc_games();
+    // Disc 1 is one ROM, which alone could be loose; Disc 2 has two.
+    games[1].1.remove(0);
+    let env = Env::with("Redump", &games);
+    set_disc_policy(&env, StorageFormat::Loose, false);
+    let track = &games[1].1[0];
+    env.put(track.name, &track.payload);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 2)"]);
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(
+        first.path.as_deref(),
+        Some("Saga (USA) (Disc 1).zip"),
+        "{first:?}"
+    );
     assert!(
         plan.content
             .notes

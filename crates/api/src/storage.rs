@@ -214,10 +214,10 @@ pub fn target_of(
     }
 }
 
-/// Why a disc of a Multi-disc Game is stored as TorrentZip where the policy says loose folder: another of its discs
-/// can't be, and every disc of a game is stored alike.
-pub const RELEASE_STAYS_ZIP: &str = "another disc of the same game can't be stored as a loose folder, and every \
-     disc of a game is stored alike, so it stays TorrentZip";
+/// Why a disc of a Multi-disc Game is stored as TorrentZip where the policy says loose or loose folder: another of
+/// its discs can't be, and every disc of a game is stored alike.
+pub const RELEASE_STAYS_ZIP: &str = "another disc of the same game can't be stored as the storage policy says, and \
+     every disc of a game is stored alike, so it stays TorrentZip";
 
 /// The release a disc belongs to: Game `game` without its `(Disc N)` tag, so that every disc of a Multi-disc Game
 /// has the same one, which a repair stores every disc of alike. This is only the tag Redump names discs with;
