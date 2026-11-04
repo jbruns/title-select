@@ -45,41 +45,71 @@ fn revision_by_sha(c: &Connection, sha256: &str) -> Result<Option<(i64, DatRevis
     Ok(c.query_row(&sql, [sha256], revision_from_row).optional()?)
 }
 
-/// What orders a DAT's revisions by their header's version: its runs of digits, as numbers. It reads the versions
-/// providers write the same way: No-Intro's `20240101-123456`, Redump's `2024-01-01 12-34-56`, MAME's
-/// `0.265 (mame0265)` and its tags. A version with no digits orders by import alone.
-fn version_key(version: &str) -> Vec<u128> {
+/// A run of digits, compared by the number it writes, however long: its digits without leading zeros, by count and
+/// then one by one.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Number(usize, String);
+
+/// What orders a DAT's revisions by their header's version, or date: its runs of digits, as numbers. It reads the
+/// versions providers write the same way: No-Intro's `20240101-123456`, Redump's `2024-01-01 12-34-56`, MAME's
+/// `0.265 (mame0265)` and its tags. Text with no digits tells nothing.
+fn version_key(version: &str) -> Vec<Number> {
     version
         .split(|c: char| !c.is_ascii_digit())
         .filter(|run| !run.is_empty())
         .map(|run| {
-            let run = run.trim_start_matches('0');
-            // A run too long for a u128 is past any real version; it orders as the largest.
-            run.parse()
-                .unwrap_or(if run.is_empty() { 0 } else { u128::MAX })
+            let digits = run.trim_start_matches('0');
+            Number(digits.len(), digits.to_owned())
         })
         .collect()
 }
 
-/// Renumbers `header_order` within the DAT `dat_id` by [`version_key`], then by import where versions don't tell.
-fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
-    let mut stmt =
-        c.prepare("SELECT id, version FROM dat_revisions WHERE dat_id = ?1 ORDER BY id")?;
-    let mut revisions = stmt
+/// What a revision's header says of its place among its DAT's revisions.
+struct HeaderKey {
+    version: Vec<Number>,
+    date: Vec<Number>,
+}
+
+impl HeaderKey {
+    fn new(version: &str, date: &str) -> HeaderKey {
+        HeaderKey {
+            version: version_key(version),
+            date: version_key(date),
+        }
+    }
+
+    /// Whether `self` is newer than `other` by version, else by date when the versions don't tell; `None` when
+    /// neither tells, so import order does.
+    fn newer_than(&self, other: &HeaderKey) -> Option<bool> {
+        let tell = |a: &Vec<Number>, b: &Vec<Number>| {
+            (!a.is_empty() && !b.is_empty() && a != b).then(|| a > b)
+        };
+        tell(&self.version, &other.version).or_else(|| tell(&self.date, &other.date))
+    }
+}
+
+/// Renumbers `header_order` within the DAT `dat_id`: by version, then date, then import where the headers don't tell.
+pub(crate) fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
+    let mut stmt = c.prepare(
+        "SELECT id, version, header_date FROM dat_revisions WHERE dat_id = ?1 ORDER BY id",
+    )?;
+    let revisions = stmt
         .query_map([dat_id], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    // Each revision, in import order, goes just before the first already placed whose version is higher; one whose
-    // version has no digits, or that none is higher than, goes last, as the newest so far.
-    let mut ordered: Vec<(i64, Vec<u128>)> = Vec::with_capacity(revisions.len());
-    for (id, version) in revisions.drain(..) {
-        let key = version_key(&version);
-        let at = if key.is_empty() {
-            None
-        } else {
-            ordered.iter().position(|(_, k)| !k.is_empty() && *k > key)
-        };
+    // Each revision, in import order, goes just before the first already placed that is newer; one that none is newer
+    // than goes last, as the newest so far.
+    let mut ordered: Vec<(i64, HeaderKey)> = Vec::with_capacity(revisions.len());
+    for (id, version, date) in revisions {
+        let key = HeaderKey::new(&version, &date);
+        let at = ordered
+            .iter()
+            .position(|(_, placed)| placed.newer_than(&key) == Some(true));
         ordered.insert(at.unwrap_or(ordered.len()), (id, key));
     }
     for (order, (id, _)) in ordered.iter().enumerate() {
@@ -91,29 +121,28 @@ fn reorder_revisions(c: &Connection, dat_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Whether a revision at `version` of the DAT `<provider>/<name>`, not yet imported, would be its newest, as
-/// [`reorder_revisions`] places it: true when the DAT has no revision yet.
+/// Whether a revision of the DAT `<provider>/<name>` at `version` and `date`, not yet imported, would be its newest,
+/// as [`reorder_revisions`] places it: true when the DAT has no revision yet.
 pub(crate) fn would_be_newest(
     c: &Connection,
     provider: &str,
     name: &str,
     version: &str,
+    date: &str,
 ) -> Result<bool> {
-    let key = version_key(version);
-    if key.is_empty() {
-        return Ok(true);
-    }
+    let key = HeaderKey::new(version, date);
     let mut stmt = c.prepare(
-        "SELECT r.version FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
+        "SELECT r.version, r.header_date FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
          WHERE d.provider = ?1 AND d.name = ?2",
     )?;
-    let versions = stmt
-        .query_map(params![provider, name], |r| r.get::<_, String>(0))?
+    let headers = stmt
+        .query_map(params![provider, name], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(!versions.iter().any(|v| {
-        let k = version_key(v);
-        !k.is_empty() && k > key
-    }))
+    Ok(!headers
+        .iter()
+        .any(|(v, d)| HeaderKey::new(v, d).newer_than(&key) == Some(true)))
 }
 
 /// Splits `<provider>/<name>`. A provider never contains `/`; a DAT's name may.
@@ -212,9 +241,9 @@ impl Store {
                 [dat_id],
             )?;
             tx.execute(
-                "INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at, source_url)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![dat_id, dat.sha256, dat.version, file, now(), source_url],
+                "INSERT INTO dat_revisions (dat_id, sha256, version, header_date, file_name, imported_at, source_url)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![dat_id, dat.sha256, dat.version, dat.date, file, now(), source_url],
             )?;
             reorder_revisions(&tx, dat_id)?;
             let record = revision_by_sha(&tx, &dat.sha256)?.expect("just inserted").1;
@@ -319,5 +348,15 @@ mod tests {
         assert!(ordered("1.9", "1.10"));
         assert!(version_key("").is_empty());
         assert_eq!(version_key("v1.02"), version_key("1.2"));
+    }
+
+    #[test]
+    fn numbers_too_long_for_any_integer_still_order_by_value() {
+        let huge = "1".repeat(60);
+        let ordered = |older: &str, newer: &str| version_key(older) < version_key(newer);
+        assert!(ordered(&format!("{huge}8"), &format!("{huge}9")));
+        assert!(ordered(&huge, &format!("{huge}0")));
+        assert!(ordered(&format!("v{huge}"), &format!("2{huge}")));
+        assert_eq!(version_key(&format!("000{huge}")), version_key(&huge));
     }
 }

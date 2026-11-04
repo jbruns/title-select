@@ -1,9 +1,12 @@
 -- Fetching (ADR 0012): every request to a DAT Provider, recorded before it is sent and finished with its outcome.
 -- The latest request of each system and artifact holds the next back for a day, whatever its outcome.
 
--- Each DAT Revision's place among its DAT's revisions, by its header's version: the highest is the newest, whatever
--- order they were imported in. Renumbered within the DAT on each import; an existing store keeps its import order.
+-- Each DAT Revision's place among its DAT's revisions, by its header's version, then date: the highest is the newest,
+-- whatever order they were imported in. Renumbered within the DAT on each import. Once this has run, the store
+-- reads the date of each existing revision whose file it keeps and numbers every DAT's revisions afresh.
+-- header_date: the header's date as written; empty if it gives none, or its file was gone when this ran.
 ALTER TABLE dat_revisions ADD COLUMN header_order INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE dat_revisions ADD COLUMN header_date TEXT NOT NULL DEFAULT '';
 UPDATE dat_revisions SET header_order = id;
 
 -- A Redump SBI pack a fetch brought: a ZIP of subchannel files for one DAT, kept unmodified under

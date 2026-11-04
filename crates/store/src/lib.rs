@@ -926,6 +926,57 @@ mod tests {
     }
 
     #[test]
+    fn the_fetch_migration_orders_existing_revisions_by_their_headers() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_with(dir.path(), &migrations::MIGRATIONS[..18]).unwrap();
+        let dated = |version: &str, date: &str| {
+            format!(
+                "<?xml version=\"1.0\"?><datafile><header><name>Test</name><version>{version}</version>\
+                 <date>{date}</date></header></datafile>"
+            )
+        };
+        // Imported as version 2, then 1; then two of version 3, the later dated first; then one whose file is gone.
+        let revisions = [
+            ("a", "2", Some(dated("2", ""))),
+            ("b", "1", Some(dated("1", ""))),
+            ("c", "3", Some(dated("3", "2024-02-01"))),
+            ("d", "3", Some(dated("3", "2024-01-01"))),
+            ("e", "0.5", None),
+        ];
+        store
+            .write(|tx| {
+                tx.execute("INSERT INTO dats (provider, name) VALUES ('Test', 'Test')", [])?;
+                for (sha, version, xml) in &revisions {
+                    tx.execute(
+                        "INSERT INTO dat_revisions (dat_id, sha256, version, file_name, imported_at, blob_dropped_at)
+                         VALUES (1, ?1, ?2, 'x.dat', 'then', ?3)",
+                        rusqlite::params![sha, version, xml.is_none().then_some("then")],
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        for (sha, _, xml) in &revisions {
+            if let Some(xml) = xml {
+                std::fs::write(dir.path().join(DATS).join(sha), xml).unwrap();
+            }
+        }
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+        let order: Vec<String> = store
+            .read(|c| {
+                let mut stmt =
+                    c.prepare("SELECT sha256 FROM dat_revisions ORDER BY header_order")?;
+                Ok(stmt
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<Vec<String>>>()?)
+            })
+            .unwrap();
+        assert_eq!(order, ["e", "b", "a", "d", "c"]);
+    }
+
+    #[test]
     fn a_store_from_a_newer_schema_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let first = migrations::MIGRATIONS[0];

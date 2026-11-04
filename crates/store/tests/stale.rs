@@ -265,6 +265,54 @@ fn a_newer_revision_makes_only_the_source_sets_that_follow_their_dat_stale() {
     assert_eq!(env.stale("Beta"), []);
 }
 
+/// A one-Game revision of `Test/Test - System` at `version`, dated `date`, as bytes; `salt` tells apart revisions
+/// whose header is the same.
+fn dated(version: &str, date: &str, salt: &str) -> Vec<u8> {
+    format!(
+        r#"<?xml version="1.0"?>
+<datafile>
+  <header><name>Test - System</name><version>{version}</version><date>{date}</date></header>
+  <game name="Pong (USA)"><rom name="Pong (USA).a26" size="4" crc="00000000"/></game>
+</datafile>
+<!-- {salt} -->
+"#
+    )
+    .into_bytes()
+}
+
+#[test]
+fn revisions_of_one_version_order_by_their_headers_date() {
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    env.store.set_follow("Alpha", true).unwrap();
+    let (february, _) = env
+        .store
+        .import_dat_bytes(&dated("2", "2024-02-01", "a"), "feb.dat", "Test", None)
+        .unwrap();
+    let (january, _) = env
+        .store
+        .import_dat_bytes(&dated("2", "2024-01-01", "b"), "jan.dat", "Test", None)
+        .unwrap();
+
+    assert!(
+        matches!(&env.stale("Alpha")[..], [SourceSetStale::NewerRevision { sha256, .. }] if *sha256 == february.sha256),
+        "{:?}",
+        env.stale("Alpha")
+    );
+    let order: Vec<String> = env
+        .store
+        .dat_revisions()
+        .unwrap()
+        .into_iter()
+        .map(|r| r.sha256)
+        .collect();
+    assert_eq!(
+        order[1..],
+        [january.sha256, february.sha256],
+        "the later date is newer, whenever it came"
+    );
+}
+
 fn newest_sha(env: &Env) -> String {
     env.store
         .dat_revisions()

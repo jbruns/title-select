@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-use super::{BACKUPS, Error, Result, io_error};
+use super::{BACKUPS, DATS, Error, Result, io_error};
 
 /// Applied in order; `PRAGMA user_version` counts those already applied.
 pub(super) const MIGRATIONS: &[&str] = &[
@@ -59,6 +59,7 @@ fn apply(conn: &mut Connection, dir: &Path, migrations: &[&str], applied: usize)
         }
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;
+        after(&tx, dir, version)?;
         let violations: i64 =
             tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| {
                 r.get(0)
@@ -72,6 +73,47 @@ fn apply(conn: &mut Connection, dir: &Path, migrations: &[&str], applied: usize)
         }
         tx.pragma_update(None, "user_version", version as i64 + 1)?;
         tx.commit()?;
+    }
+    Ok(())
+}
+
+/// The migration, counted from 0, that orders each DAT's revisions by their headers.
+const HEADER_ORDER: usize = 18;
+/// How much of a DAT file is read for its header's date.
+const HEADER_BYTES: u64 = 1 << 20;
+
+/// What a migration needs that SQL can't express, in its transaction. [`HEADER_ORDER`] reads the header date of every
+/// DAT Revision whose file is kept, then numbers each DAT's revisions as an import does.
+fn after(tx: &rusqlite::Transaction, dir: &Path, version: usize) -> Result<()> {
+    use std::io::Read;
+    if version != HEADER_ORDER {
+        return Ok(());
+    }
+    let kept = tx
+        .prepare("SELECT id, sha256 FROM dat_revisions WHERE blob_dropped_at IS NULL")?
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (id, sha) in kept {
+        let path = dir.join(DATS).join(&sha);
+        let Ok(file) = std::fs::File::open(&path) else {
+            continue;
+        };
+        let mut head = Vec::new();
+        file.take(HEADER_BYTES)
+            .read_to_end(&mut head)
+            .map_err(|e| io_error(&path, e))?;
+        let date = title_select_engine::dat::Dat::header_date(&head);
+        tx.execute(
+            "UPDATE dat_revisions SET header_date = ?2 WHERE id = ?1",
+            rusqlite::params![id, date],
+        )?;
+    }
+    let dats = tx
+        .prepare("SELECT id FROM dats")?
+        .query_map([], |r| r.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for dat in dats {
+        crate::dats::reorder_revisions(tx, dat)?;
     }
     Ok(())
 }

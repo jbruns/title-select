@@ -1965,7 +1965,7 @@ impl Store {
         self.write(|tx| {
             // An older revision dropped in is recorded, but is not the newest, so it owes no Audit.
             let newest =
-                crate::dats::would_be_newest(tx, provider, &name, &parsed.version)?;
+                crate::dats::would_be_newest(tx, provider, &name, &parsed.version, &parsed.date)?;
             let newer: bool = newest && tx.query_row(
                 "SELECT EXISTS (SELECT 1 FROM dats d JOIN dat_revisions r ON r.dat_id = d.id
                                 WHERE d.provider = ?1 AND d.name = ?2)

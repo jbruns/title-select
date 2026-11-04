@@ -31,6 +31,8 @@ pub struct Dat {
     pub sha256: String,
     pub name: String,
     pub version: String,
+    /// The header's date, as the provider writes it; empty if it gives none.
+    pub date: String,
     pub games: Vec<String>,
     pub roms: Vec<Rom>,
     by_name: HashMap<String, Vec<usize>>,
@@ -68,6 +70,7 @@ impl Dat {
             sha256,
             name: String::new(),
             version: String::new(),
+            date: String::new(),
             games: Vec::new(),
             roms: Vec::new(),
             by_name: HashMap::new(),
@@ -113,6 +116,7 @@ impl Dat {
                     match stack.last().map(String::as_str) {
                         Some("name") if in_header => dat.name.push_str(&t.xml10_content()),
                         Some("version") if in_header => dat.version.push_str(&t.xml10_content()),
+                        Some("date") if in_header => dat.date.push_str(&t.xml10_content()),
                         _ => {}
                     }
                 }
@@ -131,6 +135,39 @@ impl Dat {
             )));
         }
         Ok(dat)
+    }
+
+    /// The date in the Logiqx header at the start of `bytes`, read no further than the header's end: empty if there is
+    /// none, or the header is not whole in `bytes`.
+    pub fn header_date(bytes: &[u8]) -> String {
+        let mut reader = quick_xml::Reader::from_reader(bytes);
+        let mut buf = Vec::new();
+        let mut stack: Vec<String> = Vec::new();
+        let mut date = String::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => {
+                    let tag = e.local_name().as_ref().to_string();
+                    if stack.is_empty() && tag != "datafile" {
+                        return String::new();
+                    }
+                    stack.push(tag);
+                }
+                Ok(Event::Text(t))
+                    if stack.len() == 3 && stack[1] == "header" && stack[2] == "date" =>
+                {
+                    date.push_str(&t.xml10_content());
+                }
+                Ok(Event::End(_)) => {
+                    if stack.pop().is_some_and(|t| t == "header") {
+                        return date;
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => return String::new(),
+                _ => {}
+            }
+            buf.clear();
+        }
     }
 
     /// Handles an opening or empty tag inside the root and returns its name.
