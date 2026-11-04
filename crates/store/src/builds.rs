@@ -24,11 +24,13 @@ use title_select_api::build::{
     ItemKind, ItemState, Marker, PlanItem, PlanRemoval, PlanSource, RemovalKind, STAGING,
 };
 use title_select_api::lifecycle::RegistrationKind;
+use title_select_api::storage::chd_of;
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{
-    Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
+    self, Source, copy, repack, repack_sources, verify, verify_loose, write_loose,
 };
+use title_select_engine::chd::{self, Chdman};
 
 use super::checks::Seen;
 use super::folder_dir::{FolderDir, Identity, file_stat};
@@ -61,12 +63,231 @@ struct Work<'a> {
 enum Failure {
     Item(String),
     Folder(String),
+    /// You cancelled the Build while chdman was making the item's CHD: chdman was stopped, and nothing was put in
+    /// place.
+    Cancelled,
 }
 
-/// A file written and verified in the staging directory, with its SHA-256 and size.
+/// A file written and verified in the staging directory, with its SHA-256 and size, and for a CHD the SHA-1 and the
+/// raw data SHA-1 its header recorded once its extraction matched the DAT.
 struct Staged {
     sha256: String,
     size: u64,
+    /// Its modification time once written and synced.
+    mtime_ns: i128,
+    chd_sha1: Option<String>,
+    chd_raw_sha1: Option<String>,
+}
+
+/// What a Build needs to make a CHD: chdman, or why it can't be run, the store's scratch directory, and whether you
+/// cancelled the Build.
+struct ChdWork<'a> {
+    store: &'a Store,
+    chdman: std::result::Result<Chdman, String>,
+    /// How long each run of chdman may take, by the size of the disc.
+    limits: chd::Limits,
+    tmp: PathBuf,
+    build: i64,
+    cancelled: &'a dyn Fn() -> bool,
+}
+
+/// The scratch directory, in the store's, where item `seq` of Build `build` makes its CHD.
+fn chd_dir(tmp: &Path, build: i64, seq: i64) -> PathBuf {
+    tmp.join(format!("chd-{build}-{seq}"))
+}
+
+/// Removes every CHD scratch directory Build `build` left in the store's scratch directory `tmp`.
+fn remove_chd_dirs(tmp: &Path, build: i64) {
+    let prefix = format!("chd-{build}-");
+    for entry in std::fs::read_dir(tmp).into_iter().flatten().flatten() {
+        if entry.file_name().to_string_lossy().starts_with(&prefix) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Removes, with everything in it, the scratch directory it holds once dropped: a CHD's work space never outlives
+/// its item, whether it was built, failed or cancelled.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Writes `item`'s CHD to `file`, new in the staging directory at `staged`: each ROM of the disc is written loose
+/// into a scratch directory from the source the plan found, by descriptor, and checked against the DAT; chdman
+/// builds the CHD from them, then extracts it again, and every track it gives back must match the DAT's. Only then
+/// is the CHD copied into `file`, with its header's SHA-1, of its data and metadata, to check it by from then on. A CHD whose
+/// extraction does not match is never staged; the item fails, and says why.
+fn stage_chd(
+    item: &PlanItem,
+    seq: i64,
+    file: &mut File,
+    staged: &Path,
+    set_fd: &std::result::Result<FolderDir, String>,
+    work: &ChdWork,
+    built_at: SystemTime,
+) -> std::result::Result<Staged, Failure> {
+    let sized: Vec<(&str, u64)> = item
+        .roms
+        .iter()
+        .map(|r| (r.name.as_str(), r.size))
+        .collect();
+    let kind = chd_of(&item.game, &sized).map_err(|why| Failure::Item(why.into()))?;
+    let chdman = Chdman {
+        deadline: work
+            .limits
+            .for_bytes(item.roms.iter().map(|r| r.size).sum()),
+        ..work.chdman.clone().map_err(Failure::Item)?
+    };
+    let cancelled = work.cancelled;
+    let stop = |s: chd::Stop| match s {
+        chd::Stop::Cancelled => Failure::Cancelled,
+        chd::Stop::Failed(why) => Failure::Item(why),
+    };
+    let dir = chd_dir(&work.tmp, work.build, seq);
+    let _ = std::fs::remove_dir_all(&dir);
+    let input = dir.join("in");
+    std::fs::create_dir_all(&input)
+        .map_err(|e| Failure::Item(format!("{}: {e}", input.display())))?;
+    let _scratch = Scratch(dir.clone());
+    // Each file of the Source Set is opened and read once, for all the ROMs it holds: a ZIP holding every track of
+    // the disc is read through once, not once a track.
+    let mut by_source: Vec<(&PlanSource, Vec<&ExpectedRom>)> = Vec::new();
+    for rom in &item.roms {
+        let source = item
+            .sources
+            .iter()
+            .find(|s| s.rom == rom.name)
+            .ok_or_else(|| Failure::Item(format!("{}: no source", rom.name)))?;
+        match by_source.iter_mut().find(|(s, _)| s.path == source.path) {
+            Some((_, roms)) => roms.push(rom),
+            None => by_source.push((source, vec![rom])),
+        }
+    }
+    let mut written: Vec<(&ExpectedRom, File)> = Vec::with_capacity(item.roms.len());
+    for (source, roms) in &by_source {
+        if cancelled() {
+            return Err(Failure::Cancelled);
+        }
+        let opened = open_source(set_fd, source).map_err(Failure::Item)?;
+        work.store.fault_point(Fault::ChdSourceRead(seq));
+        let dests = roms
+            .iter()
+            .map(|rom| {
+                let path = input.join(&rom.name);
+                File::create_new(&path)
+                    .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))
+            })
+            .collect::<std::result::Result<Vec<File>, _>>()?;
+        let members: Option<Vec<(&ExpectedRom, &str)>> = roms
+            .iter()
+            .map(|rom| {
+                item.sources
+                    .iter()
+                    .find(|s| s.rom == rom.name)
+                    .and_then(|s| s.member.as_deref())
+                    .map(|m| (*rom, m))
+            })
+            .collect();
+        match (members, roms.as_slice(), dests.as_slice()) {
+            (Some(members), ..) => {
+                let refs: Vec<&File> = dests.iter().collect();
+                build::write_loose_members(&refs, &members, &opened).map(|_| ())
+            }
+            (None, [rom], [dest]) => write_loose(dest, &[(rom, 0, None)], &[&opened]).map(|_| ()),
+            (None, ..) => Err(format!("{}: a loose file holds one ROM", source.path)),
+        }
+        .map_err(Failure::Item)?;
+        written.extend(roms.iter().copied().zip(dests));
+    }
+    let mut cue = None;
+    for (rom, dest) in &written {
+        verify_loose(dest, rom).map_err(Failure::Item)?;
+        if rom.name.to_ascii_lowercase().ends_with(".cue") {
+            let read = chd::read_cue(dest).map_err(Failure::Item)?;
+            // Before chdman reads it: each track it names is then checked once extracted.
+            chd::cue_tracks(&read)
+                .and_then(|names| chd::cue_matches(&names, &item.roms).map(|_| ()))
+                .map_err(Failure::Item)?;
+            cue = Some(read);
+        }
+    }
+    drop(written);
+    let main = item
+        .roms
+        .iter()
+        .find(|r| {
+            let name = r.name.to_ascii_lowercase();
+            name.ends_with(".cue") || name.ends_with(".iso")
+        })
+        .map(|r| r.name.as_str())
+        .ok_or_else(|| Failure::Item("a disc is built from its .cue or .iso".into()))?;
+    let out = chdman.create(&dir, kind, main, cancelled).map_err(stop)?;
+    // The ROMs read are no longer needed once the CHD holds them: what it gives back is checked against the DAT.
+    std::fs::remove_dir_all(&input)
+        .map_err(|e| Failure::Item(format!("{}: {e}", input.display())))?;
+    // The CHD extracted is the one copied and hashed: held open, and unchanged from before it is extracted until it is
+    // copied.
+    let mut built =
+        File::open(&out).map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
+    let seen = |file: &File| {
+        rustix::fs::fstat(file)
+            .map(|st| crate::checks::Seen::of(&st))
+            .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))
+    };
+    let before = seen(&built)?;
+    let header = chdman
+        .verify(&dir, kind, cue.as_deref(), &item.roms, cancelled)
+        .map_err(|s| match stop(s) {
+            Failure::Item(why) => Failure::Item(format!(
+                "its CHD was not put in place, because extracting it did not give back the DAT's files: {why}"
+            )),
+            other => other,
+        })?;
+    let _ = std::fs::remove_dir_all(dir.join("x"));
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0; 1 << 16];
+    loop {
+        let n = built
+            .read(&mut buf)
+            .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        io::Write::write_all(file, &buf[..n])
+            .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+    }
+    let copied = hex(&hasher.finalize());
+    work.store.fault_point(Fault::ChdCopied(seq));
+    if seen(&built)? != before {
+        return Err(Failure::Item(format!(
+            "{} changed while it was checked",
+            out.display()
+        )));
+    }
+    file.set_modified(built_at)
+        .and_then(|()| file.sync_all())
+        .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+    let (sha256, size) =
+        sha256_of(file).map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
+    let again = chd::header(file).map_err(Failure::Item)?;
+    if sha256 != copied || again != header {
+        return Err(Failure::Item(format!(
+            "{} is not the CHD that was checked",
+            staged.display()
+        )));
+    }
+    Ok(Staged {
+        sha256,
+        size,
+        mtime_ns: staged_mtime(file)?,
+        chd_sha1: Some(header.sha1),
+        chd_raw_sha1: Some(header.raw_sha1),
+    })
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -234,16 +455,20 @@ fn open_source(
     Ok(file)
 }
 
-/// Writes `item` to `file`, new in the staging directory at `staged`, and verifies it.
+/// Writes `item`, the Build's item `seq`, to `file`, new in the staging directory at `staged`, and verifies it.
 fn stage(
-    item: &PlanItem,
+    (item, seq): (&PlanItem, i64),
     file: &mut File,
     staged: &Path,
     set: (&Path, &Path, &std::result::Result<FolderDir, String>),
     additions: Option<&FolderDir>,
+    chd: &ChdWork,
     built_at: SystemTime,
 ) -> std::result::Result<Staged, Failure> {
     let (set_dir, set_root, set_fd) = set;
+    if item.chd {
+        return stage_chd(item, seq, file, staged, set_fd, chd, built_at);
+    }
     if let Some(addition) = &item.addition {
         // An Addition is read from its Additions Set, through a descriptor on the file published there, while
         // it is still that file: copied whole when the play library stores it in the format its Additions Set does,
@@ -302,7 +527,13 @@ fn stage(
         if whole && sha256 != addition.sha256 {
             return Err(changed());
         }
-        return Ok(Staged { sha256, size });
+        return Ok(Staged {
+            sha256,
+            size,
+            mtime_ns: staged_mtime(file)?,
+            chd_sha1: None,
+            chd_raw_sha1: None,
+        });
     }
     let sources: Vec<PathBuf> = item
         .sources
@@ -369,7 +600,29 @@ fn stage(
         .map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
     let (sha256, size) =
         sha256_of(file).map_err(|e| Failure::Folder(format!("{}: {e}", staged.display())))?;
-    Ok(Staged { sha256, size })
+    Ok(Staged {
+        sha256,
+        size,
+        mtime_ns: staged_mtime(file)?,
+        chd_sha1: None,
+        chd_raw_sha1: None,
+    })
+}
+
+/// The modification time of the staged file `file`, as written and synced.
+fn staged_mtime(file: &File) -> std::result::Result<i128, Failure> {
+    rustix::fs::fstat(file)
+        .map(|st| file_stat(&st).mtime_ns)
+        .map_err(|e| Failure::Folder(e.to_string()))
+}
+
+/// What was recorded of a CHD as it was verified: its header's SHA-1, and the SHA-256 and stamp of the file put in
+/// place.
+struct Verified {
+    sha1: String,
+    sha256: String,
+    identity: Identity,
+    file: FileStat,
 }
 
 /// Whether the file a conversion wrote for `item` is in place as it was recorded built, and, read through one
@@ -378,6 +631,7 @@ fn stage(
 fn converted_verified(
     dir: &FolderDir,
     item: &PlanItem,
+    chd: Option<&Verified>,
 ) -> std::result::Result<std::result::Result<(), String>, Error> {
     let io = |e: io::Error| Error::Io(e.to_string());
     let target = &item.target;
@@ -395,10 +649,31 @@ fn converted_verified(
     if !recorded {
         return Ok(Err(format!("{target} changed once it was written")));
     }
-    let verified = match (item.loose, item.roms.as_slice()) {
-        (true, [rom]) => verify_loose(&file, rom),
-        (true, _) => Err("a loose file holds one ROM".into()),
-        (false, _) => verify(&file, &item.roms),
+    let verified = match (item.chd, item.loose, item.roms.as_slice()) {
+        // A CHD was checked by extracting it once it was built. Before its original is deleted it is read whole again
+        // through this descriptor: it is the same CHD while its stamp is the one recorded then, its SHA-256 is too,
+        // and its header says so. An overwrite that puts the modification time back is caught by the SHA-256.
+        (true, ..) => match chd {
+            None => Err("there is no record of it as it was checked".into()),
+            Some(v) if Identity::of(&before) != v.identity || file_stat(&before) != v.file => Err(
+                "it is not the file that was checked: its size or modification time changed".into(),
+            ),
+            Some(v) => match sha256_of(&file).map_err(io)? {
+                (sha256, size) if sha256 != v.sha256 || size != v.file.size => {
+                    Err("it is not the file that was checked: its SHA-256 changed".into())
+                }
+                _ => match chd::header(&file) {
+                    Ok(h) if h.sha1 == v.sha1 => Ok(()),
+                    Ok(_) => {
+                        Err("its CHD header is not the one recorded when it was checked".into())
+                    }
+                    Err(why) => Err(why),
+                },
+            },
+        },
+        (false, true, [rom]) => verify_loose(&file, rom),
+        (false, true, _) => Err("a loose file holds one ROM".into()),
+        (false, false, _) => verify(&file, &item.roms),
     };
     let after = rustix::fs::fstat(&file).map_err(|e| io(e.into()))?;
     if crate::checks::Seen::of(&before) != crate::checks::Seen::of(&after) {
@@ -530,16 +805,18 @@ fn record_applied(
     )?;
     tx.execute(
         "INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id, dat_revision_id,
-                                  roms, sources, size, mtime_ns, sha256, torrentzip, loose, addition_id)
+                                  roms, sources, size, mtime_ns, sha256, torrentzip, loose, addition_id, chd,
+                                  chd_sha1, chd_raw_sha1)
          SELECT ?1, ?2, ?3, ?4, b.id, b.selection_id, b.audit_id, b.dat_revision_id, ?5, ?6, ?7, ?8, i.sha256, ?11,
-                ?12, ?13
+                ?12, ?13, ?14, CASE WHEN ?14 THEN i.chd_sha1 END, CASE WHEN ?14 THEN i.chd_raw_sha1 END
          FROM builds b JOIN build_items i ON i.build_id = b.id AND i.seq = ?10 WHERE b.id = ?9
          ON CONFLICT (folder_id, target) DO UPDATE SET
              game = excluded.game, kind = excluded.kind, build_id = excluded.build_id,
              selection_id = excluded.selection_id, audit_id = excluded.audit_id,
              dat_revision_id = excluded.dat_revision_id, roms = excluded.roms, sources = excluded.sources,
              size = excluded.size, mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,
-             torrentzip = excluded.torrentzip, loose = excluded.loose, addition_id = excluded.addition_id",
+             torrentzip = excluded.torrentzip, loose = excluded.loose, addition_id = excluded.addition_id,
+             chd = excluded.chd, chd_sha1 = excluded.chd_sha1, chd_raw_sha1 = excluded.chd_raw_sha1",
         params![
             folder,
             item.target,
@@ -551,9 +828,10 @@ fn record_applied(
             file.mtime_ns as i64,
             build,
             seq,
-            torrentzip && !item.loose,
+            torrentzip && !item.loose && !item.chd,
             item.loose,
-            item.addition.as_ref().map(|a| a.id)
+            item.addition.as_ref().map(|a| a.id),
+            item.chd
         ],
     )?;
     // A file kept aside to be repacked is no longer missing once a file is built at its name.
@@ -686,6 +964,11 @@ fn adopt(dir: &FolderDir, item: &PlanItem) -> std::result::Result<(String, Stat,
     if Identity::of(&before) != Identity::of(&seen) || file_stat(&before) != file_stat(&seen) {
         return Err(left("it changed while it was read"));
     }
+    if item.chd {
+        return Err(left(
+            "only a CHD this store built is recorded as one, once its extraction matched the DAT",
+        ));
+    }
     let probe = title_select_engine::build::probe(&file).map_err(|e| left(&e.to_string()))?;
     if !title_select_engine::build::holds_as(&probe, &item.roms, item.loose) {
         return Err(left(
@@ -768,6 +1051,57 @@ struct Publishing {
     dev: Option<i64>,
     ino: Option<i64>,
     kept_id: Option<i64>,
+    /// The release whose discs it is put in place with, as one unit.
+    unit: Option<String>,
+}
+
+/// Why the discs of `release`, committed to go in place as one unit, are not all in place: `target` could not be
+/// kept aside from, or put in, the folder.
+fn unit_stuck(release: &str, target: &str, error: &str) -> String {
+    format!(
+        "the discs of {release} go in place together, but {target} could not be put in place: {error}. Its other \
+         discs, the checked files waiting to go in place and anything kept aside were all kept, and the build \
+         finishes {release} when the service next starts, once {target} can be put in place"
+    )
+}
+
+/// Renames into place the staged file of `p`, a disc of a unit, whose target is missing, while the staged file is the
+/// one the Build verified: the same file, SHA-256 and size. `Err` says why it can't be, leaving both as they are.
+fn finish_unit(
+    dir: &FolderDir,
+    temps: &HashMap<String, Identity>,
+    p: &Publishing,
+) -> std::result::Result<(), String> {
+    let gone =
+        || Err("its checked file is no longer waiting in the build's staging folder".to_string());
+    let (Some(dev), Some(ino), Some(sha256), Some(size)) = (p.dev, p.ino, &p.sha256, p.size) else {
+        return gone();
+    };
+    let staging = match dir.stat(STAGING).map_err(|e| e.to_string())? {
+        Some(st)
+            if FolderDir::kind(&st) == rustix::fs::FileType::Directory
+                && temps.get(STAGING) == Some(&Identity::of(&st)) =>
+        {
+            dir.sub(STAGING).map_err(|e| e.to_string())?
+        }
+        _ => return gone(),
+    };
+    let name = format!("{}.zip", p.seq);
+    let file = match staging.open_file(&name) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return gone(),
+        Err(e) => return Err(e.to_string()),
+    };
+    if Identity::of_fd(&file).map_err(|e| e.to_string())? != Identity::from_sql(dev, ino) {
+        return gone();
+    }
+    let (hash, len) = sha256_of(&file).map_err(|e| e.to_string())?;
+    if &hash != sha256 || len as i64 != size {
+        return Err("its staged file is not the one that was checked".into());
+    }
+    staging
+        .rename_new(&name, dir, &p.target)
+        .map_err(|e| e.to_string())
 }
 
 /// What recovery reads about an unfinished Build.
@@ -1136,6 +1470,25 @@ impl Store {
             }
             Ok(())
         };
+        let cancel_asked = || self.cancel_requested(job).unwrap_or(false);
+        let chd_work = ChdWork {
+            chdman: match work.iter().any(|w| w.item.chd) {
+                true => chd::locate(config.chd.chdman.as_deref()).map(|program| Chdman {
+                    program,
+                    threads: config.jobs.workers().hashers,
+                    deadline: config.chd.limits().base,
+                }),
+                false => Err("no item is a CHD".into()),
+            },
+            store: self,
+            limits: config.chd.limits(),
+            tmp: self.dir().join(crate::TMP),
+            build: id,
+            cancelled: &cancel_asked,
+        };
+        if chd_work.chdman.is_ok() {
+            std::fs::create_dir_all(&chd_work.tmp).map_err(|e| Error::Io(e.to_string()))?;
+        }
         let mut cancelled = false;
         // The originals earlier conversions left are disposed of first, before any new file is written.
         for (seq, removal) in removals.iter().filter(|(_, r)| survivor(r).is_some()) {
@@ -1146,9 +1499,34 @@ impl Store {
             remove(*seq, removal, &mut retention)?;
             tick(&mut done);
         }
-        // Each item is done before the next starts: its file written, put in place and recorded, and the original it
-        // converts kept aside, or deleted. A cancelled Build stops between two items.
+        // Each game is done before the next starts: its files written, put in place and recorded, and the originals
+        // they convert kept aside, or deleted. The discs of one release that change format, or become CHDs, are one
+        // unit: every disc is written and verified before any is put in place, and once one is renamed into place
+        // the rest follow, whether the Build is cancelled or stops (recovery finishes them). A cancelled Build stops
+        // between two units, or before a unit's first rename.
+        let mut units: Vec<Vec<&Work>> = Vec::new();
+        let mut releases: HashMap<String, usize> = HashMap::new();
         for w in work {
+            if w.item.chd || w.item.converts.is_some() {
+                let release = title_select_api::storage::release_of(&w.item.game);
+                if let Some(&u) = releases.get(&release) {
+                    units[u].push(w);
+                    continue;
+                }
+                releases.insert(release, units.len());
+            }
+            units.push(vec![w]);
+        }
+        /// A file of a unit, written and verified in the staging directory.
+        struct Ready<'w, 'a> {
+            w: &'w Work<'a>,
+            name: String,
+            file: File,
+            file_id: Identity,
+            staged: Staged,
+            staged_path: PathBuf,
+        }
+        for unit in &units {
             if cancelled {
                 break;
             }
@@ -1156,21 +1534,44 @@ impl Store {
                 cancelled = true;
                 break;
             }
-            let name = format!("{}.zip", w.seq);
-            let target = &w.item.target;
-            let fail = |state: ItemState, error: &str| {
-                self.write(|tx| set_item(tx, id, w.seq, state, error))
-            };
+            let shared =
+                (unit.len() > 1).then(|| title_select_api::storage::release_of(&unit[0].item.game));
+            if let Some(release) = &shared {
+                self.write(|tx| {
+                    tx.execute(
+                        "INSERT INTO build_units (build_id, unit, state) VALUES (?1, ?2, 'staged')",
+                        params![id, release],
+                    )?;
+                    for w in unit {
+                        tx.execute(
+                            "UPDATE build_items SET unit = ?3 WHERE build_id = ?1 AND seq = ?2",
+                            params![id, w.seq, release],
+                        )?;
+                    }
+                    Ok(())
+                })?;
+            }
             // The original a conversion replaces is read and recorded before anything is written for it.
-            let mut original = None;
-            'item: {
+            let mut originals = HashMap::new();
+            let mut ready: Vec<Ready> = Vec::new();
+            // The item that failed, so that no file of its unit is put in place, and why.
+            let mut failed: Option<(i64, String)> = None;
+            for (i, &w) in unit.iter().enumerate() {
+                if i > 0 && self.cancel_requested(job)? {
+                    cancelled = true;
+                    break;
+                }
+                let name = format!("{}.zip", w.seq);
+                let target = &w.item.target;
                 if let Some(keep) = &w.item.converts {
                     check_marker(&dir, &expected).map_err(Error::Refused)?;
                     match record_original(self, &dir, folder, id, keep, target)? {
-                        Ok(read) => original = Some(read),
+                        Ok(read) => {
+                            originals.insert(w.seq, read);
+                        }
                         Err(error) => {
-                            fail(ItemState::Failed, &error)?;
-                            break 'item;
+                            failed = Some((w.seq, error));
+                            break;
                         }
                     }
                 }
@@ -1181,7 +1582,9 @@ impl Store {
                 let (mut file, file_id) = match created {
                     Ok(created) => created,
                     Err(e) => {
-                        fail(ItemState::Failed, &e.to_string())?;
+                        self.write(|tx| {
+                            set_item(tx, id, w.seq, ItemState::Failed, &e.to_string())
+                        })?;
                         return Err(Error::Io(e.to_string()));
                     }
                 };
@@ -1189,7 +1592,7 @@ impl Store {
                 staged_ids.insert(name.clone(), file_id);
                 let staged_path = staging.path().join(&name);
                 match stage(
-                    w.item,
+                    (w.item, w.seq),
                     &mut file,
                     &staged_path,
                     {
@@ -1199,28 +1602,99 @@ impl Store {
                         (set_dir.as_path(), set_root.as_path(), set_fd)
                     },
                     additions.as_ref(),
+                    &chd_work,
                     built_at,
                 ) {
+                    Err(Failure::Cancelled) => {
+                        // Nothing of the unit is put in place: its items are left pending, as ones the Build never
+                        // got to.
+                        drop(file);
+                        remove_staged(&staging, &name, file_id).map_err(Error::Refused)?;
+                        cancelled = true;
+                        break;
+                    }
                     Err(Failure::Item(error)) => {
                         drop(file);
                         if let Err(e) = remove_staged(&staging, &name, file_id) {
-                            fail(ItemState::Failed, &error)?;
+                            self.write(|tx| set_item(tx, id, w.seq, ItemState::Failed, &error))?;
                             return Err(Error::Refused(e));
                         }
-                        fail(ItemState::Failed, &error)?;
+                        failed = Some((w.seq, error));
+                        break;
                     }
                     Err(Failure::Folder(error)) => {
-                        fail(ItemState::Failed, &error)?;
+                        self.write(|tx| set_item(tx, id, w.seq, ItemState::Failed, &error))?;
                         return Err(Error::Io(error));
                     }
-                    Ok(staged) => 'publish: {
-                        if let Some(keep) = &w.item.keep {
+                    Ok(staged) => ready.push(Ready {
+                        w,
+                        name,
+                        file,
+                        file_id,
+                        staged,
+                        staged_path,
+                    }),
+                }
+            }
+            // A unit is committed, with every disc's publish intent, in one transaction that first checks you have
+            // not cancelled: before it nothing is kept aside or renamed, and the unit is rolled back; after it every
+            // disc goes in place, here or by recovery. A file alone is checked for a cancel the same way, then kept
+            // aside, if it must be, before its intent is recorded.
+            let intents = |tx: &Transaction, ready: &[Ready]| -> Result<()> {
+                for r in ready {
+                    let (dev, ino) = r.file_id.to_sql();
+                    tx.execute(
+                        "UPDATE build_items SET state = 'publishing', sha256 = ?3, size = ?4, dev = ?5, ino = ?6,
+                                                chd_sha1 = ?7, chd_raw_sha1 = ?8, mtime_ns = ?9
+                         WHERE build_id = ?1 AND seq = ?2",
+                        params![
+                            id,
+                            r.w.seq,
+                            r.staged.sha256,
+                            r.staged.size as i64,
+                            dev,
+                            ino,
+                            r.staged.chd_sha1,
+                            r.staged.chd_raw_sha1,
+                            r.staged.mtime_ns as i64
+                        ],
+                    )?;
+                }
+                Ok(())
+            };
+            if !cancelled && failed.is_none() {
+                match &shared {
+                    Some(release) => {
+                        let committed = self.write(|tx| {
+                            let asked: bool = tx.query_row(
+                                "SELECT cancel_requested_at IS NOT NULL FROM jobs WHERE id = ?1",
+                                [job],
+                                |r| r.get(0),
+                            )?;
+                            if asked {
+                                return Ok(false);
+                            }
+                            tx.execute(
+                                "UPDATE build_units SET state = 'committing' WHERE build_id = ?1 AND unit = ?2",
+                                params![id, release],
+                            )?;
+                            intents(tx, &ready)?;
+                            Ok(true)
+                        })?;
+                        cancelled = !committed;
+                    }
+                    None if self.cancel_requested(job)? => cancelled = true,
+                    None => {
+                        for r in &ready {
+                            let Some(keep) = &r.w.item.keep else {
+                                continue;
+                            };
                             check_marker(&dir, &expected).map_err(Error::Refused)?;
                             open_area(&mut retention)?;
                             let k = Keep {
                                 folder,
                                 build: id,
-                                seq: w.seq,
+                                seq: r.w.seq,
                                 generation,
                                 keep,
                                 hashed: None,
@@ -1228,38 +1702,108 @@ impl Store {
                             };
                             let area = retention.as_ref().expect("opened above");
                             if let Err(error) = self.keep_aside(&dir, area, &k)? {
-                                drop(file);
-                                if let Err(e) = remove_staged(&staging, &name, file_id) {
-                                    fail(ItemState::Failed, &error)?;
-                                    return Err(Error::Refused(e));
-                                }
-                                fail(ItemState::Failed, &error)?;
-                                break 'publish;
+                                failed = Some((r.w.seq, error));
+                                break;
                             }
                         }
-                        let (dev, ino) = file_id.to_sql();
-                        self.write(|tx| {
+                        if failed.is_none() {
+                            self.write(|tx| intents(tx, &ready))?;
+                        }
+                    }
+                }
+            }
+            if cancelled || failed.is_some() {
+                if let Some((seq, error)) = &failed {
+                    let culprit = &unit
+                        .iter()
+                        .find(|w| w.seq == *seq)
+                        .expect("in its unit")
+                        .item
+                        .target;
+                    self.write(|tx| {
+                        for w in unit {
+                            match w.seq == *seq {
+                                true => set_item(tx, id, w.seq, ItemState::Failed, error)?,
+                                false => set_item(
+                                    tx,
+                                    id,
+                                    w.seq,
+                                    ItemState::Failed,
+                                    &format!(
+                                        "{} was not put in place, because {culprit} of the same game failed; the \
+                                         game stays as it was",
+                                        w.item.target
+                                    ),
+                                )?,
+                            }
+                        }
+                        Ok(())
+                    })?;
+                }
+                for r in ready.drain(..) {
+                    drop(r.file);
+                    remove_staged(&staging, &r.name, r.file_id).map_err(Error::Refused)?;
+                }
+                if let Some(release) = &shared {
+                    self.write(|tx| {
                         tx.execute(
-                            "UPDATE build_items SET state = 'publishing', sha256 = ?3, size = ?4, dev = ?5, ino = ?6
-                             WHERE build_id = ?1 AND seq = ?2",
-                            params![id, w.seq, staged.sha256, staged.size as i64, dev, ino],
+                            "UPDATE build_units SET state = 'rolled_back' WHERE build_id = ?1 AND unit = ?2",
+                            params![id, release],
                         )?;
                         Ok(())
                     })?;
-                        self.fault_point(Fault::BeforePublish(w.seq));
-                        // The file renamed is the one verified: the staged name must still be it, and the target must
-                        // be it once renamed. The verified file stays open until then.
-                        let renamed = check_marker(&dir, &expected)
-                        .and_then(|()| match is_file(&staging, &name, file_id)? {
+                }
+                if cancelled {
+                    break;
+                }
+            } else {
+                // A committed unit that can't be finished here stops the Build, its staged files kept: recovery
+                // finishes it, or holds the folder until it can.
+                let stuck = |target: &str, error: &str| {
+                    Error::Refused(unit_stuck(
+                        shared.as_deref().expect("a unit"),
+                        target,
+                        error,
+                    ))
+                };
+                if shared.is_some() {
+                    for r in &ready {
+                        let Some(keep) = &r.w.item.keep else {
+                            continue;
+                        };
+                        check_marker(&dir, &expected).map_err(Error::Refused)?;
+                        open_area(&mut retention)?;
+                        let k = Keep {
+                            folder,
+                            build: id,
+                            seq: r.w.seq,
+                            generation,
+                            keep,
+                            hashed: None,
+                            original: None,
+                        };
+                        let area = retention.as_ref().expect("opened above");
+                        if let Err(error) = self.keep_aside(&dir, area, &k)? {
+                            return Err(stuck(&r.w.item.target, &error));
+                        }
+                    }
+                }
+                for r in ready.drain(..) {
+                    let (w, name, target) = (r.w, &r.name, &r.w.item.target);
+                    self.fault_point(Fault::BeforePublish(w.seq));
+                    // The file renamed is the one verified: the staged name must still be it, and the target must be
+                    // it once renamed. The verified file stays open until then.
+                    let renamed = check_marker(&dir, &expected)
+                        .and_then(|()| match is_file(&staging, name, r.file_id)? {
                             true => Ok(()),
                             false => Err(format!(
                                 "{} was replaced after it was verified; it was left as it is",
-                                staged_path.display()
+                                r.staged_path.display()
                             )),
                         })
                         .and_then(|()| {
                             staging
-                                .rename_new(&name, &dir, target)
+                                .rename_new(name, &dir, target)
                                 .map_err(|e| match e.kind() {
                                     io::ErrorKind::AlreadyExists => format!(
                                         "{target} appeared in the folder during the build; it was left as it is"
@@ -1267,42 +1811,61 @@ impl Store {
                                     _ => e.to_string(),
                                 })
                         });
-                        if let Err(error) = renamed {
-                            fail(ItemState::Failed, &error)?;
-                            return Err(Error::Refused(error));
+                    if let Err(error) = renamed {
+                        if shared.is_some() {
+                            return Err(stuck(target, &error));
                         }
-                        // From here until the item is recorded applied, recovery settles it from its publish intent.
-                        self.fault_point(Fault::PublishedUnsynced(w.seq));
-                        staging
-                            .sync()
-                            .and_then(|()| dir.sync())
-                            .map_err(folder_io)?;
-                        self.fault_point(Fault::AfterPublish(w.seq));
-                        let found = dir.stat(target).map_err(folder_io)?;
-                        let applied = match &found {
-                            Some(st) => self.write(|tx| {
-                                record_applied(tx, id, folder, w.seq, w.item, st, true)
-                            })?,
-                            None => {
-                                fail(
+                        self.write(|tx| set_item(tx, id, w.seq, ItemState::Failed, &error))?;
+                        return Err(Error::Refused(error));
+                    }
+                    // From here until the item is recorded applied, recovery settles it from its publish intent.
+                    self.fault_point(Fault::PublishedUnsynced(w.seq));
+                    staging
+                        .sync()
+                        .and_then(|()| dir.sync())
+                        .map_err(folder_io)?;
+                    self.fault_point(Fault::AfterPublish(w.seq));
+                    let found = dir.stat(target).map_err(folder_io)?;
+                    let applied = match &found {
+                        Some(st) => self
+                            .write(|tx| record_applied(tx, id, folder, w.seq, w.item, st, true))?,
+                        None => {
+                            self.write(|tx| {
+                                set_item(
+                                    tx,
+                                    id,
+                                    w.seq,
                                     ItemState::Uncertain,
                                     &format!("{target} vanished once it was put in place"),
-                                )?;
-                                false
-                            }
-                        };
-                        if !applied {
-                            return Err(Error::Refused(format!(
-                                "{}: {target} is not the file the build put there; it was left as it is",
-                                dir.path().display()
-                            )));
+                                )
+                            })?;
+                            false
                         }
-                        drop(file);
+                    };
+                    if !applied {
+                        return Err(Error::Refused(format!(
+                            "{}: {target} is not the file the build put there; it was left as it is",
+                            dir.path().display()
+                        )));
                     }
+                    drop(r.file);
+                }
+                if let Some(release) = &shared {
+                    self.write(|tx| {
+                        tx.execute(
+                            "UPDATE build_units SET state = 'done' WHERE build_id = ?1 AND unit = ?2",
+                            params![id, release],
+                        )?;
+                        Ok(())
+                    })?;
                 }
             }
-            tick(&mut done);
-            if let Some((seq, _, keep)) = conversions.iter().find(|(_, c, _)| c.seq == w.seq) {
+            for w in unit {
+                tick(&mut done);
+                let Some((seq, _, keep)) = conversions.iter().find(|(_, c, _)| c.seq == w.seq)
+                else {
+                    continue;
+                };
                 check_marker(&dir, &expected).map_err(Error::Refused)?;
                 let outcome = if item_state(self, id, w.seq)?.as_deref() != Some("applied") {
                     Err(format!(
@@ -1318,7 +1881,7 @@ impl Store {
                         generation,
                         keep,
                         hashed: None,
-                        original,
+                        original: originals.remove(&w.seq),
                     };
                     let area = retention.as_ref().expect("opened above");
                     self.dispose_original(&dir, area, &k, w.item, delete, &approved.actor)?
@@ -1450,7 +2013,34 @@ impl Store {
                 "{name} stays in the kept files: the conversion has no record of it as it read it"
             ))));
         }
-        let note = match converted_verified(dir, item)? {
+        // The CHD as the Build that wrote it verified it: its header's SHA-1, and the stamp it recorded once the file
+        // was written, with its SHA-256, before it was put in place.
+        let chd: Option<Verified> = match item.chd {
+            true => self.read(|c| {
+                Ok(c.query_row(
+                    "SELECT f.chd_sha1, i.dev, i.ino, i.size, i.mtime_ns, f.sha256
+                     FROM built_files f
+                     JOIN build_items i ON i.build_id = f.build_id AND i.target = f.target AND i.sha256 = f.sha256
+                     WHERE f.folder_id = ?1 AND f.target = ?2 AND f.chd_sha1 IS NOT NULL AND i.dev IS NOT NULL
+                       AND i.ino IS NOT NULL AND i.size IS NOT NULL AND i.mtime_ns IS NOT NULL",
+                    params![k.folder, item.target],
+                    |r| {
+                        Ok(Verified {
+                            sha1: r.get(0)?,
+                            sha256: r.get(5)?,
+                            identity: Identity::from_sql(r.get(1)?, r.get(2)?),
+                            file: FileStat {
+                                size: r.get::<_, i64>(3)? as u64,
+                                mtime_ns: r.get::<_, i64>(4)? as i128,
+                            },
+                        })
+                    },
+                )
+                .optional()?)
+            })?,
+            false => None,
+        };
+        let note = match converted_verified(dir, item, chd.as_ref())? {
             Err(why) => format!("{name} stays in the kept files: {why}"),
             Ok(()) => match self.delete_converted_kept(dir, kept, actor)? {
                 outcome if outcome.deleted => {
@@ -1471,6 +2061,8 @@ impl Store {
     /// intent recorded, at the Build's. Returns why the folder was left as it is, if it was; the Build then still
     /// needs recovery, and plans for its folder are blocked.
     fn recover_build(&self, config: &Config, build: i64) -> Result<Option<String>> {
+        // A CHD's work space, left by a Build that stopped while chdman ran, holds nothing it needs.
+        remove_chd_dirs(&self.dir().join(crate::TMP), build);
         let (unfinished, folder, store) = self.read(|c| {
             let (folder, plan, generation, finalizing): (i64, i64, i64, bool) = c.query_row(
                 "SELECT folder_id, plan_id, generation, finalizing_at IS NOT NULL FROM builds WHERE id = ?1",
@@ -1478,8 +2070,12 @@ impl Store {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )?;
             let mut stmt = c.prepare(
-                "SELECT seq, target, sha256, size, kind, origin, dev, ino, kept_id FROM build_items
-                 WHERE build_id = ?1 AND state = 'publishing' ORDER BY seq",
+                "SELECT seq, target, sha256, size, kind, origin, dev, ino, kept_id, unit FROM build_items
+                 WHERE build_id = ?1
+                   AND (state = 'publishing'
+                        OR (state <> 'applied'
+                            AND unit IN (SELECT unit FROM build_units WHERE build_id = ?1 AND state = 'committing')))
+                 ORDER BY seq",
             )?;
             let publishing = stmt
                 .query_map([build], |r| {
@@ -1493,6 +2089,7 @@ impl Store {
                         dev: r.get(6)?,
                         ino: r.get(7)?,
                         kept_id: r.get(8)?,
+                        unit: r.get(9)?,
                     })
                 })?
                 .collect::<Result<_, _>>()?;
@@ -1523,6 +2120,62 @@ impl Store {
             Ok(())
         })?;
         Ok(error)
+    }
+
+    /// Finishes putting in place `p`, a disc of a committed unit of Build `build` in Library Folder `folder` at
+    /// `generation`: keeps aside what the plan found at its target, if that is still there, and renames its staged
+    /// file into place. `Err` says why it can't be; the folder is left as it is.
+    fn finish_disc(
+        &self,
+        dir: &FolderDir,
+        temps: &HashMap<String, Identity>,
+        (folder, build, generation): (i64, i64, u64),
+        p: &Publishing,
+        item: &PlanItem,
+    ) -> Result<std::result::Result<(), String>> {
+        let ours = match dir.open_file(&p.target) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => return Ok(Err(e.to_string())),
+            // The staged file itself, renamed into place: the same file, not only the same bytes.
+            Ok(file) => match (Identity::of_fd(&file), sha256_of(&file)) {
+                (Ok(id), Ok((sha256, size))) => Some(
+                    (p.dev, p.ino) == (Some(id.to_sql().0), Some(id.to_sql().1))
+                        && Some(&sha256) == p.sha256.as_ref()
+                        && Some(size as i64) == p.size,
+                ),
+                (Err(e), _) | (_, Err(e)) => return Ok(Err(e.to_string())),
+            },
+        };
+        match (ours, &item.keep) {
+            (Some(true), _) => return Ok(Ok(())),
+            (Some(false), None) => {
+                return Ok(Err(format!(
+                    "something else is at {} now; it was left as it is",
+                    p.target
+                )));
+            }
+            (Some(false), Some(keep)) => {
+                let retention = match open_retention(self, folder, dir, generation, true)? {
+                    Ok(Some(retention)) => retention,
+                    Ok(None) => return Ok(Err("the retention area was not created".into())),
+                    Err(why) => return Ok(Err(why)),
+                };
+                let k = Keep {
+                    folder,
+                    build,
+                    seq: p.seq,
+                    generation,
+                    keep,
+                    hashed: None,
+                    original: None,
+                };
+                if let Err(why) = self.keep_aside(dir, &retention, &k)? {
+                    return Ok(Err(why));
+                }
+            }
+            (None, _) => {}
+        }
+        Ok(finish_unit(dir, temps, p))
     }
 
     fn clean_folder(
@@ -1603,6 +2256,43 @@ impl Store {
                 Some(c) => cleanup::written_items(c),
                 None => content.items,
             };
+            // Each unit committed to go in place is finished first: a disc the Build stopped before keeping aside
+            // what was at its target, or before renaming, is put in place from its staged file now. One that can't
+            // be holds the folder, every staged file and kept file kept, until a later recovery can.
+            let committing: Vec<String> = self.read(|c| {
+                let mut stmt = c.prepare(
+                    "SELECT unit FROM build_units WHERE build_id = ?1 AND state = 'committing' ORDER BY unit",
+                )?;
+                let rows = stmt.query_map([build], |r| r.get(0))?;
+                Ok(rows.collect::<Result<_, _>>()?)
+            })?;
+            for release in &committing {
+                for p in unfinished
+                    .publishing
+                    .iter()
+                    .filter(|p| p.unit.as_ref() == Some(release))
+                {
+                    let item = items
+                        .iter()
+                        .find(|i| i.kind.writes() && i.target == p.target)
+                        .ok_or_else(|| {
+                            Error::Io(format!("build {build}: no plan item for {}", p.target))
+                        })?;
+                    if let Err(reason) = check_marker(&dir, &marker) {
+                        return Ok(Err(reason));
+                    }
+                    let done = self.finish_disc(
+                        &dir,
+                        &temps,
+                        (folder.id, build, unfinished.generation),
+                        p,
+                        item,
+                    )?;
+                    if let Err(why) = done {
+                        return Ok(Err(unit_stuck(release, &p.target, &why)));
+                    }
+                }
+            }
             for p in &unfinished.publishing {
                 if let (Some(_), Some(c)) = (&p.origin, &content.cleanup) {
                     if let Err(reason) = check_marker(&dir, &marker) {
@@ -1655,6 +2345,21 @@ impl Store {
                         return Ok(Err(e.to_string()));
                     }
                     self.fault_point(Fault::AfterPublish(p.seq));
+                }
+                // A disc of a committed unit is never failed or left: the unit was finished above, so this is its
+                // staged file, renamed into place, unless something changed it since.
+                if let Some(release) = &p.unit {
+                    let published = matches!(&found, Some(Ok(((sha256, size), st)))
+                        if Some(sha256) == p.sha256.as_ref()
+                            && Some(*size as i64) == p.size
+                            && (p.dev, p.ino) == (Some(Identity::of(st).to_sql().0), Some(Identity::of(st).to_sql().1)));
+                    if !published {
+                        return Ok(Err(unit_stuck(
+                            release,
+                            &p.target,
+                            "it is not the checked file the build put there",
+                        )));
+                    }
                 }
                 self.write(|tx| match found {
                     None => set_item(
@@ -1721,6 +2426,15 @@ impl Store {
             }
             Err(e) => return Ok(Err(e.to_string())),
         }
+
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE build_units SET state = CASE state WHEN 'committing' THEN 'done' ELSE 'rolled_back' END
+                 WHERE build_id = ?1 AND state IN ('staged', 'committing')",
+                [build],
+            )?;
+            Ok(())
+        })?;
 
         if forward {
             if let Err(reason) = check_marker(&dir, &marker) {

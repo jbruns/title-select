@@ -33,7 +33,8 @@ pub(super) struct Update {
     build: i64,
     was: FileStat,
     now: FileStat,
-    sha256: String,
+    /// Its SHA-256, when the check read all of it; a CHD's header alone is read, so its SHA-256 is no longer known.
+    sha256: Option<String>,
     torrentzip: bool,
 }
 
@@ -135,6 +136,23 @@ fn read(dir: &FolderDir, name: &str, seen: &Stat) -> std::result::Result<Probe, 
     Ok(probe)
 }
 
+/// The CHD header of the regular file `name`, found by `lstat` as `seen`, read through `dir` while it is the same
+/// file: its header alone is read, never its compressed data.
+fn chd_header(
+    dir: &FolderDir,
+    name: &str,
+    seen: &Stat,
+) -> std::result::Result<title_select_engine::chd::Header, String> {
+    let file: File = dir.open_file(name).map_err(|e| e.to_string())?;
+    let before = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
+    if Seen::of(&before) != Seen::of(seen) {
+        return Err("it changed while it was read".to_owned());
+    }
+    let header = title_select_engine::chd::header(&file)?;
+    still(dir, name, &file, seen)?;
+    Ok(header)
+}
+
 /// Whether `file`, opened from `name` in `dir`, and the entry at `name` are both still the file `seen`.
 fn still(dir: &FolderDir, name: &str, file: &File, seen: &Stat) -> std::result::Result<(), String> {
     let after = rustix::fs::fstat(file).map_err(|e| e.to_string())?;
@@ -170,8 +188,19 @@ pub(super) fn reuse(
 }
 
 /// Checks the folder `dir`, whose entries are `entries`, against `input`. Nothing in it is changed.
-/// The names the storage policy stores games of `dat` loose under, by game: none unless it says loose.
+/// The names the storage policy stores games of `dat` under other than `<game>.zip`, by game: loose, or as CHD; none
+/// unless it says either.
 pub(crate) fn loose_names(storage: Storage, dat: Option<&Dat>) -> HashMap<String, String> {
+    if let Some(dat) = dat.filter(|_| storage.format == StorageFormat::Chd) {
+        return super::plans::chd_targets_of(storage, dat)
+            .into_iter()
+            .filter(|(_, chd)| chd.is_ok())
+            .map(|(game, _)| {
+                let target = format!("{game}.chd");
+                (game, target)
+            })
+            .collect();
+    }
     let Some(dat) = dat.filter(|_| storage.format == StorageFormat::Loose) else {
         return HashMap::new();
     };
@@ -252,7 +281,7 @@ pub(super) fn scan(
             game: built.game.clone(),
             outcome: FileOutcome::Unchanged,
             hashed: false,
-            torrentzip: built.torrentzip || built.loose,
+            torrentzip: built.torrentzip || built.loose || built.chd,
             selected: selected.contains_key(&target.to_lowercase()),
             detail: None,
         };
@@ -284,6 +313,35 @@ pub(super) fn scan(
                 file.detail = Some("it is no longer a regular file".into());
             }
             Some(st) if file_stat(&st) == built.file => {}
+            // A CHD's data was checked against the DAT when it was built: it is the same CHD while the SHA-1 its
+            // header holds, of its data and metadata, is the one recorded then, however it was recompressed since.
+            Some(st) if built.chd => match chd_header(dir, target, &st) {
+                Err(e) => {
+                    file.outcome = FileOutcome::Unreadable;
+                    file.detail = Some(e);
+                }
+                Ok(header) if built.chd_sha1.as_deref() == Some(header.sha1.as_str()) => {
+                    file.outcome = FileOutcome::Refreshed;
+                    out.updates.push(Update {
+                        target: target.clone(),
+                        build: built.build,
+                        was: built.file.clone(),
+                        now: file_stat(&st),
+                        sha256: None,
+                        torrentzip: false,
+                    });
+                }
+                Ok(header) => {
+                    file.outcome = FileOutcome::Conflict;
+                    let what = if built.chd_raw_sha1.as_deref() == Some(header.raw_sha1.as_str()) {
+                        "its CHD holds the same data, but its metadata, such as its track list, is not what was \
+                         checked against the DAT"
+                    } else {
+                        "its CHD no longer holds the data that was checked against the DAT"
+                    };
+                    file.detail = Some(format!("it changed since it was built, and {what}"));
+                }
+            },
             Some(st) => {
                 let (probe, hashed) = probe_of(target, &st, &mut out);
                 file.hashed = hashed;
@@ -300,7 +358,7 @@ pub(super) fn scan(
                             build: built.build,
                             was: built.file.clone(),
                             now,
-                            sha256: p.sha256,
+                            sha256: Some(p.sha256),
                             torrentzip: built.torrentzip,
                         });
                     }
@@ -315,7 +373,7 @@ pub(super) fn scan(
                             build: built.build,
                             was: built.file.clone(),
                             now,
-                            sha256: p.sha256,
+                            sha256: Some(p.sha256),
                             torrentzip: p.torrentzip,
                         });
                     }

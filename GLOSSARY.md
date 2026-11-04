@@ -211,7 +211,7 @@ _Avoid_: Corruption (when meaning any difference)
 **Storage Policy**:
 How each folder stores a Game: as TorrentZip, one `<game>.zip` per Game; loose, as its one ROM under the DAT's
 name; or as a loose folder, `<game>/` holding its ROMs under the DAT's names. A Play Library may also store a disc
-Game as CHD; a Source Set never does. It has two scopes, Source Sets and Play Libraries, each with a global default and
+Game as CHD, one `<game>.chd` per disc, where its system's own setting says so; a Source Set never does. It has two scopes, Source Sets and Play Libraries, each with a global default and
 per-system overrides, as a Selection Profile has. The default is TorrentZip everywhere, except loose folder for disc
 systems' Source Sets. Only a Game with one ROM can be stored loose; a Game with more stays TorrentZip or a loose
 folder, and the plan says why. The Games of one release share one format. Every write of a Game into a folder, by a

@@ -16,3 +16,5 @@ crates/ui/bench/
 !third_party/retool/upstream/retool.py
 !third_party/retool/upstream/modules/
 !tools/retool/build.py
+# The stand-in for SDL that chdman is built with.
+!tools/chdman/sdl-stub.c

@@ -1,5 +1,5 @@
-//! The Storage Policy: how each folder stores a Game, as TorrentZip, loose or a loose folder, for Source Sets and for
-//! Play Libraries, with a global default and per-system overrides.
+//! The Storage Policy: how each folder stores a Game, as TorrentZip, loose, a loose folder or CHD, for Source Sets and
+//! for Play Libraries, with a global default and per-system overrides.
 
 use std::collections::BTreeMap;
 
@@ -20,6 +20,10 @@ pub enum StorageFormat {
     /// `<game>/`, holding each of the Game's ROMs loose under its DAT name: for any Game, and the default for disc
     /// systems' Source Sets (ADR 0013). Only Source Sets store it for now; a Play Library's disc layout is #100.
     LooseFolder,
+    /// `<game>.chd`, one CHD per disc, built by chdman from its `.cue` and `.bin` tracks or its `.iso`: only a disc
+    /// system's Play Libraries store it, never a Source Set, which holds the DAT's exact bytes (ADR 0013). A disc
+    /// it can't hold, and every other disc of its release then, stays TorrentZip.
+    Chd,
 }
 
 impl StorageFormat {
@@ -28,6 +32,7 @@ impl StorageFormat {
             StorageFormat::TorrentZip => "TorrentZip",
             StorageFormat::Loose => "loose",
             StorageFormat::LooseFolder => "loose folder",
+            StorageFormat::Chd => "CHD",
         }
     }
 
@@ -36,6 +41,7 @@ impl StorageFormat {
             StorageFormat::TorrentZip => "torrent_zip",
             StorageFormat::Loose => "loose",
             StorageFormat::LooseFolder => "loose_folder",
+            StorageFormat::Chd => "chd",
         }
     }
 
@@ -44,6 +50,7 @@ impl StorageFormat {
             "torrent_zip" => Some(StorageFormat::TorrentZip),
             "loose" => Some(StorageFormat::Loose),
             "loose_folder" => Some(StorageFormat::LooseFolder),
+            "chd" => Some(StorageFormat::Chd),
             _ => None,
         }
     }
@@ -210,11 +217,102 @@ pub fn target_of(
         (StorageFormat::Loose | StorageFormat::LooseFolder, _) => {
             (format!("{game}.zip"), false, Some(MULTI_ROM_STAYS_ZIP))
         }
-        (StorageFormat::TorrentZip, _) => (format!("{game}.zip"), false, None),
+        // A CHD is decided per release, with each track's size, by [`chd_targets`]; anything else is TorrentZip.
+        (StorageFormat::TorrentZip | StorageFormat::Chd, _) => (format!("{game}.zip"), false, None),
     }
 }
 
-/// Why a disc of a Multi-disc Game is stored as TorrentZip where the policy says loose or loose folder: another of
+/// How chdman builds a disc's CHD.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChdKind {
+    /// A CD: one `.cue` sheet and its raw `.bin` tracks, built with `createcd`.
+    Cd,
+    /// A DVD: one `.iso` image of 2048-byte sectors, built with `createdvd`.
+    Dvd,
+}
+
+/// The bytes of one raw CD sector, which every `.bin` track a CHD holds is a whole number of.
+pub const CD_SECTOR: u64 = 2352;
+
+/// The bytes of one DVD sector, which an `.iso` a CHD holds is a whole number of.
+pub const DVD_SECTOR: u64 = 2048;
+
+/// Why a disc is stored as TorrentZip where the policy says CHD: it is not one `.cue` with its `.bin` tracks, nor one
+/// `.iso`.
+pub const NOT_A_CHD_DISC: &str = "it is not one .cue sheet with its .bin tracks, nor one .iso image, so it can't be \
+     stored as CHD, and it stays TorrentZip";
+
+/// Why a disc is stored as TorrentZip where the policy says CHD: a track is not whole sectors.
+pub const NOT_WHOLE_SECTORS: &str = "a track or image is not a whole number of sectors, so a CHD can't hold its \
+     exact bytes, and it stays TorrentZip";
+
+/// Why a disc is stored as TorrentZip where the policy says CHD: its name can't name a file.
+pub const NOT_A_CHD_NAME: &str =
+    "its name is not a plain file name, so it can't be stored as CHD, and it stays TorrentZip";
+
+/// Whether, and as which kind, a disc `game` with ROMs `roms`, by name and size, can be stored as a CHD whose
+/// extraction gives back its exact bytes: one `.cue` with every other ROM a `.bin` of whole raw sectors, or one
+/// `.iso` of whole DVD sectors. The cue sheet itself is not inside the CHD; it is checked against the DAT before
+/// chdman reads it, and each track afterwards. Otherwise the note says why not.
+pub fn chd_of(game: &str, roms: &[(&str, u64)]) -> Result<ChdKind, &'static str> {
+    let ext = |name: &str| {
+        name.rsplit_once('.')
+            .map(|(_, e)| e.to_ascii_lowercase())
+            .unwrap_or_default()
+    };
+    let target = format!("{game}.chd");
+    if !is_plain_name(&target) || invalid_name(&target).is_some() {
+        return Err(NOT_A_CHD_NAME);
+    }
+    let names: Vec<String> = roms.iter().map(|(n, _)| ext(n)).collect();
+    let kind = match names.iter().filter(|e| *e == "cue").count() {
+        1 if roms.len() > 1 && names.iter().all(|e| e == "cue" || e == "bin") => ChdKind::Cd,
+        0 if roms.len() == 1 && names[0] == "iso" => ChdKind::Dvd,
+        _ => return Err(NOT_A_CHD_DISC),
+    };
+    let whole = roms
+        .iter()
+        .zip(&names)
+        .all(|((_, size), e)| match e.as_str() {
+            "bin" => *size > 0 && size % CD_SECTOR == 0,
+            "iso" => *size > 0 && size % DVD_SECTOR == 0,
+            _ => true,
+        });
+    if !whole {
+        return Err(NOT_WHOLE_SECTORS);
+    }
+    Ok(kind)
+}
+
+/// Each of `games`, by name with its ROMs' names and sizes, that `storage` stores as a CHD, with its kind; or why it
+/// stays TorrentZip. Every disc of a release is stored alike: once one can't be a CHD, none of them is. Empty unless
+/// the policy says CHD.
+pub fn chd_targets<'a>(
+    storage: Storage,
+    games: impl IntoIterator<Item = (&'a str, Vec<(&'a str, u64)>)>,
+) -> BTreeMap<String, Result<ChdKind, &'static str>> {
+    if storage.format != StorageFormat::Chd {
+        return BTreeMap::new();
+    }
+    let mut out: BTreeMap<String, Result<ChdKind, &'static str>> = games
+        .into_iter()
+        .map(|(game, roms)| (game.to_owned(), chd_of(game, &roms)))
+        .collect();
+    let refused: std::collections::BTreeSet<String> = out
+        .iter()
+        .filter(|(_, r)| r.is_err())
+        .map(|(g, _)| release_of(g))
+        .collect();
+    for (game, chd) in out.iter_mut() {
+        if chd.is_ok() && refused.contains(&release_of(game)) {
+            *chd = Err(RELEASE_STAYS_ZIP);
+        }
+    }
+    out
+}
+
+/// Why a disc of a Multi-disc Game is stored as TorrentZip where the policy says loose, loose folder or CHD: another of
 /// its discs can't be, and every disc of a game is stored alike.
 pub const RELEASE_STAYS_ZIP: &str = "another disc of the same game can't be stored as the storage policy says, and \
      every disc of a game is stored alike, so it stays TorrentZip";
@@ -287,6 +385,7 @@ pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Opt
             }),
         );
     }
+    // A Source Set never holds a CHD: were the policy to say so, a Repair writes TorrentZip.
     match target_of(storage, game, roms) {
         (name, true, note) => (Placement::Loose(name), note),
         (name, false, note) => (Placement::TorrentZip(name), note),
@@ -422,5 +521,47 @@ mod tests {
         );
         assert_eq!(release_of("Saga (USA) (Disc 2)"), "Saga (USA)");
         assert_eq!(release_of("Solo (USA)"), "Solo (USA)");
+    }
+
+    #[test]
+    fn a_disc_is_a_chd_when_its_bytes_can_come_back_whole() {
+        let cd = [
+            ("A.cue", 90),
+            ("A (Track 1).bin", CD_SECTOR * 10),
+            ("A (Track 2).bin", CD_SECTOR),
+        ];
+        assert_eq!(chd_of("A", &cd), Ok(ChdKind::Cd));
+        assert_eq!(chd_of("B", &[("B.iso", DVD_SECTOR * 3)]), Ok(ChdKind::Dvd));
+        assert_eq!(
+            chd_of("C", &[("C.cue", 90), ("C.bin", CD_SECTOR + 1)]),
+            Err(NOT_WHOLE_SECTORS)
+        );
+        assert_eq!(
+            chd_of("D", &[("D.gdi", 90), ("D.raw", CD_SECTOR)]),
+            Err(NOT_A_CHD_DISC)
+        );
+        assert_eq!(chd_of("E", &[("E.cue", 90)]), Err(NOT_A_CHD_DISC));
+        assert_eq!(chd_of("F/G", &[("F.iso", DVD_SECTOR)]), Err(NOT_A_CHD_NAME));
+    }
+
+    #[test]
+    fn every_disc_of_a_release_is_a_chd_or_none_is() {
+        let chd = Storage {
+            format: StorageFormat::Chd,
+            delete_originals: false,
+        };
+        let good = |n: &'static str| vec![(n, 90), ("t.bin", CD_SECTOR)];
+        let targets = chd_targets(
+            chd,
+            [
+                ("Saga (USA) (Disc 1)", good("a.cue")),
+                ("Saga (USA) (Disc 2)", vec![("b.cue", 90), ("t.bin", 7)]),
+                ("Solo (USA)", good("s.cue")),
+            ],
+        );
+        assert_eq!(targets["Saga (USA) (Disc 1)"], Err(RELEASE_STAYS_ZIP));
+        assert_eq!(targets["Saga (USA) (Disc 2)"], Err(NOT_WHOLE_SECTORS));
+        assert_eq!(targets["Solo (USA)"], Ok(ChdKind::Cd));
+        assert!(chd_targets(Storage::default(), [("Solo (USA)", good("s.cue"))]).is_empty());
     }
 }

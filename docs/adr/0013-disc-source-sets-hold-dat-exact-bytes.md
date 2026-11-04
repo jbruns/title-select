@@ -23,6 +23,16 @@ ends and emulators widely prefer CHD and `.m3u` playlists.
 - In Library Folders, a Build may convert a disc Game to CHD with a pinned `chdman` shipped in the image. A new CHD is
   verified once by extracting it and matching the DAT's hashes, which gives the trusted stamp ADR 0010 requires;
   Drift checks then read the SHA-1 the CHD records in its header.
+  - The header SHA-1 is the CHD v5 combined SHA-1, of the raw data and the checksummed metadata such as the track
+    list, recorded when the CHD is verified. Neither it nor the raw data SHA-1 depends on compression, so
+    recompressing never causes Drift. Drift compares a file only with its own recorded value, so a `chdman` bump
+    that writes metadata differently can't make an existing file drift; a rebuilt file records its own value at its
+    own verification. The raw data SHA-1 is recorded too, so a Check can say whether the data or only the metadata
+    changed.
+  - A CD, a `.cue` and its `.bin` tracks, becomes a CHD with `createcd`; an `.iso` with `createdvd`. A disc that
+    can't come back byte for byte, such as a track of partial sectors, stays TorrentZip with its release.
+  - The CHD Storage Policy format is only a per-system Play Library override for disc systems, never a global
+    default.
 - Every Game of one release is stored in one format: a Multi-disc Game's discs, and every track of a disc, are
   never split across formats.
 - Redump's `.cue` files are DAT ROMs, so its cue pack can fill or replace them in a Repair. SBI files are not DAT

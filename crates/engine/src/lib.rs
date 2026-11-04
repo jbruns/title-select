@@ -1,6 +1,7 @@
 //! Audits a Source Set against a DAT Revision (see GLOSSARY.md and ADR 0002).
 
 pub mod build;
+pub mod chd;
 pub mod dat;
 pub mod payload;
 mod read;

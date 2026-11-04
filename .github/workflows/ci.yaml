@@ -25,6 +25,18 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       # The patched Retool the Selection tests run, with its pinned clone lists.
       - run: tools/retool/setup
+      # The image's own chdman, from its pinned MAME release, for the CHD tests; they fail in CI without it.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: chdman
+          outputs: type=local,dest=${{ runner.temp }}/chdman
+          cache-from: |
+            type=gha,scope=chdman
+            type=gha
+          cache-to: type=gha,mode=max,scope=chdman
+      - run: echo "TITLE_SELECT_CHDMAN=$RUNNER_TEMP/chdman/chdman" >> "$GITHUB_ENV"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       # The workbench as the browser runs it; the image build compiles it the same way.
@@ -64,7 +76,7 @@ jobs:
           curl -fsS -o /dev/null -H 'Accept-Encoding: br' localhost:8080/pkg/title-select.wasm
           curl -fsS localhost:8080/source-sets | grep -q '/boot.js'
           # The About page's licence texts are served as plain text.
-          for licence in title-select retool retool-clonelists-metadata; do
+          for licence in title-select retool retool-clonelists-metadata mame; do
             curl -fsS -D - -o "$RUNNER_TEMP/$licence.txt" "localhost:8080/licences/$licence.txt" \
               | grep -qi '^content-type: text/plain'
             grep -q 'Copyright' "$RUNNER_TEMP/$licence.txt"
@@ -81,6 +93,15 @@ jobs:
             > "$RUNNER_TEMP/selection.json"
           jq -e '.summary.groups > 0 and (.pins.retool_commit | length == 40)' "$RUNNER_TEMP/selection.json"
           docker run --rm title-select:ci --version | grep -q "$(grep -m1 '^commit = ' third_party/retool/pins.toml | cut -d'"' -f2)"
+      # CHD builds run the image's chdman, the pinned MAME release's, from the path the image names.
+      - name: chdman smoke test
+        run: |
+          version="$(grep -m1 '^ARG MAME_VERSION=' Dockerfile | cut -d= -f2)"
+          # chdman with no command prints its banner and exits nonzero.
+          { docker run --rm --read-only --entrypoint /usr/local/bin/chdman title-select:ci || true; } \
+            | grep -q "manager 0\.${version#mame0} "
+          docker image inspect title-select:ci --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -qx 'TITLE_SELECT_CHDMAN=/usr/local/bin/chdman'
       - if: always()
         run: docker logs service
 

@@ -440,6 +440,7 @@ mod tests {
             keep: None,
             adoptable: false,
             loose: false,
+            chd: false,
             converts: None,
             addition: None,
         }

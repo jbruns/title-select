@@ -37,6 +37,35 @@ pub struct Config {
     pub source_sets: SourceSets,
     #[serde(default)]
     pub fetch: Fetch,
+    #[serde(default)]
+    pub chd: Chd,
+}
+
+/// How a Build makes a CHD.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Chd {
+    /// The chdman to run. When absent, the program `TITLE_SELECT_CHDMAN` names, else `chdman` on the `PATH`.
+    pub chdman: Option<PathBuf>,
+    /// How long, in seconds, each run of chdman on a disc may take before it is stopped and the disc fails, before
+    /// [`Chd::timeout_seconds_per_gib`] is added. Defaults to 600.
+    pub timeout_seconds: Option<u64>,
+    /// The seconds added to [`Chd::timeout_seconds`] for each GiB of the disc's tracks. Defaults to 240.
+    pub timeout_seconds_per_gib: Option<u64>,
+}
+
+impl Chd {
+    /// How long chdman may run on a disc. The defaults are generous, so that only a stuck chdman reaches them:
+    /// chdman 0.289 compressed a GiB of incompressible CD tracks in about a minute on one fast desktop core, its worst
+    /// case, and extracted it in seconds. 4 minutes a GiB allows a host core four times slower, compressing on one
+    /// thread; 10 minutes covers starting up, and a small disc on a busy host. An 8.5 GB DVD is given about 42
+    /// minutes.
+    pub fn limits(&self) -> title_select_engine::chd::Limits {
+        title_select_engine::chd::Limits {
+            base: std::time::Duration::from_secs(self.timeout_seconds.unwrap_or(600)),
+            per_gib: std::time::Duration::from_secs(self.timeout_seconds_per_gib.unwrap_or(240)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -304,6 +333,7 @@ impl Default for Config {
             path_templates: PathTemplates::default(),
             source_sets: SourceSets::default(),
             fetch: Fetch::default(),
+            chd: Chd::default(),
         }
     }
 }

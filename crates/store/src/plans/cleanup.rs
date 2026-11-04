@@ -494,6 +494,9 @@ impl Store {
                     });
                     let repack = match (built, checked, f) {
                         (None, ..) => Err(format!("{target} is not a file Title Select built")),
+                        (Some(built), ..) if built.chd => Err(format!(
+                            "{target} is a CHD, as the storage policy says, so it is not repacked"
+                        )),
                         (Some(built), ..) if built.loose => Err(format!(
                             "{target} is stored loose, as the storage policy says, so it is not repacked"
                         )),

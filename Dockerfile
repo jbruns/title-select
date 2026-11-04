@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# The Service image: one static binary, the workbench's bundle with the licence texts its About page shows, and the
-# patched Retool that Selection runs, on distroless Python, run as the nonroot user. It needs no writable path but the store volume, so it runs with a
+# The Service image: one static binary, the workbench's bundle with the licence texts its About page shows, the
+# patched Retool that Selection runs, and the pinned chdman that CHD builds run, on distroless Python, run as the nonroot user. It needs no writable path but the store volume, so it runs with a
 # read-only root filesystem.
 
 FROM rust:1.99.1-alpine@sha256:b1d5dd5a22a09404d3e798c0cf051b689077360374eb505fa5bb93c479693d87 AS build
@@ -51,6 +51,30 @@ RUN python3 -m venv /opt/retool/venv \
     && python3 tools/retool/build.py build --dest /opt/retool --runtime-only --no-pristine \
     && rm -r /opt/retool/cache
 
+# chdman, for CHD builds, from a pinned MAME release: only chdman is built, not the emulator. MAME's tools build links
+# SDL, which chdman never calls: SDL's headers are there to compile against, but a stub stands in for its library, and
+# the C++ runtime is linked in, so the binary needs only the C library the runtime image has.
+FROM debian:12-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS chdman-build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl g++ make python3 libsdl2-dev \
+    && rm -rf /var/lib/apt/lists/*
+# renovate: datasource=github-releases depName=mamedev/mame
+ARG MAME_VERSION=mame0289
+WORKDIR /mame
+RUN curl -fsSL "https://github.com/mamedev/mame/archive/refs/tags/$MAME_VERSION.tar.gz" | tar xz --strip-components=1
+COPY tools/chdman/sdl-stub.c /stub/
+RUN gcc -O2 -c /stub/sdl-stub.c -o /stub/sdl-stub.o && ar rcs /stub/libSDL2.a /stub/sdl-stub.o
+RUN make -j"$(nproc)" SUBTARGET=tiny TOOLS=1 EMULATOR=0 IGNORE_GIT=1 OPTIMIZE=2 SYMBOLS=0 NO_X11=1 NO_OPENGL=1 \
+      LDOPTS="-L/stub -static-libstdc++ -static-libgcc" generate build/projects/sdl/mametiny/gmake-linux/Makefile \
+    && make -j"$(nproc)" -C build/projects/sdl/mametiny/gmake-linux config=release chdman \
+    && mkdir /out && cp chdman /out/chdman && cat COPYING docs/legal/GPL-2.0 > /out/mame.txt \
+    && /out/chdman | grep -q "manager 0\.${MAME_VERSION#mame0} " \
+    && test -z "$(ldd /out/chdman | grep -v -e linux-vdso -e libc.so -e libm.so -e ld-linux)"
+
+# chdman alone, for CI's tests to export.
+FROM scratch AS chdman
+COPY --from=chdman-build /out/chdman /chdman
+
 FROM gcr.io/distroless/python3-debian12:nonroot@sha256:7d1042ce588ab97019fe95c24ffca7bc5a82ccdac572511d5e09bda4435c89c5
 COPY --from=build /title-select /title-select
 COPY --from=build /ui /ui
@@ -59,10 +83,13 @@ COPY --from=retool /opt/retool /opt/retool
 # The vendored Retool's licence and the fetched clone lists' licence, for the workbench's About page.
 COPY --from=retool /opt/retool/retool/LICENSE /ui/licences/retool.txt
 COPY --from=retool /opt/retool/retool/clonelists-LICENSE /ui/licences/retool-clonelists-metadata.txt
+COPY --from=chdman-build /out/chdman /usr/local/bin/chdman
+COPY --from=chdman-build /out/mame.txt /ui/licences/mame.txt
 ENV TITLE_SELECT_STORE=/store \
     TITLE_SELECT_LISTEN=0.0.0.0:8080 \
     TITLE_SELECT_UI=/ui \
-    TITLE_SELECT_RETOOL=/opt/retool
+    TITLE_SELECT_RETOOL=/opt/retool \
+    TITLE_SELECT_CHDMAN=/usr/local/bin/chdman
 VOLUME /store
 EXPOSE 8080
 USER nonroot:nonroot
