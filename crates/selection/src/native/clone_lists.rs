@@ -333,7 +333,7 @@ fn clone_list_variants(
         let variant = dict_mut(entry)?;
         let Some(search_term) = variant.get("searchTerm").cloned() else {
             run.trace.warn(
-                "• The following variants entry is missing a searchTerm key and will be skipped:",
+                "• The following variants entry is missing a \x1b[1msearchTerm\x1b[22m key and will be skipped:",
             );
             run.trace
                 .warn(&format!("\n  {}", J::Dict(variant.clone()).py_repr()));
@@ -547,12 +547,22 @@ fn group_of(contents: &IndexMap<String, J>) -> PyResult<&str> {
 
 /// The warning Retool gives for a region order condition it can't read, which then fails to name the variant
 /// title.
-fn region_order_warning(run: &mut Run, text: &str, contents: &IndexMap<String, J>) -> PyResult<()> {
+fn region_order_warning(
+    run: &mut Run,
+    text: &str,
+    contents: &IndexMap<String, J>,
+    wrap_term: bool,
+) -> PyResult<()> {
     run.trace.warn(text);
     let term = contents
         .get("searchTerm")
         .ok_or_else(|| key_error("searchTerm"))?;
-    run.trace.warn(&format!("\n  {}", term.py_str()));
+    let term = format!("\n  {}", term.py_str());
+    if wrap_term {
+        run.trace.warn(&term);
+    } else {
+        run.trace.warn_unwrapped(&term);
+    }
     Ok(())
 }
 
@@ -582,9 +592,10 @@ fn apply_filters(
     };
     if !missing.is_empty() {
         run.trace.warn(&format!(
-            "• The following variant title's filters array is missing a {missing}, so no changes have been made:"
+            "• The following variant title's \x1b[1mfilters\x1b[22m array is missing a {missing}, so no changes have been made:"
         ));
-        run.trace.warn(&format!("\n  {}", search_term.py_str()));
+        run.trace
+            .warn_unwrapped(&format!("\n  {}", search_term.py_str()));
         return Ok(());
     }
     for filter in items(filters)? {
@@ -620,16 +631,18 @@ fn apply_filters(
                 Some(value) => lists.higher = Some(region_list(value)?),
                 None => region_order_warning(
                     run,
-                    "• The following exception's higherRegions key isn't an array and will be skipped:",
+                    "• The following exception's \x1b[1mhigherRegions\x1b[22m key isn't an array and will be skipped:",
                     contents,
+                    false,
                 )?,
             }
             match order.get("lowerRegions") {
                 Some(value) => lists.lower = Some(region_list(value)?),
                 None => region_order_warning(
                     run,
-                    "• The following exception's lowerRegions key isn't an array and will be skipped:",
+                    "• The following exception's \x1b[1mlowerRegions\x1b[22m key isn't an array and will be skipped:",
                     contents,
+                    false,
                 )?,
             }
             let unbound = || Crash("UnboundLocalError: a region order condition".into());
@@ -640,8 +653,9 @@ fn apply_filters(
             {
                 region_order_warning(
                     run,
-                    "• The following exception has All other regions in both the higherRegions and lowerRegions keys, and will be skipped:",
+                    "• The following exception has \x1b[1mAll other regions\x1b[22m in both the \x1b[1mhigherRegions\x1b[22m and \x1b[1mlowerRegions\x1b[22m keys, and will be skipped:",
                     contents,
+                    true,
                 )?;
                 continue;
             }

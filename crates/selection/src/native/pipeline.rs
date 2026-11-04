@@ -99,7 +99,7 @@ fn run_within(
     }
     json_final(&mut run, &groups);
     if groups.values().all(|titles| titles.is_empty()) {
-        run.trace.warn(
+        run.trace.warn_error(
             "• No titles in the input DAT match your preferences. No DAT file has been created.",
         );
     }

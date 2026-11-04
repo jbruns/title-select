@@ -6,7 +6,8 @@ mod support;
 
 use std::collections::BTreeMap;
 
-use title_select_api::selection::{Category, Selection, SelectionProfile};
+use title_select_api::selection::{Category, Selection, SelectionEngine, SelectionProfile};
+use title_select_selection::RunOptions;
 
 struct Case {
     name: &'static str,
@@ -183,6 +184,11 @@ fn kept(selection: &Selection, with_clones: bool) -> Vec<(String, Option<String>
 }
 
 fn run(case: &Case) -> Selection {
+    run_with(case, SelectionEngine::Bundled)
+}
+
+/// Runs the case with `engine`. Only the bundled engine's run rewrites the goldens.
+fn run_with(case: &Case, engine: SelectionEngine) -> Selection {
     let work = tempfile::tempdir().unwrap();
     let mut profile = support::profile_from_upstream_config(case.config);
     (case.adjust)(&mut profile);
@@ -195,8 +201,12 @@ fn run(case: &Case) -> Selection {
         dat = work.path().join("input.dat");
         std::fs::write(&dat, format!("{start}<name>{system}</name>{end}")).unwrap();
     }
+    let options = RunOptions {
+        engine,
+        ..support::options(work.path())
+    };
     let outcome = support::fixture_engine()
-        .run(&dat, &profile, &support::options(work.path()))
+        .run(&dat, &profile, &options)
         .unwrap_or_else(|e| panic!("{}: {e}", case.name));
     let selection = outcome.selection;
 
@@ -227,24 +237,34 @@ fn run(case: &Case) -> Selection {
         golden.pins = Default::default();
         let mut json = serde_json::to_string_pretty(&golden).unwrap();
         json.push('\n');
-        support::golden(&format!("{}.selection.json", case.name), &json);
-        support::golden(
-            &format!("{}.trace.jsonl", case.name),
-            &title_select_selection::stable_trace(&outcome.trace).unwrap(),
-        );
+        let trace = title_select_selection::stable_trace(&outcome.trace).unwrap();
+        let selection_golden = format!("{}.selection.json", case.name);
+        if engine == SelectionEngine::Bundled || !support::regenerating() {
+            support::golden(&selection_golden, &json);
+            support::golden(&format!("{}.trace.jsonl", case.name), &trace);
+        }
     }
     selection
 }
 
 #[test]
 fn conformance_cases_match_retools_output_and_the_goldens() {
+    run_cases(SelectionEngine::Bundled);
+}
+
+#[test]
+fn the_built_in_engine_matches_retools_output_and_the_goldens() {
+    run_cases(SelectionEngine::Builtin);
+}
+
+fn run_cases(engine: SelectionEngine) {
     let failures: BTreeMap<&str, String> = std::thread::scope(|scope| {
         let handles: Vec<_> = CASES
             .iter()
             .map(|case| {
                 (
                     case.name,
-                    scope.spawn(move || std::panic::catch_unwind(|| drop(run(case)))),
+                    scope.spawn(move || std::panic::catch_unwind(|| drop(run_with(case, engine)))),
                 )
             })
             .collect();

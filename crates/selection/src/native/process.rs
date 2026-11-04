@@ -259,7 +259,11 @@ pub(crate) fn process_dat(
             node.description = format!("{} (Dupe {number})", node.description);
             node.short_name = format!("{} (Dupe {number})", node.short_name);
             node.region_free_name = format!("{} (Dupe {number})", node.region_free_name);
-            let entry = format!("{before} -> {}", node.full_name);
+            // With Retool's colours, `Font.warning_bold` and `Font.warning`, which sort before any printable text.
+            let entry = format!(
+                "\x1b[1m\x1b[93m{before}\x1b[0m\x1b[93m -> \x1b[1m\x1b[93m{}\x1b[0m\x1b[93m",
+                node.full_name
+            );
             if !duplicate_names.contains(&entry) {
                 duplicate_names.push(entry);
             }
@@ -276,7 +280,7 @@ pub(crate) fn process_dat(
         duplicate_names.sort();
         run.trace.warn("• The following titles with identical names were found in the input DAT file, and will be renamed. They won't be processed as clones:\n");
         for name in duplicate_names {
-            run.trace.warn(&format!("  •  {name}"));
+            run.trace.warn_unwrapped(&format!("  •  {name}"));
         }
     }
     Ok(Processed {

@@ -194,8 +194,19 @@ impl Trace {
         }
     }
 
-    /// `eprint(text, level='warning')` or `level='error'`.
+    /// `eprint(text, level='warning')`, which wraps the coloured text at 95 columns. Pass `text` with the same
+    /// escapes Retool's has, such as `Font.b`, because they count towards the width.
     pub fn warn(&mut self, text: &str) {
+        self.warn_unwrapped(&fill(&format!("\x1b[0m\x1b[93m{text}\x1b[0m")));
+    }
+
+    /// `eprint(text, level='error')`.
+    pub fn warn_error(&mut self, text: &str) {
+        self.warn_unwrapped(&fill(&format!("\x1b[0m\x1b[91m{text}\x1b[0m")));
+    }
+
+    /// `eprint(text, level='warning', wrap=False)`.
+    pub fn warn_unwrapped(&mut self, text: &str) {
         for line in plain(text).split('\n') {
             let line = py::strip(line).trim_start_matches('•').trim();
             if !line.is_empty() {
@@ -341,4 +352,71 @@ fn message(reference: &str, variables: &[String]) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// `textwrap.TextWrapper(width=95, subsequent_indent='  ', replace_whitespace=False, break_long_words=False,
+/// break_on_hyphens=False).fill(text)`, as `eprint` wraps a non-empty message.
+pub(crate) fn fill(text: &str) -> String {
+    const WIDTH: usize = 95;
+    const INDENT: &str = "  ";
+    let is_ws = |c: char| matches!(c, '\t' | '\n' | '\x0b' | '\x0c' | '\r' | ' ');
+    // `str.expandtabs()`.
+    let mut expanded = String::new();
+    let mut column = 0;
+    for c in text.chars() {
+        match c {
+            '\t' => {
+                let n = 8 - column % 8;
+                expanded.extend(std::iter::repeat_n(' ', n));
+                column += n;
+            }
+            '\n' | '\r' => {
+                expanded.push(c);
+                column = 0;
+            }
+            _ => {
+                expanded.push(c);
+                column += 1;
+            }
+        }
+    }
+    // `wordsep_simple_re`: runs of whitespace and of everything else.
+    let mut chunks: Vec<String> = Vec::new();
+    for c in expanded.chars() {
+        match chunks.last_mut() {
+            Some(last) if last.chars().next().is_some_and(is_ws) == is_ws(c) => last.push(c),
+            _ => chunks.push(c.to_string()),
+        }
+    }
+    let len = |s: &String| s.chars().count();
+    let blank = |s: &String| py::strip(s).is_empty();
+    chunks.reverse();
+    let mut lines: Vec<String> = Vec::new();
+    while !chunks.is_empty() {
+        let indent = if lines.is_empty() { "" } else { INDENT };
+        let width = WIDTH - indent.len();
+        if !lines.is_empty() && chunks.last().is_some_and(blank) {
+            chunks.pop();
+        }
+        let mut line: Vec<String> = Vec::new();
+        let mut line_len = 0;
+        while let Some(chunk) = chunks.last() {
+            let n = len(chunk);
+            if line_len + n > width {
+                break;
+            }
+            line_len += n;
+            line.extend(chunks.pop());
+        }
+        if chunks.last().is_some_and(|c| len(c) > width) && line.is_empty() {
+            line.extend(chunks.pop());
+        }
+        if line.last().is_some_and(blank) {
+            line.pop();
+        }
+        if !line.is_empty() {
+            lines.push(format!("{indent}{}", line.concat()));
+        }
+    }
+    lines.join("\n")
 }
