@@ -3143,6 +3143,37 @@ fn under_a_loose_policy_every_disc_stays_torrentzip_when_one_has_more_than_one_r
     );
 }
 
+#[test]
+fn a_disc_is_not_converted_while_another_disc_of_its_game_cannot_be_repaired() {
+    let mut games = disc_games();
+    let env = Env::with("Redump", &games);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 1)"]);
+    // Disc 2 lacks a track no folder holds, so it stays the ZIP it is.
+    games[2].1.truncate(1);
+    write_games_zipped(&env, &games, &["Saga (USA) (Disc 2)"]);
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let first = item(&plan, "game:Saga (USA) (Disc 1)");
+    assert_eq!(first.chosen, RepairChoice::Leave, "{first:?}");
+    assert!(
+        first
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Saga (USA) (Disc 2)") && n.contains("every disc")),
+        "{first:?}"
+    );
+    assert!(
+        !plan
+            .content
+            .steps
+            .iter()
+            .any(|s| s.item.starts_with("game:Saga")),
+        "{:#?}",
+        plan.content.steps
+    );
+}
+
 /// Imports a cue pack holding `cues` for the disc system's DAT.
 fn import_cue_pack(env: &Env, cues: &[(&str, &[u8])]) {
     let pack = env.tmp.path().join("Test - System (cues).zip");

@@ -233,6 +233,74 @@ pub(crate) fn split_release(items: &[RepairItem]) -> Option<String> {
     None
 }
 
+/// How the files holding game `game`'s ROMs, by the Audit, are stored.
+fn stored_formats(by_path: &BTreeMap<&str, Vec<&Entry>>, game: &str) -> HashSet<StorageFormat> {
+    by_path
+        .iter()
+        .filter(|(_, entries)| {
+            entries.iter().any(|e| match e.finding {
+                Finding::Matched | Finding::Misnamed => e.roms.iter().any(|r| r.game == game),
+                Finding::Mismatched => e.named_rom.as_ref().is_some_and(|r| r.game == game),
+                _ => false,
+            })
+        })
+        .map(|(path, entries)| {
+            match (
+                path.contains('/'),
+                entries.iter().any(|e| e.member.is_some()),
+            ) {
+                (true, _) => StorageFormat::LooseFolder,
+                (false, true) => StorageFormat::TorrentZip,
+                (false, false) => StorageFormat::Loose,
+            }
+        })
+        .collect()
+}
+
+/// A game item, by its index in `proposed`, that would store its disc otherwise than another disc of its release no
+/// applied item repairs, which stays stored as it is, with that other disc's name; none when no release is split. A
+/// disc already stored as the policy says, `good`, is taken as stored so.
+fn release_split_by_unrepaired(
+    i: &Inputs,
+    by_path: &BTreeMap<&str, Vec<&Entry>>,
+    good: &BTreeSet<String>,
+    proposed: &[Proposed],
+) -> Option<(usize, String)> {
+    let placements = placements_of(i);
+    let repaired: HashMap<&str, usize> = proposed
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.item.key.starts_with("game:") && p.item.chosen != RepairChoice::Leave)
+        .filter_map(|(n, p)| Some((p.produces.as_deref()?, n)))
+        .collect();
+    // Each disc of each release: the item repairing it, if any, its name, and how it is stored once repaired.
+    type Disc<'a> = (Option<usize>, &'a str, HashSet<StorageFormat>);
+    let mut releases: BTreeMap<String, Vec<Disc>> = BTreeMap::new();
+    for (index, game) in i.dat.games.iter().enumerate() {
+        let formats = match (repaired.get(game.as_str()), &placements[index]) {
+            (Some(_), Some((placed, _))) => HashSet::from([placed.format()]),
+            (None, Some((placed, _))) if good.contains(game) => HashSet::from([placed.format()]),
+            _ => stored_formats(by_path, game),
+        };
+        if !formats.is_empty() {
+            releases.entry(release_of(game)).or_default().push((
+                repaired.get(game.as_str()).copied(),
+                game,
+                formats,
+            ));
+        }
+    }
+    releases.values().find_map(|discs| {
+        discs.iter().find_map(|(repairing, _, formats)| {
+            let repairing = (*repairing)?;
+            discs
+                .iter()
+                .find(|(other, _, stays)| other.is_none() && stays != formats)
+                .map(|(_, stays, _)| (repairing, stays.to_string()))
+        })
+    })
+}
+
 /// Leaves every other disc of the release of game item `left`, which is left, saying why.
 fn leave_release(proposed: &mut [Proposed], left: usize) {
     let Some(game) = proposed[left].item.game.clone() else {
@@ -1181,7 +1249,28 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 })
         });
         let Some(lost) = lost else {
-            break;
+            // A disc no item repairs stays stored as it is, so no other disc of its game is stored otherwise.
+            let Some((repaired, stays)) =
+                release_split_by_unrepaired(i, &by_path, &good, &proposed)
+            else {
+                break;
+            };
+            let game = proposed[repaired].item.game.clone().unwrap_or_default();
+            for p in proposed.iter_mut().filter(|p| {
+                p.item.key.starts_with("game:")
+                    && p.item.chosen != RepairChoice::Leave
+                    && p.item
+                        .game
+                        .as_deref()
+                        .is_some_and(|g| release_of(g) == release_of(&game))
+            }) {
+                p.item.chosen = RepairChoice::Leave;
+                p.item.note = Some(format!(
+                    "left as it is: {stays}, another disc of the same game, can't be repaired now and stays \
+                     stored as it is, and every disc of a game is stored alike"
+                ));
+            }
+            continue;
         };
         let item = &mut proposed[lost].item;
         item.chosen = RepairChoice::Leave;
