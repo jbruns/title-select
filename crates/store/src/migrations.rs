@@ -28,8 +28,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0017_lifecycle.sql"),
     include_str!("migrations/0018_disc_sets.sql"),
     include_str!("migrations/0019_fetches.sql"),
-    // 0020 is taken by #113; until it lands, CHD builds are the 20th migration applied.
-    include_str!("migrations/0021_chd.sql"),
+    include_str!("migrations/0020_chd.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {
