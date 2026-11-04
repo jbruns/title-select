@@ -19,6 +19,7 @@ mod select;
 mod settings;
 mod titletools;
 mod trace;
+mod userre;
 
 pub(crate) use pipeline::run;
 

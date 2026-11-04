@@ -68,6 +68,10 @@ pub enum Error {
     Trace(String),
     #[error("the built-in selection engine: {0}")]
     Builtin(String),
+    /// Something the bundled engine accepts that the built-in engine doesn't support, such as a regular expression
+    /// it can't compile.
+    #[error("the built-in selection engine doesn't support {0}")]
+    Unsupported(String),
 }
 
 fn io(context: impl Into<String>) -> impl FnOnce(std::io::Error) -> Error {

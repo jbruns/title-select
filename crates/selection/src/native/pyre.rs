@@ -85,6 +85,27 @@ impl Re {
         })
     }
 
+    /// `re.compile(pattern, flags=re.I)` for one of the Operator's patterns, read as Python reads it; an error
+    /// says what the built-in engine doesn't support (see `userre`).
+    pub fn user(pattern: &str) -> Result<Re, String> {
+        let rewritten = super::userre::rewrite(pattern)?;
+        let regex = RegexBuilder::new(&rewritten.pattern)
+            .case_insensitive(rewritten.case_insensitive)
+            .backtrack_limit(10_000_000)
+            .build()
+            .map_err(|e| e.to_string())?;
+        Ok(Re {
+            regex,
+            source: pattern.to_owned(),
+            ignore_case: true,
+        })
+    }
+
+    /// The pattern as compiled.
+    pub fn rewritten(&self) -> &str {
+        self.regex.as_str()
+    }
+
     /// A pattern Retool builds itself, which is known to compile.
     pub fn of(pattern: &str) -> Re {
         Self::new(pattern).unwrap_or_else(|e| panic!("{pattern}: {e}"))

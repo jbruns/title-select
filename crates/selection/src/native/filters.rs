@@ -1,9 +1,10 @@
 //! The language and region filters (`modules/title_selection/filter_languages.py`, `filter_regions.py`).
 
 use super::node::{Groups, Run, Titles};
+use super::py::PyResult;
 
 /// `filter_languages`.
-pub(crate) fn filter_languages(run: &mut Run, groups: &mut Groups) {
+pub(crate) fn filter_languages(run: &mut Run, groups: &mut Groups) -> PyResult<()> {
     run.note("• Removing titles without specified languages... ");
     if !groups.is_empty() {
         run.trace.warn("\n\nStage: Filter languages");
@@ -30,6 +31,7 @@ pub(crate) fn filter_languages(run: &mut Run, groups: &mut Groups) {
     };
     let names: Vec<String> = groups.keys().cloned().collect();
     for group in names {
+        run.limits.check()?;
         let titles: Vec<usize> = groups[&group].iter().copied().collect();
         let mut supported = Titles::new();
         for &title in &titles {
@@ -70,14 +72,16 @@ pub(crate) fn filter_languages(run: &mut Run, groups: &mut Groups) {
         }
     }
     run.note("• Removing titles without specified languages... done.");
+    Ok(())
 }
 
 /// `filter_regions`.
-pub(crate) fn filter_regions(run: &mut Run, groups: &mut Groups) {
+pub(crate) fn filter_regions(run: &mut Run, groups: &mut Groups) -> PyResult<()> {
     run.note("• Removing titles without specified regions... ");
     let region_order = run.region_order();
     let names: Vec<String> = groups.keys().cloned().collect();
     for group in names {
+        run.limits.check()?;
         let titles: Vec<usize> = groups[&group].iter().copied().collect();
         let mut kept = Titles::new();
         for &title in &titles {
@@ -98,4 +102,5 @@ pub(crate) fn filter_regions(run: &mut Run, groups: &mut Groups) {
         }
     }
     run.note("• Removing titles without specified regions... done.");
+    Ok(())
 }

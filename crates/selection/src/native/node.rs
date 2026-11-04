@@ -184,7 +184,7 @@ impl Run {
     pub fn search_i(&mut self, pattern: &str, text: &str) -> PyResult<bool> {
         let key = format!("\u{0}i{pattern}");
         if !self.patterns.contains_key(&key) {
-            let re = Re::new_i(pattern).map_err(|e| Crash(format!("re.error: {e}")))?;
+            let re = Re::user(pattern).map_err(|e| Crash(format!("re.error: {e}")))?;
             self.patterns.insert(key.clone(), re);
         }
         Ok(self.patterns[&key].search(text))

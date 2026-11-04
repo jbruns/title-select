@@ -116,27 +116,24 @@ pub(crate) fn import_metadata(dat: &Dat, data: &Path) -> Result<IndexMap<String,
 }
 
 /// `regex_test` for the Operator's filters: drops the `/regex` entries that don't compile, with a warning.
-fn regex_test(run: &mut Run, list: Vec<String>, origin: &str) -> Vec<String> {
-    let mut kept = Vec::new();
-    let mut invalid = Vec::new();
-    for item in list {
-        if let Some(pattern) = item.strip_prefix('/')
-            && Re::new(pattern).is_err()
+fn regex_test(list: Vec<String>, origin: &str, post_filter: bool) -> Result<Vec<String>, Error> {
+    // Python refuses a Profile whose patterns it can't compile before either engine runs, so a pattern
+    // here compiles in Python; one the built-in engine can't read as Python does stops the run rather
+    // than being skipped, which would change the rules.
+    for item in &list {
+        let wrapped = item
+            .strip_prefix('<')
+            .and_then(|i| i.strip_suffix('>'))
+            .filter(|_| !post_filter);
+        if let Some(pattern) = wrapped.unwrap_or(item).strip_prefix('/')
+            && let Err(reason) = Re::user(pattern)
         {
-            invalid.push(item);
-            continue;
-        }
-        kept.push(item);
-    }
-    if !invalid.is_empty() {
-        run.trace.warn(&format!(
-            "• The following {origin} regexes are invalid and will be skipped:\n"
-        ));
-        for item in invalid {
-            run.trace.warn(&format!("  • {item}"));
+            return Err(Error::Unsupported(format!(
+                "the regular expression {item:?} in your {origin}s ({reason})"
+            )));
         }
     }
-    kept
+    Ok(list)
 }
 
 /// What `process_dat` hands the rest of the run.
@@ -180,18 +177,18 @@ pub(crate) fn process_dat(
             s.system_exclude.clone(),
             s.system_include.clone(),
         );
-        run.s.global_exclude = regex_test(run, ge, "global exclude");
-        run.s.global_include = regex_test(run, gi, "global include");
-        run.s.system_exclude = regex_test(run, se, "system exclude");
-        run.s.system_include = regex_test(run, si, "system include");
+        run.s.global_exclude = regex_test(ge, "global exclude", false)?;
+        run.s.global_include = regex_test(gi, "global include", false)?;
+        run.s.system_exclude = regex_test(se, "system exclude", false)?;
+        run.s.system_include = regex_test(si, "system include", false)?;
     }
     if !run.s.global_filter.is_empty() {
         let list = run.s.global_filter.clone();
-        run.s.global_filter = regex_test(run, list, "global post filter");
+        run.s.global_filter = regex_test(list, "global post filter", true)?;
     }
     if !run.s.system_filter.is_empty() {
         let list = run.s.system_filter.clone();
-        run.s.system_filter = regex_test(run, list, "system post filter");
+        run.s.system_filter = regex_test(list, "system post filter", true)?;
     }
     let clone_list = import_clone_list(&dat, data)?;
     let metadata = import_metadata(&dat, data)?;
@@ -202,6 +199,7 @@ pub(crate) fn process_dat(
     );
     let mut process_list = Vec::with_capacity(titles.len());
     for title in &titles {
+        run.limits.check().map_err(crash)?;
         let node = run.node(dat.numbered, &metadata, title).map_err(crash)?;
         process_list.push(run.add(node));
     }
@@ -227,6 +225,7 @@ pub(crate) fn process_dat(
     let dupe = Re::of(" \\(Dupe \\d+\\)");
     let digits = Re::of("\\d+");
     for &id in &process_list {
+        run.limits.check().map_err(crash)?;
         let group = run.n(id).group_name.clone();
         let existing: Vec<usize> = groups
             .entry(group.clone())
@@ -271,6 +270,7 @@ pub(crate) fn process_dat(
         groups.get_mut(&group).expect("group").insert(id);
     }
     for id in duplicates {
+        run.limits.check().map_err(crash)?;
         let group = run.n(id).group_name.clone();
         if let Some(titles) = groups.get_mut(&group) {
             titles.shift_remove(&id);

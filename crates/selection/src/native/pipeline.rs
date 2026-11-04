@@ -13,6 +13,7 @@ use super::json::{J, dict};
 use super::node::{Groups, Run};
 use super::overrides;
 use super::process::{self, crash};
+use super::py::PyResult;
 use super::select;
 use super::settings::Settings;
 use crate::Error;
@@ -57,6 +58,7 @@ fn run_within(
     let mut run = Run::new(settings);
     run.limits = limits.clone();
     let processed = process::process_dat(&mut run, dat_path, dat, data, false)?;
+    run.limits.check().map_err(crash)?;
     let mut clone_list = processed.clone_list;
     let mut groups = processed.titles;
     let lookup = Lookup::new(&run, &groups);
@@ -68,7 +70,7 @@ fn run_within(
         clone_lists::mias(&mut run, &lookup, &clone_list).map_err(crash)?;
     }
     if run.s.options.label_retro {
-        clone_lists::retroachievements(&mut run, &lookup, &clone_list);
+        clone_lists::retroachievements(&mut run, &lookup, &clone_list).map_err(crash)?;
     }
     run.trace.context(Some("Clone lists"), "", "");
     if !run.s.options.no_1g1r {
@@ -79,9 +81,9 @@ fn run_within(
     overrides::excludes(&mut run, &mut groups).map_err(crash)?;
     run.trace.context(Some("Language filter"), "", "");
     if run.s.options.filter_languages {
-        filters::filter_languages(&mut run, &mut groups);
+        filters::filter_languages(&mut run, &mut groups).map_err(crash)?;
     }
-    filters::filter_regions(&mut run, &mut groups);
+    filters::filter_regions(&mut run, &mut groups).map_err(crash)?;
     run.trace.context(Some("Parent selection"), "", "");
     if !run.s.options.no_1g1r {
         groups = select::orchestrator(&mut run, groups).map_err(crash)?;
@@ -97,12 +99,13 @@ fn run_within(
     {
         overrides::post_filters(&mut run, &mut groups).map_err(crash)?;
     }
-    json_final(&mut run, &groups);
+    json_final(&mut run, &groups).map_err(crash)?;
     if groups.values().all(|titles| titles.is_empty()) {
         run.trace.warn_error(
             "• No titles in the input DAT match your preferences. No DAT file has been created.",
         );
     }
+    run.limits.check().map_err(crash)?;
     let (trace, warnings) = run.trace.finish();
     Ok(Ran { trace, warnings })
 }
@@ -119,11 +122,12 @@ fn record_titles(run: &mut Run, groups: &Groups) {
 
 /// `TraceTools.json_final`: each group's parents and clones, every title the run didn't keep and why, and
 /// what the clone list and metadata didn't cover.
-fn json_final(run: &mut Run, groups: &Groups) {
+fn json_final(run: &mut Run, groups: &Groups) -> PyResult<()> {
     let mut kept: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut sorted_groups: Vec<(&String, _)> = groups.iter().collect();
     sorted_groups.sort_by(|a, b| a.0.cmp(b.0));
     for (group, titles) in sorted_groups {
+        run.limits.check()?;
         let mut numbered: IndexMap<String, String> = IndexMap::new();
         for &t in titles {
             let n = run.n(t);
@@ -166,6 +170,7 @@ fn json_final(run: &mut Run, groups: &Groups) {
         .collect();
     lists.sort_by(|a, b| a.0.cmp(b.0));
     for (list, mut titles) in lists {
+        run.limits.check()?;
         titles.sort_by(|&a, &b| run.n(a).full_name.cmp(&run.n(b).full_name));
         for t in titles {
             let n = run.n(t);
@@ -192,6 +197,7 @@ fn json_final(run: &mut Run, groups: &Groups) {
         .collect();
     seen.sort();
     for (name, group) in seen {
+        run.limits.check()?;
         if kept.contains(&name) || excluded.contains_key(&name) {
             continue;
         }
@@ -207,6 +213,7 @@ fn json_final(run: &mut Run, groups: &Groups) {
         );
     }
     for (_, record) in excluded {
+        run.limits.check()?;
         run.trace.write(record);
     }
     let mut unmatched = run.trace.clone_list_unmatched.clone();
@@ -225,4 +232,67 @@ fn json_final(run: &mut Run, groups: &Groups) {
         ("metadata_missing", missing.into()),
     ]));
     run.trace.flush();
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    use super::*;
+    use crate::native::tests::{internal_config, upstream};
+
+    fn fixture(name: &str) -> std::path::PathBuf {
+        upstream().join("tests/source/features").join(name)
+    }
+
+    fn run_with(profile: &SelectionProfile, limits: &Limits) -> Result<Ran, Error> {
+        run(
+            &fixture("Retool - Prefer regions.dat"),
+            profile,
+            &internal_config(),
+            &upstream().join("tests"),
+            limits,
+        )
+    }
+
+    #[test]
+    fn a_cancelled_run_stops_without_parent_selection_too() {
+        let mut profile = SelectionProfile::default();
+        profile.options.disable_1g1r = true;
+        let limits = Limits {
+            cancel: Some(Arc::new(AtomicBool::new(true))),
+            deadline: None,
+        };
+        assert!(matches!(run_with(&profile, &limits), Err(Error::Cancelled)));
+        let expired = Limits {
+            cancel: None,
+            deadline: Some((std::time::Instant::now(), std::time::Duration::from_secs(1))),
+        };
+        assert!(matches!(
+            run_with(&profile, &expired),
+            Err(Error::Timeout(_))
+        ));
+    }
+
+    #[test]
+    fn a_pattern_the_built_in_engine_cannot_compile_fails_the_run_naming_it() {
+        let mut profile = SelectionProfile::default();
+        profile.overrides.exclude = vec!["/\\N{LATIN SMALL LETTER A}".into()];
+        match run_with(&profile, &Limits::default()) {
+            Err(Error::Unsupported(message)) => {
+                assert!(message.contains("\\N{LATIN SMALL LETTER A}"), "{message}")
+            }
+            other => panic!("{:?}", other.map(|r| r.warnings)),
+        }
+    }
+
+    #[test]
+    fn an_ascii_only_pattern_is_supported() {
+        let mut profile = SelectionProfile::default();
+        profile.overrides.exclude = vec!["/(?a)^Pong".into()];
+        let ran = run_with(&profile, &Limits::default()).unwrap();
+        assert!(ran.warnings.is_empty(), "{:?}", ran.warnings);
+    }
 }

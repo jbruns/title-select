@@ -76,6 +76,7 @@ pub(crate) fn mias(run: &mut Run, lookup: &Lookup, clone_list: &CloneList) -> Py
     }
     run.note("• Applying MIA attributes... ");
     for mia in &clone_list.mias {
+        run.limits.check()?;
         let J::Dict(mia) = mia else {
             continue;
         };
@@ -112,12 +113,17 @@ pub(crate) fn mias(run: &mut Run, lookup: &Lookup, clone_list: &CloneList) -> Py
 }
 
 /// `retroachievements`.
-pub(crate) fn retroachievements(run: &mut Run, lookup: &Lookup, clone_list: &CloneList) {
+pub(crate) fn retroachievements(
+    run: &mut Run,
+    lookup: &Lookup,
+    clone_list: &CloneList,
+) -> PyResult<()> {
     if clone_list.retroachievements.is_empty() {
-        return;
+        return Ok(());
     }
     run.note("• Applying RetroAchievements attributes... ");
     for entry in &clone_list.retroachievements {
+        run.limits.check()?;
         let J::Dict(entry) = entry else {
             continue;
         };
@@ -142,6 +148,7 @@ pub(crate) fn retroachievements(run: &mut Run, lookup: &Lookup, clone_list: &Clo
         }
     }
     run.note("• Applying RetroAchievements attributes... done");
+    Ok(())
 }
 
 /// What the variants stage threads through each list of variant titles.
@@ -173,6 +180,7 @@ pub(crate) fn variants_orchestrator(
         is_includes,
     };
     for value in clone_list.variants.iter_mut() {
+        run.limits.check()?;
         let J::Dict(value) = value else {
             continue;
         };

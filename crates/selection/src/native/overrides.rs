@@ -255,6 +255,7 @@ pub(crate) fn excludes(run: &mut Run, groups: &mut Groups) -> PyResult<()> {
     // Title Select never passes `--no-overrides`.
     let no_overrides = false;
     for &title in &flattened {
+        run.limits.check()?;
         let full_name = run.n(title).full_name.clone();
         let mut found = false;
         for category in &categories {
@@ -404,6 +405,7 @@ pub(crate) fn post_filters(run: &mut Run, groups: &mut Groups) -> PyResult<()> {
     let system_entries = !system_filter.is_empty() || override_false;
     let group_names: Vec<String> = groups.keys().cloned().collect();
     for group_name in group_names {
+        run.limits.check()?;
         let titles: Vec<Id> = groups[&group_name].iter().copied().collect();
         for title in titles {
             if dupe_check.contains(&title) {
@@ -525,6 +527,7 @@ pub(crate) fn includes(run: &mut Run, groups: &mut Groups, lookup: &Lookup) -> P
                    include_titles: &mut Titles|
      -> PyResult<()> {
         for title in titles {
+            run.limits.check()?;
             for (system, reason) in [
                 (true, "User system include"),
                 (false, "User global include"),
