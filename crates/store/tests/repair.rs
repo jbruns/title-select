@@ -3421,6 +3421,26 @@ fn an_older_cue_pack_is_deleted_unless_a_repair_plan_refers_to_it() {
 }
 
 #[test]
+fn garbage_collection_finishes_deleting_a_cue_pack_and_removes_a_stray_file() {
+    let env = Env::with("Redump", &disc_games());
+    import_cue_pack(&env, &[("A (USA).cue", b"FILE \"A (USA).bin\" BINARY\n")]);
+    import_cue_pack(&env, &[("B (USA).cue", b"FILE \"B (USA).bin\" BINARY\n")]);
+    let packs = env.store.cue_packs().unwrap();
+    assert!(!packs[0].blob_present && packs[1].blob_present, "{packs:?}");
+    // A stop after the older pack's deletion was recorded, before its file was deleted, left the file; and a file
+    // no pack is.
+    let dropped = env.store.cue_pack_path(&packs[0].sha256);
+    std::fs::write(&dropped, b"left by a stop").unwrap();
+    let stray = dropped.with_file_name(format!("{:064x}", 1));
+    std::fs::write(&stray, b"no row").unwrap();
+
+    let removed = env.store.collect_garbage().unwrap();
+
+    assert!(!dropped.exists() && !stray.exists(), "{removed:?}");
+    assert!(env.store.cue_pack_path(&packs[1].sha256).is_file());
+}
+
+#[test]
 fn a_disc_game_arriving_as_one_zip_is_extracted_into_its_loose_folder_and_the_zip_kept() {
     let env = Env::with("Redump", &disc_games());
     env.audit(AuditEvidence::Full);

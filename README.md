@@ -204,7 +204,8 @@ first use. Only one Title Select process may have a store open at a time: it hol
 - The database runs in WAL mode. Every connection uses `synchronous=FULL`, `foreign_keys=ON`, a busy timeout and
   `temp_store=MEMORY`, so SQLite never writes temporary files outside the store.
 - A DAT file is written to a temp file, fsynced and renamed into place before its row is inserted. Files under
-  `dats/` that no DAT revision holds are deleted each time the store opens.
+  `dats/` that no DAT revision holds, and under `cue_packs/` that no cue pack holds, are deleted each time the store
+  opens.
 - Migrations are embedded and forward-only. Before one runs on a store that already has a schema, the database is
   copied with `VACUUM INTO` to `backups/schema-<version>-<time>.sqlite`. A store from a newer Title Select is refused.
 - A DAT revision's file is kept while a retained or running audit refers to it or while it is the newest imported
