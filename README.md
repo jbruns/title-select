@@ -1460,12 +1460,13 @@ or a patch; the tests fail, rather than skip, without it.
   `TITLE_SELECT_REGENERATE_GOLDENS=1 cargo test -p title-select-selection --test conformance` and review the diff.
 - **Built-in engine conformance:** `crates/selection/tests/builtin.rs` runs both engines over Retool's fixture DATs
   with its test configs. Pull-request CI checks every feature DAT and two system DATs; the `conformance` workflow
-  checks every DAT nightly and on demand. The oracle is `crates/selection/src/conformance.rs`: dependent differing
-  units form components, a component is order-sensitive only with a single witness seed reproducing all of it, and a
-  component no rerun reproduces is different; one reruns reproduce only partly, or a mismatched failure, is
-  inconclusive. Both fail the test.
+  checks every DAT when main changes the selection code or the bundled engine, and on demand. The oracle is
+  `crates/selection/src/conformance.rs`: dependent differing units form components, a component is order-sensitive
+  only with a single witness seed reproducing all of it, and a component no rerun reproduces is different; one reruns
+  reproduce only partly, or a mismatched failure, is inconclusive. Both fail the test.
   Profile patterns go through `native/userre.rs`, which rewrites Python `re` syntax for `fancy-regex` or refuses it. Run the full set locally with
-  `CONFORMANCE_FULL=1 cargo test -p title-select-selection --test builtin`.
+  `CONFORMANCE_FULL=1 cargo test --release -p title-select-selection --test builtin`; a debug build misses the time
+  limit on the largest DATs.
 - **A real DAT:** `TITLE_SELECT_ATARI_DAT=<DAT file> cargo test -p title-select-selection --test selection --
   --ignored --nocapture` selects from it, checks every group has a rule and prints the counts. Never commit the DAT.
 
