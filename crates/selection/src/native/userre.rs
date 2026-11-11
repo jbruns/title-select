@@ -30,8 +30,15 @@ struct Parser<'a> {
     ascii: bool,
     /// `re.MULTILINE`, from a leading `(?m)`.
     multiline: bool,
+    /// Groups open around the one being read.
+    depth: usize,
     source: &'a str,
 }
+
+/// The deepest nesting of groups a pattern may have. The parser here recurses once per group, so a bound keeps a
+/// pattern from overflowing the stack. `fancy_regex` refuses nesting from 64 groups, counting the lookahead a `$`
+/// becomes, so this stays below it and the refusal names the limit; no real title pattern comes near it.
+const MAX_DEPTH: usize = 60;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -43,10 +50,15 @@ pub(crate) fn rewrite(pattern: &str) -> Result<Rewritten> {
         out: String::new(),
         ascii: false,
         multiline: false,
+        depth: 0,
         source: pattern,
     };
     p.leading_flags()?;
     p.sequence()?;
+    if p.peek().is_some() {
+        // Only a `)` with no group to close stops the outermost sequence early.
+        return unsupported("an unbalanced parenthesis");
+    }
     if p.multiline {
         p.out.insert_str(0, "(?m)");
     }
@@ -146,6 +158,9 @@ impl Parser<'_> {
     }
 
     fn group(&mut self) -> Result<()> {
+        if self.depth == MAX_DEPTH {
+            return unsupported(&format!("more than {MAX_DEPTH} nested groups"));
+        }
         self.next();
         if self.peek() != Some('?') {
             self.out.push('(');
@@ -209,7 +224,10 @@ impl Parser<'_> {
             }
             self.out.push_str(&format!("(?{flags}:"));
         }
-        self.sequence()?;
+        self.depth += 1;
+        let read = self.sequence();
+        self.depth -= 1;
+        read?;
         if self.next() != Some(')') {
             return unsupported("an unbalanced parenthesis");
         }
@@ -477,6 +495,35 @@ impl Parser<'_> {
 #[cfg(test)]
 mod tests {
     use super::super::pyre::Re;
+
+    #[test]
+    fn groups_may_nest_sixty_deep_and_no_deeper() {
+        // The innermost group is a lookahead, and `$` becomes one more: both count towards `fancy_regex`'s limit.
+        let nested = |depth: usize| {
+            format!(
+                "{}(?=Te)Test${}",
+                "(?:".repeat(depth - 1),
+                ")".repeat(depth - 1)
+            )
+        };
+        let deepest = Re::user(&nested(super::MAX_DEPTH)).unwrap();
+        assert!(deepest.search("A Test"));
+        assert!(!deepest.search("A Tent"));
+        let refused = Re::user(&nested(super::MAX_DEPTH + 1)).err().unwrap();
+        assert_eq!(refused, "more than 60 nested groups");
+    }
+
+    #[test]
+    fn a_closing_parenthesis_without_its_group_is_unbalanced() {
+        for pattern in ["Test)NEVER", ")", "(a))", "a|b)"] {
+            assert_eq!(
+                Re::user(pattern).err().as_deref(),
+                Some("an unbalanced parenthesis"),
+                "{pattern}"
+            );
+        }
+        assert!(Re::user("(a)(b)").is_ok());
+    }
 
     /// Python's `re.search(pattern, subject, flags=re.I) is not None` for each of [`SUBJECTS`], or `None` where
     /// Python doesn't compile the pattern: what the bundled Retool's Python answered for each case, frozen in

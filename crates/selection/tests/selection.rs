@@ -187,6 +187,40 @@ fn a_regular_expression_the_engine_cannot_compile_is_refused_rather_than_skipped
 }
 
 #[test]
+fn a_deeply_nested_or_unbalanced_regular_expression_is_refused_rather_than_crashing_or_cut_short() {
+    let work = tempfile::tempdir().unwrap();
+    let path = work.path().join("pair.dat");
+    dat(
+        &path,
+        "Title Select - Patterns",
+        &["Test (Europe)", "Duo (Europe)"],
+    );
+    let engine = support::engine();
+    let deep = format!("/{}Test{}", "(".repeat(20_000), ")".repeat(20_000));
+    for (line, problem) in [
+        (deep.as_str(), "nested"),
+        ("/Test)NEVER", "unbalanced parenthesis"),
+        ("/)", "unbalanced parenthesis"),
+    ] {
+        let profile = SelectionProfile {
+            post_filters: vec![line.to_owned()],
+            ..Default::default()
+        };
+        let checked = engine.check(&profile);
+        let selected = engine.select(&path, &profile, &support::options());
+        for refused in [checked.map(|_| ()), selected.map(|_| ())] {
+            match refused {
+                Err(Error::Patterns(problems)) => {
+                    assert_eq!(problems.len(), 1, "{problems:?}");
+                    assert!(problems[0].contains(problem), "{problems:?}");
+                }
+                other => panic!("expected {line:.20} to be refused, got {other:?}"),
+            }
+        }
+    }
+}
+
+#[test]
 fn clone_lists_of_another_commit_are_refused() {
     let work = tempfile::tempdir().unwrap();
     std::fs::write(work.path().join("commit"), "0\n").unwrap();
