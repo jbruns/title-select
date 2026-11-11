@@ -71,7 +71,8 @@ actual=$(sha256 "$work/archive.tar.gz")
     fail "the clone-list archive does not match pins.toml archive_sha256 ($actual)"
 
 # Unpack only regular files and folders, inside the archive's own folder: a link, a special file, an absolute
-# path or a `..` could otherwise put a file from elsewhere into the clone lists, or write outside DEST.
+# path or a `..` could otherwise put a file from elsewhere into the clone lists, or write outside DEST. A name
+# that starts with `-` is refused too, and `--` ends tar's options, so no name can read as an option.
 archive="$work/archive.tar.gz"
 tar -tzf "$archive" >"$work/names" || fail "the clone-list archive can't be listed"
 tar -tvzf "$archive" >"$work/listing" || fail "the clone-list archive can't be listed"
@@ -81,16 +82,19 @@ odd=$(grep -v '^[-d]' "$work/listing" | head -n 1) || true
 [ -z "$odd" ] || fail "the clone-list archive holds something other than a regular file or folder: $odd"
 odd=$(awk '/^\// || /(^|\/)\.\.(\/|$)/ { print; exit }' "$work/names")
 [ -z "$odd" ] || fail "the clone-list archive names a path outside its folder: $odd"
+odd=$(awk '/(^|\/)-/ { print; exit }' "$work/names")
+[ -z "$odd" ] || fail "the clone-list archive has a name that starts with -: $odd"
 top=$(sed -n '1s|/.*||p' "$work/names")
 [ -n "$top" ] || fail "the clone-list archive is empty"
 
 set -- "$top/LICENSE" "$top/config/internal-config.json"
 for dir in clonelists metadata mias retroachievements; do
-    if grep -q "^$top/$dir/" "$work/names"; then
+    if prefix="$top/$dir/" awk 'index($0, ENVIRON["prefix"]) == 1 { found = 1; exit } END { exit !found }' \
+        "$work/names"; then
         set -- "$@" "$top/$dir"
     fi
 done
-tar -xzf "$archive" -C "$work/unpacked" --strip-components=1 "$@" ||
+tar -xzf "$archive" -C "$work/unpacked" --strip-components=1 -- "$@" ||
     fail "the clone-list archive lacks LICENSE or config/internal-config.json"
 odd=$(find "$work/unpacked" ! -type f ! -type d | head -n 1)
 [ -z "$odd" ] || fail "the clone-list archive unpacked something other than a regular file or folder: $odd"

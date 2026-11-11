@@ -96,6 +96,7 @@ fn fetch(work: &Path, members: &[(String, Kind)]) -> (std::process::Output, Path
     let output = Command::new("sh")
         .arg(repo.join("tools/clone-lists/fetch"))
         .arg(&dest)
+        .current_dir(work)
         .output()
         .unwrap();
     (output, dest)
@@ -191,4 +192,31 @@ fn an_archive_with_links_special_files_or_paths_outside_it_is_refused() {
         assert!(!dest.exists(), "{what}");
         assert!(!Path::new(&escape).exists(), "{what}");
     }
+}
+
+#[test]
+fn an_archive_whose_names_read_as_tar_options_is_refused_without_running_them() {
+    let work = tempfile::tempdir().unwrap();
+    // GNU tar would take each member argument under this folder as an option that runs a command at its first
+    // checkpoint, which the padding reaches.
+    let top = "--checkpoint-action=exec=touch ran;#";
+    let padding = "x".repeat(200 * 1024);
+    let (output, dest) = fetch(
+        work.path(),
+        &[
+            (format!("{top}/"), Kind::Dir),
+            (format!("{top}/LICENSE"), Kind::File("BSD")),
+            (format!("{top}/README.md"), Kind::File(&padding)),
+            (format!("{top}/config/"), Kind::Dir),
+            (
+                format!("{top}/config/internal-config.json"),
+                Kind::File("{}"),
+            ),
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!work.path().join("ran").exists(), "{stderr}");
+    assert!(!output.status.success(), "{output:?}");
+    assert!(stderr.contains("fetch: the clone-list archive"), "{stderr}");
+    assert!(!dest.exists());
 }

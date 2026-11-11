@@ -1394,8 +1394,8 @@ which it replaced). It reads Retool's clone lists, metadata, MIAs and RetroAchie
 `tools/clone-lists/fetch [dir]` downloads that archive, checks its sha256 and unpacks it into `.clone-lists/`
 (gitignored), which the Selection tests use through `TITLE_SELECT_CLONE_LISTS` (cargo sets it); the image build runs
 it too. It needs curl, tar and sha256sum (or shasum), and does nothing when the folder already holds the pinned commit. It
-refuses an archive holding anything but regular files and folders, or naming a path outside its own folder, and
-unpacks only what selection reads; `crates/selection/tests/fetch.rs` checks it against such archives.
+refuses an archive holding anything but regular files and folders, naming a path outside its own folder, or
+naming anything that starts with `-`, and unpacks only what selection reads; `crates/selection/tests/fetch.rs` checks it against such archives.
 The tests fail, rather than skip, without it.
 
 - **Clone-list pin:** Renovate proposes upstream's newest `main` commit in `pins.toml`, and the `clone-list pin`
