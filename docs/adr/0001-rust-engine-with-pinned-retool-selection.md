@@ -4,9 +4,8 @@ Date: 2026-10-28
 
 ## Status
 
-Accepted. The Rust port has landed behind a flag (#94): `[selections] engine = "builtin"` or `select --engine
-builtin` selects with it, `title-select conformance` and shadow mode compare it with pinned Retool, and pinned Retool
-stays authoritative until the cutover (#95).
+Superseded by ADR 0015 for Selection: the Rust port replaced pinned Retool at the cutover (#95). The Rust engine
+for Audits, jobs and the service stands.
 
 ## Context
 

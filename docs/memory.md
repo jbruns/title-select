@@ -42,7 +42,9 @@ split: at rest after these measurements, 14 MiB was anonymous memory and 20 MiB 
 
 ## Results
 
-Measured on version 0.4.0, with a 512M limit and one CPU. The Atari 2600 source set has 802 files and its DAT describes
+Measured on version 0.4.0, with a 512M limit and one CPU, when selection ran Retool in Python, in a child process
+inside the container. Selection now runs inside Title Select, so measure the selection rows again before relying on
+them. The Atari 2600 source set has 802 files and its DAT describes
 872 games. The Game Boy Advance source set has 3,559 ZIPs, and the build wrote 961 games (3.3 GB).
 
 | Job or request                      | Atari 2600 | Game Boy Advance |
