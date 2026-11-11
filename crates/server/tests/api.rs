@@ -1666,29 +1666,17 @@ mod selections {
             body.len()
         )
         .unwrap();
-        let started = std::time::Instant::now();
         wait_for(
             "the engine to start",
             &|| !runs().is_empty(),
             std::time::Duration::from_secs(60),
         );
         drop(connection);
+        // A whole preview of this DAT takes seconds even in a release build, so a folder gone this soon was cancelled.
         wait_for(
             "the engine to stop",
             &|| runs().is_empty(),
-            std::time::Duration::from_secs(5),
-        );
-        let stopped = started.elapsed();
-
-        // Done before the run could have finished: a whole preview of this DAT takes several seconds.
-        let (_, whole) = send(
-            client.post("/preview"),
-            json!({"source_set": SET, "profile": {}}),
-        );
-        let elapsed = std::time::Duration::from_millis(whole["elapsed_ms"].as_u64().unwrap());
-        assert!(
-            stopped < elapsed,
-            "stopped after {stopped:?}, a whole run takes {elapsed:?}"
+            std::time::Duration::from_secs(2),
         );
     }
 
