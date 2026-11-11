@@ -42,10 +42,11 @@ split: at rest after these measurements, 14 MiB was anonymous memory and 20 MiB 
 
 ## Results
 
+### 0.4.0
+
 Measured on version 0.4.0, with a 512M limit and one CPU, when selection ran Retool in Python, in a child process
-inside the container. Selection now runs inside Title Select, so measure the selection rows again before relying on
-them. The Atari 2600 source set has 802 files and its DAT describes
-872 games. The Game Boy Advance source set has 3,559 ZIPs, and the build wrote 961 games (3.3 GB).
+inside the container. Selection now runs inside Title Select, so the selection rows below no longer apply: see the
+PlayStation measurements that follow. The Atari 2600 source set has 802 files and its DAT describes 872 games. The Game Boy Advance source set has 3,559 ZIPs, and the build wrote 961 games (3.3 GB).
 
 | Job or request                      | Atari 2600 | Game Boy Advance |
 |-------------------------------------|-----------:|-----------------:|
@@ -67,5 +68,21 @@ than the selection before it.
 The selection engine, and the profile preview that runs it, use the most memory, and grow with the DAT. The Game Boy
 Advance DAT is about four times the size of the Atari 2600 DAT, and used about 2.5 times the memory.
 
-The limit is therefore 192M: twice the largest peak, 84.7 MiB, rounded up. Measure again before adding a system whose
-DAT is much larger than these, and raise the limit if its selection needs it.
+### PlayStation, 0.6.0 and 0.7.0
+
+The PlayStation (America) source set has 2,027 games in ZIPs. Its Redump DAT is far larger than the Game Boy Advance
+DAT. These are whole-container peaks since the container started, read from `memory.peak` without a reset, with a 512M
+limit and one CPU. Each covers every job since that start, so it is an upper bound for any one of them.
+
+| Version | Jobs since the container started                                                   | Peak       |
+|---------|------------------------------------------------------------------------------------|-----------:|
+| 0.6.0   | Full audit, repair, selections with shadow mode, a 3 h play-library build, and its check | 195.75 MiB |
+| 0.7.0   | Selections for PlayStation, Atari 2600 and Game Boy Advance                        | 172 MiB    |
+
+At rest after the 0.7.0 selections, the container held 12 MiB of anonymous memory and 10 MiB of page cache.
+
+The limit is therefore 400M: twice the largest peak, 195.75 MiB, rounded up. Measure again before adding a system whose
+DAT is much larger than PlayStation's, and raise the limit if its selection needs it.
+
+The image has no shell, so read `memory.peak` from the Host. If you can't reach Docker there, find the cgroup folder
+from the service's process: `/sys/fs/cgroup` followed by the path in `/proc/<pid>/cgroup`.
