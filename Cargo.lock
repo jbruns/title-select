@@ -2736,6 +2736,7 @@ name = "title-select-selection"
 version = "0.6.0"
 dependencies = [
  "fancy-regex",
+ "flate2",
  "indexmap",
  "quick-xml",
  "serde",

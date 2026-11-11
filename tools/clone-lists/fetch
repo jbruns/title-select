@@ -7,7 +7,8 @@
 #   tools/clone-lists/fetch pin      write the sha256 of the pinned commit's archive into pins.toml
 #
 # DEST then holds config/internal-config.json, clonelists/, metadata/, mias/, retroachievements/, the
-# upstream LICENSE and a `commit` file naming the commit. Needs curl, tar and sha256sum (or shasum).
+# upstream LICENSE and a `commit` file naming the commit, and nothing else of the archive. Needs curl, tar,
+# sha256sum (or shasum) and the POSIX tools.
 set -eu
 
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -69,14 +70,38 @@ actual=$(sha256 "$work/archive.tar.gz")
 [ "$actual" = "$expected" ] ||
     fail "the clone-list archive does not match pins.toml archive_sha256 ($actual)"
 
-tar -xzf "$work/archive.tar.gz" -C "$work/unpacked" --strip-components=1
+# Unpack only regular files and folders, inside the archive's own folder: a link, a special file, an absolute
+# path or a `..` could otherwise put a file from elsewhere into the clone lists, or write outside DEST.
+archive="$work/archive.tar.gz"
+tar -tzf "$archive" >"$work/names" || fail "the clone-list archive can't be listed"
+tar -tvzf "$archive" >"$work/listing" || fail "the clone-list archive can't be listed"
+[ "$(wc -l <"$work/names")" = "$(wc -l <"$work/listing")" ] ||
+    fail "the clone-list archive has a name that can't be listed plainly"
+odd=$(grep -v '^[-d]' "$work/listing" | head -n 1) || true
+[ -z "$odd" ] || fail "the clone-list archive holds something other than a regular file or folder: $odd"
+odd=$(awk '/^\// || /(^|\/)\.\.(\/|$)/ { print; exit }' "$work/names")
+[ -z "$odd" ] || fail "the clone-list archive names a path outside its folder: $odd"
+top=$(sed -n '1s|/.*||p' "$work/names")
+[ -n "$top" ] || fail "the clone-list archive is empty"
+
+set -- "$top/LICENSE" "$top/config/internal-config.json"
+for dir in clonelists metadata mias retroachievements; do
+    if grep -q "^$top/$dir/" "$work/names"; then
+        set -- "$@" "$top/$dir"
+    fi
+done
+tar -xzf "$archive" -C "$work/unpacked" --strip-components=1 "$@" ||
+    fail "the clone-list archive lacks LICENSE or config/internal-config.json"
+odd=$(find "$work/unpacked" ! -type f ! -type d | head -n 1)
+[ -z "$odd" ] || fail "the clone-list archive unpacked something other than a regular file or folder: $odd"
+
 out="$work/out"
 mkdir -p "$out/config"
-cp "$work/unpacked/config/internal-config.json" "$out/config/"
-cp "$work/unpacked/LICENSE" "$out/LICENSE"
+cp -P "$work/unpacked/config/internal-config.json" "$out/config/"
+cp -P "$work/unpacked/LICENSE" "$out/LICENSE"
 for dir in clonelists metadata mias retroachievements; do
     if [ -d "$work/unpacked/$dir" ]; then
-        cp -R "$work/unpacked/$dir" "$out/$dir"
+        cp -RP "$work/unpacked/$dir" "$out/$dir"
     else
         mkdir "$out/$dir"
     fi
