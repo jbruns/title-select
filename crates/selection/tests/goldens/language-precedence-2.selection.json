@@ -1,7 +1,5 @@
 {
   "pins": {
-    "retool_commit": "",
-    "patch_set_sha256": "",
     "clone_list_commit": "",
     "trace_schema": 0
   },

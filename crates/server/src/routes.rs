@@ -138,7 +138,6 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/selections/{id}/releases", get(selection_releases))
         .route("/selections/{id}/availability", get(availability))
         .route("/selections/{id}/diff", get(selection_diff))
-        .route("/selections/{id}/shadow", get(selection_shadow))
         .route("/libraries", get(library_folders).post(add_library_folder))
         .route(
             "/libraries/{id}",
@@ -313,9 +312,7 @@ impl From<title_select_selection::Error> for ApiError {
             E::Cancelled => StatusCode::CONFLICT,
             E::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             E::Install(_) => StatusCode::SERVICE_UNAVAILABLE,
-            E::Io { .. } | E::Retool { .. } | E::Trace(_) | E::Builtin(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            E::Io { .. } | E::Trace(_) | E::Builtin(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let message = match &err {
             E::Cancelled => "a newer preview replaced this one".to_owned(),
@@ -1619,7 +1616,6 @@ async fn preview(
     let cancel = guard.flag();
     let started = std::time::Instant::now();
     let store = state.store.clone();
-    let config = state.config.clone();
     let made = tokio::task::spawn_blocking(move || -> ApiResult<Preview> {
         let (revision, blob) =
             store.selection_revision(&request.source_set, request.revision.as_deref())?;
@@ -1629,7 +1625,6 @@ async fn preview(
             &blob,
             &revision.file,
             &request.profile,
-            config.selections.engine,
             Some(cancel),
         )?;
         let against = store.latest_selection(&request.source_set, &revision.sha256)?;
@@ -1701,17 +1696,6 @@ async fn selection_record(
     let Path(id) = id?;
     Ok(Json(
         blocking(&state, move |store| store.selection_record(id)).await?,
-    ))
-}
-
-/// The shadow run recorded beside the Selection, or null when shadow mode was off.
-async fn selection_shadow(
-    State(state): State<AppState>,
-    id: Result<Path<i64>, PathRejection>,
-) -> ApiResult<Json<Option<title_select_api::selection::ShadowRun>>> {
-    let Path(id) = id?;
-    Ok(Json(
-        blocking(&state, move |store| store.selection_shadow(id)).await?,
     ))
 }
 

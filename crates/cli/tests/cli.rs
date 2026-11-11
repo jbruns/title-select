@@ -333,14 +333,14 @@ fn set_add_with_no_path_registers_the_path_the_template_proposes() {
 }
 
 #[test]
-fn version_prints_the_pinned_upstream_commits() {
-    let pins = include_str!("../../../third_party/retool/pins.toml");
+fn version_prints_the_pinned_clone_list_commit() {
+    let pins = include_str!("../../../third_party/clone-lists/pins.toml");
     let commits: Vec<&str> = pins
         .lines()
         .filter_map(|l| l.strip_prefix("commit = \""))
         .map(|l| l.trim_end_matches('"'))
         .collect();
-    assert_eq!(commits.len(), 2, "the selection and clone-list commits");
+    assert_eq!(commits.len(), 1, "the clone-list commit");
 
     let out = title_select().arg("--version").output().unwrap();
 
@@ -400,84 +400,52 @@ fn select_prints_the_selection_and_refuses_a_profile_it_cannot_read() {
 }
 
 #[test]
-fn the_built_in_engine_selects_alike_and_conformance_compares_the_engines_on_each_dat() {
+fn the_engine_choice_and_the_conformance_command_are_gone() {
     let (f, dat) = pong_fixture();
     let profile = f.dat_dir.path().join("profile.json");
-    std::fs::write(&profile, r#"{"region_order": ["USA"]}"#).unwrap();
-    let select = |engine: &str| {
-        run_ok(
-            title_select()
-                .args(["select", "--engine", engine, "--dat"])
-                .arg(&dat)
-                .arg("--profile")
-                .arg(&profile),
-        )
-    };
-    assert_eq!(select("builtin"), select("bundled"));
-
-    let stdout = run_ok(
-        title_select()
-            .args(["conformance", "--profile"])
+    std::fs::write(&profile, "{}").unwrap();
+    for args in [
+        &["select", "--engine", "builtin", "--profile"][..],
+        &["conformance", "--profile"][..],
+    ] {
+        let out = title_select()
+            .args(args)
             .arg(&profile)
-            .arg(f.dat_dir.path()),
-    );
-    assert!(stdout.contains("The same: "), "{stdout}");
-    assert!(stdout.contains("1 DAT compared: 1 the same"), "{stdout}");
-
-    let stdout = run_ok(title_select().args(["conformance", "--json"]).arg(&dat));
-    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(report[0]["conforms"], true);
-    assert_eq!(report[0]["groups"], 1);
-    assert_eq!(report[0]["differences"], serde_json::json!([]));
-
-    std::fs::write(
-        &profile,
-        r#"{"overrides": {"exclude": ["/\\N{LATIN SMALL LETTER A}"], "include": []}}"#,
-    )
-    .unwrap();
-    let out = title_select()
-        .args(["conformance", "--json", "--profile"])
-        .arg(&profile)
-        .arg(&dat)
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report[0]["verdict"], "unsupported");
-    assert!(
-        report[0]["builtin_error"]
-            .as_str()
-            .unwrap()
-            .contains("LATIN SMALL LETTER A"),
-        "{report}"
-    );
-
-    let out = title_select()
-        .arg("conformance")
-        .arg(f.dat_dir.path().join("missing.dat"))
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("no such file or folder"));
+            .arg("--dat")
+            .arg(&dat)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{args:?}");
+    }
 }
 
 #[test]
-fn a_shadow_run_runs_the_other_engine_in_this_binary() {
-    let (f, dat) = pong_fixture();
-    let work = f.dat_dir.path().join("work");
-    let engine = title_select_selection::Engine::locate(None).unwrap();
-    let profile = title_select_api::selection::SelectionProfile::default();
-    let options = title_select_selection::RunOptions::new(&work);
-    let ran = engine.run(&dat, &profile, &options).unwrap();
-    let shadow = engine
-        .with_shadow_command(title_select_selection::ShadowCommand {
-            program: env!("CARGO_BIN_EXE_title-select").into(),
-            args: vec![title_select_selection::SHADOW_SUBCOMMAND.into()],
-            envs: Vec::new(),
-        })
-        .shadow(&dat, &profile, &options, &ran.selection, &ran.warnings);
-    assert_eq!(shadow.error, None);
-    assert!(shadow.comparison.unwrap().is_identical());
+fn a_configuration_with_the_old_engine_keys_loads_with_a_warning() {
+    let f = Fixture::new();
+    let inbox = f.dat_dir.path().join("in");
+    std::fs::create_dir_all(&inbox).unwrap();
+    let config = f.dat_dir.path().join("title-select.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "[selections]\nengine = \"bundled\"\nshadow = true\n\n\
+             [roots.in]\npath = {:?}\nwritable = true\nkind = \"ingest\"\n",
+            inbox.display().to_string()
+        ),
+    )
+    .unwrap();
+    let out = title_select()
+        .env("TITLE_SELECT_STORE", f.dat_dir.path().join("store"))
+        .env("TITLE_SELECT_CONFIG", &config)
+        .args(["ingest", "register", "in"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("[selections] engine and shadow are ignored"),
+        "{stderr}"
+    );
 }
 
 #[test]

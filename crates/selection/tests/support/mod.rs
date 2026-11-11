@@ -1,4 +1,4 @@
-//! Shared helpers for the Selection tests, which run the Retool install that `tools/retool/setup` builds.
+//! Shared helpers for the Selection tests, which read the clone lists that `tools/clone-lists/fetch` unpacks.
 
 #![allow(dead_code)]
 
@@ -8,33 +8,59 @@ use std::time::Duration;
 use title_select_api::selection::SelectionProfile;
 use title_select_selection::{Engine, RunOptions};
 
-/// Retool's vendored tree, whose `tests/` folder holds the synthetic DATs, configs and goldens.
-pub fn upstream() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../third_party/retool/upstream")
+/// Retool's test inputs: DATs under `source/`, configs, clone lists, metadata, MIAs and RetroAchievements, and the
+/// internal config they run under (`config/`).
+pub fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../third_party/retool/fixtures")
 }
 
-/// The install at `TITLE_SELECT_RETOOL`. A missing install fails the test: it never skips.
+/// The engine with the clone lists at `TITLE_SELECT_CLONE_LISTS`. Missing clone lists fail the test: it never
+/// skips.
 pub fn engine() -> Engine {
-    Engine::locate(None).unwrap_or_else(|e| {
-        panic!("{e}\nthe Selection tests need the Retool install: run tools/retool/setup")
-    })
+    let engine = Engine::locate(None).unwrap_or_else(|e| {
+        panic!("{e}\nthe Selection tests need the clone lists: run tools/clone-lists/fetch")
+    });
+    let root = std::env::var_os(title_select_selection::CLONE_LISTS_ENV).map_or_else(
+        || title_select_selection::DEFAULT_CLONE_LISTS.into(),
+        PathBuf::from,
+    );
+    complete(&root, "run tools/clone-lists/fetch");
+    engine
 }
 
-/// The install, reading Retool's test clone lists, metadata, MIAs and RetroAchievements.
+/// Fails the test unless `root` holds every folder the engine reads, with clone lists and metadata in them: a
+/// missing one would only drop coverage, and goldens would differ for a reason they don't name.
+fn complete(root: &Path, fix: &str) {
+    for dir in ["clonelists", "metadata", "mias", "retroachievements"] {
+        let path = root.join(dir);
+        let files = std::fs::read_dir(&path)
+            .unwrap_or_else(|e| panic!("{}: {e}\nthe data is incomplete: {fix}", path.display()))
+            .count();
+        assert!(
+            files > 0 || !matches!(dir, "clonelists" | "metadata"),
+            "{} is empty\nthe data is incomplete: {fix}",
+            path.display()
+        );
+    }
+}
+
+/// The engine reading Retool's test clone lists, metadata, MIAs and RetroAchievements, under the internal config
+/// frozen beside them, so that a clone-list bump doesn't change what the fixtures select.
 pub fn fixture_engine() -> Engine {
-    engine().with_data_dir(&upstream().join("tests"))
+    complete(&fixtures(), "restore third_party/retool/fixtures from git");
+    Engine::unverified(&fixtures()).unwrap()
 }
 
-pub fn options(work_dir: &Path) -> RunOptions {
+pub fn options() -> RunOptions {
     RunOptions {
         timeout: Duration::from_secs(300),
-        ..RunOptions::new(work_dir)
+        ..RunOptions::new()
     }
 }
 
 /// A Selection Profile with the orders, overrides and post filters of one of Retool's test configs.
 pub fn profile_from_upstream_config(name: &str) -> SelectionProfile {
-    let path = upstream().join("tests/configs").join(name);
+    let path = fixtures().join("configs").join(name);
     let text = std::fs::read_to_string(&path).unwrap();
     let mut profile = SelectionProfile::default();
     let mut key = String::new();
@@ -65,38 +91,6 @@ pub fn profile_from_upstream_config(name: &str) -> SelectionProfile {
         }
     }
     profile
-}
-
-/// The titles in a DAT that Retool wrote in its legacy parent/clone form, each with the parent it is a clone of,
-/// if any.
-pub fn parent_clone(dat: &Path) -> Vec<(String, Option<String>)> {
-    let text = std::fs::read_to_string(dat).unwrap();
-    let mut titles = Vec::new();
-    for tag in ["<game ", "<machine "] {
-        for (start, _) in text.match_indices(tag) {
-            let element = &text[start..start + text[start..].find('>').unwrap()];
-            titles.push((
-                attribute(element, "name").unwrap(),
-                attribute(element, "cloneof"),
-            ));
-        }
-    }
-    titles.sort();
-    titles
-}
-
-fn attribute(element: &str, name: &str) -> Option<String> {
-    let needle = format!(" {name}=\"");
-    let start = element.find(&needle)? + needle.len();
-    let value = &element[start..start + element[start..].find('"')?];
-    Some(
-        value
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&"),
-    )
 }
 
 /// Whether to rewrite goldens instead of comparing against them.

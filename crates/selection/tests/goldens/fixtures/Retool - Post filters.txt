@@ -1,0 +1,52 @@
+# The built-in engine's Selections from "Retool - Post filters.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list false, metadata false
+system: Retool - Post filters
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [4,12]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Exclusions: Global post filter exclude
+rule r2: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r3: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r4: Parent selection: No other release competed
+== discard test title
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w4 w4 w4 x2 w4 w4 x1 w4 w3 w3 w3 x2 w3 w3 x1 w3 | Discard Test Title (USA)
+== discard test title 2
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w4 w4 w4 x2 w4 w4 x1 w4 w3 w3 w3 x2 w3 w3 x1 w3 | Discard Test Title 2 (USA)
+== discard test title 2 & 3
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w4 w4 w4 x2 w4 w4 x1 w4 w3 w3 w3 x2 w3 w3 x1 w3 | Discard Test Title 2 & 3 (USA)
+== discard test title 3
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w4 w4 w4 x2 w4 w4 x1 w4 w3 w3 w3 x2 w3 w3 x1 w3 | Discard Test Title 3 (USA)
+== full string
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w4 w4 w4 x2 w4 w4 w4 w4 w3 w3 w3 x2 w3 w3 w3 w3 | Full String (USA)
+== partial string 2
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w4 w4 w4 x2 w4 w4 w4 w4 w3 w3 w3 x2 w3 w3 w3 w3 | Partial String 2 (USA)
+== test title
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w4 w4 w4 x2 w4 w4 w4 w4 w3 w3 w3 x2 w3 w3 w3 w3 | Test Title (USA)
+== test title 2
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w4 w4 w4 x2 w4 w4 w4 w4 w3 w3 w3 x2 w3 w3 w3 w3 | Test Title 2 (USA)

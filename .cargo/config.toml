@@ -1,3 +1,3 @@
-# Tests and `cargo run` find the Retool install that tools/retool/setup builds.
+# Tests and `cargo run` find the clone lists that tools/clone-lists/fetch unpacks.
 [env]
-TITLE_SELECT_RETOOL = { value = ".retool", relative = true }
+TITLE_SELECT_CLONE_LISTS = { value = ".clone-lists", relative = true }

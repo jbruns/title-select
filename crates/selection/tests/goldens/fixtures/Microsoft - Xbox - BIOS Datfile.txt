@@ -1,0 +1,51 @@
+# The built-in engine's Selections from "Microsoft - Xbox - BIOS Datfile.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list false, metadata false
+system: Microsoft - Xbox - BIOS Images (Redump)
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [4-5,7-8,12-13,15-16]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Exclusions REF0042: Excluded due to categories: BIOS (reason: Category exclude, BIOS)
+rule r2: Exclusions: Global post filter exclude
+rule r3: Exclusions: Region remove
+rule r4: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r5: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r6: Parent selection: No other release competed
+== xbox-3944
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x4 x3 w6 x2 x1 w5 w5 w5 x4 x3 w5 x2 x1 | xbox-3944
+== xbox-4034
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x4 x3 w6 x2 x1 w5 w5 w5 x4 x3 w5 x2 x1 | xbox-4034
+== xbox-4817
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x4 x3 w6 x2 x1 w5 w5 w5 x4 x3 w5 x2 x1 | xbox-4817
+== xbox-5101
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x4 x3 w6 x2 x1 w5 w5 w5 x4 x3 w5 x2 x1 | xbox-5101
+== xbox-5530
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x4 x3 w6 x2 x1 w5 w5 w5 x4 x3 w5 x2 x1 | xbox-5530
+== xbox-5713
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x4 x3 w6 x2 x1 w5 w5 w5 x4 x3 w5 x2 x1 | xbox-5713
+== xbox-5838
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x4 x3 w6 x2 x1 w5 w5 w5 x4 x3 w5 x2 x1 | xbox-5838

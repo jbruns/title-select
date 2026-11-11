@@ -1,0 +1,40 @@
+# The built-in engine's Selections from "Retool - Numbered.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata false
+system: Retool - Numbered (No-Intro)
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [15]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Exclusions: Global post filter exclude
+rule r2: Exclusions: Region remove
+rule r3: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r4: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r5: Parent selection: No other release competed
+rule r6: Superset parent selection REF0076: Group after choosing superset titles
+rule r7: Superset parent selection REF0103: Group after non-superset clones removed
+== test title
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w5 w5 w5 x3 x2 w5 x1 w5 a6 a6 a6 x3 x2 a6 x1 a6 | 5515 - Test Title (Europe)
+   .  .  .  .  .  .  .  .  w7 w7 w7 w6 x2 w7 x1 w7 | 9999 - Test Title - Special Edition (Europe) (En,De,It)
+   w5 w5 w5 w5 x2 w5 x1 w5 a6 a6 a6 a6 x2 a6 x1 a6 | xB04 - Test Title (Europe) (En,Fr,De,It)
+   w5 w5 w5 x3 w5 w5 w5 w5 a7 a7 a7 x3 w4 a7 x1 a7 | z144 - Test Title (USA)
+== test title - special edition
+   gd gd gd gd gd gd gd gd .  .  .  .  .  .  .  .  |
+   w5 w5 w5 w5 x2 w5 x1 w5 .  .  .  .  .  .  .  .  | 9999 - Test Title - Special Edition (Europe) (En,De,It)

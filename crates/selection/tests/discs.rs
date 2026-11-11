@@ -5,32 +5,29 @@ mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use title_select_api::discs::{self, DISC_RENAME, normalize};
 use title_select_api::selection::{ChoiceStatus, Selection, SelectionProfile};
 
-/// The patched Retool tree of the install.
-fn retool() -> PathBuf {
-    support::engine()
-        .python()
-        .parent()
-        .unwrap()
-        .join("../../retool")
-}
-
 #[test]
 fn the_disc_rename_table_is_the_pinned_configs() {
-    let output = Command::new(support::engine().python())
-        .args([
-            "-c",
-            "import json, sys; print(json.dumps(list(json.load(open(sys.argv[1]))['discRename'].items())))",
-        ])
-        .arg(retool().join("config/internal-config.json"))
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{output:?}");
-    let pinned: Vec<(String, String)> = serde_json::from_slice(&output.stdout).unwrap();
+    let path = Path::new(
+        &std::env::var_os("TITLE_SELECT_CLONE_LISTS").expect("set in .cargo/config.toml"),
+    )
+    .join("config/internal-config.json");
+    #[derive(serde::Deserialize)]
+    struct Config {
+        #[serde(rename = "discRename")]
+        disc_rename: indexmap::IndexMap<String, String>,
+    }
+    let config: Config = serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|e| {
+        panic!(
+            "{}: {e}\nthe Selection tests need the clone lists: run tools/clone-lists/fetch",
+            path.display()
+        )
+    }))
+    .unwrap();
+    let pinned: Vec<(String, String)> = config.disc_rename.into_iter().collect();
     let ours: Vec<(String, String)> = DISC_RENAME
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -38,45 +35,20 @@ fn the_disc_rename_table_is_the_pinned_configs() {
     assert_eq!(ours, pinned);
 }
 
+/// Retool's `TitleTools.normalize_discs` on names built from every key of the table, frozen in `tests/oracle/`.
 #[test]
 fn disc_names_normalize_exactly_as_retools_title_tools_do() {
-    let mut names = vec![
-        "Title (USA)".to_owned(),
-        "Title (USA) (disc 1)".to_owned(),
-        "Title (USA) (Disc 10)".to_owned(),
-        "Title (USA) (Disc 1) (Rev 1)".to_owned(),
-        "Title (USA) (Disc-B)".to_owned(),
-        "Title (USA) (Disk 1) (Disk 2)".to_owned(),
-        "Title (Germany) (Seite A)".to_owned(),
-    ];
-    // Every key of the table, alone and followed by each tail a disc tag can have.
-    for (key, _) in DISC_RENAME {
-        for tail in ["", "1)", "01)", "A)", "II)", "Two)", ")"] {
-            names.push(format!("Title (Europe) {key}{tail}"));
+    let mut differences = Vec::new();
+    for line in include_str!("oracle/disc-names.jsonl").lines() {
+        let (name, retools): (String, String) = serde_json::from_str(line).unwrap();
+        if normalize(&name) != retools {
+            differences.push(format!(
+                "{name:?}: {:?}, Retool {retools:?}",
+                normalize(&name)
+            ));
         }
     }
-    let script = "import json, sys, types\n\
-                  sys.path.insert(0, sys.argv[1])\n\
-                  from modules.titletools import TitleTools\n\
-                  config = types.SimpleNamespace(tags_disc_rename=json.load(open(sys.argv[2]))['discRename'])\n\
-                  names = json.load(sys.stdin)\n\
-                  print(json.dumps([TitleTools.normalize_discs(n, config) for n in names]))";
-    let retool = retool();
-    let mut child = Command::new(support::engine().python())
-        .args(["-c", script])
-        .arg(&retool)
-        .arg(retool.join("config/internal-config.json"))
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    serde_json::to_writer(child.stdin.take().unwrap(), &names).unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "{output:?}");
-    let retools: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
-    let ours: Vec<String> = names.iter().map(|n| normalize(n)).collect();
-    assert_eq!(ours, retools);
+    assert!(differences.is_empty(), "{differences:#?}");
 }
 
 fn game(name: &str) -> String {
@@ -120,16 +92,9 @@ fn write_dat(dir: &Path, file: &str, games: &[&str]) -> PathBuf {
     path
 }
 
-/// Selects with the bundled engine, checking the built-in engine selects alike.
 fn select(dir: &Path, dat: &Path, profile: &SelectionProfile) -> Selection {
     let engine = support::engine().with_data_dir(&dir.join("data"));
-    let selection = engine.select(dat, profile, &support::options(dir)).unwrap();
-    let builtin = engine
-        .run_builtin(dat, profile, &support::options(dir))
-        .unwrap()
-        .selection;
-    assert_eq!(builtin, selection, "the built-in engine selects alike");
-    selection
+    engine.select(dat, profile, &support::options()).unwrap()
 }
 
 fn titles<'a>(titles: impl IntoIterator<Item = &'a String>) -> BTreeSet<&'a str> {

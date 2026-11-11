@@ -1,60 +1,46 @@
-//! The Selection engine (ADR 0001): runs the pinned, trace-patched Retool on one DAT Revision with a Selection
-//! Profile, and explains its Selection from the trace.
+//! The Selection engine (ADR 0015): selects from one DAT Revision with a Selection Profile, and explains its
+//! Selection from the trace.
 //!
-//! Retool runs as a subprocess from an install that `tools/retool/setup` builds (`.retool/`) or the image ships
-//! (`/opt/retool`), in a per-run folder that is deleted afterwards. It never reaches the network: it reads only
-//! the pinned clone lists, metadata, MIA and RetroAchievements files beside it.
+//! The engine (`native`) is a port of Retool to Rust. It reads the pinned clone lists, metadata, MIA and
+//! RetroAchievements files that `tools/clone-lists/fetch` unpacks (`.clone-lists/`, or `/opt/clone-lists` in the
+//! image), and never reaches the network.
 
 pub mod choices;
-mod compare;
 mod config;
-mod conformance;
-mod isolated;
 mod native;
 mod patterns;
-mod systems;
 mod trace;
 
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use title_select_api::selection::{
-    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile, SystemSettings,
+    SELECTION_TRACE_SCHEMA, Selection, SelectionPins, SelectionProfile,
 };
 
-pub use compare::compare;
-pub use conformance::{Component, Conformance, Verdict, failure_category};
-pub use isolated::{
-    DEFAULT_SHADOW_MEMORY, DEFAULT_SHADOW_RESULT, SHADOW_SUBCOMMAND, ShadowCommand, serve_shadow,
-};
-pub use title_select_api::selection::SelectionEngine;
 pub use trace::stable_trace;
 
-/// The environment variable that points at a Retool install, for `Engine::locate`.
-pub const RETOOL_ENV: &str = "TITLE_SELECT_RETOOL";
-/// Where the image installs Retool.
-pub const DEFAULT_INSTALL: &str = "/opt/retool";
+/// The environment variable that points at the clone lists, for `Engine::locate`.
+pub const CLONE_LISTS_ENV: &str = "TITLE_SELECT_CLONE_LISTS";
+/// Where the image installs the clone lists.
+pub const DEFAULT_CLONE_LISTS: &str = "/opt/clone-lists";
 /// The longest a Selection may run unless the caller says otherwise.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
 
-const PINS: &str = include_str!("../../../third_party/retool/pins.toml");
-/// An unreachable proxy, so that a fetch that escaped the no-network patch fails instead of reaching out.
-const NO_PROXY: &str = "http://127.0.0.1:9";
-const STDERR_TAIL_LINES: usize = 20;
+const PINS: &str = include_str!("../../../third_party/clone-lists/pins.toml");
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("selection engine install: {0} (build it with tools/retool/setup)")]
+    #[error("the clone lists: {0} (fetch them with tools/clone-lists/fetch)")]
     Install(String),
     #[error("selection profile: {0}")]
     Profile(String),
-    /// Regular expressions in the Profile that the engine cannot compile, one message each.
+    /// Regular expressions in the Profile that the engine cannot read, one message each.
     #[error("{}", .0.join("\n"))]
     Patterns(Vec<String>),
     #[error("{context}: {source}")]
@@ -62,19 +48,16 @@ pub enum Error {
         context: String,
         source: std::io::Error,
     },
-    #[error("the selection engine failed ({status}):\n{output}")]
-    Retool { status: String, output: String },
     #[error("selection did not finish within {} s", .0.as_secs())]
     Timeout(Duration),
     #[error("selection was cancelled")]
     Cancelled,
     #[error("the selection engine's trace: {0}")]
     Trace(String),
-    #[error("the built-in selection engine: {0}")]
+    #[error("the selection engine: {0}")]
     Builtin(String),
-    /// Something the bundled engine accepts that the built-in engine doesn't support, such as a regular expression
-    /// it can't compile.
-    #[error("the built-in selection engine doesn't support {0}")]
+    /// Something the engine doesn't support, such as a regular expression it can't read as Python would.
+    #[error("the selection engine doesn't support {0}")]
     Unsupported(String),
 }
 
@@ -86,34 +69,16 @@ fn io(context: impl Into<String>) -> impl FnOnce(std::io::Error) -> Error {
 /// How to run one Selection.
 #[derive(Debug, Clone)]
 pub struct RunOptions {
-    /// The folder the per-run folder is made in, such as the store's `tmp`.
-    pub work_dir: PathBuf,
     pub timeout: Duration,
-    /// Set to stop the run: the subprocess is killed and the run fails with `Error::Cancelled`.
+    /// Set to stop the run: it fails with `Error::Cancelled`.
     pub cancel: Option<Arc<AtomicBool>>,
-    /// The engine whose Selection the run returns.
-    pub engine: SelectionEngine,
-    /// The most address space a shadow run's child process may use (`Engine::shadow`), where the system enforces it.
-    pub shadow_memory: Option<u64>,
-    /// The largest result, in bytes, a shadow run's child may return; a larger one is the shadow run's error.
-    pub shadow_result: u64,
-    /// Runs the bundled engine with its sets of releases iterated in another order, chosen by this seed. Retool's
-    /// sets of releases hash by identity, so the order they iterate in, and with it a few of its tie-breaks and
-    /// explanations, follows the memory addresses CPython happens to allocate; a seed shows which results depend on
-    /// it. For conformance only.
-    pub set_order: Option<u64>,
 }
 
 impl RunOptions {
-    pub fn new(work_dir: impl Into<PathBuf>) -> RunOptions {
+    pub fn new() -> RunOptions {
         RunOptions {
-            work_dir: work_dir.into(),
             timeout: DEFAULT_TIMEOUT,
             cancel: None,
-            engine: SelectionEngine::default(),
-            shadow_memory: Some(DEFAULT_SHADOW_MEMORY),
-            shadow_result: DEFAULT_SHADOW_RESULT,
-            set_order: None,
         }
     }
 
@@ -124,83 +89,75 @@ impl RunOptions {
     }
 }
 
+impl Default for RunOptions {
+    fn default() -> Self {
+        RunOptions::new()
+    }
+}
+
 /// A Selection and the trace it was derived from.
 #[derive(Debug, Clone)]
 pub struct Outcome {
     pub selection: Selection,
-    /// Retool's trace, as JSON Lines.
+    /// The engine's trace, as JSON Lines.
     pub trace: String,
-    /// What Retool warned about on a run that succeeded, one line each.
+    /// What the engine warned about on a run that succeeded, one line each.
     pub warnings: Vec<String>,
 }
 
-/// A verified Retool install.
+/// The engine with a verified copy of the clone lists.
 #[derive(Debug, Clone)]
 pub struct Engine {
+    /// Holds `config/internal-config.json`.
     root: PathBuf,
+    /// Holds the clone lists, metadata, MIAs and RetroAchievements.
     data: PathBuf,
     pins: SelectionPins,
-    shadow_command: Option<ShadowCommand>,
-    shadows: Arc<isolated::Shadows>,
 }
 
 impl Engine {
-    /// The install at `explicit`, else at `$TITLE_SELECT_RETOOL`, else at `/opt/retool`.
+    /// The clone lists at `explicit`, else at `$TITLE_SELECT_CLONE_LISTS`, else at `/opt/clone-lists`.
     pub fn locate(explicit: Option<&Path>) -> Result<Self, Error> {
         let root = match explicit {
             Some(path) => path.to_path_buf(),
-            None => std::env::var_os(RETOOL_ENV)
+            None => std::env::var_os(CLONE_LISTS_ENV)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_INSTALL)),
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_CLONE_LISTS)),
         };
         Self::open(&root)
     }
 
-    /// The install at `root`, if it was built from the pins this binary was built with.
+    /// The clone lists at `root`, if they are the commit this binary was built with.
     pub fn open(root: &Path) -> Result<Self, Error> {
-        // Retool runs in its own folder, so every path it is given must be absolute.
-        let root = &std::path::absolute(root).map_err(io(root.display().to_string()))?;
         let expected = expected_pins()?;
-        let path = root.join("pins.json");
-        let bytes =
-            std::fs::read(&path).map_err(|e| Error::Install(format!("{}: {e}", path.display())))?;
-        #[derive(serde::Deserialize, PartialEq)]
-        struct Installed {
-            retool_commit: String,
-            patch_set_sha256: String,
-            clone_list_commit: String,
-        }
-        let installed: Installed = serde_json::from_slice(&bytes)
+        let path = root.join("commit");
+        let commit = std::fs::read_to_string(&path)
             .map_err(|e| Error::Install(format!("{}: {e}", path.display())))?;
-        let wanted = Installed {
-            retool_commit: expected.retool_commit.clone(),
-            patch_set_sha256: expected.patch_set_sha256.clone(),
-            clone_list_commit: expected.clone_list_commit.clone(),
-        };
-        if installed != wanted {
+        if commit.trim() != expected.clone_list_commit {
             return Err(Error::Install(format!(
-                "{} was built from other pins than third_party/retool/pins.toml",
+                "{} holds commit {}, not the commit third_party/clone-lists/pins.toml pins",
+                root.display(),
+                commit.trim()
+            )));
+        }
+        Self::unverified(root)
+    }
+
+    /// The clone lists and `config/internal-config.json` at `root`, whatever their commit. Tests use it to run
+    /// Retool's own fixtures.
+    pub fn unverified(root: &Path) -> Result<Self, Error> {
+        let root = std::path::absolute(root).map_err(io(root.display().to_string()))?;
+        let required = root.join("config").join("internal-config.json");
+        if !required.is_file() {
+            return Err(Error::Install(format!(
+                "{} has no config/internal-config.json",
                 root.display()
             )));
         }
-        for required in [
-            "venv",
-            "retool/retool.py",
-            "retool/config/internal-config.json",
-        ] {
-            if !root.join(required).exists() {
-                return Err(Error::Install(format!(
-                    "{} has no {required}",
-                    root.display()
-                )));
-            }
-        }
         Ok(Engine {
-            root: root.to_path_buf(),
-            data: root.join("retool"),
-            pins: expected,
-            shadow_command: None,
-            shadows: Arc::default(),
+            data: root.clone(),
+            root,
+            pins: expected_pins()?,
         })
     }
 
@@ -211,26 +168,8 @@ impl Engine {
         self
     }
 
-    /// Starts shadow runs with `command` instead of this binary's hidden subcommand. Tests use it.
-    pub fn with_shadow_command(mut self, command: ShadowCommand) -> Self {
-        self.shadow_command = Some(command);
-        self
-    }
-
     pub fn pins(&self) -> &SelectionPins {
         &self.pins
-    }
-
-    /// The pristine, unpatched Retool beside the patched one, when the install has it (`tools/retool/setup`
-    /// builds it; the image does not ship it).
-    pub fn pristine(&self) -> Option<PathBuf> {
-        let path = self.root.join("pristine");
-        path.join("retool.py").is_file().then_some(path)
-    }
-
-    /// The install's Python.
-    pub fn python(&self) -> PathBuf {
-        self.root.join("venv").join("bin").join("python")
     }
 
     pub fn select(
@@ -243,15 +182,13 @@ impl Engine {
             .map(|outcome| outcome.selection)
     }
 
+    fn internal_config(&self) -> Result<Vec<u8>, Error> {
+        let path = self.root.join("config").join("internal-config.json");
+        std::fs::read(&path).map_err(io(path.display().to_string()))
+    }
+
     fn vocabulary(&self) -> Result<config::Vocabulary, Error> {
-        let internal = self
-            .root
-            .join("retool")
-            .join("config")
-            .join("internal-config.json");
-        config::Vocabulary::parse(
-            &std::fs::read(&internal).map_err(io(internal.display().to_string()))?,
-        )
+        config::Vocabulary::parse(&self.internal_config()?)
     }
 
     /// The region, language and video names a Profile may use.
@@ -270,110 +207,39 @@ impl Engine {
     /// well formed.
     pub fn check(&self, profile: &SelectionProfile) -> Result<(), Error> {
         self.vocabulary()?.check(profile)?;
-        patterns::check(&self.python(), profile)
+        patterns::check(profile)
     }
 
-    /// The system each of `dats` is for, as Retool names it and as a Profile files its system settings and choices
-    /// under, or `None` for a DAT Retool can't read. It works in a scratch folder under `work_dir`.
-    pub fn systems(&self, dats: &[&Path], work_dir: &Path) -> Result<Vec<Option<String>>, Error> {
-        let vocabulary = self.vocabulary()?;
-        let dats = dats
+    /// The system each of `dats` is for, as its header names it and as a Profile files its system settings and
+    /// choices under, or `None` for a DAT the engine can't read.
+    pub fn systems(&self, dats: &[&Path]) -> Result<Vec<Option<String>>, Error> {
+        let internal = self.internal_config()?;
+        Ok(dats
             .iter()
-            .map(|d| std::path::absolute(d).map_err(io(d.display().to_string())))
-            .collect::<Result<Vec<_>, _>>()?;
-        let work_dir = std::path::absolute(work_dir).map_err(io(work_dir.display().to_string()))?;
-        std::fs::create_dir_all(&work_dir).map_err(io(work_dir.display().to_string()))?;
-        let run = tempfile::Builder::new()
-            .prefix("systems-")
-            .tempdir_in(&work_dir)
-            .map_err(io(work_dir.display().to_string()))?;
-        let user_config = run.path().join("user-config.yaml");
-        std::fs::write(
-            &user_config,
-            config::user_config(&SelectionProfile::default(), &vocabulary),
-        )
-        .map_err(io(user_config.display().to_string()))?;
-        let dats: Vec<&Path> = dats.iter().map(PathBuf::as_path).collect();
-        systems::name(
-            &self.python(),
-            &self.root.join("retool"),
-            run.path(),
-            &user_config,
-            &dats,
-        )
+            .map(|dat| native::system_name(dat, &internal))
+            .collect())
     }
 
-    /// Selects from `dat` with `profile` with the engine `options` names, applies the Profile's choices for the DAT's
-    /// system, and keeps the trace. `shadow` runs the other engine beside it.
+    /// Selects from `dat` with `profile`, applies the Profile's choices for the DAT's system, and keeps the trace.
     pub fn run(
         &self,
         dat: &Path,
         profile: &SelectionProfile,
         options: &RunOptions,
     ) -> Result<Outcome, Error> {
-        let vocabulary = self.vocabulary()?;
-        vocabulary.check(profile)?;
-        patterns::check(&self.python(), profile)?;
+        self.vocabulary()?.check(profile)?;
+        patterns::check(profile)?;
         let dat = std::path::absolute(dat).map_err(io(dat.display().to_string()))?;
         let dat_sha256 = sha256_file(&dat)?;
-        self.run_engine(
-            options.engine,
-            &dat,
-            &dat_sha256,
-            profile,
-            options,
-            &vocabulary,
-        )
-    }
-
-    /// Selects like `run` with the built-in engine.
-    pub fn run_builtin(
-        &self,
-        dat: &Path,
-        profile: &SelectionProfile,
-        options: &RunOptions,
-    ) -> Result<Outcome, Error> {
-        let options = RunOptions {
-            engine: SelectionEngine::Builtin,
-            ..options.clone()
-        };
-        self.run(dat, profile, &options)
-    }
-
-    fn run_engine(
-        &self,
-        engine: SelectionEngine,
-        dat: &Path,
-        dat_sha256: &str,
-        profile: &SelectionProfile,
-        options: &RunOptions,
-        vocabulary: &config::Vocabulary,
-    ) -> Result<Outcome, Error> {
         if options.cancelled() {
             return Err(Error::Cancelled);
         }
-        let (trace, warnings) = match engine {
-            SelectionEngine::Bundled => self.run_bundled(dat, profile, options, vocabulary)?,
-            SelectionEngine::Builtin => {
-                let internal = self.internal_config()?;
-                let limits = native::Limits {
-                    cancel: options.cancel.clone(),
-                    deadline: Some((Instant::now() + options.timeout, options.timeout)),
-                };
-                let ran = native::run(dat, profile, &internal, &self.data, &limits)?;
-                (ran.trace, ran.warnings)
-            }
+        let limits = native::Limits {
+            cancel: options.cancel.clone(),
+            deadline: Some((Instant::now() + options.timeout, options.timeout)),
         };
-        self.outcome(trace, warnings, dat_sha256.to_owned(), profile)
-    }
-
-    fn internal_config(&self) -> Result<Vec<u8>, Error> {
-        let path = self
-            .root
-            .join("retool")
-            .join("config")
-            .join("internal-config.json");
-        std::fs::read(&path).map_err(io(path.display().to_string()))
+        let ran = native::run(&dat, profile, &self.internal_config()?, &self.data, &limits)?;
+        self.outcome(ran.trace, ran.warnings, dat_sha256, profile)
     }
 
     fn outcome(
@@ -406,206 +272,6 @@ impl Engine {
             warnings,
         })
     }
-
-    /// Runs the bundled engine, for the trace and the warnings.
-    fn run_bundled(
-        &self,
-        dat: &Path,
-        profile: &SelectionProfile,
-        options: &RunOptions,
-        vocabulary: &config::Vocabulary,
-    ) -> Result<(String, Vec<String>), Error> {
-        let retool = self.root.join("retool");
-
-        let work_dir = std::path::absolute(&options.work_dir)
-            .map_err(io(options.work_dir.display().to_string()))?;
-        std::fs::create_dir_all(&work_dir).map_err(io(work_dir.display().to_string()))?;
-        let run = tempfile::Builder::new()
-            .prefix("selection-")
-            .tempdir_in(&work_dir)
-            .map_err(io(work_dir.display().to_string()))?;
-        let run_dir = run.path();
-        let write = |path: PathBuf, contents: String| {
-            std::fs::write(&path, contents).map_err(io(path.display().to_string()))
-        };
-        write(
-            run_dir.join("user-config.yaml"),
-            config::user_config(profile, vocabulary),
-        )?;
-        let systems = run_dir.join("systems");
-        std::fs::create_dir(&systems).map_err(io(systems.display().to_string()))?;
-        for (name, system) in &profile.systems {
-            // Whether builds read the system's Additions Set is no concern of Retool's.
-            let selecting = SystemSettings {
-                additions: false,
-                ..system.clone()
-            };
-            if selecting.is_empty() && !system.is_empty() {
-                continue;
-            }
-            write(
-                systems.join(format!("{name}.yaml")),
-                config::system_config(system, vocabulary),
-            )?;
-        }
-        let trace_path = run_dir.join("trace.jsonl");
-        let stdout_path = run_dir.join("stdout.txt");
-        let stderr_path = run_dir.join("stderr.txt");
-
-        let mut command = Command::new(self.python());
-        if let Some(seed) = options.set_order {
-            let launcher = run_dir.join("set_order.py");
-            write(launcher.clone(), set_order_launcher(&retool, seed))?;
-            command.arg(launcher);
-        }
-        command
-            .arg(retool.join("retool.py"))
-            .arg(dat)
-            .arg("--config")
-            .arg(run_dir.join("user-config.yaml"))
-            .arg("--clonelist-dir")
-            .arg(self.data.join("clonelists"))
-            .arg("--metadata-dir")
-            .arg(self.data.join("metadata"))
-            .arg("--mia-dir")
-            .arg(self.data.join("mias"))
-            .arg("--ra-dir")
-            .arg(self.data.join("retroachievements"))
-            .arg("--system-config-dir")
-            .arg(&systems)
-            .arg("--output")
-            .arg(run_dir.join("out"))
-            .arg("--trace-json")
-            .arg(&trace_path)
-            .args(["--singlecpu", "--reprocess", "--labelmia", "--labelretro"])
-            .args(config::flags(profile))
-            .current_dir(run_dir)
-            .env_clear()
-            .envs([
-                ("PYTHONHASHSEED", "0"),
-                ("PYTHONDONTWRITEBYTECODE", "1"),
-                ("PYTHONIOENCODING", "utf-8"),
-                ("LANG", "C.UTF-8"),
-                ("http_proxy", NO_PROXY),
-                ("https_proxy", NO_PROXY),
-                ("HTTP_PROXY", NO_PROXY),
-                ("HTTPS_PROXY", NO_PROXY),
-            ])
-            .env("HOME", run_dir)
-            .stdin(Stdio::null())
-            .stdout(File::create(&stdout_path).map_err(io(stdout_path.display().to_string()))?)
-            .stderr(File::create(&stderr_path).map_err(io(stderr_path.display().to_string()))?);
-        // A shadow run's child dies with its parent; so must the bundled engine it runs.
-        isolated::die_with_parent(&mut command);
-        let mut child = command
-            .spawn()
-            .map_err(io(format!("starting {}", self.python().display())))?;
-        let started = Instant::now();
-        let status = loop {
-            if let Some(status) = child
-                .try_wait()
-                .map_err(io("waiting for the selection engine"))?
-            {
-                break status;
-            }
-            if options
-                .cancel
-                .as_ref()
-                .is_some_and(|c| c.load(Ordering::Relaxed))
-            {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(Error::Cancelled);
-            }
-            if started.elapsed() >= options.timeout {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(Error::Timeout(options.timeout));
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        };
-        if !status.success() {
-            let tail = |path: &Path| {
-                let text = std::fs::read_to_string(path).unwrap_or_default();
-                let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-                lines[lines.len().saturating_sub(STDERR_TAIL_LINES)..].join("\n")
-            };
-            let mut output = tail(&stderr_path);
-            if output.is_empty() {
-                output = tail(&stdout_path);
-            }
-            return Err(Error::Retool {
-                status: status.to_string(),
-                output,
-            });
-        }
-        let trace =
-            std::fs::read_to_string(&trace_path).map_err(io(trace_path.display().to_string()))?;
-        let warnings = warnings(&std::fs::read_to_string(&stderr_path).unwrap_or_default());
-        run.close().map_err(io("removing the run folder"))?;
-        Ok((trace, warnings))
-    }
-}
-
-/// A launcher that runs Retool with its `DatNode`s and `TitleData`s hashed by a seeded scramble of their identity
-/// instead of by it, so that sets of them iterate in another order. The order of the DAT's titles decides the order
-/// of the groups too.
-fn set_order_launcher(retool: &Path, seed: u64) -> String {
-    format!(
-        r#"import runpy, sys
-sys.path.insert(0, {retool:?})
-sys.argv = sys.argv[1:]
-from modules.dat.parse_dat import TitleData
-from modules.dat.process_dat import DatNode
-def _hash(self, _seed={seed}):
-    x = ((id(self) >> 4) * 0x9E3779B97F4A7C15 + _seed) & 0xFFFFFFFFFFFFFFFF
-    x ^= x >> 29
-    return hash(x)
-DatNode.__hash__ = _hash
-TitleData.__hash__ = _hash
-runpy.run_path(sys.argv[0], run_name="__main__")
-"#,
-        retool = retool.display().to_string(),
-    )
-}
-
-/// The warnings and errors in Retool's console output, a line each and without their colours. Retool colours
-/// them yellow (`ESC[93m`) and red (`ESC[91m`) until `ESC[0m`; its banner and progress notes are uncoloured.
-fn warnings(stderr: &str) -> Vec<String> {
-    let mut flagged = String::new();
-    let mut on = false;
-    let mut chars = stderr.chars();
-    while let Some(c) = chars.next() {
-        if c != '\u{1b}' {
-            if on || c == '\n' {
-                flagged.push(c);
-            }
-            continue;
-        }
-        let mut sequence = String::new();
-        for c in chars.by_ref() {
-            if c.is_ascii_alphabetic() {
-                sequence.push(c);
-                break;
-            }
-            sequence.push(c);
-        }
-        if let Some(params) = sequence.strip_prefix('[').and_then(|s| s.strip_suffix('m')) {
-            for param in params.split(';') {
-                match param {
-                    "93" | "91" => on = true,
-                    "" | "0" | "35" | "36" | "90" | "92" => on = false,
-                    _ => {}
-                }
-            }
-        }
-    }
-    flagged
-        .lines()
-        .map(|l| l.trim().trim_start_matches('•').trim())
-        .filter(|l| !l.is_empty())
-        .map(str::to_owned)
-        .collect()
 }
 
 /// The names a Profile may use, from the engine's internal configuration.
@@ -620,51 +286,30 @@ pub struct Names {
     pub default_video_order: Vec<String>,
 }
 
-/// The upstream projects this binary's Selection is pinned to, from `third_party/retool/pins.toml`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Upstream {
-    /// Retool's repository and the commit vendored in `third_party/retool/upstream`.
-    pub retool: Pinned,
-    /// The sha256 of the patches applied to it, as every Selection reports it.
-    pub patch_set_sha256: String,
-    /// The clone lists and metadata repository and the commit whose archive is fetched.
-    pub clone_lists: Pinned,
-}
-
+/// The clone lists this binary's Selection is pinned to, from `third_party/clone-lists/pins.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct Pinned {
     pub repository: String,
     pub commit: String,
 }
 
-/// The upstream commits this binary was built with.
-pub fn upstream() -> Result<Upstream, Error> {
+/// The clone-list repository and commit this binary was built with.
+pub fn clone_lists() -> Result<Pinned, Error> {
     #[derive(serde::Deserialize)]
     struct Pins {
-        retool: Pinned,
-        patches: Vec<Patch>,
         clone_lists: Pinned,
     }
-    #[derive(serde::Deserialize)]
-    struct Patch {
-        sha256: String,
-    }
     let pins: Pins = toml::from_str(PINS).map_err(|e| Error::Install(format!("pins.toml: {e}")))?;
-    let concatenated: String = pins.patches.iter().map(|p| p.sha256.as_str()).collect();
-    Ok(Upstream {
-        retool: pins.retool,
-        patch_set_sha256: hex(&Sha256::digest(concatenated.as_bytes())),
-        clone_lists: pins.clone_lists,
-    })
+    Ok(pins.clone_lists)
 }
 
-/// The pins this binary was built with: those in `third_party/retool/pins.toml`.
+/// The pins every Selection this binary makes records.
 fn expected_pins() -> Result<SelectionPins, Error> {
-    let upstream = upstream()?;
     Ok(SelectionPins {
-        retool_commit: upstream.retool.commit,
-        patch_set_sha256: upstream.patch_set_sha256,
-        clone_list_commit: upstream.clone_lists.commit,
+        retool_commit: None,
+        patch_set_sha256: None,
+        title_select_version: Some(env!("CARGO_PKG_VERSION").to_owned()),
+        clone_list_commit: clone_lists()?.commit,
         trace_schema: SELECTION_TRACE_SCHEMA,
     })
 }
@@ -687,23 +332,4 @@ fn sha256_file(path: &Path) -> Result<String, Error> {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn warnings_are_retools_console_lines_without_colours() {
-        let stderr = "\u{1b}[0m\n\n\u{1b}[1mRetool 2.4.9\u{1b}[22m\u{1b}[0m\n\u{1b}[0m• Creating folder\n  \"\u{1b}[1m/out\
-                      \u{1b}[22m\"\u{1b}[0m\n\u{1b}[0m\u{1b}[93m• The following global post filter regexes are invalid \
-                      and will be\nskipped:\n\u{1b}[0m\n\u{1b}[0m\u{1b}[93m  • \u{1b}[1m/[\u{1b}[22m\u{1b}[0m\n";
-
-        assert_eq!(
-            super::warnings(stderr),
-            [
-                "The following global post filter regexes are invalid and will be",
-                "skipped:",
-                "/["
-            ]
-        );
-    }
 }

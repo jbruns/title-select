@@ -237,62 +237,20 @@ pub struct Selection {
     pub stale_choices: BTreeMap<String, BTreeSet<String>>,
 }
 
-/// A shadow run: the other engine selected from the same DAT Revision with the same Profile, and how its Selection
-/// compares. It never changes the Selection it is recorded beside.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShadowRun {
-    /// The engine that made the Selection.
-    pub engine: SelectionEngine,
-    /// The engine run in its shadow.
-    pub shadow: SelectionEngine,
-    /// The comparison, `[bundled, builtin]`; absent when the shadow run failed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub comparison: Option<EngineComparison>,
-    /// Why the shadow run failed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    /// How far the differences are known to be real; absent when the engines agreed or the shadow run failed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub classification: Option<ShadowClassification>,
-}
-
-impl ShadowRun {
-    /// The shadow run of `shadow` beside `engine`'s Selection, with its comparison or why it failed.
-    pub fn new(
-        engine: SelectionEngine,
-        shadow: SelectionEngine,
-        comparison: Option<EngineComparison>,
-        error: Option<String>,
-    ) -> Self {
-        let classification = comparison
-            .as_ref()
-            .filter(|c| !c.is_identical())
-            .map(|_| ShadowClassification::Unclassified);
-        ShadowRun {
-            engine,
-            shadow,
-            comparison,
-            error,
-            classification,
-        }
-    }
-}
-
-/// How far a shadow run's differences are known to be real.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ShadowClassification {
-    /// Not classified: a shadow run makes one run of each engine, so a difference may only be the bundled engine's
-    /// set order. The conformance command reruns the bundled engine in other orders to tell.
-    Unclassified,
-}
-
 /// What a Selection was made with, so that it can be reproduced.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionPins {
-    pub retool_commit: String,
-    /// SHA-256 over the ordered patch hashes.
-    pub patch_set_sha256: String,
+    /// The Retool commit the bundled engine ran: only on a Selection made before the cutover to the built-in engine
+    /// (ADR 0015).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retool_commit: Option<String>,
+    /// SHA-256 over the ordered hashes of the patches the bundled engine ran with: only on a Selection made before
+    /// the cutover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patch_set_sha256: Option<String>,
+    /// The Title Select version whose engine made the Selection: absent on a Selection made before the cutover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_select_version: Option<String>,
     /// The clone list and metadata commit.
     pub clone_list_commit: String,
     pub trace_schema: u32,
@@ -621,93 +579,6 @@ pub struct Rule {
     pub message: String,
 }
 
-/// Which engine makes Selections: the pinned Retool run as a subprocess (`bundled`, authoritative until the cutover),
-/// or its Rust port (`builtin`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SelectionEngine {
-    #[default]
-    Bundled,
-    Builtin,
-}
-
-impl SelectionEngine {
-    pub fn other(self) -> SelectionEngine {
-        match self {
-            SelectionEngine::Bundled => SelectionEngine::Builtin,
-            SelectionEngine::Builtin => SelectionEngine::Bundled,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            SelectionEngine::Bundled => "bundled",
-            SelectionEngine::Builtin => "builtin",
-        }
-    }
-}
-
-/// How two engines' Selections from the same DAT Revision and Profile differ, group by group.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EngineComparison {
-    /// The groups either engine reported.
-    pub groups: usize,
-    /// Groups whose releases the engines placed differently: a different winner, clone or exclusion, or a different
-    /// unresolved flag.
-    pub differing: usize,
-    /// Groups the engines placed alike but explained with a different rule.
-    pub explained_differently: usize,
-    /// Every group that differs in any way, sorted by group name.
-    pub differences: Vec<GroupDifference>,
-    /// The engines' warnings, where they differ.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub warnings: Option<[Vec<String>; 2]>,
-}
-
-impl EngineComparison {
-    /// No difference at all, explanations included.
-    pub fn is_identical(&self) -> bool {
-        self.differences.is_empty() && self.warnings.is_none()
-    }
-}
-
-/// One group the engines disagree on. Each pair is `[bundled, builtin]`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GroupDifference {
-    pub group: String,
-    /// The engines placed the group's releases alike; only the rules that explain them differ.
-    pub explanation_only: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unresolved: Option<[bool; 2]>,
-    /// The releases placed or explained differently, sorted by title.
-    pub releases: Vec<ReleaseDifference>,
-}
-
-/// One release the engines disagree on: where each put it, `None` where an engine doesn't report it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReleaseDifference {
-    pub title: String,
-    pub placements: [Option<Placement>; 2],
-}
-
-/// Where an engine put a release: its role, the winner it is a clone of, and the rule that decided it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Placement {
-    pub role: PlacementRole,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clone_of: Option<String>,
-    pub stage: String,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PlacementRole {
-    Winner,
-    Alternative,
-    Exclusion,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -717,29 +588,23 @@ mod tests {
     }
 
     #[test]
-    fn a_shadow_runs_differences_are_unclassified() {
-        let (bundled, builtin) = (SelectionEngine::Bundled, SelectionEngine::Builtin);
-        let alike = EngineComparison {
-            groups: 2,
-            ..EngineComparison::default()
+    fn pins_from_before_the_cutover_still_read_and_new_pins_name_the_version() {
+        let old: SelectionPins = serde_json::from_str(
+            r#"{"retool_commit":"59f169f","patch_set_sha256":"ab","clone_list_commit":"cdeb391","trace_schema":1}"#,
+        )
+        .unwrap();
+        assert_eq!(old.retool_commit.as_deref(), Some("59f169f"));
+        assert_eq!(old.title_select_version, None);
+
+        let new = SelectionPins {
+            title_select_version: Some("0.7.0".into()),
+            clone_list_commit: "cdeb391".into(),
+            trace_schema: 1,
+            ..SelectionPins::default()
         };
-        let differing = EngineComparison {
-            warnings: Some([vec!["a".into()], vec![]]),
-            ..alike.clone()
-        };
         assert_eq!(
-            ShadowRun::new(bundled, builtin, Some(alike), None).classification,
-            None
-        );
-        assert_eq!(
-            ShadowRun::new(bundled, builtin, None, Some("failed".into())).classification,
-            None
-        );
-        let run = ShadowRun::new(bundled, builtin, Some(differing), None);
-        assert_eq!(run.classification, Some(ShadowClassification::Unclassified));
-        assert_eq!(
-            serde_json::to_value(&run).unwrap()["classification"],
-            "unclassified"
+            serde_json::to_string(&new).unwrap(),
+            r#"{"title_select_version":"0.7.0","clone_list_commit":"cdeb391","trace_schema":1}"#
         );
     }
 

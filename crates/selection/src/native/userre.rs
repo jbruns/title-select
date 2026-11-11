@@ -30,8 +30,15 @@ struct Parser<'a> {
     ascii: bool,
     /// `re.MULTILINE`, from a leading `(?m)`.
     multiline: bool,
+    /// Groups open around the one being read.
+    depth: usize,
     source: &'a str,
 }
+
+/// The deepest nesting of groups a pattern may have. The parser here recurses once per group, so a bound keeps a
+/// pattern from overflowing the stack. `fancy_regex` refuses nesting from 64 groups, counting the lookahead a `$`
+/// becomes, so this stays below it and the refusal names the limit; no real title pattern comes near it.
+const MAX_DEPTH: usize = 60;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -43,10 +50,15 @@ pub(crate) fn rewrite(pattern: &str) -> Result<Rewritten> {
         out: String::new(),
         ascii: false,
         multiline: false,
+        depth: 0,
         source: pattern,
     };
     p.leading_flags()?;
     p.sequence()?;
+    if p.peek().is_some() {
+        // Only a `)` with no group to close stops the outermost sequence early.
+        return unsupported("an unbalanced parenthesis");
+    }
     if p.multiline {
         p.out.insert_str(0, "(?m)");
     }
@@ -146,6 +158,9 @@ impl Parser<'_> {
     }
 
     fn group(&mut self) -> Result<()> {
+        if self.depth == MAX_DEPTH {
+            return unsupported(&format!("more than {MAX_DEPTH} nested groups"));
+        }
         self.next();
         if self.peek() != Some('?') {
             self.out.push('(');
@@ -209,7 +224,10 @@ impl Parser<'_> {
             }
             self.out.push_str(&format!("(?{flags}:"));
         }
-        self.sequence()?;
+        self.depth += 1;
+        let read = self.sequence();
+        self.depth -= 1;
+        read?;
         if self.next() != Some(')') {
             return unsupported("an unbalanced parenthesis");
         }
@@ -476,41 +494,56 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
-    use std::process::{Command, Stdio};
-
     use super::super::pyre::Re;
 
-    /// Python's `re.search(pattern, subject, flags=re.I) is not None` for each subject, or `None` where Python
-    /// doesn't compile the pattern.
-    fn python(cases: &[(&str, Vec<&str>)]) -> Vec<Option<Vec<bool>>> {
-        let script = r#"
-import json, re, sys
-out = []
-for pattern, subjects in json.load(sys.stdin):
-    try:
-        r = re.compile(pattern, flags=re.I)
-    except Exception:
-        out.append(None)
-        continue
-    out.append([r.search(s) is not None for s in subjects])
-json.dump(out, sys.stdout)
-"#;
-        let mut child = Command::new(super::super::tests::engine().python())
-            .args(["-I", "-W", "ignore", "-c", script])
-            .env("PYTHONIOENCODING", "utf-8")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(&serde_json::to_vec(cases).unwrap())
-            .unwrap();
-        let out = child.wait_with_output().unwrap();
-        serde_json::from_slice(&out.stdout).unwrap()
+    #[test]
+    fn groups_may_nest_sixty_deep_and_no_deeper() {
+        // The innermost group is a lookahead, and `$` becomes one more: both count towards `fancy_regex`'s limit.
+        let nested = |depth: usize| {
+            format!(
+                "{}(?=Te)Test${}",
+                "(?:".repeat(depth - 1),
+                ")".repeat(depth - 1)
+            )
+        };
+        let deepest = Re::user(&nested(super::MAX_DEPTH)).unwrap();
+        assert!(deepest.search("A Test"));
+        assert!(!deepest.search("A Tent"));
+        let refused = Re::user(&nested(super::MAX_DEPTH + 1)).err().unwrap();
+        assert_eq!(refused, "more than 60 nested groups");
+    }
+
+    #[test]
+    fn a_closing_parenthesis_without_its_group_is_unbalanced() {
+        for pattern in ["Test)NEVER", ")", "(a))", "a|b)"] {
+            assert_eq!(
+                Re::user(pattern).err().as_deref(),
+                Some("an unbalanced parenthesis"),
+                "{pattern}"
+            );
+        }
+        assert!(Re::user("(a)(b)").is_ok());
+    }
+
+    /// Python's `re.search(pattern, subject, flags=re.I) is not None` for each of [`SUBJECTS`], or `None` where
+    /// Python doesn't compile the pattern: what the bundled Retool's Python answered for each case, frozen in
+    /// `tests/oracle/` (one JSON array per pattern: the pattern, then a `0`/`1` per subject or `null`).
+    fn python(frozen: &str, patterns: &[&str]) -> Vec<Option<Vec<bool>>> {
+        let rows: Vec<(String, Option<String>)> = frozen
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(rows.len(), patterns.len());
+        rows.into_iter()
+            .zip(patterns)
+            .map(|((pattern, bits), want)| {
+                assert_eq!(pattern, *want, "the frozen cases are these patterns");
+                bits.map(|bits| {
+                    assert_eq!(bits.len(), SUBJECTS.len());
+                    bits.chars().map(|c| c == '1').collect()
+                })
+            })
+            .collect()
     }
 
     const SUBJECTS: &[&str] = &[
@@ -600,7 +633,10 @@ json.dump(out, sys.stdout)
         ];
         let cases: Vec<(&str, Vec<&str>)> =
             patterns.iter().map(|p| (*p, SUBJECTS.to_vec())).collect();
-        let expected = python(&cases);
+        let expected = python(
+            include_str!("../../tests/oracle/user-patterns.jsonl"),
+            &patterns,
+        );
         let mut refused = Vec::new();
         for ((pattern, subjects), expected) in cases.iter().zip(expected) {
             let ours = Re::user(pattern);
@@ -658,7 +694,11 @@ json.dump(out, sys.stdout)
             .map(|p| (p.as_str(), SUBJECTS.to_vec()))
             .collect();
         let (mut supported, mut refused) = (0, 0);
-        for ((pattern, subjects), expected) in cases.iter().zip(python(&cases)) {
+        let frozen = python(
+            include_str!("../../tests/oracle/generated-patterns.jsonl"),
+            &patterns.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        for ((pattern, subjects), expected) in cases.iter().zip(frozen) {
             match (Re::user(pattern), expected) {
                 (Ok(re), Some(expected)) => {
                     supported += 1;
@@ -671,7 +711,7 @@ json.dump(out, sys.stdout)
                         );
                     }
                 }
-                // A Profile with a pattern Python refuses is refused before either engine runs.
+                // A Profile with a pattern Python refused is refused before the engine runs.
                 (_, None) => {}
                 (Err(_), Some(_)) => refused += 1,
             }

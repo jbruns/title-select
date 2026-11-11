@@ -1,0 +1,117 @@
+#!/bin/sh
+# Fetches the clone lists, metadata, MIAs and RetroAchievements data the Selection engine reads, at the commit
+# third_party/clone-lists/pins.toml pins, and checks the archive against the pinned sha256.
+#
+#   tools/clone-lists/fetch [DEST]   unpack into DEST (default .clone-lists in the repository); does nothing
+#                                    when DEST already holds the pinned commit
+#   tools/clone-lists/fetch pin      write the sha256 of the pinned commit's archive into pins.toml
+#
+# DEST then holds config/internal-config.json, clonelists/, metadata/, mias/, retroachievements/, the
+# upstream LICENSE and a `commit` file naming the commit, and nothing else of the archive. Needs curl, tar,
+# sha256sum (or shasum) and the POSIX tools.
+set -eu
+
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
+pins="$repo/third_party/clone-lists/pins.toml"
+
+fail() {
+    echo "fetch: $*" >&2
+    exit 1
+}
+
+pin() {
+    value=$(sed -n "s/^$1 = \"\\(.*\\)\"\$/\\1/p" "$pins")
+    [ -n "$value" ] || fail "$pins has no $1"
+    printf '%s\n' "$value"
+}
+
+sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d' ' -f1
+    else
+        shasum -a 256 "$1" | cut -d' ' -f1
+    fi
+}
+
+repository=$(pin repository)
+commit=$(pin commit)
+url="$repository/archive/$commit.tar.gz"
+
+download() {
+    curl --fail --silent --show-error --location --retry 3 --max-time 300 --output "$1" "$url"
+}
+
+if [ "${1:-}" = pin ]; then
+    archive="$repo/.clone-lists.pin.tar.gz"
+    trap 'rm -f "$archive"' EXIT
+    download "$archive"
+    digest=$(sha256 "$archive")
+    [ "$(grep -c '^archive_sha256 = "[0-9a-f]*"$' "$pins")" = 1 ] ||
+        fail "$pins needs exactly one archive_sha256 line"
+    sed "s/^archive_sha256 = \"[0-9a-f]*\"\$/archive_sha256 = \"$digest\"/" "$pins" >"$pins.new"
+    mv "$pins.new" "$pins"
+    echo "clone-list archive for $commit: $digest"
+    exit 0
+fi
+
+dest=${1:-"$repo/.clone-lists"}
+if [ -f "$dest/commit" ] && [ "$(cat "$dest/commit")" = "$commit" ]; then
+    echo "$dest already holds the clone lists at $commit"
+    exit 0
+fi
+
+expected=$(pin archive_sha256)
+work="$dest.partial"
+rm -rf "$work"
+mkdir -p "$work/unpacked"
+trap 'rm -rf "$work"' EXIT
+download "$work/archive.tar.gz"
+actual=$(sha256 "$work/archive.tar.gz")
+[ "$actual" = "$expected" ] ||
+    fail "the clone-list archive does not match pins.toml archive_sha256 ($actual)"
+
+# Unpack only regular files and folders, inside the archive's own folder: a link, a special file, an absolute
+# path or a `..` could otherwise put a file from elsewhere into the clone lists, or write outside DEST. A name
+# that starts with `-` is refused too, and `--` ends tar's options, so no name can read as an option.
+archive="$work/archive.tar.gz"
+tar -tzf "$archive" >"$work/names" || fail "the clone-list archive can't be listed"
+tar -tvzf "$archive" >"$work/listing" || fail "the clone-list archive can't be listed"
+[ "$(wc -l <"$work/names")" = "$(wc -l <"$work/listing")" ] ||
+    fail "the clone-list archive has a name that can't be listed plainly"
+odd=$(grep -v '^[-d]' "$work/listing" | head -n 1) || true
+[ -z "$odd" ] || fail "the clone-list archive holds something other than a regular file or folder: $odd"
+odd=$(awk '/^\// || /(^|\/)\.\.(\/|$)/ { print; exit }' "$work/names")
+[ -z "$odd" ] || fail "the clone-list archive names a path outside its folder: $odd"
+odd=$(awk '/(^|\/)-/ { print; exit }' "$work/names")
+[ -z "$odd" ] || fail "the clone-list archive has a name that starts with -: $odd"
+top=$(sed -n '1s|/.*||p' "$work/names")
+[ -n "$top" ] || fail "the clone-list archive is empty"
+
+set -- "$top/LICENSE" "$top/config/internal-config.json"
+for dir in clonelists metadata mias retroachievements; do
+    if prefix="$top/$dir/" awk 'index($0, ENVIRON["prefix"]) == 1 { found = 1; exit } END { exit !found }' \
+        "$work/names"; then
+        set -- "$@" "$top/$dir"
+    fi
+done
+tar -xzf "$archive" -C "$work/unpacked" --strip-components=1 -- "$@" ||
+    fail "the clone-list archive lacks LICENSE or config/internal-config.json"
+odd=$(find "$work/unpacked" ! -type f ! -type d | head -n 1)
+[ -z "$odd" ] || fail "the clone-list archive unpacked something other than a regular file or folder: $odd"
+
+out="$work/out"
+mkdir -p "$out/config"
+cp -P "$work/unpacked/config/internal-config.json" "$out/config/"
+cp -P "$work/unpacked/LICENSE" "$out/LICENSE"
+for dir in clonelists metadata mias retroachievements; do
+    if [ -d "$work/unpacked/$dir" ]; then
+        cp -RP "$work/unpacked/$dir" "$out/$dir"
+    else
+        mkdir "$out/$dir"
+    fi
+done
+printf '%s\n' "$commit" >"$out/commit"
+
+rm -rf "$dest"
+mv "$out" "$dest"
+echo "fetched the clone lists at $commit into $dest"

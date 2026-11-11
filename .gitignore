@@ -7,5 +7,6 @@
 .worktrees/
 /.venv/
 
-# Retool for Selection, built by tools/retool/setup
-/.retool/
+# Clone lists for Selection, fetched by tools/clone-lists/fetch
+/.clone-lists/
+/.clone-lists.partial/

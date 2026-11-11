@@ -1,0 +1,9 @@
+# The clone lists, metadata, MIAs and RetroAchievements data the Selection engine reads, fetched as the
+# archive of this commit by `tools/clone-lists/fetch`, which checks the archive's sha256. Every Selection
+# records the commit. Renovate proposes upstream's newest main commit; the clone-list-pin workflow then
+# writes the new archive's sha256 (`tools/clone-lists/fetch pin`).
+[clone_lists]
+repository = "https://github.com/unexpectedpanda/retool-clonelists-metadata"
+branch = "main"
+commit = "cdeb391e2ea422475dc82091278c9c9ae3f340ae"
+archive_sha256 = "cb3c9cdc9fb013ce60e779ff6da511ebfb3692c5b4ce7328eacd018c6a6ddf8a"

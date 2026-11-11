@@ -1,109 +1,21 @@
-//! Differential tests: the built-in engine's pieces against the bundled Retool's, on Retool's fixture names and
-//! generated ones.
+//! Differential tests: the built-in engine's pieces against the answers the bundled Retool gave on generated
+//! inputs, frozen in `tests/oracle/` when the bundled engine was removed.
 
-use std::io::Write as _;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 
 use indexmap::IndexMap;
 use title_select_api::selection::SelectionProfile;
 
 use super::settings::Settings;
 
-pub(crate) fn engine() -> crate::Engine {
-    crate::Engine::locate(None).unwrap_or_else(|e| {
-        panic!("{e}\nthe Selection tests need the Retool install: run tools/retool/setup")
-    })
+/// Retool's test inputs, kept for the fixture tests.
+pub(crate) fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../third_party/retool/fixtures")
 }
 
-pub(crate) fn upstream() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../third_party/retool/upstream")
-}
-
+/// The internal config the fixture tests run under, frozen beside the fixtures.
 pub(crate) fn internal_config() -> Vec<u8> {
-    std::fs::read(engine().root.join("retool/config/internal-config.json")).unwrap()
-}
-
-/// Runs `oracle.py COMMAND` with `input` on stdin, under `profile`'s global settings.
-pub(crate) fn oracle(command: &str, input: &str, profile: &SelectionProfile) -> String {
-    let engine = engine();
-    let dir = tempfile::tempdir().unwrap();
-    let vocabulary = engine.vocabulary().unwrap();
-    let user_config = dir.path().join("user-config.yaml");
-    std::fs::write(
-        &user_config,
-        crate::config::user_config(profile, &vocabulary),
-    )
-    .unwrap();
-    std::fs::create_dir(dir.path().join("systems")).unwrap();
-    let script = dir.path().join("oracle.py");
-    std::fs::write(&script, include_str!("oracle.py")).unwrap();
-    let mut child = Command::new(engine.python())
-        .arg(&script)
-        .arg(engine.root.join("retool"))
-        .arg(&user_config)
-        .arg(command)
-        .current_dir(dir.path())
-        .env("PYTHONHASHSEED", "0")
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("HOME", dir.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .unwrap();
-    let out = child.wait_with_output().unwrap();
-    assert!(
-        out.status.success(),
-        "oracle failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap()
-}
-
-/// Every game name in Retool's fixture DATs.
-pub(crate) fn fixture_names() -> Vec<String> {
-    let mut names = Vec::new();
-    let mut stack = vec![upstream().join("tests")];
-    while let Some(dir) = stack.pop() {
-        let mut entries: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect();
-        entries.sort();
-        for path in entries {
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "dat") {
-                let text = std::fs::read_to_string(&path).unwrap_or_default();
-                for line in text.lines() {
-                    let line = line.trim_start();
-                    if (line.starts_with("<game ") || line.starts_with("<machine "))
-                        && let Some(start) = line.find("name=\"")
-                    {
-                        let rest = &line[start + 6..];
-                        let name = &rest[..rest.find('"').unwrap_or(rest.len())];
-                        names.push(
-                            name.replace("&amp;", "&")
-                                .replace("&quot;", "\"")
-                                .replace("&apos;", "'")
-                                .replace("&lt;", "<")
-                                .replace("&gt;", ">"),
-                        );
-                    }
-                }
-            }
-        }
-    }
-    names.sort();
-    names.dedup();
-    names
+    std::fs::read(fixtures().join("config/internal-config.json")).unwrap()
 }
 
 /// A small deterministic generator, so a failing case can be reproduced from its seed.
@@ -325,7 +237,6 @@ struct TitleToolsCase {
     sanitized: String,
     sanitized_header: String,
 }
-
 fn titletools_case(name: &str, s: &Settings) -> TitleToolsCase {
     use super::pyset::PySet;
     use super::titletools::{self as t, Method, VersionValue};
@@ -369,35 +280,53 @@ fn titletools_case(name: &str, s: &Settings) -> TitleToolsCase {
     }
 }
 
+/// What the bundled Retool's `TitleTools` returned for 3000 generated names under the default Profile: one JSON
+/// array per name, the name then each field of [`TitleToolsCase`] in order.
+const TITLETOOLS: &str = include_str!("../../tests/oracle/titletools.jsonl");
+
 #[test]
 fn titletools_match_the_bundled_engine() {
-    let mut names = fixture_names();
     let mut rng = Rng::new(94);
-    for _ in 0..3000 {
-        names.push(synthetic_name(&mut rng));
-    }
-    let profile = SelectionProfile::default();
-    let expected: Vec<TitleToolsCase> = serde_json::from_str(&oracle(
-        "titletools",
-        &serde_json::to_string(&names).unwrap(),
-        &profile,
-    ))
-    .unwrap();
-    let settings = Settings::new(&internal_config(), &profile, "").unwrap();
+    let settings = Settings::new(&internal_config(), &SelectionProfile::default(), "").unwrap();
     let mut differences = Vec::new();
-    for (name, expected) in names.iter().zip(expected) {
-        let actual = titletools_case(name, &settings);
+    let mut count = 0;
+    for line in TITLETOOLS.lines() {
+        let (name, expected): (String, TitleToolsCase) = {
+            let mut row: Vec<serde_json::Value> = serde_json::from_str(line).unwrap();
+            let name = serde_json::from_value(row.remove(0)).unwrap();
+            let keys = [
+                "date",
+                "group_name",
+                "versions",
+                "short_name",
+                "region_free_name",
+                "languages",
+                "languages_untagged",
+                "regions",
+                "remove_tags",
+                "sanitized",
+                "sanitized_header",
+            ];
+            let object: serde_json::Map<_, _> = keys
+                .iter()
+                .map(|k| (k.to_string(), row.remove(0)))
+                .collect();
+            (name, serde_json::from_value(object.into()).unwrap())
+        };
+        assert_eq!(name, synthetic_name(&mut rng), "the names are generated");
+        count += 1;
+        let actual = titletools_case(&name, &settings);
         if actual != expected {
             differences.push(format!(
                 "{name}\n  python: {expected:?}\n  rust:   {actual:?}"
             ));
         }
     }
+    assert_eq!(count, 3000);
     assert!(
         differences.is_empty(),
-        "{} of {} names differ:\n{}",
+        "{} of {count} names differ:\n{}",
         differences.len(),
-        names.len(),
         differences[..differences.len().min(15)].join("\n")
     );
 }

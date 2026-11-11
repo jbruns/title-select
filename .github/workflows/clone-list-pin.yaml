@@ -1,16 +1,16 @@
 name: clone-list pin
 
-# Renovate moves the clone-list commit in third_party/retool/pins.toml but can't know the new archive's
+# Renovate moves the clone-list commit in third_party/clone-lists/pins.toml but can't know the new archive's
 # sha256. This writes it on the Renovate branch, then runs CI on the result: a push made with the workflow's
 # token starts no workflows by itself.
 #
-# The job holds a write token, so it runs no code from the branch: the default branch's build.py hashes the
-# archive the branch's pins.toml names, and only the push and the CI dispatch see the token.
+# The job holds a write token, so it runs no code from the branch: the default branch's tools/clone-lists/fetch
+# hashes the archive the branch's pins.toml names, and only the push and the CI dispatch see the token.
 
 on:
   push:
     branches: ['renovate/**']
-    paths: [third_party/retool/pins.toml]
+    paths: [third_party/clone-lists/pins.toml]
 
 permissions:
   contents: read
@@ -41,9 +41,9 @@ jobs:
           persist-credentials: false
       - name: hash the archive
         run: |
-          cp branch/third_party/retool/pins.toml trusted/third_party/retool/pins.toml
-          python3 trusted/tools/retool/build.py pin-clone-lists
-          cp trusted/third_party/retool/pins.toml branch/third_party/retool/pins.toml
+          cp branch/third_party/clone-lists/pins.toml trusted/third_party/clone-lists/pins.toml
+          sh trusted/tools/clone-lists/fetch pin
+          cp trusted/third_party/clone-lists/pins.toml branch/third_party/clone-lists/pins.toml
       - name: commit and run CI
         working-directory: branch
         env:

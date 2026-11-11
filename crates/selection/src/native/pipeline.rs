@@ -243,10 +243,10 @@ mod tests {
     use super::*;
     use crate::native::node::Titles;
     use crate::native::py;
-    use crate::native::tests::{internal_config, upstream};
+    use crate::native::tests::{fixtures, internal_config};
 
     fn fixture(name: &str) -> std::path::PathBuf {
-        upstream().join("tests/source/features").join(name)
+        fixtures().join("source/features").join(name)
     }
 
     fn run_with(profile: &SelectionProfile, limits: &Limits) -> Result<Ran, Error> {
@@ -254,7 +254,7 @@ mod tests {
             &fixture("Retool - Prefer regions.dat"),
             profile,
             &internal_config(),
-            &upstream().join("tests"),
+            &fixtures(),
             limits,
         )
     }
@@ -326,8 +326,7 @@ mod tests {
         let settings = Settings::new(&internal_config(), &profile, "").unwrap();
         let dat = dat::read_header(&path, &text, &settings).unwrap();
         let mut run = Run::new(settings);
-        let processed =
-            process::process_dat(&mut run, &path, dat, &upstream().join("tests"), false).unwrap();
+        let processed = process::process_dat(&mut run, &path, dat, &fixtures(), false).unwrap();
         let (_, titles) = processed.titles.first().unwrap();
         assert_eq!(titles.len(), 3000);
         // Cancelled once the group's choosing has begun: only the choosers' own checks can see it.
@@ -364,8 +363,7 @@ mod tests {
         let settings = Settings::new(&internal_config(), &profile, "").unwrap();
         let dat = dat::read_header(&path, &text, &settings).unwrap();
         let mut run = Run::new(settings);
-        let processed =
-            process::process_dat(&mut run, &path, dat, &upstream().join("tests"), false).unwrap();
+        let processed = process::process_dat(&mut run, &path, dat, &fixtures(), false).unwrap();
         // Every title at once: 20,000 short names to prepare before any pair is compared.
         let titles: Titles = processed
             .titles

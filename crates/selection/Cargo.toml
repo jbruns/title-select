@@ -1,6 +1,6 @@
 [package]
 name = "title-select-selection"
-description = "Title Select's Selection engine: the pinned, trace-patched Retool and the explained Selection"
+description = "Title Select's Selection engine: a port of Retool, and the explained Selection"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,10 +12,12 @@ title-select-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tempfile.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 fancy-regex.workspace = true
-rustix.workspace = true
 indexmap.workspace = true
 quick-xml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+flate2.workspace = true

@@ -1,2 +1,2 @@
-# The vendored Retool keeps its CRLF line endings, and its patches match them byte for byte.
-/third_party/retool/** -text
+# Retool's test fixtures keep their CRLF line endings byte for byte.
+/third_party/retool/fixtures/** -text

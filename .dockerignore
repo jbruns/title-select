@@ -8,13 +8,10 @@ crates/ui/bench/
 !docs/brand-kit/title-select-tokens.css
 # Title Select's licence, for the workbench's About page.
 !LICENSE
-# Retool for Selection: only the files the image runs, which build.py checks against pins.toml's runtime_sha256.
-!third_party/retool/pins.toml
-!third_party/retool/requirements.txt
-!third_party/retool/patches/
-!third_party/retool/upstream/LICENSE
-!third_party/retool/upstream/retool.py
-!third_party/retool/upstream/modules/
-!tools/retool/build.py
+# The clone-list pins, which the binary embeds, and the script that fetches what they pin.
+!third_party/clone-lists/pins.toml
+!tools/clone-lists/fetch
+# Retool's licence, for the About page: the selection engine is a port of Retool.
+!third_party/retool/LICENSE
 # The stand-in for SDL that chdman is built with.
 !tools/chdman/sdl-stub.c

@@ -1,0 +1,1580 @@
+# The built-in engine's Selections from "Sega - Master System - Mark III.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata true
+system: Sega - Master System - Mark III (No-Intro)
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [7,15]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Compilations REF0021: Compare clone list priority
+rule r2: Compilations REF0028: Compare languages
+rule r3: Compilations REF0029: Compare languages
+rule r4: Compilations REF0031: Favor multiple regions higher up user region order
+rule r5: Compilations REF0067: Original unmodified group
+rule r6: Compilations REF0072: Looking for this ideal combination: ["(('astro warrior', 'hang on'), 'USA')", "(('hang on', 'safari hunt'), 'USA')"]
+rule r7: Compilations REF0072: Looking for this ideal combination: ["(('astro warrior',), 'USA')", "(('astro warrior', 'pit pot'), 'Europe')"]
+rule r8: Compilations REF0072: Looking for this ideal combination: ["(('hang on',), 'Japan')", "(('hang on', 'safari hunt'), 'USA')"]
+rule r9: Compilations REF0080: Group after filtering by clone list priority
+rule r10: Compilations REF0092: Group after removing preproduction
+rule r11: Compilations REF0094: Favor primary region higher up user region order (individual title vs compilation)
+rule r12: Compilations REF0095: Favor primary region higher up user region order (individual title vs compilation)
+rule r13: Exclusions REF0042: Excluded due to categories: Applications, Preproduction (reason: Category exclude, Applications)
+rule r14: Exclusions REF0042: Excluded due to categories: Audio, Preproduction (reason: Category exclude, Audio)
+rule r15: Exclusions REF0042: Excluded due to categories: BIOS (reason: Category exclude, BIOS)
+rule r16: Exclusions REF0042: Excluded due to categories: BIOS, Preproduction (reason: Category exclude, BIOS)
+rule r17: Exclusions REF0042: Excluded due to categories: Demos (reason: Category exclude, Demos)
+rule r18: Exclusions REF0042: Excluded due to categories: Games, BIOS (reason: Category exclude, BIOS)
+rule r19: Exclusions REF0042: Excluded due to categories: Games, Miscellaneous, BIOS (reason: Category exclude, BIOS)
+rule r20: Exclusions REF0042: Excluded due to categories: Games, Preproduction (reason: Category exclude, Preproduction)
+rule r21: Exclusions REF0042: Excluded due to categories: Miscellaneous, BIOS (reason: Category exclude, BIOS)
+rule r22: Exclusions REF0042: Excluded due to categories: Miscellaneous, BIOS, Preproduction (reason: Category exclude, BIOS)
+rule r23: Exclusions REF0042: Excluded due to categories: Miscellaneous, Preproduction (reason: Category exclude, Preproduction)
+rule r24: Exclusions REF0042: Excluded due to categories: Preproduction (reason: Category exclude, Preproduction)
+rule r25: Exclusions REF0044: Excluded due to a categories regex: '\\(Unl\\)' (reason: Category exclude, Unlicensed)
+rule r26: Exclusions REF0046: Excluded due to a global override (reason: Related to user global excludes)
+rule r27: Exclusions REF0046: Excluded due to a global override (reason: User global exclude)
+rule r28: Exclusions: Global post filter exclude
+rule r29: Exclusions: Region remove
+rule r30: Exclusions: Related to user global excludes
+rule r31: Includes REF0048: Included due to a global override
+rule r32: Language filter REF0049: Removed due to user language filters: En(?:-[A-Z][A-Z])?, De, Fr(?!-CA)(?:-[A-Z][A-Z])?, It, Ja (reason: Language remove)
+rule r33: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r34: Parent selection REF0001: Original unmodified group
+rule r35: Parent selection REF0002: Group after taking clone list priorities into account
+rule r36: Parent selection REF0003: Group after cleaning up preproduction/bad/pirate/mixed version-revision titles
+rule r37: Parent selection REF0004: Group after handling modern title rips
+rule r38: Parent selection REF0005: [First pass] Group after filtering by user language order
+rule r39: Parent selection REF0007: Group after handling versions and revisions
+rule r40: Parent selection REF0008: Group after handling modern title rips
+rule r41: Parent selection REF0014: Group after lower priority region, non-superset clones removed
+rule r42: Parent selection REF0060: Group after handling unlicensed/aftermarket/pirate versions
+rule r43: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r44: Parent selection REF0096: Group after choosing video standard
+rule r45: Parent selection REF0119: Group after good dump/production/retail check
+rule r46: Parent selection: No other release competed
+rule r47: Superset parent selection REF0103: Group after non-superset clones removed
+rule r48: Superset parent selection REF0119: Group after good dump/production/retail check
+== 11 hap gam-boy
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | 11 Hap Gam-Boy (Korea) (Unl)
+== 128 hap
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | 128 Hap (Korea) (Unl)
+== 2 hap in 1 - moai-ui bomul + david ii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | 2 Hap in 1 - Moai-ui Bomul + David II (Korea) (Unl)
+== 20 em 1
+   w46 w46 x32 x33 x29 w46 x28 w46 w43 w43 x32 x33 x29 w43 x28 w43 | 20 em 1 (Brazil)
+== 3 in 1 - the best game collection
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 3 in 1 - The Best Game Collection (A) (Korea) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 3 in 1 - The Best Game Collection (B) (Korea) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 3 in 1 - The Best Game Collection (C) (Korea) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 3 in 1 - The Best Game Collection (D) (Korea) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 3 in 1 - The Best Game Collection (E) (Korea) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 3 in 1 - The Best Game Collection (F) (Korea) (En) (Unl)
+== 3d gunner
+   w46 w46 w46 x33 w46 w46 x28 x24 w43 w43 w43 x33 w43 w43 x28 x24 | 3D Gunner (USA) (Beta)
+== 4 pak all action
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 4 PAK All Action (Australia) (Unl)
+== 8 in 1 - the best game collection
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 8 in 1 - The Best Game Collection (A) (Korea) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 8 in 1 - The Best Game Collection (B) (Korea) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | 8 in 1 - The Best Game Collection (C) (Korea) (En) (Unl)
+== 94 super world cup soccer
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | 94 Super World Cup Soccer (Korea) (Unl)
+== 94-nen super basketball
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | 94-Nen Super Basketball (Taiwan) (En) (Unl)
+== [bios] alex kidd in miracle world
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 w46 x33 w46 w46 x28 x18 w45 w45 w43 x33 w43 w45 x28 x18 | [BIOS] Alex Kidd in Miracle World (BIOS Version) (World) (Sega Ages)
+   w46 w46 x32 x33 x29 w46 x28 x15 w43 w43 x32 x33 x29 w43 x28 x15 | [BIOS] Alex Kidd in Miracle World (Korea) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 x19 w45 w45 w43 x33 w43 w45 x28 x19 | [BIOS] Alex Kidd in Miracle World (USA, Europe, Brazil) (En)
+== [bios] hang on
+   w46 w46 w46 x33 w46 w46 x28 x15 w43 w43 w43 x33 w43 w43 x28 x15 | [BIOS] Hang On (USA, Europe) (v3.4)
+== [bios] hang on & safari hunt
+   w46 w46 w46 x33 w46 w46 x28 x15 w43 w43 w43 x33 w43 w43 x28 x15 | [BIOS] Hang On & Safari Hunt (USA, Europe, Brazil) (En) (v2.4)
+== [bios] missile defense 3-d
+   w46 w46 w46 x33 w46 w46 x28 x15 w43 w43 w43 x33 w43 w43 x28 x15 | [BIOS] Missile Defense 3-D (USA, Europe) (v4.4)
+== [bios] sega master system
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 w46 x33 x29 w46 x28 x15 w45 w43 w45 x33 x29 w45 x28 x15 | [BIOS] Sega Master System (Europe) (v2.0)
+   w46 w46 w46 x33 x29 w46 x28 x15 w43 w45 w43 x33 x29 w43 x28 x15 | [BIOS] Sega Master System (Japan) (v2.1)
+   w46 w46 w46 x33 w46 w46 x28 x16 w45 w45 w45 x33 w43 w45 x28 x16 | [BIOS] Sega Master System (USA) (M404) (Proto)
+   w46 w46 w46 x33 w46 w46 x28 x22 w45 w34 w45 x33 w34 w45 x28 x22 | [BIOS] Sega Master System (USA) (Proto)
+   w46 w46 w46 x33 w46 w46 x28 x15 w45 w45 w45 x33 w43 w45 x28 x15 | [BIOS] Sega Master System (USA) (Store Display Unit)
+   w46 w46 w46 x33 w46 w46 x28 x15 w45 w34 w45 x33 w34 w45 x28 x15 | [BIOS] Sega Master System (USA, Europe) (v1.3)
+== [bios] sonic the hedgehog
+   w46 w46 w46 x33 x29 w46 x28 x15 w43 w43 w43 x33 x29 w43 x28 x15 | [BIOS] Sonic The Hedgehog (Europe)
+== [bios] tectoy master system evolution menu
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x21 w43 w43 x32 x33 x29 w43 x28 x21 | [BIOS] TecToy Master System Evolution Menu (Brazil) (2011)
+== a-team music, the
+   w46 w46 w46 x33 x29 x27 x28 x14 w43 w43 w43 x33 x29 x27 x28 x14 | A-Team Music, The (Unknown) (Proto) (1992-11-09) (Sound Data)
+== ace of aces
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Ace of Aces (Europe, Brazil) (En)
+== acerte o alvo
+   w46 w46 x32 x33 x29 x27 x28 x25 w43 w43 x32 x33 x29 x27 x28 x25 | Acerte o Alvo (Brazil) (Aftermarket) (Unl)
+== action boy
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 x25 .   .   .   .   .   .   .   .   | Action Boy (Taiwan) (En) (Unl)
+== action fighter
+   w46 w46 w46 x33 x29 x27 x28 w46 a41 w41 a39 x33 x29 x27 x28 a41 | Action Fighter (Japan, Europe) (En)
+   w46 w46 w46 x33 x29 x27 x28 x24 a36 a36 a36 x33 x29 x27 x28 x24 | Action Fighter (Japan, Europe) (En) (Beta)
+   w46 w46 x32 x33 x29 x27 x28 x25 a45 a45 x32 x33 x29 x27 x28 x25 | Action Fighter (Taiwan) (Unl)
+   w46 w46 w46 x33 w46 x27 x28 w46 w41 a41 w39 x33 w43 x27 x28 w41 | Action Fighter (USA, Europe, Brazil) (En) (Rev 1)
+== addams family, the
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Addams Family, The (Europe)
+== aerial assault
+   w46 w46 w46 x33 x29 x27 x28 w46 a41 a41 w41 x33 x29 x27 x28 a41 | Aerial Assault (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 x27 x28 x25 a41 a41 a41 x33 x29 x27 x28 x25 | Aerial Assault (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 x27 x28 w46 w41 w41 a41 x33 w43 x27 x28 w41 | Aerial Assault (USA)
+== after burner
+   w46 w46 w46 x33 w46 x27 x28 w46 w43 w43 w43 x33 w43 x27 x28 w43 | After Burner (World)
+== agigongnyong dooly
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 x32 x33 x29 x27 x28 x25 .   .   .   .   .   .   .   .   | Agigongnyong Dooly (Korea) (Unl)
+== air rescue
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Air Rescue (Europe, Brazil) (En)
+== aladdin
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Aladdin (Europe, Brazil) (En)
+== aleste
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   .   .   .   .   .   | Aleste (Japan)
+== alex kidd - high-tech world
+   w46 w46 w46 x33 w46 x27 x28 w46 w45 a45 w45 x33 w36 x27 x28 w45 | Alex Kidd - High-Tech World (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 x27 x28 x24 a36 a36 a36 x33 a36 x27 x28 x24 | Alex Kidd - High-Tech World (USA, Europe, Brazil) (En) (Beta)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 x27 x28 a45 | Anmitsu Hime (Japan)
+== alex kidd - the lost stars
+   w46 w46 w46 x33 w46 x27 x28 w46 w43 w43 w43 x33 w43 x27 x28 w43 | Alex Kidd - The Lost Stars (World)
+== alex kidd 3 - curse in miracle world
+   w46 w46 w46 w46 x29 x27 x28 x25 a38 a38 a38 a38 x29 x27 x28 x25 | Alex Kidd 3 - Curse in Miracle World (Unknown) (De) (v1.1) (Aftermarket) (Unl)
+   w46 w46 w46 w46 x29 x27 x28 x25 a38 a38 a38 a38 x29 x27 x28 x25 | Alex Kidd 3 - Curse in Miracle World (Unknown) (De) (v1.2) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 x27 x28 x25 w38 w38 w38 x33 x29 x27 x28 x25 | Alex Kidd 3 - Curse in Miracle World (Unknown) (En) (v1.1) (Aftermarket) (Unl)
+   w46 w46 x32 w46 x29 x27 x28 x25 a38 a38 x32 w38 x29 x27 x28 x25 | Alex Kidd 3 - Curse in Miracle World (Unknown) (Es) (v1.1) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 x27 x28 x25 a38 a38 a38 x33 x29 x27 x28 x25 | Alex Kidd 3 - Curse in Miracle World (Unknown) (Fr) (v1.1) (Aftermarket) (Unl)
+   w46 w46 w46 w46 x29 x27 x28 x25 a38 a38 a38 a38 x29 x27 x28 x25 | Alex Kidd 3 - Curse in Miracle World (Unknown) (It) (v1.0) (Aftermarket) (Unl)
+   w46 w46 x32 x33 x29 x27 x28 x25 a38 a38 x32 x33 x29 x27 x28 x25 | Alex Kidd 3 - Curse in Miracle World (Unknown) (Pt) (v1.1) (Aftermarket) (Unl)
+== alex kidd in miracle world
+   w46 w46 w46 x33 w46 x27 x28 w46 a39 a39 a39 x33 a39 x27 x28 a39 | Alex Kidd in Miracle World (USA, Europe)
+   w46 w46 w46 x33 w46 x27 x28 w46 w41 a45 w41 x33 w45 x27 x28 w45 | Alex Kidd in Miracle World (USA, Europe, Brazil) (En) (Rev 1)
+   w46 w46 w46 x33 w46 x27 x28 w46 a38 a45 a38 x33 a38 x27 x28 a38 | Alex Kidd in Miracle World (World) (Ja) (Sega Ages)
+   w46 w46 w46 x33 w46 x27 x28 w46 a45 a38 a45 x33 a45 x27 x28 a45 | Alex Kidd in Miracle World (World) (Sega Ages)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 x27 x28 a45 | Alex Kidd no Miracle World (Japan)
+   .   .   .   .   .   .   .   .   a41 a45 a41 x33 x29 x27 x28 x25 | Alex Kido (Taiwan) (En) (Unl)
+== alex kidd in miracle world 2
+   w46 w46 w46 x33 w46 x27 x28 x25 w43 w43 w43 x33 w43 x27 x28 x25 | Alex Kidd in Miracle World 2 (World) (Unl)
+== alex kidd in shinobi world
+   w46 w46 w46 x33 w46 x27 x28 w46 w43 w43 w43 x33 w43 x27 x28 w43 | Alex Kidd in Shinobi World (USA, Europe, Brazil) (En)
+== alex kidd no miracle world
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   .   .   .   .   .   | Alex Kidd no Miracle World (Japan)
+== alex kido
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 x25 .   .   .   .   .   .   .   .   | Alex Kido (Taiwan) (En) (Unl)
+== alf
+   w46 w46 w46 x33 w46 x27 x28 w46 w43 w43 w43 x33 w43 x27 x28 w43 | Alf (USA)
+== alibaba and 40 thieves
+   w46 w46 w46 x33 x29 x27 x28 x25 w43 w43 w43 x33 x29 x27 x28 x25 | Alibaba and 40 Thieves (Korea) (En) (Unl)
+== alien 3
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Alien 3 (Europe, Brazil) (En)
+== alien storm
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Alien Storm (Europe, Brazil) (En)
+== alien syndrome
+   w46 w46 w46 x33 x29 x27 x28 w46 a45 w45 a45 x33 x29 x27 x28 a45 | Alien Syndrome (Japan)
+   w46 w46 w46 x33 w46 x27 x28 w46 w45 a45 w45 x33 w36 x27 x28 w45 | Alien Syndrome (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 x27 x28 x24 a36 a36 a36 x33 a36 x27 x28 x24 | Alien Syndrome (USA, Europe, Brazil) (En) (Beta)
+== alocos
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 x25 .   .   .   .   .   .   .   .   | Alocos (Taiwan) (En) (Unl)
+== altered beast
+   w46 w46 w46 x33 w46 x27 x28 w46 w43 w43 w43 x33 w43 x27 x28 w43 | Altered Beast (USA, Europe, Brazil) (En)
+== american baseball
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   .   .   .   .   .   | American Baseball (Europe, Brazil) (En)
+== american pro football
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   .   .   .   .   .   | American Pro Football (Europe)
+== andre agassi tennis
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Andre Agassi Tennis (Europe, Brazil) (En)
+== anmitsu hime
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   .   .   .   .   .   | Anmitsu Hime (Japan)
+== arcade smash hits
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Arcade Smash Hits (Europe)
+== argos no juujiken
+   .   .   .   .   .   .   .   .   w45 a45 w45 x33 x29 x27 x28 x25 | Alocos (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 x29 x27 x28 w46 a45 w45 a45 x33 x29 x27 x28 w43 | Argos no Juujiken (Japan)
+== ariel - the little mermaid
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Ariel - The Little Mermaid (Brazil) (En)
+== arno dash 2
+   w46 w46 w46 x33 x29 x27 x28 x25 w43 w43 w43 x33 x29 x27 x28 x25 | Arno Dash 2 (Unknown) (v1.03) (Aftermarket) (Unl)
+== ashura
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   .   .   .   .   .   | Ashura (Japan)
+== assault city
+   w46 w46 w46 x33 x29 x27 x28 w46 a41 a41 a40 x33 x29 x27 x28 a41 | Assault City (Europe) (Joypad)
+   w46 w46 w46 x33 w46 x27 x28 w46 w41 w41 w40 x33 w43 x27 x28 w41 | Assault City (USA, Europe, Brazil) (En) (Light Phaser)
+== asterix
+   w46 w46 w46 x33 x29 x27 x28 w46 a39 a39 a39 x33 x29 x27 x28 a39 | Asterix (Europe, Brazil) (En,Fr)
+   w46 w46 w46 x33 x29 x27 x28 w46 w39 w39 w39 x33 x29 x27 x28 w39 | Asterix (Europe, Brazil) (En,Fr) (Rev 1)
+== asterix and the great rescue
+   w46 w46 w46 w46 x29 x27 x28 w46 w43 w43 w43 w43 x29 x27 x28 w43 | Asterix and the Great Rescue (Europe, Brazil) (En,Fr,De,Es,It)
+== asterix and the secret mission
+   w46 w46 w46 w46 x29 x27 x28 w46 w43 w43 w43 w43 x29 x27 x28 w43 | Asterix and the Secret Mission (Europe, Brazil) (En,Fr,De)
+== astro adventure
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 x25 .   .   .   .   .   .   .   .   | Astro Adventure (Taiwan) (En) (Unl)
+== astro flash
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   .   .   .   .   .   | Astro Flash (Japan)
+== astro warrior
+   g   g   g   g   g   g   g   g   .   .   g   g   .   g   g   .   |
+   w46 w46 w46 x33 w46 x27 x28 w46 .   .   a11 x33 .   x27 x28 .   | Astro Warrior (Japan, USA, Brazil) (En)
+     alternative to Astro Warrior & Pit Pot (Europe) [11]
+== astro warrior & pit pot
+   gd  gd  gd  gd  gd  gd  gd  gd  g   g   g   gd  gd  gd  gd  g   |
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   x33 x29 x27 x28 .   | Astro Warrior & Pit Pot (Brazil) (En) (2011 Master System Evolution)
+   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   x33 x29 x27 x28 .   | Astro Warrior & Pit Pot (Europe)
+   w46 w46 w46 x33 x29 x27 x28 x17 w43 w43 w43 x33 x29 x27 x28 x17 | Astro Warrior & Pit Pot (Europe) (Sample)
+== aventuras da tv colosso, as
+   w46 w46 x32 x33 x29 x27 x28 w46 w43 w43 x32 x33 x29 x27 x28 w43 | Aventuras da TV Colosso, As (Brazil)
+== ayrton senna's super monaco gp ii
+   w46 w46 w46 x33 x29 x27 x28 w46 w43 w43 w43 x33 x29 x27 x28 w43 | Ayrton Senna's Super Monaco GP II (Europe, Brazil) (En)
+== aztec adventure
+   w46 w46 w46 x33 w46 x27 x28 w46 w41 w41 w41 x33 w43 x27 x28 w43 | Aztec Adventure (World)
+   .   .   .   .   .   .   .   .   a41 a41 a41 x33 x29 x27 x28 x25 | Aztel Adventure (Taiwan) (En) (Unl)
+== aztel adventure
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x27 x28 x25 .   .   .   .   .   .   .   .   | Aztel Adventure (Taiwan) (En) (Unl)
+== back to the future part ii
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Back to the Future Part II (Europe, Brazil) (En)
+== back to the future part iii
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Back to the Future Part III (Europe)
+== baku baku
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Baku Baku (Brazil) (En)
+== bank panic
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Bank Panic (Europe, Brazil) (En)
+== bara buru
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Bara Buru (Unknown) (En) (Aftermarket) (Unl)
+== basketball nightmare
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Basketball Nightmare (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 w31 x28 x24 | Basketball Nightmare (Europe, Brazil) (En) (Beta 1)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 w31 x28 x24 | Basketball Nightmare (Europe, Brazil) (En) (Beta 2)
+== batman returns
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Batman Returns (Europe, Brazil) (En)
+== battle out run
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Battle Out Run (Europe, Brazil) (En)
+== battle wings
+   w46 w46 w46 x33 w46 w46 x28 x24 w43 w43 w43 x33 w43 w43 x28 x24 | Battle Wings (World) (Beta) (1988-09-07)
+== battlemaniacs
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Battlemaniacs (Brazil) (En)
+== black belt
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a38 a41 x33 x29 a41 x28 x25 | Black Belt (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 w41 x33 w43 w41 x28 w45 | Black Belt (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w41 a45 x33 x29 a45 x28 a45 | Hokuto no Ken (Japan)
+   .   .   .   .   .   .   .   .   a38 a38 x32 x33 x29 a38 x28 x25 | Hokuto no Ken (Taiwan) (Unl)
+   .   .   .   .   .   .   .   .   a38 a41 a38 x33 x29 a38 x28 x25 | Northen Ken (Taiwan) (Ja) (Unl)
+== blade eagle
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 w46 w46 x28 x24 .   .   .   .   .   .   .   .   | Blade Eagle (World) (Beta)
+== blade eagle 3-d
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 a36 a36 x28 x24 | Blade Eagle (World) (Beta)
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Blade Eagle 3-D (World)
+== bmx trial - alex kidd
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | BMX Trial - Alex Kidd (Japan)
+== bobble bobble
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Bobble Bobble (Korea) (En) (Unl)
+== bolas e cores
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Bolas e Cores (Brazil) (Aftermarket) (Unl)
+== bolhas
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Bolhas (Brazil) (Aftermarket) (Unl)
+== bombeiros
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Bombeiros (Brazil) (Aftermarket) (Unl)
+== bomber raid
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Bomber Raid (World)
+== bonanza bros.
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Bonanza Bros. (Europe, Brazil) (En)
+== bonkers wax up!
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Bonkers Wax Up! (Brazil) (En)
+== bram stoker's dracula
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Bram Stoker's Dracula (Europe)
+== bread and butter
+   w46 w46 w46 x33 w46 w46 x28 x25 a39 a39 a39 x33 a39 a39 x28 x25 | Bread and Butter (World) (v1.00) (Aftermarket) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 x25 a39 a39 a39 x33 a39 a39 x28 x25 | Bread and Butter (World) (v1.01) (Aftermarket) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 x25 a39 a39 a39 x33 a39 a39 x28 x25 | Bread and Butter (World) (v1.026) (Aftermarket) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 x25 w39 w39 w39 x33 w39 w39 x28 x25 | Bread and Butter (World) (v1.032) (Aftermarket) (Unl)
+== bread and butter world
+   w46 w46 w46 x33 w46 w46 x28 x25 w43 w43 w43 x33 w43 w43 x28 x25 | Bread and Butter World (World) (Aftermarket) (Unl)
+== bruce lee
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Bruce Lee (Unknown) (v0.20) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.00) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Bruce Lee (Unknown) (v0.21) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.00) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Bruce Lee (Unknown) (v0.22) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.00) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Bruce Lee (Unknown) (v0.50) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.00) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Bruce Lee (Unknown) (v0.51) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.00) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Bruce Lee (Unknown) (v0.52) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.00) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Bruce Lee (Unknown) (v0.75) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.00) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x25 w39 w39 w39 x33 x29 w39 x28 x25 | Bruce Lee (Unknown) (v1.00) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x17 a39 a39 a39 x33 x29 a39 x28 x17 | Bruce Lee (Unknown) (v1.00) (Tech Demo) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.05) (Tech Demo) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x17 a39 a39 a39 x33 x29 a39 x28 x17 | Bruce Lee (Unknown) (v1.01) (Tech Demo) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.05) (Tech Demo) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x17 a39 a39 a39 x33 x29 a39 x28 x17 | Bruce Lee (Unknown) (v1.02) (Tech Demo) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.05) (Tech Demo) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x17 a39 a39 a39 x33 x29 a39 x28 x17 | Bruce Lee (Unknown) (v1.04) (Tech Demo) (Aftermarket) (Unl)
+     alternative to Bruce Lee (Unknown) (v1.05) (Tech Demo) (Aftermarket) (Unl) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x17 w39 w39 w39 x33 x29 w39 x28 x17 | Bruce Lee (Unknown) (v1.05) (Tech Demo) (Aftermarket) (Unl)
+== bubble bobble
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 a45 w41 x33 x29 w41 x28 w45 | Bubble Bobble (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a45 a41 x33 x29 a41 x28 x25 | Bubble Bobble (Taiwan) (En) (Unl)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Final Bubble Bobble (Japan)
+== buggy run
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Buggy Run (Europe, Brazil) (En)
+== c_so!
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | C_So! (Korea) (Unl)
+== california games
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | California Games (USA, Europe, Brazil) (En)
+== california games ii
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | California Games II (Europe)
+   .   .   .   .   .   .   .   .   a41 a41 a41 x33 x29 a41 x28 a41 | Jogos de Verao II (Brazil) (En)
+== captain silver
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 w41 w41 x33 x29 a41 x28 a41 | Captain Silver (Japan, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a41 a41 x33 w36 w41 x28 w41 | Captain Silver (USA)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Captain Silver (USA) (Beta)
+== casino games
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Casino Games (USA, Europe)
+== castelo ra-tim-bum
+   w46 w46 x32 x33 x29 w46 x28 w46 w43 w43 x32 x33 x29 w43 x28 w43 | Castelo Ra-Tim-Bum (Brazil)
+== castle of illusion starring mickey mouse
+   w46 w46 w46 x33 w46 w46 x28 w46 a39 a39 a39 x33 a39 a39 x28 a39 | Castle of Illusion Starring Mickey Mouse (USA, Europe, Brazil) (En)
+     alternative to Castle of Illusion Starring Mickey Mouse (USA, Europe, Brazil) (En) (Rev 1) [9-11,13-14]
+   w46 w46 w46 x33 w46 w46 x28 x17 w43 w43 w43 x33 w43 w43 x28 x17 | Castle of Illusion Starring Mickey Mouse (USA, Europe, Brazil) (En) (Demo)
+   w46 w46 w46 x33 w46 w46 x28 w46 w39 w39 w39 x33 w39 w39 x28 w39 | Castle of Illusion Starring Mickey Mouse (USA, Europe, Brazil) (En) (Rev 1)
+== cava-cava
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Cava-Cava (Brazil) (Aftermarket) (Unl)
+== champions of europe
+   w46 w46 w46 x33 x29 x26 x28 w46 w43 w43 w43 x33 x29 x26 x28 w43 | Champions of Europe (Europe, Brazil) (En)
+== championship hockey
+   w46 w46 w46 x33 x29 x26 x28 w46 w43 w43 w43 x33 x29 x26 x28 w43 | Championship Hockey (Europe)
+== chapolim x dracula - um duelo assustador
+   w46 w46 x32 x33 x29 x26 x28 w46 w43 w43 x32 x33 x29 x26 x28 w43 | Chapolim x Dracula - Um Duelo Assustador (Brazil)
+== cheese cat-astrophe starring speedy gonzales
+   w46 w46 w46 w46 x29 x26 x28 w46 w43 w43 w43 w43 x29 x26 x28 w43 | Cheese Cat-astrophe Starring Speedy Gonzales (Europe, Brazil) (En,Fr,De,Es)
+== choplifter
+   w46 w46 w46 x33 x29 x26 x28 x24 a45 a45 a45 x33 x29 x26 x28 x24 | Choplifter (Japan) (Proto)
+   w46 w46 w46 x33 x29 x26 x28 x25 a41 a41 a41 x33 x29 x26 x28 x25 | Choplifter (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 x26 x28 w46 w41 w41 w41 x33 w36 x26 x28 w43 | Choplifter (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 x26 x28 x24 a36 a36 a36 x33 a36 x26 x28 x24 | Choplifter (USA, Europe, Brazil) (En) (Beta)
+== chouon senshi borgman
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 x26 x28 w46 .   .   .   .   .   .   .   .   | Chouon Senshi Borgman (Japan)
+   w46 w46 w46 x33 x29 x26 x28 x24 .   .   .   .   .   .   .   .   | Chouon Senshi Borgman (Japan) (Beta)
+== chuck rock
+   w46 w46 w46 x33 x29 x26 x28 w46 w43 w43 w43 x33 x29 x26 x28 w43 | Chuck Rock (Europe, Brazil) (En)
+== chuck rock ii - son of chuck
+   w46 w46 w46 x33 x29 x26 x28 w46 a41 a41 a41 x33 x29 x26 x28 a41 | Chuck Rock II - Son of Chuck (Brazil) (En)
+   w46 w46 w46 x33 x29 x26 x28 w46 w41 w41 w41 x33 x29 x26 x28 w41 | Chuck Rock II - Son of Chuck (Europe)
+== circuit, the
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Circuit, The (Japan)
+== cloud master
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Cloud Master (USA, Europe, Brazil) (En)
+== color & switch test
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 w46 x33 x29 w46 x28 w46 w45 w45 w45 x33 x29 w45 x28 x13 | Color & Switch Test (Brazil) (En) (Rev 1)
+   w46 w46 w46 x33 x29 w46 x28 x23 a45 a45 a45 x33 x29 a45 x28 x13 | Color & Switch Test (Japan) (En) (Proto)
+== columns
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Columns (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Columns (USA, Europe, Brazil) (En) (Beta)
+== comical machine gun joe
+   w46 w46 w46 x33 x29 w46 x28 w46 w45 w45 w43 x33 x29 w45 x28 w43 | Comical Machine Gun Joe (Japan)
+   w46 w46 x32 x33 x29 w46 x28 x25 a45 a45 x32 x33 x29 a45 x28 x25 | Comical Machine Gun Joe (Korea) (Unl)
+   w46 w46 x32 x33 x29 w46 x28 x25 a45 a45 x32 x33 x29 a45 x28 x25 | Comical Machine Gun Joe (Taiwan) (Unl)
+== con-dori
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Con-Dori (Korea) (Unl)
+== cool spot
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Cool Spot (Europe)
+== cosmic spacehead
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Cosmic Spacehead (Europe) (En,Fr,De,Es)
+== creature capture
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Creature Capture (Brazil) (Aftermarket) (Unl)
+== cyber shinobi, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w43 | Cyber Shinobi, The (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Cyber Shinobi, The (Europe, Brazil) (En) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | Cyber Shinobi, The (Taiwan) (En) (Unl)
+== cyborg hunter
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 x26 x28 a45 | Chouon Senshi Borgman (Japan)
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 x26 x28 x24 | Chouon Senshi Borgman (Japan) (Beta)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w36 x30 x28 w45 | Cyborg Hunter (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x20 a36 a36 a36 x33 a36 x30 x28 x20 | Cyborg Hunter (USA, Europe, Brazil) (En) (Beta) (1988-09-12)
+== cyborg z
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Cyborg Z (Korea) (Unl)
+== daffy duck in hollywood
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Daffy Duck in Hollywood (Europe, Brazil) (En,Fr,De,Es,It)
+== dallyeora pigu-wang
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Dallyeora Pigu-Wang (Korea) (Unl)
+== danan - the jungle fighter
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Danan - The Jungle Fighter (Europe, Brazil) (En)
+== dead angle
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Dead Angle (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Dead Angle (USA, Europe, Brazil) (En) (Beta)
+== deep duck trouble starring donald duck
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Deep Duck Trouble Starring Donald Duck (Europe, Brazil) (En)
+== desert speedtrap starring road runner and wile e. coyote
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Desert Speedtrap Starring Road Runner and Wile E. Coyote (Europe, Brazil) (En,Fr,De,Es,It)
+== desert strike
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Desert Strike (Europe) (En,Fr,De,Es)
+== dick tracy
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Dick Tracy (USA, Europe, Brazil) (En)
+== dinobasher - starring bignose the caveman
+   w46 w46 w46 x33 x29 w46 x28 x24 w43 w43 w43 x33 x29 w43 x28 x24 | DINOBASHER - Starring Bignose the Caveman (Europe) (Proto)
+== dinosaur dooley, the
+   .   .   .   .   .   .   .   .   a38 a38 x32 x33 x29 x27 x28 x25 | Agigongnyong Dooly (Korea) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w38 w38 w43 x33 x29 w43 x28 x25 | Dinosaur Dooley, The (Korea) (En) (Unl)
+== doki doki penguin land - uchuu daibouken
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Doki Doki Penguin Land - Uchuu Daibouken (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x24 .   .   .   .   .   .   .   .   | Doki Doki Penguin Land - Uchuu Daibouken (Japan) (Beta)
+== domino
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Domino (Brazil) (Aftermarket) (Unl)
+== double dragon
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | Double Dragon (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 w41 x33 w43 w41 x28 w43 | Double Dragon (World)
+== double hawk
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Double Hawk (Europe)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Double Hawk (Europe) (Beta)
+== double target - cynthia no nemuri
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Double Target - Cynthia no Nemuri (Japan)
+== doze trabalhos de jongo, os
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Doze Trabalhos de Jongo, Os (Brazil) (Aftermarket) (Unl)
+== dr. hello
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Dr. HELLO (Korea) (En) (Unl)
+== dr. robotnik's mean bean machine
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Dr. Robotnik's Mean Bean Machine (Europe, Brazil) (En)
+== dragon - the bruce lee story
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Dragon - The Bruce Lee Story (Europe)
+== dragon crystal
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Dragon Crystal (Europe, Brazil) (En)
+== dynamite duke
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Dynamite Duke (Europe, Brazil) (En)
+== dynamite dux
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Dynamite Dux (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Dynamite Dux (Europe, Brazil) (En) (Beta)
+== dynamite headdy
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Dynamite Headdy (Brazil) (En)
+== e-swat
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | E-SWAT (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 a39 a39 a39 x33 a39 a39 x28 a39 | E-SWAT (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | E-SWAT (USA, Europe, Brazil) (En) (Beta 1)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | E-SWAT (USA, Europe, Brazil) (En) (Beta 2)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | E-SWAT (USA, Europe, Brazil) (En) (Beta 3)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 w41 x33 w39 w41 x28 w39 | E-SWAT (USA, Europe, Brazil) (En) (Rev A)
+== e.i. - exa innova
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | E.I. - Exa Innova (Korea) (En) (Unl)
+== eagles 5
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Eagles 5 (Korea) (Unl)
+== earthworm jim
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Earthworm Jim (Brazil) (En)
+== ecco - the tides of time
+   w46 w46 x32 x33 x29 w46 x28 w46 w43 w43 x32 x33 x29 w43 x28 w43 | Ecco - The Tides of Time (Brazil)
+== ecco the dolphin
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Ecco The Dolphin (Europe, Brazil) (En)
+== enduro racer
+   w46 w46 w46 x33 x29 w46 x28 w46 w47 w48 w47 x33 x29 w47 x28 w47 | Enduro Racer (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 a47 a48 a47 x33 w43 a47 x28 a47 | Enduro Racer (USA, Europe, Brazil) (En)
+== excellent dizzy collection, the
+   w46 w46 w46 w46 x29 w46 x28 x24 w43 w43 w43 w43 x29 w43 x28 x24 | Excellent Dizzy Collection, The (Europe) (En,Fr,De,Es,It) (Proto)
+== f-1 spirit - the way to formula-1
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | F-1 Spirit - The Way to Formula-1 (Korea) (En) (Unl)
+== f-16 fighter
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w41 x33 w35 w45 x28 w45 | F-16 Fighter (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | F-16 Fighting Falcon (Japan)
+   .   .   .   .   .   .   .   .   a45 a45 x32 x33 x29 a45 x28 x25 | F-16 Fighting Falcon (Taiwan) (Unl)
+   .   .   .   .   .   .   .   .   a35 a35 a41 x33 a35 a35 x28 a35 | F-16 Fighting Falcon (USA)
+== f-16 fighting falcon
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | F-16 Fighting Falcon (Japan)
+   w46 w46 x32 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | F-16 Fighting Falcon (Taiwan) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   .   .   .   .   .   | F-16 Fighting Falcon (USA)
+== f1
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | F1 (Europe, Brazil) (En)
+== fa tetris
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | FA Tetris (Korea) (Unl)
+== fabrica de chocolate
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Fabrica de Chocolate (Brazil) (Aftermarket) (Unl)
+== family games
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Family Games (Japan)
+== fantastic dizzy
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Fantastic Dizzy (Europe) (En,Fr,De,Es,It)
+== fantasy zone
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Fantasy Zone (Japan)
+   w46 w46 x32 x33 x29 w46 x28 x25 a45 a45 x32 x33 x29 a45 x28 x25 | Fantasy Zone (Taiwan) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Fantasy Zone (World) (Beta)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w36 w45 x28 w45 | Fantasy Zone (World) (Rev 1)
+== fantasy zone - the maze
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Fantasy Zone - The Maze (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Opa Opa (Japan)
+== fantasy zone ii
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Fantasy Zone II (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Fantasy Zone II - Opa-Opa no Namida (Japan)
+== fantasy zone ii - opa-opa no namida
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Fantasy Zone II - Opa-Opa no Namida (Japan)
+== feiche zhengba zhan
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Feiche Zhengba Zhan (Taiwan) (En) (Unl)
+== ferias frustradas do pica pau
+   w46 w46 x32 x33 x29 w46 x28 w46 w43 w43 x32 x33 x29 w43 x28 w43 | Ferias Frustradas do Pica Pau (Brazil)
+== fifa international soccer
+   w46 w46 w46 w46 x29 x27 x28 w46 w43 w43 w43 w43 x29 x27 x28 w43 | FIFA International Soccer (Brazil) (En,Es,Pt)
+== final bubble bobble
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Final Bubble Bobble (Japan)
+== fire & forget ii
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Fire & Forget II (Europe)
+== fire & ice
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Fire & Ice (Brazil) (En)
+== flash, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Flash, The (Europe, Brazil) (En)
+== flashpoint
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Flashpoint (Korea) (Unl)
+== flight of pigarus
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Flight of Pigarus (Unknown) (v1.00) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Flight of Pigarus (Unknown) (v1.10) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w39 w39 w39 x33 x29 w39 x28 x25 | Flight of Pigarus (Unknown) (v1.11) (Aftermarket) (Unl)
+== flintstones, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Flintstones, The (Europe, Brazil) (En)
+== forgotten worlds
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w43 | Forgotten Worlds (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | Forgotten Worlds (Taiwan) (En) (Unl)
+== fushigi no oshiro pit pot
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Fushigi no Oshiro Pit Pot (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x24 .   .   .   .   .   .   .   .   | Fushigi no Oshiro Pit Pot (Japan) (Beta)
+== g-loc - air battle
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | G-LOC - Air Battle (Europe, Brazil) (En)
+== gaegujangi ggachi
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Gaegujangi Ggachi (Korea) (Unl)
+== gain ground
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Gain Ground (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Gain Ground (Europe, Brazil) (En) (Beta)
+== galactic protector
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Galactic Protector (Japan)
+== galaxian
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Galaxian (Korea) (Unl)
+== galaxy force
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 w41 x33 x29 a41 x28 a41 | Galaxy Force (Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 a41 x33 w43 w41 x28 w41 | Galaxy Force (USA)
+== game box serie esportes radicais
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Game Box Serie Esportes Radicais (Brazil) (En)
+== game chongjiphap 200
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Game Chongjiphap 200 (Korea) (Unl)
+== game de check! koutsuu anzen
+   w46 w46 w46 x33 x29 w46 x28 x24 w43 w43 w43 x33 x29 w43 x28 x24 | Game de Check! Koutsuu Anzen (Japan) (Proto)
+== game mo-eumjip 188 hap
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 a39 a39 x32 x33 x29 a39 x28 x25 | Game Mo-eumjip 188 Hap (Korea) (v1.0) (Unl)
+   w46 w46 x32 x33 x29 w46 x28 x25 w39 w39 x32 x33 x29 w39 x28 x25 | Game Mo-eumjip 188 Hap (Korea) (v1.1) (Unl)
+== gangcheol robocop
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Gangcheol RoboCop (Korea) (En) (Unl)
+== gangster town
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Gangster Town (USA, Europe, Brazil) (En)
+== gauntlet
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Gauntlet (Europe, Brazil) (En)
+== george foreman's ko boxing
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | George Foreman's KO Boxing (Europe, Brazil) (En)
+== geraldinho
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Geraldinho (Brazil) (En)
+== ghost house
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Ghost House (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w36 w45 x28 w45 | Ghost House (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Ghost House (USA, Europe, Brazil) (En) (Beta)
+   .   .   .   .   .   .   .   .   a45 a45 x32 x33 x29 a45 x28 x25 | Yuyryeong-ui Jip (Korea) (Unl)
+== ghostbusters
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Ghostbusters (USA, Europe, Brazil) (En)
+== ghouls'n ghosts
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Ghouls'n Ghosts (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x17 w43 w43 w43 x33 w43 w43 x28 x17 | Ghouls'n Ghosts (USA, Europe, Brazil) (En) (Demo)
+== global defense
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w36 w45 x28 w45 | Global Defense (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Global Defense (USA, Europe, Brazil) (En) (Beta)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | SDI (Japan)
+== global gladiators
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Global Gladiators (Europe, Brazil) (En)
+== gokuaku doumei dump matsumoto
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Gokuaku Doumei Dump Matsumoto (Japan)
+== golden axe
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Golden Axe (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x17 w43 w43 w43 x33 w43 w43 x28 x17 | Golden Axe (USA, Europe, Brazil) (En) (Demo)
+== golden axe warrior
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Golden Axe Warrior (USA, Europe, Brazil) (En)
+== golfamania
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Golfamania (Europe) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Golfamania (Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Super Golf (Europe) (Beta)
+== golvellius - valley of doom
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Golvellius - Valley of Doom (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Maou Golvellius (Japan)
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Maou Golvellius (Japan) (Beta)
+== gotris
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Gotris (Unknown) (v0.6) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Gotris (Unknown) (v0.7) (NTSC) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Gotris (Unknown) (v0.7) (PAL) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Gotris (Unknown) (v0.8) (NTSC) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Gotris (Unknown) (v0.8) (PAL) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Gotris (Unknown) (v1.2p) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | Gotris (Unknown) (v1.3p) (NTSC) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a44 a44 a44 x33 x29 a44 x28 x25 | Gotris (Unknown) (v1.3p) (PAL) (Aftermarket) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 x25 w41 w41 w41 x33 w43 w41 x28 x25 | Gotris (World) (v0.5) (Aftermarket) (Unl)
+== gp rider
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | GP Rider (Europe, Brazil) (En)
+== great baseball
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Great Baseball (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Great Baseball (USA, Europe)
+== great baseball (japan)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w43 w43 w43 x33 x29 w43 x28 w43 | Great Baseball (Japan)
+== great basketball
+   .   .   .   .   .   .   .   .   a41 a41 a41 x33 x29 a41 x28 x25 | 94-Nen Super Basketball (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 w41 x33 w43 w41 x28 w43 | Great Basketball (World)
+== great football
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Great Football (World)
+== great golf
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Great Golf (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a45 a41 x33 x29 a41 x28 x25 | Great Golf (Korea) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 w41 x33 w43 w41 x28 w45 | Great Golf (World)
+   w46 w46 w46 x33 w46 w46 x28 x24 .   .   .   .   .   .   .   .   | Great Golf (World) (Beta)
+== great golf ~ masters golf
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w43 w43 w43 x33 w43 w43 x28 x24 | Great Golf (World) (Beta)
+== great ice hockey
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Great Ice Hockey (Japan, USA) (En)
+== great soccer
+   w46 w46 w46 x33 x29 w46 x28 w46 w45 a45 w45 x33 x29 w45 x28 w45 | Great Soccer (Europe)
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Great Soccer (Japan)
+   w46 w46 x32 x33 x29 w46 x28 x25 a45 a45 x32 x33 x29 a45 x28 x25 | Great Soccer (Taiwan) (Unl)
+== great tennis
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Great Tennis (Japan)
+== great volleyball
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Great Volleyball (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Great Volleyball (USA, Europe, Brazil) (En)
+== gun.smoke
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Gun.Smoke (Korea) (En) (Unl)
+== haja no fuuin
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Haja no Fuuin (Japan)
+== hang on
+   w46 w46 w46 x33 x29 w46 x28 w46 a11 a45 .   x33 x29 a11 x28 a11 | Hang On (Europe)
+     alternative to Hang On & Astro Warrior (USA) [14]
+     alternative to Hang On & Safari Hunt (USA) [9,16]
+     alternative to Hang On (Japan) [10]
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Hang On (Europe) (Beta)
+     alternative to Hang On & Astro Warrior (USA) [14]
+     alternative to Hang On & Safari Hunt (USA) [9]
+     alternative to Hang On (Europe) [11]
+     alternative to Hang On (Japan) [10]
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 .   a45 x33 x29 a45 x28 a45 | Hang On (Japan)
+     alternative to Hang On & Astro Warrior (USA) [14]
+     alternative to Hang On & Safari Hunt (USA) [9,16]
+     alternative to Hang On (Europe) [11]
+== hang on & astro warrior
+   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
+   w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   x33 .   .   x28 .   | Hang On & Astro Warrior (USA)
+== hang on & safari hunt
+   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
+   w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   x33 .   .   x28 .   | Hang On & Safari Hunt (USA)
+   w46 w46 w46 x33 w46 w46 x28 x24 .   .   .   x33 .   .   x28 x24 | Hang On & Safari Hunt (USA) (Beta)
+== heavyweight champ
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Heavyweight Champ (Europe, Brazil) (En)
+== heroes of the lance
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Heroes of the Lance (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Heroes of the Lance (Europe, Brazil) (En) (Beta)
+== high school! kimengumi
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | High School! Kimengumi (Japan)
+== hokuto no ken
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Hokuto no Ken (Japan)
+   w46 w46 x32 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Hokuto no Ken (Taiwan) (Unl)
+== home alone
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Home Alone (Europe)
+== hong kil dong
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Hong Kil Dong (Korea) (Unl)
+== hook
+   w46 w46 w46 x33 x29 w46 x28 x24 w43 w43 w43 x33 x29 w43 x28 x24 | Hook (Europe) (Proto)
+== hoshi wo sagashite...
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Hoshi wo Sagashite... (Japan)
+== hwarang-ui geom
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 x32 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Hwarang-ui Geom (Korea) (Unl)
+== impossible mission
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Impossible Mission (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Impossible Mission (Europe, Brazil) (En) (Beta)
+== incredible crash dummies, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Incredible Crash Dummies, The (Europe, Brazil) (En)
+== incredible hulk, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Incredible Hulk, The (Europe, Brazil) (En)
+== indiana jones and the last crusade
+   w46 w46 w46 x33 x29 w46 x28 w46 w45 w45 w45 x33 x29 w45 x28 w43 | Indiana Jones and the Last Crusade (Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a45 a45 a45 x33 w43 a45 x28 x24 | Indiana Jones and the Last Crusade (USA) (Proto)
+== james 'buster' douglas knockout boxing
+   .   .   .   .   .   .   .   .   a41 a41 w41 x33 x29 a41 x28 a41 | George Foreman's KO Boxing (Europe, Brazil) (En)
+     alternative to James 'Buster' Douglas Knockout Boxing (USA) [9-10,14]
+   .   .   .   .   .   .   .   .   a35 a35 a35 x33 x29 a35 x28 a35 | Heavyweight Champ (Europe, Brazil) (En)
+     alternative to George Foreman's KO Boxing (Europe, Brazil) (En) [11]
+     alternative to James 'Buster' Douglas Knockout Boxing (USA) [9-10,14]
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 a41 x33 w43 w41 x28 w41 | James 'Buster' Douglas Knockout Boxing (USA)
+     alternative to George Foreman's KO Boxing (Europe, Brazil) (En) [11]
+   w46 w46 w46 x33 w46 w46 x28 x17 w41 w41 w41 x33 w43 w41 x28 x17 | James 'Buster' Douglas Knockout Boxing (USA) (Sample)
+== james bond 007 - the duel
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | James Bond 007 - The Duel (Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | James Bond 007 - The Duel (Europe)
+== james pond 2 - codename robocod
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | James Pond 2 - Codename RoboCod (Europe, Brazil) (En)
+== jang pung 3
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Jang Pung 3 (Korea) (Unl)
+== jang pung ii
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Jang Pung II (Korea) (Unl)
+== janggun-ui adeul
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Janggun-ui Adeul (Korea) (Unl)
+== joe montana football
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Joe Montana Football (USA, Europe, Brazil) (En)
+== jogos de verao ii
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Jogos de Verao II (Brazil) (En)
+== jungle book, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Jungle Book, The (Europe, Brazil) (En)
+== jurassic park
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Jurassic Park (Europe, Brazil) (En)
+== kenseiden
+   .   .   .   .   .   .   .   .   a45 a45 x32 x33 x29 a45 x28 x25 | Hwarang-ui Geom (Korea) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Kenseiden (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Kenseiden (USA, Europe, Brazil) (En)
+== king & balloon
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | King & Balloon (Korea) (En) (Unl)
+== king's quest - quest for the crown
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | King's Quest - Quest for the Crown (USA)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | King's Quest - Quest for the Crown (USA) (Beta 1)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | King's Quest - Quest for the Crown (USA) (Beta 2)
+== klax
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | KLAX (Europe)
+== knightmare ii - the maze of galious
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Knightmare II - The Maze of Galious (Korea) (Unl)
+== krusty's fun house
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Krusty's Fun House (Europe, Brazil) (En)
+== kujaku ou
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Kujaku Ou (Japan)
+== kung fu kid
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a45 a41 x33 x29 a41 x28 x25 | Kung Fu Kid (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 w41 x33 w43 w41 x28 w45 | Kung Fu Kid (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Makai Retsuden (Japan)
+== land of illusion starring mickey mouse
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Land of Illusion Starring Mickey Mouse (Europe, Brazil) (En)
+== laser ghost
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Laser Ghost (Europe)
+== legend of illusion starring mickey mouse
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Legend of Illusion Starring Mickey Mouse (Brazil) (En)
+== lemmings
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Lemmings (Europe) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Lemmings (Europe, Brazil) (En)
+== lemmings 2 - the tribes
+   w46 w46 w46 x33 x29 w46 x28 x24 w43 w43 w43 x33 x29 w43 x28 x24 | Lemmings 2 - The Tribes (Europe) (Proto) (1995-09-04)
+== lethal weapon 3 music
+   w46 w46 w46 x33 x29 w46 x28 x14 w43 w43 w43 x33 x29 w43 x28 x14 | Lethal Weapon 3 Music (Unknown) (Proto) (1992-11-30) (Sound Data)
+== line of fire
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Line of Fire (Europe, Brazil) (En)
+== lion king, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Lion King, The (Europe, Brazil) (En)
+== lord of sword
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Lord of Sword (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Lord of Sword (Taiwan) (Ja) (Unl)
+== lord of the sword
+   .   .   .   .   .   .   .   .   a45 w41 a45 x33 x29 a45 x28 a45 | Lord of Sword (Japan)
+   .   .   .   .   .   .   .   .   a45 a41 a45 x33 x29 a45 x28 x25 | Lord of Sword (Taiwan) (Ja) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Lord of the Sword (USA, Europe, Brazil) (En)
+== loretta no shouzou - sherlock holmes
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Loretta no Shouzou - Sherlock Holmes (Japan)
+== lucky dime caper starring donald duck, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Lucky Dime Caper Starring Donald Duck, The (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Lucky Dime Caper Starring Donald Duck, The (Europe, Brazil) (En) (Beta)
+== lucky penguin
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Lucky Penguin (Unknown) (v1.0) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w39 w39 w39 x33 x29 w39 x28 x25 | Lucky Penguin (Unknown) (v1.1) (Aftermarket) (Unl)
+== mahjong sengoku jidai
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Mahjong Sengoku Jidai (Japan) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Mahjong Sengoku Jidai (Japan, Hong Kong) (Ja)
+== makai retsuden
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Makai Retsuden (Japan)
+== maou golvellius
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Maou Golvellius (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x24 .   .   .   .   .   .   .   .   | Maou Golvellius (Japan) (Beta)
+== marble madness
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Marble Madness (Europe)
+== marksman shooting & trap shooting
+   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
+   w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   x33 .   .   x28 .   | Marksman Shooting & Trap Shooting (USA, Brazil) (En)
+== marksman shooting & trap shooting & safari hunt
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   x33 x29 .   x28 .   | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
+== master of darkness
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Master of Darkness (Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Vampire (Europe) (Beta)
+== masters of combat
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Masters of Combat (Europe, Brazil) (En)
+== maze hunter 3-d
+   g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a41 w41 x33 w43 w41 x28 w41 | Maze Hunter 3-D (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a41 w41 a41 x33 x29 a41 x28 a41 | Maze Walker (Japan) (En)
+   .   .   .   .   .   .   .   .   a37 a37 a37 x33 x29 a37 x28 a37 | Maze Walker (Japan) (En) (Sega 3D Classics)
+== maze walker
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Maze Walker (Japan) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Maze Walker (Japan) (En) (Sega 3D Classics)
+== megumi rescue
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Megumi Rescue (Japan)
+== memoria master
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Memoria Master (Brazil) (Aftermarket) (Unl)
+== mercs
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Mercs (Europe, Brazil) (En)
+== michael jackson's moonwalker
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Michael Jackson's Moonwalker (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Michael Jackson's Moonwalker (USA, Europe, Brazil) (En) (Beta)
+== mickey's ultimate challenge
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Mickey's Ultimate Challenge (Brazil) (En)
+== micro machines
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Micro Machines (Europe)
+== micro xevious, the
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Micro Xevious, The (Korea) (Unl)
+== mina terrestre
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Mina Terrestre (Brazil) (Aftermarket) (Unl)
+== minerador
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Minerador (Brazil) (Aftermarket) (Unl)
+== miracle warriors - seal of the dark lord
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Haja no Fuuin (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w36 w45 x28 w45 | Miracle Warriors - Seal of The Dark Lord (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Miracle Warriors - Seal of The Dark Lord (USA, Europe, Brazil) (En) (Beta) (1988-02-25)
+== missile defense 3-d
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Missile Defense 3-D (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x17 w43 w43 w43 x33 w43 w43 x28 x17 | Missile Defense 3-D (USA, Europe, Brazil) (En) (Sample)
+== monica no castelo do dragao
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 x32 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Monica no Castelo do Dragao (Brazil)
+== monopoly
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 w39 x33 x29 a41 x28 a41 | Monopoly (Europe) (Rev A)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 a39 x33 w36 w41 x28 w41 | Monopoly (USA, Europe)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Monopoly (USA, Europe) (Beta 1)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Monopoly (USA, Europe) (Beta 2)
+== montezuma's revenge - featuring panama joe
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Montezuma's Revenge - Featuring PANAMA JOE (USA)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Montezuma's Revenge - Featuring PANAMA JOE (USA) (Beta)
+== mopiranger
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Mopiranger (Korea) (En) (Unl)
+== mortal kombat
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Mortal Kombat (Europe, Brazil) (En)
+== mortal kombat 3
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Mortal Kombat 3 (Brazil) (En)
+== mortal kombat ii
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Mortal Kombat II (Europe, Brazil) (En)
+== ms. pac-man
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Ms. Pac-Man (Europe, Brazil) (En)
+== msx soccer
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | MSX Soccer (Korea) (Unl)
+== my hero
+   .   .   .   .   .   .   .   .   a41 a45 a41 x33 x29 x27 x28 x25 | Action Boy (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 w41 x33 w43 w41 x28 w45 | My Hero (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Seishun Scandal (Japan)
+   .   .   .   .   .   .   .   .   a41 a45 a41 x33 x29 a41 x28 x25 | Ttoriui Moheom (Korea) (En) (Unl)
+== nba jam
+   w46 w46 w46 x33 x29 w46 x28 x24 w43 w43 w43 x33 x29 w43 x28 x24 | NBA Jam (Europe) (Proto)
+== nekkyuu koushien
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Nekkyuu Koushien (Japan)
+== nemesis
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Nemesis (Korea) (Unl)
+== nemesis 2
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Nemesis 2 (Korea) (En) (Unl)
+== new boggle boggle 2
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | New Boggle Boggle 2 (Korea) (En) (Unl)
+== newzealand story, the
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | NewZealand Story, The (Europe)
+== ninja
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Ninja (Japan)
+== ninja gaiden
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Ninja Gaiden (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Ninja Gaiden (Europe, Brazil) (En) (Beta)
+== ninja, the
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Ninja (Japan)
+   w46 w46 x32 x33 x29 w46 x28 x25 a45 a45 x32 x33 x29 a45 x28 x25 | Ninja, The (Taiwan) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Ninja, The (USA, Europe, Brazil) (En)
+== northen ken
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Northen Ken (Taiwan) (Ja) (Unl)
+== nouka densetsu
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 w46 x33 w46 w46 x28 x25 w35 w35 w35 x33 w35 w35 x28 x25 | Nouka Densetsu (World) (Ja) (Aftermarket) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 x25 a35 a35 a35 x33 a35 a35 x28 x25 | Nouka Densetsu (World) (Ja) (Easy Version) (Aftermarket) (Unl)
+== olympic gold
+   w46 w46 w46 w46 x29 w46 x28 w46 a41 a41 a41 a41 x29 a41 x28 a41 | Olympic Gold (Brazil) (En,Fr,De,Es,It,Nl,Pt,Sv)
+   w46 w46 w46 w46 x29 w46 x28 w46 w41 w41 w41 w41 x29 w41 x28 w41 | Olympic Gold (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv)
+== opa opa
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Opa Opa (Japan)
+== operation wolf
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Operation Wolf (Europe, Brazil) (En)
+== ottifants, the
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Ottifants, The (Europe, Brazil) (En,Fr,De,Es,It)
+== outrun
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | OutRun (World)
+== outrun 3-d
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 a41 w41 x33 x29 w41 x28 w41 | OutRun 3-D (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | OutRun 3-D (Europe, Brazil) (En) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 w41 a41 x33 x29 a41 x28 a41 | OutRun 3-D (Japan) (En) (Sega 3D Fukkoku Akaibusu)
+== outrun europa
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | OutRun Europa (Europe, Brazil) (En)
+== pac-mania
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Pac-Mania (Europe)
+== palhacos
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Palhacos (Brazil) (Aftermarket) (Unl)
+== paper boy
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Paper Boy (Taiwan) (En) (Unl)
+== paperboy
+   .   .   .   .   .   .   .   .   a41 a41 a41 x33 x29 a41 x28 x25 | Paper Boy (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 w41 x33 x29 a41 x28 a41 | Paperboy (Europe)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 a41 x33 w43 w41 x28 w41 | Paperboy (USA, Brazil) (En)
+== parlour games
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Family Games (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Parlour Games (USA, Europe)
+== pat riley basketball
+   w46 w46 w46 x33 w46 w46 x28 x24 w43 w43 w43 x33 w43 w43 x28 x24 | Pat Riley Basketball (USA) (Proto)
+== penguin adventure
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Penguin Adventure (Korea) (En) (Unl)
+== penguin land
+   .   .   .   .   .   .   .   .   a41 a45 a41 x33 x29 x27 x28 x25 | Astro Adventure (Taiwan) (En) (Unl)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Doki Doki Penguin Land - Uchuu Daibouken (Japan)
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Doki Doki Penguin Land - Uchuu Daibouken (Japan) (Beta)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 w41 x33 w43 w45 x28 w45 | Penguin Land (USA, Europe)
+== pga tour golf
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | PGA Tour Golf (Europe)
+== phantasy star
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a45 a41 x33 x29 a41 x28 a41 | Phantasy Star (Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Phantasy Star (Japan)
+   w46 w46 w46 x33 x29 w46 x28 w46 a37 a37 a37 x33 x29 a37 x28 a37 | Phantasy Star (Japan) (Virtual Console)
+   w46 w46 x32 x33 x29 w46 x28 x25 a45 a45 x32 x33 x29 a45 x28 x25 | Phantasy Star (Korea) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 a39 a39 a39 x33 a39 a39 x28 a39 | Phantasy Star (USA, Europe)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 w41 x33 w45 w41 x28 w41 | Phantasy Star (USA, Europe) (Rev A)
+   w46 w46 w46 x33 w46 w46 x28 w46 a38 a45 a38 x33 a38 a38 x28 a38 | Phantasy Star (World) (Ja) (Sega Ages)
+   w46 w46 w46 x33 w46 w46 x28 w46 a45 a38 a45 x33 a45 a45 x28 a45 | Phantasy Star (World) (Sega Ages)
+== pigu-wang 7 hap - jaemiiss-neun game mo-eumjip
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Pigu-Wang 7 Hap - Jaemiiss-neun Game Mo-eumjip (Korea) (Unl)
+== pit pot
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a2  .   a2  x33 x29 w36 x28 a2  | Fushigi no Oshiro Pit Pot (Japan)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11,16]
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Fushigi no Oshiro Pit Pot (Japan) (Beta)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11]
+     alternative to Fushigi no Oshiro Pit Pot (Japan) [10]
+== pit-fighter
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | Pit-Fighter (Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | Pit-Fighter (Europe)
+== pooyan
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Pooyan (Korea) (En) (Unl)
+== populous
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Populous (Europe, Brazil) (En)
+== poseidon wars 3-d
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Poseidon Wars 3-D (USA, Europe, Brazil) (En)
+== power boggle boggle
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Power Boggle Boggle (Korea) (En) (Unl)
+== power strike
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 x27 x28 a45 | Aleste (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w43 x28 w45 | Power Strike (USA, Europe, Brazil) (En)
+== power strike ii
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Power Strike II (Europe, Brazil) (En)
+== ppang gongjang
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Ppang Gongjang (Korea) (En) (Unl)
+== predator 2
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | Predator 2 (Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | Predator 2 (Europe)
+== prince of persia
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w43 | Prince of Persia (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | Prince of Persia (Taiwan) (En) (Unl)
+== pro wrestling
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Gokuaku Doumei Dump Matsumoto (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Pro Wrestling (USA, Europe, Brazil) (En)
+== pro yakyuu, the - pennant race
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Pro Yakyuu, The - Pennant Race (Japan)
+== promocao especial m. system iii compact
+   w46 w46 x32 x33 x29 w46 x28 x17 w43 w43 x32 x33 x29 w43 x28 x17 | Promocao Especial M. System III Compact (Brazil) (Sample)
+== psychic world
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Psychic World (Europe, Brazil) (En)
+== psycho fox
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Psycho Fox (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Psycho Fox (USA, Europe, Brazil) (En) (Beta)
+== putt & putter
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Putt & Putter (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Putt & Putter (Europe, Brazil) (En) (Beta)
+== puzzle game
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Puzzle Game (Korea) (En) (Unl)
+== quartet
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Double Target - Cynthia no Nemuri (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a45 a41 x33 x29 a41 x28 x25 | Quartet (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 w41 x33 w43 w41 x28 w45 | Quartet (USA, Europe)
+== quest for the shaven yak starring ren hoek & stimpy
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Quest for the Shaven Yak Starring Ren Hoek & Stimpy (Brazil) (En)
+== r-type
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | R-Type (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 w41 x33 w36 w41 x28 w43 | R-Type (World)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | R-Type (World) (Beta)
+== r.c. grand prix
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | R.C. Grand Prix (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | R.C. Grand Prix (USA, Europe, Brazil) (En) (Beta)
+== rainbow islands
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | Rainbow Islands (Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | Rainbow Islands (Europe)
+== rambo - first blood part ii
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 x27 x28 a45 | Ashura (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 a41 x33 w43 w41 x28 w41 | Rambo - First Blood Part II (USA)
+   .   .   .   .   .   .   .   .   a41 a45 w41 x33 x29 a41 x28 a41 | Secret Command (Europe)
+   .   .   .   .   .   .   .   .   a41 a45 a41 x33 x29 a41 x28 x25 | Shangwei Mingling (Taiwan) (En) (Unl)
+== rambo iii
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Rambo III (USA, Europe, Brazil) (En)
+== rampage
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Rampage (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Rampage (USA, Europe, Brazil) (En) (Beta)
+== rampart
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Rampart (Europe)
+== rastan
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Rastan (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Rastan (USA, Europe, Brazil) (En) (Beta)
+== reggie jackson baseball
+   .   .   .   .   .   .   .   .   a41 a41 w41 x33 x29 x27 x28 a41 | American Baseball (Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 a41 x33 w43 w43 x28 w41 | Reggie Jackson Baseball (USA)
+== renegade
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Renegade (Europe, Brazil) (En)
+== rescue mission
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Rescue Mission (USA, Europe, Brazil) (En)
+== retool_compilations_discards
+   .   .   .   .   .   .   .   .   gd  gd  gd  .   g   g   .   gd  |
+   .   .   .   .   .   .   .   .   a9  a9  a9  .   .   .   .   a9  | Astro Warrior & Pit Pot (Brazil) (En) (2011 Master System Evolution)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11,16]
+     alternative to Astro Warrior (Japan, USA, Brazil) (En) [10]
+   .   .   .   .   .   .   .   .   .   a12 .   .   .   .   .   .   | Astro Warrior & Pit Pot (Europe)
+     alternative to Astro Warrior (Japan, USA, Brazil) (En) [10]
+   .   .   .   .   .   .   .   .   .   .   a11 .   .   .   .   .   | Astro Warrior (Japan, USA, Brazil) (En)
+     alternative to Astro Warrior & Pit Pot (Europe) [11]
+   .   .   .   .   .   .   .   .   a2  .   a2  .   .   .   .   a2  | Fushigi no Oshiro Pit Pot (Japan)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11,16]
+   .   .   .   .   .   .   .   .   a9  a3  a9  .   a1  .   .   a9  | Hang On & Astro Warrior (USA)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11,16]
+     alternative to Astro Warrior (Japan, USA, Brazil) (En) [10,13]
+   .   .   .   .   .   .   .   .   .   .   a12 .   .   .   .   .   | Hang On & Safari Hunt (USA)
+     alternative to Hang On (Europe) [11]
+   .   .   .   .   .   .   .   .   a10 a10 a10 .   a10 a10 .   .   | Hang On & Safari Hunt (USA) (Beta)
+     alternative to Hang On & Astro Warrior (USA) [14]
+     alternative to Hang On & Safari Hunt (USA) [9-10,13]
+     alternative to Hang On (Europe) [11]
+   .   .   .   .   .   .   .   .   a11 .   .   .   .   a11 .   a11 | Hang On (Europe)
+     alternative to Hang On & Astro Warrior (USA) [14]
+     alternative to Hang On & Safari Hunt (USA) [9,16]
+   .   .   .   .   .   .   .   .   a7  a8  .   .   .   a6  .   a7  | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
+     alternative to Hang On & Safari Hunt (USA) [9-10,14,16]
+   .   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   | Marksman Shooting & Trap Shooting (USA, Brazil) (En)
+     alternative to Marksman Shooting & Trap Shooting & Safari Hunt (Europe) [11]
+== retool_compilations_winners
+   .   .   .   .   .   .   .   .   g   g   g   .   g   g   .   g   |
+   .   .   .   .   .   .   .   .   w7  .   w9  .   .   .   .   w7  | Astro Warrior & Pit Pot (Europe)
+   .   .   .   .   .   .   .   .   w7  w9  .   .   w43 .   .   w7  | Astro Warrior (Japan, USA, Brazil) (En)
+   .   .   .   .   .   .   .   .   .   w36 .   .   .   .   .   .   | Fushigi no Oshiro Pit Pot (Japan)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   w6  .   .   | Hang On & Astro Warrior (USA)
+   .   .   .   .   .   .   .   .   w9  w8  .   .   w10 w6  .   w9  | Hang On & Safari Hunt (USA)
+   .   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   | Hang On (Europe)
+   .   .   .   .   .   .   .   .   .   w8  .   .   .   .   .   .   | Hang On (Japan)
+   .   .   .   .   .   .   .   .   .   .   w10 .   .   .   .   .   | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
+   .   .   .   .   .   .   .   .   w5  w5  .   .   w5  w5  .   w5  | Marksman Shooting & Trap Shooting (USA, Brazil) (En)
+== road fighter
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Road Fighter (Korea) (En) (Unl)
+== road rash
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Road Rash (Europe, Brazil) (En)
+== robocop 3
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | RoboCop 3 (Europe, Brazil) (En)
+== robocop versus the terminator
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | RoboCop versus The Terminator (Europe, Brazil) (En)
+== rocky
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Rocky (World)
+== running battle
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Running Battle (Europe, Brazil) (En)
+== sagaia
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Sagaia (Europe, Brazil) (En)
+== sagak-ui bimil
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Sagak-ui Bimil (Korea) (En) (Unl)
+== samgukji 3
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Samgukji 3 (Korea) (Unl)
+== sapo xule - o mestre do kung fu
+   w46 w46 x32 x33 x29 w46 x28 w46 w43 w43 x32 x33 x29 w43 x28 w43 | Sapo Xule - O Mestre do Kung Fu (Brazil)
+== sapo xule - s.o.s. lagoa poluida
+   w46 w46 x32 x33 x29 w46 x28 w46 w43 w43 x32 x33 x29 w43 x28 w43 | Sapo Xule - S.O.S. Lagoa Poluida (Brazil, Portugal) (Pt)
+== sapo xule vs. os invasores do brejo
+   w46 w46 x32 x33 x29 w46 x28 w46 w43 w43 x32 x33 x29 w43 x28 w43 | Sapo Xule vs. Os Invasores do Brejo (Brazil)
+== satellite 7
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Satellite 7 (Japan)
+== schtroumpfs autour du monde, les
+   w46 w46 w46 w46 x29 w46 x28 w46 w36 w36 w36 w36 x29 w36 x28 w43 | Schtroumpfs Autour du Monde, Les (Europe) (En,Fr,De,Es)
+   w46 w46 w46 w46 x29 w46 x28 x24 a36 a36 a36 a36 x29 a36 x28 x24 | Schtroumpfs Autour du Monde, Les (Europe) (En,Fr,De,Es) (Beta) (1996-08-12)
+== scramble spirits
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w43 | Scramble Spirits (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Scramble Spirits (Europe, Brazil) (En) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | Scramble Spirits (Taiwan) (En) (Unl)
+== sdi
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | SDI (Japan)
+== secret command
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Secret Command (Europe)
+== sega chess
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Sega Chess (Europe, Brazil) (En)
+== sega graphic board
+   w46 w46 w46 x33 w46 w46 x28 x24 w43 w43 w43 x33 w43 w43 x28 x13 | Sega Graphic Board (USA) (v2.0) (Proto)
+== sega world tournament golf
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Sega World Tournament Golf (Europe, Brazil) (En)
+== seishun scandal
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Seishun Scandal (Japan)
+== senha
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Senha (Brazil) (Aftermarket) (Unl)
+== sensible soccer
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Sensible Soccer (Europe)
+== shadow dancer
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Shadow Dancer (Taiwan) (En) (Unl)
+== shadow dancer - the secret of shinobi
+   .   .   .   .   .   .   .   .   a41 a41 a41 x33 x29 a41 x28 x25 | Shadow Dancer (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w43 | Shadow Dancer - The Secret of Shinobi (Europe, Brazil) (En)
+== shadow of the beast
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w43 | Shadow of the Beast (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | Shadow of the Beast (Taiwan) (En) (Unl)
+== shanghai
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Shanghai (USA, Europe)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Shanghai (USA, Europe) (Beta)
+== shangwei mingling
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Shangwei Mingling (Taiwan) (En) (Unl)
+== shinobi
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Shinobi (Japan, Brazil) (Ja)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Shinobi (USA, Europe, Brazil) (En) (Rev 1)
+== shooting gallery
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Shooting Gallery (USA, Europe, Brazil) (En)
+== simpsons trivia
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Simpsons Trivia (Unknown) (v1.00) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Simpsons Trivia (Unknown) (v1.01) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 a39 a39 a39 x33 x29 a39 x28 x25 | Simpsons Trivia (Unknown) (v1.02) (Aftermarket) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 x25 w39 w39 w39 x33 x29 w39 x28 x25 | Simpsons Trivia (Unknown) (v2.0) (Aftermarket) (Unl)
+== simpsons, the - bart vs. the space mutants
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Simpsons, The - Bart vs. The Space Mutants (Europe, Brazil) (En)
+== simpsons, the - bart vs. the world
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Simpsons, The - Bart vs. The World (Europe, Brazil) (En)
+== sitio do picapau amarelo
+   w46 w46 x32 x33 x29 w46 x28 w46 w43 w43 x32 x33 x29 w43 x28 w43 | Sitio do Picapau Amarelo (Brazil)
+== skazka
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Skazka (Unknown) (v2.0) (Aftermarket) (Unl)
+== sky fighter
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Sky Fighter (Korea) (En) (Unl)
+== sky jaguar
+   w46 w46 x32 x33 x29 w46 x28 x25 a35 a35 x32 x33 x29 a35 x28 x25 | Sky Jaguar (Korea) (Clover) (Unl)
+   w46 w46 x32 x33 x29 w46 x28 x25 w35 w35 x32 x33 x29 w35 x28 x25 | Sky Jaguar (Korea) (Unl)
+== slap shoot
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 w46 w46 x28 x24 .   .   .   .   .   .   .   .   | Slap Shoot (USA) (Beta)
+== slap shot
+   .   .   .   .   .   .   .   .   a36 a36 a45 x33 a36 a36 x28 x24 | Slap Shoot (USA) (Beta)
+     alternative to Slap Shot (USA, Europe, Brazil) (En) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a40 x33 x29 a41 x28 a41 | Slap Shot (Europe)
+     alternative to Slap Shot (USA, Europe, Brazil) (En) [9-11,14]
+   w46 w46 w46 x33 x29 w46 x28 x17 w41 w41 w45 x33 x29 w41 x28 x17 | Slap Shot (Europe) (Sample)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 w45 x33 w36 w41 x28 w41 | Slap Shot (USA, Europe, Brazil) (En)
+== smurfs, the
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Smurfs, The (Europe, Brazil) (En,Fr,De,Es)
+== solomon no kagi - oujo rihita no namida
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Solomon no Kagi - Oujo Rihita no Namida (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Solomon no Kagi - Oujo Rihita no Namida (Japan) (Beta)
+== sonic blast
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Sonic Blast (Brazil) (En)
+== sonic chaos
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Sonic Chaos (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Sonic Chaos (Europe, Brazil) (En) (Beta) (1993-06-30)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Sonic Chaos (Europe, Brazil) (En) (Beta) (1993-07-13)
+== sonic spinball
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Sonic Spinball (Europe, Brazil) (En)
+== sonic the hedgehog
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Sonic The Hedgehog (USA, Europe, Brazil) (En)
+== sonic the hedgehog 2
+   w46 w46 w46 x33 x29 w46 x28 w46 a39 a39 a39 x33 x29 a39 x28 a39 | Sonic The Hedgehog 2 (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 w39 w39 w39 x33 x29 w39 x28 w39 | Sonic The Hedgehog 2 (Europe, Brazil) (En) (Rev 1)
+== sonic's edusoft
+   w46 w46 w46 x33 x29 w46 x28 x24 w43 w43 w43 x33 x29 w43 x28 x24 | Sonic's Edusoft (Unknown) (Proto)
+== space gun
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Space Gun (Europe)
+== space harrier
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 w41 x33 x29 a41 x28 a41 | Space Harrier (Europe)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 a41 x33 w43 w41 x28 w41 | Space Harrier (Japan, USA) (En)
+== space harrier 3-d
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Space Harrier 3-D (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Space Harrier 3D (Japan)
+== space harrier 3d
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Space Harrier 3D (Japan)
+== special criminal investigation
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Special Criminal Investigation (Europe)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Special Criminal Investigation (Europe) (Beta)
+== speedball
+   w46 w46 w46 x33 x29 w46 x28 w46 a39 a39 a39 x33 x29 a39 x28 a39 | Speedball (Europe)
+   w46 w46 w46 x33 x29 w46 x28 w46 w39 w39 w39 x33 x29 w39 x28 w39 | Speedball (Europe) (Rev 1)
+== speedball 2
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Speedball 2 (Europe)
+== spellcaster
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Kujaku Ou (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | SpellCaster (USA, Europe, Brazil) (En)
+== spider-man
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Spider-Man (USA, Europe, Brazil) (En)
+== spider-man - return of the sinister six
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Spider-Man - Return of the Sinister Six (Europe, Brazil) (En)
+== sports pad football
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Sports Pad Football (USA)
+== sports pad soccer
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Sports Pad Soccer (Japan)
+== spy vs spy
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Spy vs Spy (Japan)
+   w46 w46 x32 x33 x29 w46 x28 x25 a45 a45 x32 x33 x29 a45 x28 x25 | Spy vs Spy (Taiwan) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Spy vs Spy (USA, Europe, Brazil) (En)
+== star wars
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Star Wars (Europe, Brazil) (En)
+== street fighter ii'
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Street Fighter II' (Brazil) (En)
+== street master
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Street Master (Korea) (Unl)
+== streets of rage
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Streets of Rage (Europe, Brazil) (En)
+== streets of rage ii
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Streets of Rage II (Europe, Brazil) (En)
+== strider
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 w41 x33 w43 w41 x28 w43 | Strider (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x17 w41 w41 w41 x33 w43 w41 x28 x17 | Strider (USA, Europe, Brazil) (En) (Demo)
+   .   .   .   .   .   .   .   .   a41 a41 a41 x33 x29 a41 x28 x25 | Strider, The (Taiwan) (En) (Unl)
+     alternative to Strider (USA, Europe, Brazil) (En) [9-11,14]
+== strider ii
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Strider II (Europe, Brazil) (En)
+== strider, the
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Strider, The (Taiwan) (En) (Unl)
+== submarine attack
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w43 | Submarine Attack (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a41 a41 x33 x29 a41 x28 x25 | Submarine Attack (Taiwan) (En) (Unl)
+== sudoku
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Sudoku (Brazil) (Aftermarket) (Unl)
+== suho jeonsa
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Suho Jeonsa (Korea) (Unl)
+== sukeban deka ii - shoujo tekkamen densetsu
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Sukeban Deka II - Shoujo Tekkamen Densetsu (Japan)
+== summer games
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Summer Games (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Summer Games (Europe, Brazil) (En) (Beta 1)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Summer Games (Europe, Brazil) (En) (Beta 2)
+== super arkanoid
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 x32 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Super Arkanoid (Korea) (Unl)
+== super basketball
+   w46 w46 w46 x33 w46 w46 x28 x17 w43 w43 w43 x33 w43 w43 x28 x17 | Super Basketball (USA) (Demo)
+== super bioman i
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Bioman I (Korea) (Unl)
+== super boy 4
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Boy 4 (Korea) (Unl)
+== super boy i
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Super Boy I (Korea) (En) (Unl)
+== super boy ii
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Super Boy II (Korea) (En) (Unl)
+== super boy iii
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Super Boy III (Korea) (En) (Unl)
+== super bubble bobble
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Super Bubble Bobble (Korea) (En) (Unl)
+== super columns & tetris
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Columns & Tetris (Korea) (Unl)
+== super futebol ii
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 x32 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Super Futebol II (Brazil)
+== super game 150
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Game 150 (Korea) (Unl)
+== super game 180
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Game 180 (Korea) (Unl)
+== super game 45
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Game 45 (Korea) (Unl)
+== super game 52 hap
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Game 52 Hap (Korea) (Unl)
+== super game world 30 hap
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 a39 a39 x32 x33 x29 a39 x28 x25 | Super Game World 30 Hap (Korea) (Unl)
+   w46 w46 x32 x33 x29 w46 x28 x25 w39 w39 x32 x33 x29 w39 x28 x25 | Super Game World 30 Hap (Korea) (v1.1) (Unl)
+== super game world 75 hap
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Game World 75 Hap (Korea) (Unl)
+== super golf
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x24 .   .   .   .   .   .   .   .   | Super Golf (Europe) (Beta)
+== super kick off
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Super Kick Off (Europe, Brazil) (En,Fr,De,Es,It,Nl,Pt,Sv)
+== super monaco gp
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 w41 x33 x29 a41 x28 a41 | Super Monaco GP (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Super Monaco GP (Europe, Brazil) (En) (Beta)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 a41 x33 w36 w41 x28 w41 | Super Monaco GP (USA)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Super Monaco GP (USA) (Beta 1)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Super Monaco GP (USA) (Beta 2)
+== super multi game - super 125 in 1
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Multi Game - Super 125 in 1 (Korea) (Unl)
+== super multi game - super 75 in 1
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Multi Game - Super 75 in 1 (Korea) (Unl)
+== super off road
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Super Off Road (Europe)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Super Off Road (Europe) (Beta)
+== super penguin
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Penguin (Korea) (Unl)
+== super racing
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Super Racing (Japan)
+== super smash t.v.
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Super Smash T.V. (Europe)
+== super space invaders
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Super Space Invaders (Europe)
+== super tennis
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Great Tennis (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Super Tennis (USA, Europe)
+== super tetris
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Super Tetris (Korea) (Unl)
+== super wonder boy - monster world
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Super Wonder Boy - Monster World (Japan)
+== superman - the man of steel
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Superman - The Man of Steel (Europe, Brazil) (En)
+== t2 - the arcade game
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | T2 - The Arcade Game (Europe)
+== taito chase h.q.
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Taito Chase H.Q. (Europe)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Taito Chase H.Q. (Europe) (Beta)
+== tangram
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Tangram (Brazil) (Aftermarket) (Unl)
+== tank battalion
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Tank Battalion (Korea) (Unl)
+== taz in escape from mars
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Taz in Escape from Mars (Brazil) (En)
+== taz-mania
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Taz-Mania (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Taz-Mania (Europe, Brazil) (En) (Beta)
+== tecmo world cup '92
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x24 .   .   .   .   .   .   .   .   | Tecmo World Cup '92 (Europe) (Beta)
+== tecmo world cup '93
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Tecmo World Cup '92 (Europe) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Tecmo World Cup '93 (Europe)
+== teddy boy
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Teddy Boy (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Teddy Boy Blues (Japan)
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Teddy Boy Blues (Japan) (Proto) (Ep-MyCard)
+== teddy boy blues
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Teddy Boy Blues (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x24 .   .   .   .   .   .   .   .   | Teddy Boy Blues (Japan) (Proto) (Ep-MyCard)
+== tennis ace
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Tennis Ace (Europe, Brazil) (En)
+== tensai bakabon
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Tensai Bakabon (Japan)
+== terminator 2 - judgment day
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Terminator 2 - Judgment Day (Europe)
+== terminator, the
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | Terminator, The (Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | Terminator, The (Europe)
+== three dragon story, the
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Three Dragon Story, The (Korea) (Unl)
+== thunder blade
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w45 a45 x33 x29 a45 x28 a45 | Thunder Blade (Japan)
+   w46 w46 w46 x33 x29 w46 x28 x25 a41 a45 a41 x33 x29 a41 x28 x25 | Thunder Blade (Taiwan) (En) (Unl)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 w41 x33 w36 w41 x28 w45 | Thunder Blade (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Thunder Blade (USA, Europe, Brazil) (En) (Beta)
+== time soldiers
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Time Soldiers (USA, Europe, Brazil) (En)
+== tom & jerry
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x24 .   .   .   .   .   .   .   .   | Tom & Jerry (Europe, Brazil) (En) (Beta)
+== tom and jerry - the movie
+   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Tom & Jerry (Europe, Brazil) (En) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Tom and Jerry - The Movie (Europe, Brazil) (En)
+== toto world 3
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Toto World 3 (Korea) (Unl)
+== transbot
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 x27 x28 a45 | Astro Flash (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w36 w36 x28 w45 | TransBot (USA, Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | TransBot (USA, Europe, Brazil) (En) (Beta)
+== trivial pursuit - genus edition
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Trivial Pursuit - Genus Edition (Europe) (En,Fr,De,Es)
+== ttoriui moheom
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Ttoriui Moheom (Korea) (En) (Unl)
+== turma da monica em o resgate
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 x32 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Turma da Monica em O Resgate (Brazil)
+== ultima iv - quest of the avatar
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Ultima IV - Quest of the Avatar (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Ultima IV - Quest of the Avatar (Europe, Brazil) (En) (Beta)
+== ultimate soccer
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | Ultimate Soccer (Europe, Brazil) (En,Fr,De,Es,It)
+== vampire
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 x24 .   .   .   .   .   .   .   .   | Vampire (Europe) (Beta)
+== vigilante
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Vigilante (USA, Europe, Brazil) (En)
+== virtua fighter animation
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Virtua Fighter Animation (Brazil) (En)
+== walter payton football
+   .   .   .   .   .   .   .   .   a41 a41 w41 x33 x29 x27 x28 a41 | American Pro Football (Europe)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 a41 x33 w43 w43 x28 w41 | Walter Payton Football (USA)
+== wanted
+   w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Wanted (USA, Europe, Brazil) (En)
+== waternet
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Waternet (Unknown) (Aftermarket) (Unl)
+== where in the world is carmen sandiego
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | Where in the World is Carmen Sandiego (Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 w41 w41 x33 w43 w41 x28 w41 | Where in the World is Carmen Sandiego (USA)
+== wimbledon
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | Wimbledon (Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | Wimbledon (Europe)
+== wimbledon ii
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Wimbledon II (Europe, Brazil) (En)
+== winter olympics
+   w46 w46 w46 w46 x29 w46 x28 w46 a41 a41 a41 a41 x29 a41 x28 a41 | Winter Olympics (Brazil) (En,Fr,De,Es,It,Pt,Sv,No)
+   w46 w46 w46 w46 x29 w46 x28 w46 w41 w41 w41 w41 x29 w41 x28 w41 | Winter Olympics (Europe) (En,Fr,De,Es,It,Pt,Sv,No)
+== wolfchild
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Wolfchild (Europe, Brazil) (En)
+== wonder boy
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 w41 a39 x33 x29 a41 x28 a41 | Wonder Boy (Japan, Europe) (En)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a41 w39 x33 w43 w41 x28 w41 | Wonder Boy (USA, Europe, Brazil) (En) (Rev 1)
+== wonder boy iii - the dragon's trap
+   .   .   .   .   .   .   .   .   a45 a45 x32 x33 x29 a45 x28 a45 | Turma da Monica em O Resgate (Brazil)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 w45 w42 x33 w42 w45 x28 w45 | Wonder Boy III - The Dragon's Trap (USA, Europe)
+   w46 w46 w46 x33 w46 w46 x28 x25 a42 a42 a42 x33 a42 a42 x28 x25 | Wonder Boy III - The Dragon's Trap (USA, Europe) (Aftermarket) (Unl)
+== wonder boy in monster land
+   .   .   .   .   .   .   .   .   a45 a45 x32 x33 x29 a45 x28 a45 | Monica no Castelo do Dragao (Brazil)
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Super Wonder Boy - Monster World (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w36 w45 x28 w45 | Wonder Boy in Monster Land (USA, Europe)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Wonder Boy in Monster Land (USA, Europe) (Beta)
+== wonder boy in monster world
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Wonder Boy in Monster World (Europe)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Wonder Boy in Monster World (Europe) (Beta)
+== wonsiin
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Wonsiin (Korea) (Unl)
+== woody pop - shinjinrui no block kuzushi
+   .   .   .   .   .   .   .   .   a45 a45 x32 x33 x29 a45 x28 x25 | Super Arkanoid (Korea) (Unl)
+   w46 w46 w46 x33 x29 w46 x28 w46 w45 w45 w43 x33 x29 w45 x28 w43 | Woody Pop - Shinjinrui no Block Kuzushi (Japan)
+== world class leaderboard
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | World Class Leaderboard (Europe, Brazil) (En)
+== world cup italia '90
+   .   .   .   .   .   .   .   .   a45 a45 x32 x33 x29 a45 x28 a45 | Super Futebol II (Brazil)
+     alternative to World Cup Italia '90 (Europe, Brazil) (En) [9-10,14]
+   w46 w46 w46 x33 x29 w46 x28 w46 w45 w45 w43 x33 x29 w45 x28 w45 | World Cup Italia '90 (Europe, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x17 w45 w45 w43 x33 w43 w45 x28 x17 | World Cup Italia '90 (USA) (Demo)
+== world cup usa 94
+   w46 w46 w46 w46 x29 w46 x28 w46 w43 w43 w43 w43 x29 w43 x28 w43 | World Cup USA 94 (Europe, Brazil) (En,Fr,De,Es,It,Nl,Pt,Sv)
+== world games
+   w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | World Games (Europe, Brazil) (En)
+   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | World Games (Europe, Brazil) (En) (Beta)
+== world grand prix
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Circuit, The (Japan)
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a45 w41 x33 x29 a41 x28 a41 | World Grand Prix (Europe)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 a41 x33 w36 w41 x28 w41 | World Grand Prix (USA, Brazil) (En)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | World Grand Prix (USA, Brazil) (En) (Beta)
+== world soccer
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Sports Pad Soccer (Japan)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | World Soccer (World)
+== wwf wrestlemania - steel cage challenge
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | WWF Wrestlemania - Steel Cage Challenge (Europe, Brazil) (En)
+== x-men - mojo world
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | X-Men - Mojo World (Brazil) (En)
+== xenon 2 - megablast
+   w46 w46 w46 x33 x29 w46 x28 w46 a39 a39 a39 x33 x29 a39 x28 a39 | Xenon 2 - Megablast (Europe)
+   w46 w46 w46 x33 x29 w46 x28 w46 w39 w39 w39 x33 x29 w39 x28 w39 | Xenon 2 - Megablast (Europe) (Rev 1)
+== xyzolog
+   w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Xyzolog (Korea) (En) (Unl)
+== ys
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Ys (Japan)
+== ys - the vanished omens
+   .   .   .   .   .   .   .   .   a45 w45 a45 x33 x29 a45 x28 a45 | Ys (Japan)
+     alternative to Ys - The Vanished Omens (USA, Europe, Brazil) (En) [9,11,14]
+   w46 w46 w46 x33 w46 w46 x28 x17 w45 w45 w45 x33 w43 w45 x28 x17 | Ys - The Vanished Omens (USA, Europe) (Ja) (Demo)
+   w46 w46 w46 x33 w46 w46 x28 w46 w45 a45 w45 x33 w43 w45 x28 w45 | Ys - The Vanished Omens (USA, Europe, Brazil) (En)
+     alternative to Ys (Japan) [10]
+== yuyryeong-ui jip
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w46 w46 x32 x33 x29 w46 x28 x25 .   .   .   .   .   .   .   .   | Yuyryeong-ui Jip (Korea) (Unl)
+== zaxxon 3-d
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Zaxxon 3-D (World)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Zaxxon 3-D (World) (Beta)
+== zemina best 25
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Zemina Best 25 (Korea) (Unl)
+== zemina best 39
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Zemina Best 39 (Korea) (Unl)
+== zemina best 88
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Zemina Best 88 (Korea) (Unl)
+== zemina rompack - q-bert + sports 3 + gulkave + pooyan
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Zemina Rompack - Q-Bert + Sports 3 + Gulkave + Pooyan (Korea) (Unl)
+== zillion
+   w46 w46 w46 x33 x29 w46 x28 w46 a41 a45 w39 x33 x29 a41 x28 a41 | Zillion (Europe, Brazil) (En) (Rev 2)
+   w46 w46 w46 x33 x29 w46 x28 w46 a39 w45 a39 x33 x29 a39 x28 a39 | Zillion (Japan, Europe) (En,Ja)
+   w46 w46 w46 x33 w46 w46 x28 w46 w41 a45 a39 x33 w43 w41 x28 w41 | Zillion (USA, Europe) (Rev 1)
+== zillion ii - the tri formation
+   w46 w46 w46 x33 w46 w46 x28 w46 w36 w36 w36 x33 w36 w36 x28 w43 | Zillion II - The Tri Formation (World)
+   w46 w46 w46 x33 w46 w46 x28 x24 a36 a36 a36 x33 a36 a36 x28 x24 | Zillion II - The Tri Formation (World) (Beta)
+== zool - ninja of the 'nth' dimension
+   w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Zool - Ninja of the 'Nth' Dimension (Europe)

@@ -1,2 +1,0 @@
-# Set LF line endings for clone lists and metadata to enforce consistency
-*.json text=auto

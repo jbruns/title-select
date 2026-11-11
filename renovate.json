@@ -12,7 +12,7 @@
     "**/test/**",
     "**/tests/**",
     "**/__fixtures__/**",
-    "third_party/retool/upstream/**"
+    "third_party/retool/fixtures/**"
   ],
   "packageRules": [
     {
@@ -21,27 +21,14 @@
         "tools/agent-skills/setup-agent-skills"
       ],
       "groupName": "Repo Tooling agent-skills"
-    },
-    {
-      "description": "Retool's hash-locked runtime dependencies for Selection, in one PR; the vendored Retool itself changes only by hand",
-      "matchFileNames": [
-        "third_party/retool/requirements.in",
-        "third_party/retool/requirements.txt"
-      ],
-      "groupName": "Retool Python dependencies"
     }
   ],
-  "pip-compile": {
-    "managerFilePatterns": [
-      "/^third_party/retool/requirements\\.txt$/"
-    ]
-  },
   "customManagers": [
     {
       "customType": "regex",
       "description": "The clone lists and metadata Selection reads, pinned to a commit of upstream's main; the clone-list-pin workflow then writes the new archive's sha256",
       "managerFilePatterns": [
-        "/^third_party/retool/pins\\.toml$/"
+        "/^third_party/clone-lists/pins\\.toml$/"
       ],
       "matchStrings": [
         "\\[clone_lists\\]\\nrepository = \"(?<depName>[^\"]+)\"\\nbranch = \"(?<currentValue>[^\"]+)\"\\ncommit = \"(?<currentDigest>[0-9a-f]{40})\""

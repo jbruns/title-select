@@ -1,8 +1,8 @@
-//! Reads the patched Retool's JSON Lines trace and derives the explained Selection rows from it.
+//! Reads the engine's JSON Lines trace, the patched Retool's trace format, and derives the explained Selection rows from it.
 //!
 //! The trace has two kinds of step record. A snapshot (`after` present) is the set of candidates a scope holds
 //! after a rule; it is deterministic. An action (`after` absent) reports one pairwise decision, and its order and
-//! pairing depend on Python's set iteration order, so rows are derived from snapshots wherever one names the
+//! pairing followed Python's set iteration order in Retool, so rows are derived from snapshots wherever one names the
 //! release, and from actions only as a fallback.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};

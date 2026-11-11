@@ -22,7 +22,7 @@ Single-context: root `GLOSSARY.md` and `docs/adr/`. Before exploring the codebas
 The toolchain is pinned in `rust-toolchain.toml`. CI runs exactly these, so run them before committing:
 
 ```sh
-tools/retool/setup   # Retool for the Selection tests; needs uv, which fetches Python 3.11
+tools/clone-lists/fetch   # clone lists for the Selection tests; needs curl, tar and sha256sum
 cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked

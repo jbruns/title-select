@@ -23,6 +23,24 @@ mod userre;
 
 pub(crate) use pipeline::run;
 
+/// Reads one of the Operator's `/pattern` lines as Python's `re` would, or says why the engine can't.
+pub(crate) fn user_regex(pattern: &str) -> Result<(), String> {
+    pyre::Re::user(pattern).map(|_| ())
+}
+
+/// The system `dat` is for, as its header names it, or `None` for a DAT the engine can't read.
+pub(crate) fn system_name(dat: &std::path::Path, internal_config: &[u8]) -> Option<String> {
+    let text = process::read_text(dat).ok()?;
+    let settings = settings::Settings::new(
+        internal_config,
+        &title_select_api::selection::SelectionProfile::default(),
+        "",
+    )
+    .ok()?;
+    let header = dat::read_header(dat, &text, &settings).ok()?;
+    Some(header.search_name).filter(|name| !name.is_empty())
+}
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};

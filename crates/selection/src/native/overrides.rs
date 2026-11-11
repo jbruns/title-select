@@ -77,8 +77,7 @@ impl PyHash for ExcludeRegex {
 }
 
 /// CPython 3.11's `hash()` of the compiled exclusion patterns under `PYTHONHASHSEED=0`. A compiled pattern
-/// hashes its source, flags and compiled code, so Python computes these; `the_exclusion_pattern_hashes_are_
-/// python_s` checks them against the bundled engine.
+/// hashes its source, flags and compiled code, so Python computed these, from the patched Retool's patterns.
 pub(crate) const PATTERN_HASHES: [(&str, i64); 29] = [
     (r"\(Aftermarket\)", -1527780529567862980),
     (

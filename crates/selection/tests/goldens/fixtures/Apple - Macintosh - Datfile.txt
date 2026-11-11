@@ -1,0 +1,2562 @@
+# The built-in engine's Selections from "Apple - Macintosh - Datfile.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata true
+system: Apple - Macintosh (Redump)
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [7,15]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Compilations REF0067: Original unmodified group
+rule r2: Compilations REF0094: Favor primary region higher up user region order (individual title vs compilation)
+rule r3: Exclusions REF0042: Excluded due to categories: Add-Ons (reason: Category exclude, Add-Ons)
+rule r4: Exclusions REF0042: Excluded due to categories: Applications (reason: Category exclude, Applications)
+rule r5: Exclusions REF0042: Excluded due to categories: Audio (reason: Category exclude, Audio)
+rule r6: Exclusions REF0042: Excluded due to categories: Bonus Discs (reason: Category exclude, Bonus Discs)
+rule r7: Exclusions REF0042: Excluded due to categories: Coverdiscs (reason: Category exclude, Coverdiscs)
+rule r8: Exclusions REF0042: Excluded due to categories: Demos (reason: Category exclude, Demos)
+rule r9: Exclusions REF0042: Excluded due to categories: Educational (reason: Category exclude, Educational)
+rule r10: Exclusions REF0042: Excluded due to categories: Multimedia (reason: Category exclude, Multimedia)
+rule r11: Exclusions REF0042: Excluded due to categories: Preproduction (reason: Category exclude, Preproduction)
+rule r12: Exclusions REF0046: Excluded due to a global override (reason: Related to user global excludes)
+rule r13: Exclusions REF0046: Excluded due to a global override (reason: User global exclude)
+rule r14: Exclusions: Global post filter exclude
+rule r15: Exclusions: Region remove
+rule r16: Includes REF0048: Included due to a global override
+rule r17: Language filter REF0049: Removed due to user language filters: En(?:-[A-Z][A-Z])?, De, Fr(?!-CA)(?:-[A-Z][A-Z])?, It, Ja (reason: Language remove)
+rule r18: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r19: Parent selection REF0002: Group after taking clone list priorities into account
+rule r20: Parent selection REF0005: [First pass] Group after filtering by user language order
+rule r21: Parent selection REF0007: Group after handling versions and revisions
+rule r22: Parent selection REF0008: Group after handling modern title rips
+rule r23: Parent selection REF0010: Group after choosing good, original versions over alternatives
+rule r24: Parent selection REF0014: Group after lower priority region, non-superset clones removed
+rule r25: Parent selection REF0043: [Second pass] Group after filtering by user language order
+rule r26: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r27: Parent selection REF0119: Group after good dump/production/retail check
+rule r28: Parent selection: Assigned as a clone
+rule r29: Parent selection: No other release competed
+rule r30: Superset parent selection REF0074: Only one title in this region, skipping filtering
+rule r31: Superset parent selection REF0076: Group after choosing superset titles
+rule r32: Superset parent selection REF0103: Group after non-superset clones removed
+rule r33: Superset parent selection REF0119: Group after good dump/production/retail check
+== 11th hour, the
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 11th Hour, The (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 11th Hour, The (USA) (Disc 2)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 11th Hour, The (USA) (Disc 3)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 11th Hour, The (USA) (Disc 4)
+== 3-d ultra pinball
+   w29 w29 w29 x18 x15 w29 x14 w29 a2  a24 .   x18 x15 a2  x14 a2  | 3-D Ultra Pinball (Europe)
+     alternative to 3-D Ultra Pinball & Trophy Bass (USA) [9,14,16]
+     alternative to 3-D Ultra Pinball (Japan) [10]
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 .   a24 x18 x15 a24 x14 a24 | 3-D Ultra Pinball (Japan)
+     alternative to 3-D Ultra Pinball & Trophy Bass (USA) [9,14,16]
+     alternative to 3-D Ultra Pinball (Europe) [11]
+== 3-d ultra pinball & trophy bass
+   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   x18 .   .   x14 .   | 3-D Ultra Pinball & Trophy Bass (USA)
+== 3-d ultra pinball - creep night
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | 3-D Ultra Pinball - Creep Night (France)
+== 3do content library, the
+   ud  ud  ud  gd  ud  ud  gd  ud  ud  ud  ud  gd  ud  ud  gd  ud  |
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 01) (CD Browser and Text Index)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 01) (Clip Art & Text)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 01) (Film & Video)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 01) (Music & Sound Effects Thumb Nails)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 01) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 01) (Textures & Photos Thumb Nails)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 01) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 02) (CD Browser and Text Index)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 02) (Clip Art & Text)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 02) (Music & Sound Effects Thumb Nails)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 02) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 02) (Textures & Photos Thumb Nails)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 02) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 03) (Music & Sound Effects Thumb Nails)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 03) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 03) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 04) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 04) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 05) (Music & Sound Effects Thumb Nails)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 05) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 05) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 06) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 06) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 07) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 07) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 08) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 08) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 09) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 09) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 10) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 10) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 11) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 11) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 12) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 12) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 13) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Content Library, The (USA) (Disc 13) (Textures & Photos)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 14) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 15) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 16) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 17) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 18) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 19) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 20) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 21) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 22) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 23) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 24) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 25) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 26) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 27) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 28) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 29) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 30) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 31) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 32) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 33) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 34) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 35) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 36) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 37) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 38) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 39) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 40) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 41) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 42) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 43) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 44) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 45) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 46) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 47) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 48) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 3DO Content Library, The (USA) (Disc 49) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 50) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 51) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 52) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 53) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 54) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 55) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 56) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 57) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 58) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 59) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 60) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 61) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 62) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 63) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 64) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 65) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 66) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 67) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 68) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 69) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 70) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 71) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 72) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 73) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 74) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 75) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 76) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 77) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 79) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 80) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 81) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 82) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 83) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 84) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 85) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 86) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 87) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 88) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 89) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 90) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 91) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 92) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 93) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 94) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 95) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 96) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 97) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 98) (Music & Sound Effects)
+   w29 w29 w29 x18 w29 w29 x14 x5  w26 w26 w26 x18 w26 w26 x14 x5  | 3DO Content Library, The (USA) (Disc 99) (Music & Sound Effects)
+== 3do dev sym iii july 18-20, '94 session slides
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Dev Sym III July 18-20, '94 Session Slides (USA)
+== 3do developers symposium, the - session slides
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | 3DO Developers Symposium, The - Session Slides (USA)
+== 3do portfolio
+   w29 w29 w29 x18 w29 w29 x14 x4  w26 w26 w26 x18 w26 w26 x14 x4  | 3DO Portfolio Version 1.4 (USA)
+== 3do portfolio 1.2 and 3do toolkit 1.3 - developer's tools & software 3do release 1.3.1
+   w29 w29 w29 x18 w29 w29 x14 x4  w26 w26 w26 x18 w26 w26 x14 x4  | 3DO Portfolio 1.2 and 3DO Toolkit 1.3 - Developer's Tools & Software 3DO Release 1.3.1 (USA)
+== 3do portfolio update
+   w29 w29 w29 x18 w29 w29 x14 x4  w26 w26 w26 x18 w26 w26 x14 x4  | 3DO Portfolio Update Version 1.3 (USA)
+== 3do toolkit update
+   w29 w29 w29 x18 w29 w29 x14 x4  w26 w26 w26 x18 w26 w26 x14 x4  | 3DO Toolkit Update Version 1.3.1 (USA)
+== 5 a day adventures
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | 5 a Day Adventures (USA)
+== 7th guest, the
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 7th Guest, The (USA) (Disc 1)
+== a-10 cuba!
+   w29 w29 w29 x18 w29 x13 x14 w29 w26 w26 w26 x18 w26 x13 x14 w26 | A-10 Cuba! (USA)
+== abomination - the nemesis project - manual
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 x15 x13 x14 x10 w26 w26 w26 w26 x15 x13 x14 x10 | Abomination - The Nemesis Project - Manual (Europe) (En,De)
+== abomination - the nemesis project - packaging
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 x15 x13 x14 x10 w26 w26 w26 w26 x15 x13 x14 x10 | Abomination - The Nemesis Project - Packaging (Europe) (En,Fr,De,Es,It,Nl)
+== abuse for macintosh
+   w29 w29 w29 x18 w29 x13 x14 w29 w26 w26 w26 x18 w26 x13 x14 w26 | Abuse for Macintosh (USA)
+== activision's atari 2600 action pack for macintosh
+   w29 w29 w29 x18 w29 x13 x14 w29 w26 w26 w26 x18 w26 x13 x14 w26 | Activision's Atari 2600 Action Pack for Macintosh (USA)
+== addison-wesley's real world math - adventures in flight
+   w29 w29 w29 x18 w29 x13 x14 x9  w26 w26 w26 x18 w26 x13 x14 x9  | Addison-Wesley's Real World Math - Adventures in Flight (USA)
+== adventures with oslo - tools and gadgets
+   w29 w29 w29 x18 w29 x13 x14 x9  w26 w26 w26 x18 w26 x13 x14 x9  | Adventures with Oslo - Tools and Gadgets (USA)
+== aege-kai no shizuku
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 x13 x14 w29 w26 w26 w26 x18 x15 x13 x14 w26 | Aege-kai no Shizuku (Japan)
+== afterlife
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 x13 x14 w29 a24 a24 a24 x18 x15 x13 x14 a24 | Afterlife (France)
+   w29 w29 w29 x18 w29 x13 x14 w29 w24 w24 w24 x18 w26 x13 x14 w24 | Afterlife (USA)
+== age of empires
+   w29 w29 w29 x18 w29 x13 x14 w29 a21 a21 a21 x18 a21 x13 x14 a21 | Age of Empires (USA)
+   w29 w29 w29 x18 w29 x13 x14 w29 w21 w21 w21 x18 w21 x13 x14 w21 | Age of Empires (USA) (v1.0b)
+== age of empires ii - gold edition
+   w29 w29 w29 x18 w29 x13 x14 w29 w26 w26 w26 x18 w26 x13 x14 w26 | Age of Empires II - Gold Edition (USA)
+== age of empires iii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 x13 x14 w29 w26 w26 w26 x18 w26 x13 x14 w26 | Age of Empires III (USA)
+== agetec ps2 graphic assets - armored core 2 & eternal ring & evergrace
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 x13 x14 x11 w26 w26 w26 x18 w26 x13 x14 x11 | Agetec PS2 Graphic Assets - Armored Core 2 & Eternal Ring & Evergrace (USA)
+== al unser jr. arcade racing
+   w29 w29 w29 x18 w29 x13 x14 w29 w26 w26 w26 x18 w26 x13 x14 w26 | Al Unser Jr. Arcade Racing (USA)
+== alex-world
+   w29 w29 w29 x18 x15 x13 x14 w29 w26 w26 w26 x18 x15 x13 x14 w26 | Alex-World (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 x13 x14 w29 w26 w26 w26 x18 x15 x13 x14 w26 | Alex-World (Japan) (Disc 2)
+== alice
+   w29 w29 w29 x18 x15 x13 x14 w29 w23 w23 w23 x18 x15 x13 x14 w23 | Alice (Japan)
+   w29 w29 w29 x18 x15 x13 x14 w29 a23 a23 a23 x18 x15 x13 x14 a23 | Alice (Japan) (Rerelease)
+== alone in the dark
+   w29 w29 w29 x18 x15 x13 x14 w29 w23 w23 w23 x18 x15 x13 x14 w23 | Alone in the Dark (France)
+   w29 w29 w29 x18 x15 x13 x14 w29 a23 a23 a23 x18 x15 x13 x14 a23 | Alone in the Dark (France) (Covermount)
+== alone in the dark 2
+   w29 w29 w29 x18 x15 x13 x14 w29 w23 w23 w23 x18 x15 x13 x14 w23 | Alone in the Dark 2 (France)
+   w29 w29 w29 x18 x15 x13 x14 w29 a23 a23 a23 x18 x15 x13 x14 a23 | Alone in the Dark 2 (France) (Covermount)
+== alone in the dark 3
+   w29 w29 w29 x18 x15 x13 x14 w29 a27 a27 w27 x18 x15 x13 x14 a27 | Alone in the Dark 3 (France)
+   w29 w29 w29 x18 x15 x13 x14 w29 a23 a23 a23 x18 x15 x13 x14 a23 | Alone in the Dark 3 (France) (Covermount)
+   w29 w29 w29 x18 x15 x13 x14 w29 w27 w27 a27 x18 x15 x13 x14 w27 | Alone in the Dark 3 (Japan)
+== america's greatest solitaire games - all time 37 favorites
+   w29 w29 w29 x18 w29 x13 x14 w29 w26 w26 w26 x18 w26 x13 x14 w26 | America's Greatest Solitaire Games - All Time 37 Favorites (USA)
+== angel egg
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 x13 x14 w29 w26 w26 w26 x18 x15 x13 x14 w26 | Angel Egg (Japan)
+== ankh - pyramid no nazo
+   w29 w29 w29 x18 x15 x13 x14 w29 w26 w26 w26 x18 x15 x13 x14 w26 | Ankh - Pyramid no Nazo (Japan)
+== ankh 2 - tutankhamen no nazo
+   w29 w29 w29 x18 x15 x13 x14 w29 w26 w26 w26 x18 x15 x13 x14 w26 | Ankh 2 - Tutankhamen no Nazo (Japan)
+== another ian and stuart's free
+   w29 w29 w29 x18 x15 x13 x14 x10 w26 w26 w26 x18 x15 x13 x14 x10 | Another Ian and Stuart's Free (Australia)
+== another.not.for.sale
+   w29 w29 w29 x18 x15 x13 x14 x10 w26 w26 w26 x18 x15 x13 x14 x10 | Another.not.for.sale (Australia)
+== aquazone compact
+   w29 w29 w29 x18 x15 x13 x14 x10 w23 w23 w23 x18 x15 x13 x14 x10 | Aquazone Compact (Japan)
+   w29 w29 w29 x18 x15 x13 x14 x10 a23 a23 a23 x18 x15 x13 x14 x10 | Aquazone Compact (Japan) (Rerelease)
+== aquazone deluxe
+   w29 w29 w29 x18 x15 x13 x14 x10 w26 w26 w26 x18 x15 x13 x14 x10 | Aquazone Deluxe (Japan)
+== aquazone sen'you option disc - imacinfish vol. 1 - bondi blue
+   w29 w29 w29 x18 x15 x13 x14 x3  w26 w26 w26 x18 x15 x13 x14 x3  | Aquazone Sen'you Option Disc - iMacinfish Vol. 1 - Bondi Blue (Japan)
+== aquazone sen'you option disc - imacinfish vol. 2 - grape
+   w29 w29 w29 x18 x15 x13 x14 x3  w26 w26 w26 x18 x15 x13 x14 x3  | Aquazone Sen'you Option Disc - iMacinfish Vol. 2 - Grape (Japan)
+== aquazone sen'you option disc - imacinfish vol. 3 - tangerine
+   w29 w29 w29 x18 x15 x13 x14 x3  w26 w26 w26 x18 x15 x13 x14 x3  | Aquazone Sen'you Option Disc - iMacinfish Vol. 3 - Tangerine (Japan)
+== aquazone sen'you option disc - imacinfish vol. 4 - lime
+   w29 w29 w29 x18 x15 x13 x14 x3  w26 w26 w26 x18 x15 x13 x14 x3  | Aquazone Sen'you Option Disc - iMacinfish Vol. 4 - Lime (Japan)
+== aquazone sen'you option disc - imacinfish vol. 5 - blueberry
+   w29 w29 w29 x18 x15 x13 x14 x3  w26 w26 w26 x18 x15 x13 x14 x3  | Aquazone Sen'you Option Disc - iMacinfish Vol. 5 - Blueberry (Japan)
+== aquazone sen'you option disc - imacinfish vol. 6 - strawberry
+   w29 w29 w29 x18 x15 x13 x14 x3  w26 w26 w26 x18 x15 x13 x14 x3  | Aquazone Sen'you Option Disc - iMacinfish Vol. 6 - Strawberry (Japan)
+== arcade battles
+   w29 w29 w29 x18 w29 x13 x14 w29 w26 w26 w26 x18 w26 x13 x14 w26 | Arcade Battles (USA)
+== arcatera - die dunkle bruderschaft
+   w29 w29 w29 w29 x15 x13 x14 x10 w26 w26 w26 w26 x15 x13 x14 x10 | Arcatera - Die dunkle Bruderschaft (Germany) (Art Assets)
+== around the world in 80 days
+   w29 w29 w29 x18 w29 x13 x14 x9  w26 w26 w26 x18 w26 x13 x14 x9  | Around the World in 80 Days (USA)
+== asterix - caesar's challenge
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 x13 x14 w29 w26 w26 w26 x18 x15 x13 x14 w26 | Asterix - Caesar's Challenge (Belgium, Netherlands)
+== atlantis - das sagenhafte abenteuer
+   w29 w29 w29 w29 x15 x13 x14 w29 w26 w26 w26 w26 x15 x13 x14 w26 | Atlantis - Das sagenhafte Abenteuer (Germany) (Disc 1)
+   w29 w29 w29 w29 x15 x13 x14 w29 w26 w26 w26 w26 x15 x13 x14 w26 | Atlantis - Das sagenhafte Abenteuer (Germany) (Disc 2)
+   w29 w29 w29 w29 x15 x13 x14 w29 w26 w26 w26 w26 x15 x13 x14 w26 | Atlantis - Das sagenhafte Abenteuer (Germany) (Disc 3)
+   w29 w29 w29 w29 x15 x13 x14 w29 w26 w26 w26 w26 x15 x13 x14 w26 | Atlantis - Das sagenhafte Abenteuer (Germany) (Disc 4)
+== audition 2, the
+   w29 w29 w29 x18 x15 x13 x14 x10 w26 w26 w26 x18 x15 x13 x14 x10 | Audition 2, The (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 x13 x14 x10 w26 w26 w26 x18 x15 x13 x14 x10 | Audition 2, The (Japan) (Disc 2)
+== baldur's gate ii - ads
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Baldur's Gate II - Ads (Europe) (Art Assets)
+== baldur's gate ii - ads sellsheet
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Baldur's Gate II - Ads Sellsheet (Europe) (Art Assets)
+== baldur's gate ii - poster
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Baldur's Gate II - Poster (Europe) (Art Assets)
+== baldur's gate ii - poster trading card
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Baldur's Gate II - Poster Trading Card (Europe) (Art Assets)
+== baldur's gate ii - shadows of amn
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Baldur's Gate II - Shadows of Amn (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 w16 x14 a23 | Baldur's Gate II - Shadows of Amn (USA) (Disc 1) (Alt)
+     alternative to Baldur's Gate II - Shadows of Amn (USA) (Disc 1) [9-11,13,16]
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Baldur's Gate II - Shadows of Amn (USA) (Disc 2)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 w16 x14 a23 | Baldur's Gate II - Shadows of Amn (USA) (Disc 2) (Alt)
+     alternative to Baldur's Gate II - Shadows of Amn (USA) (Disc 2) [9-11,13,16]
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Baldur's Gate II - Shadows of Amn (USA) (Disc 3)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 w16 x14 a23 | Baldur's Gate II - Shadows of Amn (USA) (Disc 3) (Alt)
+     alternative to Baldur's Gate II - Shadows of Amn (USA) (Disc 3) [9-11,13,16]
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Baldur's Gate II - Shadows of Amn (USA) (Disc 4)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 w16 x14 a23 | Baldur's Gate II - Shadows of Amn (USA) (Disc 4) (Alt)
+     alternative to Baldur's Gate II - Shadows of Amn (USA) (Disc 4) [9-11,13,16]
+== baldur's gate ii - standee
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Baldur's Gate II - Standee (Europe) (Art Assets)
+== baldur's gate ii - throne of bhaal
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Baldur's Gate II - Throne of Bhaal (USA)
+== baldur's gate ii - trading cards
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Baldur's Gate II - Trading Cards (Europe) (Art Assets)
+== bandai visual cd-rom previews for macintosh vol. 1
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Bandai Visual CD-ROM Previews for Macintosh Vol. 1 (Japan)
+== bandai visual cd-rom previews for macintosh vol. 2
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Bandai Visual CD-ROM Previews for Macintosh Vol. 2 (Japan)
+== bandai visual cd-rom previews for macintosh vol. 3
+   w29 w29 w29 x18 x15 w29 x14 x8  w26 w26 w26 x18 x15 w26 x14 x8  | Bandai Visual CD-ROM Previews for Macintosh Vol. 3 (Japan)
+== barbara don't stop!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Barbara Don't Stop! (Japan)
+== barbara ni aitakute...
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Barbara ni Aitakute... (Japan)
+== barbie fashion designer
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Barbie Fashion Designer (USA)
+== batman - arkham asylum
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Batman - Arkham Asylum (France) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Batman - Arkham Asylum (France) (Disc 2)
+== battlefield 1942 - secret weapons of wwii
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Battlefield 1942 - Secret Weapons of WWII (Expansion Pack) (USA)
+== battlefield 2142
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Battlefield 2142 (USA)
+== beach head 2002
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Beach Head 2002 (USA)
+== beast within, the - a gabriel knight mystery
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Beast Within, The - A Gabriel Knight Mystery (Europe) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Beast Within, The - A Gabriel Knight Mystery (Europe) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Beast Within, The - A Gabriel Knight Mystery (Europe) (Disc 3)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Beast Within, The - A Gabriel Knight Mystery (Europe) (Disc 4)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Beast Within, The - A Gabriel Knight Mystery (Europe) (Disc 5)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Beast Within, The - A Gabriel Knight Mystery (Europe) (Disc 6)
+== bedlam
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Bedlam (USA) (En,Fr,De,Es,It,Nl)
+== bejeweled & alchemy
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Bejeweled & Alchemy (USA)
+== bejeweled 2 deluxe
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Bejeweled 2 Deluxe (USA)
+== belzerion
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w23 w23 w23 x18 x15 w23 x14 w23 | Belzerion (Japan)
+   w29 w29 w29 x18 x15 w29 x14 w29 a23 a23 a23 x18 x15 a23 x14 a23 | Belzerion (Japan) (Alt)
+== berlin im untergrund - eine interaktive zeitreise unter den potsdamer platz
+   w29 w29 w29 w29 x15 w29 x14 x9  w26 w26 w26 w26 x15 w26 x14 x9  | Berlin im Untergrund - Eine Interaktive Zeitreise unter den Potsdamer Platz (Germany)
+== big bug alphabet book, the
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Big Bug Alphabet Book, The (USA)
+== big top's cartoon toolbox starring felix the cat
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Big Top's Cartoon Toolbox Starring Felix the Cat (USA)
+== black & white
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Black & White (Japan) (Data Disc)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Black & White (Japan) (Game Disc)
+== black & white (data disc)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a33 w33 a33 x18 x15 a33 x14 a33 | Black & White (Japan) (Data Disc)
+   .   .   .   .   .   .   .   .   w33 a33 w33 w30 w30 w33 x14 w33 | Black & White - Platinum Pack (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,Da,Fi)
+== black & white (game disc)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a33 w33 a33 x18 x15 a33 x14 a33 | Black & White (Japan) (Game Disc)
+   .   .   .   .   .   .   .   .   w33 a33 w33 w30 w30 w33 .   w33 | Black & White - Platinum Pack (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,Da,Fi)
+     alternative to Black & White (Japan) (Data Disc) [10]
+== black & white - platinum pack
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 w29 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Black & White - Platinum Pack (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,Da,Fi)
+== blood bath
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Blood Bath (USA)
+== boiler plate special
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Boiler Plate Special (USA)
+== braindead 13
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | BrainDead 13 (USA)
+== bugdom
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Bugdom (USA)
+== bungie mac action sack
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Bungie Mac Action Sack (USA)
+== burning monkey mahjong solitaire
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Burning Monkey Mahjong Solitaire (USA)
+== busy world of richard scarry, the - busytown
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Busy World of Richard Scarry, The - Busytown (USA)
+== caesar ii
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Caesar II (Europe)
+== caesars palace
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Caesars Palace (USA)
+== call of duty
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Call of Duty (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Call of Duty (USA, Europe) (Deluxe Edition)
+== call of duty 2
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Call of Duty 2 (Europe)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Call of Duty 2 (USA)
+== call of duty 4 - modern warfare
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Call of Duty 4 - Modern Warfare (Europe)
+   w29 w29 w29 x18 w29 w29 x14 w29 a21 a21 a21 x18 a21 a21 x14 a21 | Call of Duty 4 - Modern Warfare (USA) (v1.5)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w21 w24 x14 w24 | Call of Duty 4 - Modern Warfare (USA) (v1.7.1)
+== capitalism
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Capitalism (USA)
+== capitol hill
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Capitol Hill (USA)
+== carmageddon ii - carpocalypse now
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Carmageddon II - Carpocalypse Now (Europe)
+== cat in the hat, the
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Cat in the Hat, The (USA)
+== cd-rom maclife no. 1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 1 (Japan)
+== cd-rom maclife no. 10
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 10 (Japan)
+== cd-rom maclife no. 11
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 11 (Japan)
+== cd-rom maclife no. 12
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 12 (Japan)
+== cd-rom maclife no. 128
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 128 (Japan)
+== cd-rom maclife no. 129
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 129 (Japan)
+== cd-rom maclife no. 13
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 13 (Japan)
+== cd-rom maclife no. 130
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 130 (Japan)
+== cd-rom maclife no. 131
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 131 (Japan)
+== cd-rom maclife no. 132
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 132 (Japan)
+== cd-rom maclife no. 133
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 133 (Japan)
+== cd-rom maclife no. 134
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 134 (Japan)
+== cd-rom maclife no. 135
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 135 (Japan)
+== cd-rom maclife no. 136
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 136 (Japan)
+== cd-rom maclife no. 137
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 137 (Japan)
+== cd-rom maclife no. 138
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 138 (Japan)
+== cd-rom maclife no. 139
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 139 (Japan)
+== cd-rom maclife no. 14
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 14 (Japan)
+== cd-rom maclife no. 140
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 140 (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 140 (Japan) (Disc 2)
+== cd-rom maclife no. 141
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 141 (Japan)
+== cd-rom maclife no. 142
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 142 (Japan)
+== cd-rom maclife no. 143
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 143 (Japan)
+== cd-rom maclife no. 144
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 144 (Japan)
+== cd-rom maclife no. 145
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 145 (Japan)
+== cd-rom maclife no. 146
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 146 (Japan)
+== cd-rom maclife no. 147
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 147 (Japan)
+== cd-rom maclife no. 148
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 148 (Japan)
+== cd-rom maclife no. 149
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 149 (Japan)
+== cd-rom maclife no. 15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 15 (Japan)
+== cd-rom maclife no. 150
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 150 (Japan)
+== cd-rom maclife no. 151
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 151 (Japan)
+== cd-rom maclife no. 152
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 152 (Japan)
+== cd-rom maclife no. 153
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 153 (Japan)
+== cd-rom maclife no. 154
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 154 (Japan)
+== cd-rom maclife no. 155
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 155 (Japan)
+== cd-rom maclife no. 156
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 156 (Japan)
+== cd-rom maclife no. 157
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 157 (Japan)
+== cd-rom maclife no. 158
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 158 (Japan)
+== cd-rom maclife no. 159
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 159 (Japan)
+== cd-rom maclife no. 16
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 16 (Japan)
+== cd-rom maclife no. 160
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 160 (Japan)
+== cd-rom maclife no. 161
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 161 (Japan)
+== cd-rom maclife no. 17
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 17 (Japan)
+== cd-rom maclife no. 18
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 18 (Japan)
+== cd-rom maclife no. 19
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 19 (Japan)
+== cd-rom maclife no. 20
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 20 (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 20 (Japan) (Disc 2)
+== cd-rom maclife no. 21
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 21 (Japan)
+== cd-rom maclife no. 22
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 22 (Japan)
+== cd-rom maclife no. 23
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 23 (Japan)
+== cd-rom maclife no. 24
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 24 (Japan)
+== cd-rom maclife no. 25
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 25 (Japan)
+== cd-rom maclife no. 25 - special edition
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 25 - Special Edition (Japan) (MkLinux Nihongo Kit)
+== cd-rom maclife no. 26
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 26 (Japan)
+== cd-rom maclife no. 27
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 27 (Japan)
+== cd-rom maclife no. 28
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 28 (Japan)
+== cd-rom maclife no. 29
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 29 (Japan)
+== cd-rom maclife no. 30
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 30 (Japan)
+== cd-rom maclife no. 31
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 31 (Japan)
+== cd-rom maclife no. 32
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 32 (Japan)
+== cd-rom maclife no. 33
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 33 (Japan)
+== cd-rom maclife no. 34
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 34 (Japan)
+== cd-rom maclife no. 35
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 35 (Japan)
+== cd-rom maclife no. 36
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 36 (Japan)
+== cd-rom maclife no. 37
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 37 (Japan)
+== cd-rom maclife no. 38
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 38 (Japan)
+== cd-rom maclife no. 39
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 39 (Japan)
+== cd-rom maclife no. 40
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 40 (Japan)
+== cd-rom maclife no. 41
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 41 (Japan)
+== cd-rom maclife no. 42
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 42 (Japan)
+== cd-rom maclife no. 43
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 43 (Japan)
+== cd-rom maclife no. 44
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 44 (Japan)
+== cd-rom maclife no. 45
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 45 (Japan)
+== cd-rom maclife no. 46
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 46 (Japan)
+== cd-rom maclife no. 47
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 47 (Japan)
+== cd-rom maclife no. 5
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 5 (Japan)
+== cd-rom maclife no. 6
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 6 (Japan)
+== cd-rom maclife no. 7
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 7 (Japan)
+== cd-rom maclife no. 8
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 8 (Japan)
+== cd-rom maclife no. 9
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | CD-ROM MacLife No. 9 (Japan)
+== centipede
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Centipede (USA)
+== championship manager - season 99-00 - manual
+   w29 w29 w29 x18 x15 x12 x14 x10 w26 w26 w26 x18 x15 x12 x14 x10 | Championship Manager - Season 99-00 - Manual (Europe) (Art Assets)
+== championship manager - season 99-00 - pkg
+   w29 w29 w29 x18 x15 x12 x14 w29 w26 w26 w26 x18 x15 x12 x14 w26 | Championship Manager - Season 99-00 - PKG (Europe) (Art Assets)
+== championship manager 3 adverts
+   w29 w29 w29 x18 x15 x12 x14 x10 w26 w26 w26 x18 x15 x12 x14 x10 | Championship Manager 3 Adverts (Europe)
+== cheerios - play time
+   w29 w29 w29 x18 w29 x12 x14 w29 w26 w26 w26 x18 w26 x12 x14 w26 | Cheerios - Play Time (USA)
+== chop suey
+   w29 w29 w29 x18 w29 x12 x14 w29 w26 w26 w26 x18 w26 x12 x14 w26 | Chop Suey (USA)
+== christmas present
+   w29 w29 w29 x18 x15 x12 x14 w29 w26 w26 w26 x18 x15 x12 x14 w26 | Christmas Present (Japan) (En,Ja)
+== chu-teng
+   w29 w29 w29 x18 x15 x12 x14 w29 w26 w26 w26 x18 x15 x12 x14 w26 | Chu-Teng (Japan)
+== cinderella - the original fairy tale
+   w29 w29 w29 x18 w29 w29 x14 x9  a25 a25 a25 x18 a25 a25 x14 x9  | Cinderella - The Original Fairy Tale (USA)
+   w29 w29 w29 w29 w29 w29 x14 x9  w25 w25 w25 w26 w25 w25 x14 x9  | Cinderella - The Original Fairy Tale (USA) (En,Es)
+== clive barker's undying
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Clive Barker's Undying (Germany)
+== club dead
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Club Dead (USA)
+== club kidsoft
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | Club KidSoft (USA)
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | Club Kidsoft (USA) (Volume 3 Issue 4 Macintosh)
+== codename - outbreak
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Codename - Outbreak (Europe) (Art Assets)
+== codename - outbreak - uk manual
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Codename - Outbreak - UK Manual (Europe) (Art Assets)
+== colin mcrae rally mac
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Colin McRae Rally Mac (Europe) (En,Fr,De,Es,It)
+== comanche mac
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Comanche Mac (USA)
+== command & conquer
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Command & Conquer (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Command & Conquer (USA) (Disc 2)
+== commandos - uk manual
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Commandos - UK Manual (Europe) (Art Assets)
+== commandos - uk packaging
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Commandos - UK Packaging (Europe) (Art Assets)
+== conveni dx, the - ano machi o dokusen seyo + the conveni - power-up kit vol.1 for macintosh
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Conveni DX, The - Ano Machi o Dokusen seyo + The Conveni - Power-Up Kit Vol.1 For Macintosh (Japan)
+== cookie's bustle - nazo no bombo world
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Cookie's Bustle - Nazo no Bombo World (Japan)
+== corpse killer
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Corpse Killer (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Corpse Killer (USA)
+== counting on frank - a math adventure game
+   w29 w29 w29 x18 w29 w29 x14 x9  w23 w23 w23 x18 w23 w23 x14 x9  | Counting on Frank - A Math Adventure Game (USA)
+   w29 w29 w29 x18 w29 w29 x14 x9  a23 a23 a23 x18 a23 a23 x14 x9  | Counting on Frank - A Math Adventure Game (USA) (Alt)
+== crescent satsujin jiken - hyena no jijou
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Crescent Satsujin Jiken - Hyena no Jijou (Japan)
+== crescent satsujin jiken - reporter saotome kyouko
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Crescent Satsujin Jiken - Reporter Saotome Kyouko (Japan)
+== crescent satsujin jiken - tozasareta nikki
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Crescent Satsujin Jiken - Tozasareta Nikki (Japan)
+== critical path
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Critical Path (Japan)
+== ctr - crash team racing - hi-res disc july 99
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | CTR - Crash Team Racing - Hi-res Disc July 99 (Europe)
+== cult akazukin chacha
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Cult Akazukin Chacha (Japan)
+== daedalus encounter, the
+   ud  ud  ud  gd  gd  ud  gd  ud  .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The (Europe) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The (Europe) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The (Europe) (Disc 3)
+   w29 w29 w29 w29 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The (Germany) (Disc 1)
+   w29 w29 w29 w29 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The (Germany) (Disc 2)
+   w29 w29 w29 w29 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The (Germany) (Disc 3)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The (UK) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The (UK) (Disc 2)
+== daedalus encounter, the (disc 1)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w24 a27 w24 x18 x15 w24 x14 w24 | Daedalus Encounter, The (Europe) (Disc 1)
+   .   .   .   .   .   .   .   .   a27 a27 a27 w26 x15 a27 x14 a27 | Daedalus Encounter, The (Germany) (Disc 1)
+   .   .   .   .   .   .   .   .   a24 a27 a24 x18 x15 a24 x14 a24 | Daedalus Encounter, The (UK) (Disc 1)
+   .   .   .   .   .   .   .   .   a27 w27 a27 x18 x15 a27 x14 a27 | Daedalus Encounter, The - Episode 1 - Nanpasen no Alien (Japan) (Disc 1)
+== daedalus encounter, the (disc 2)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w24 a27 w24 x18 x15 w24 x14 w24 | Daedalus Encounter, The (Europe) (Disc 2)
+   .   .   .   .   .   .   .   .   a27 a27 a27 w26 x15 a27 x14 a27 | Daedalus Encounter, The (Germany) (Disc 2)
+   .   .   .   .   .   .   .   .   a24 a27 a24 x18 x15 a24 x14 a24 | Daedalus Encounter, The (UK) (Disc 2)
+   .   .   .   .   .   .   .   .   a27 w27 a27 x18 x15 a27 x14 a27 | Daedalus Encounter, The - Episode 1 - Nanpasen no Alien (Japan) (Disc 2)
+== daedalus encounter, the (disc 3)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w27 a27 w27 x18 x15 w27 x14 w27 | Daedalus Encounter, The (Europe) (Disc 3)
+   .   .   .   .   .   .   .   .   a27 a27 a27 w26 x15 a27 x14 a27 | Daedalus Encounter, The (Germany) (Disc 3)
+   .   .   .   .   .   .   .   .   a27 w27 a27 x18 x15 a27 x14 a27 | Daedalus Encounter, The - Episode 1 - Nanpasen no Alien (Japan) (Disc 3)
+== daedalus encounter, the - episode 1 - nanpasen no alien
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The - Episode 1 - Nanpasen no Alien (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The - Episode 1 - Nanpasen no Alien (Japan) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Daedalus Encounter, The - Episode 1 - Nanpasen no Alien (Japan) (Disc 3)
+== daikoukai jidai iii - costa del sol
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Daikoukai Jidai III - Costa del Sol (Japan)
+== daisenryaku
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Daisenryaku (Japan)
+== daisenryaku v dx
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Daisenryaku V DX (Japan)
+== dark corona pegasus
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Dark Corona Pegasus (Europe)
+== dark seed ii
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Dark Seed II (Japan)
+== darkseed
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 x15 w29 x14 w29 a27 a27 a27 w26 x15 a27 x14 a27 | Darkseed (Europe) (Fr,De)
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Darkseed (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Darkseed (USA)
+== darkstar
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | DarkStar (Europe) (Installer Disc 1)
+== derby stallion
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Derby Stallion (Japan)
+== descent
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Descent (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | Descent (USA) (OEM)
+== descent - levels of the world
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Descent - Levels of the World (USA)
+== descent - lunar base 1
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | Descent - Lunar Base 1 (USA)
+== descent ii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Descent II (USA) (OEM)
+== deus ex
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Deus Ex (USA)
+== dig, the
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Dig, The (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Dig, The (USA, Europe)
+== dink - interactive nanpa special
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Dink - Interactive Nanpa Special (Japan)
+== dinosaur adventure
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Dinosaur Adventure (USA)
+== discworld
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Discworld (Japan)
+== discworld noir - layered packaging
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Discworld Noir - Layered Packaging (Europe)
+== discworld noir - manual artwork
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Discworld Noir - Manual Artwork (Europe)
+== discworld noir - packaging
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Discworld Noir - Packaging (Europe)
+== disney's aladdin - activity center
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Disney's Aladdin - Activity Center (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | Disney's Aladdin - Activity Center (USA) (Alt)
+== disney's gamebreak! timon & pumbaa's jungle games
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Disney's GameBreak! Timon & Pumbaa's Jungle Games (USA)
+== disney-pixar toy story 2
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Disney-Pixar Toy Story 2 (USA)
+== dogz - your computer pet
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Dogz - Your Computer Pet (Japan)
+== doki doki on air drama series vol. 3 - chougoushin zanguard
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Doki Doki On Air Drama Series vol. 3 - Chougoushin Zanguard (Japan)
+== doom 3
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Doom 3 (USA, Europe)
+== doom ii
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 a24 x18 x15 a24 x14 a24 | Doom II (Canada)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 w24 x18 w26 w24 x14 w24 | Doom II (USA, Europe)
+== dr. seuss's abc
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x9  a21 a21 a21 x18 a21 a21 x14 x9  | Dr. Seuss's ABC (USA)
+   w29 w29 w29 x18 w29 w29 x14 x9  w21 w21 w21 x18 w21 w21 x14 x9  | Dr. Seuss's ABC (USA) (v1.1)
+== dracula - resurrection
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Dracula - Resurrection (France) (En,Fr) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Dracula - Resurrection (France) (En,Fr) (Disc 2)
+== driver - you are the wheelman
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Driver - You Are the Wheelman (USA)
+== duke nukem - time to kill - advertisements
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Duke Nukem - Time to Kill - Advertisements (Europe)
+== duke nukem 3d - atomic edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Duke Nukem 3D - Atomic Edition (Europe)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Duke Nukem 3D - Atomic Edition (USA)
+== dungeon master ii - skullkeep
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Dungeon Master II - Skullkeep (Japan)
+== dungeon master ii - the legend of skullkeep
+   .   .   .   .   .   .   .   .   a27 w27 a27 x18 x15 a27 x14 a27 | Dungeon Master II - Skullkeep (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Dungeon Master II - The Legend of Skullkeep (USA)
+== dungeon master ii - the legend of skullkeep - the first chapter
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | Dungeon Master II - The Legend of Skullkeep - The First Chapter (USA)
+== eagle eye mysteries in london
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Eagle Eye Mysteries in London (USA)
+== earthtia saga - larthur's legend
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Earthtia Saga - Larthur's Legend (Japan)
+== eastern mind - the lost souls of tong nou
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Eastern Mind - The Lost Souls of Tong Nou (USA)
+== eberouge
+   w29 w29 w29 x18 x15 w29 x14 w29 w23 w23 w23 x18 x15 w23 x14 w23 | Eberouge (Japan)
+   w29 w29 w29 x18 x15 w29 x14 w29 a23 a23 a23 x18 x15 a23 x14 a23 | Eberouge (Japan) (Alt)
+== educorp cd sampler, the
+   w29 w29 w29 x18 w29 w29 x14 x8  w23 w23 w23 x18 w23 w23 x14 x8  | Educorp CD Sampler, The (USA)
+   w29 w29 w29 x18 w29 w29 x14 x8  a23 a23 a23 x18 a23 a23 x14 x8  | Educorp CD Sampler, The (USA) (Alt)
+== elemental force
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Elemental Force (Japan)
+== emit value pack
+   u   u   u   g   g   u   g   u   u   u   u   g   g   u   g   u   |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Emit Value Pack (Japan) (Disc 2) (Vol. 2 - Inochigake no Tabi)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Emit Value Pack (Japan) (Disc 3) (Vol. 3 - Watashi ni Sayonara o)
+== emit vol. 1 - toki no maigo
+   w29 w29 w29 x18 x15 w29 x14 x9  w26 w26 w26 x18 x15 w26 x14 x9  | Emit Vol. 1 - Toki no Maigo (Japan) (En,Ja)
+== emperor's mahjong, the
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Emperor's Mahjong, The (USA)
+== enemy engaged - rah-66 comanche versus ka-52 hokum
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Enemy Engaged - RAH-66 Comanche Versus KA-52 Hokum (Europe) (En,Fr,De,It)
+== enemy territory - quake wars
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Enemy Territory - Quake Wars (USA) (En,Fr,De)
+== enigmo
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Enigmo (USA)
+== eriko tamura & oz
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Eriko Tamura & Oz (Japan)
+== escape from monkey island
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Escape from Monkey Island (UK) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Escape from Monkey Island (UK) (Disc 2)
+== eve online
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | EvE Online (USA)
+== f-a-18 hornet 2.0
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | F-A-18 Hornet 2.0 (Japan) (En,Ja)
+== f1 world grand prix - manual inners
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | F1 World Grand Prix - Manual Inners (Europe) (Art Assets)
+== f1 world grand prix - packaging
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | F1 World Grand Prix - Packaging (Europe) (Art Assets)
+== fallout
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Fallout (USA)
+== fatty bear's funpack
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Fatty Bear's Funpack (Japan)
+== faust - les sept jeux de l'ame
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Faust - Les Sept Jeux de L'ame (France) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Faust - Les Sept Jeux de L'ame (France) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Faust - Les Sept Jeux de L'ame (France) (Disc 3)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Faust - Les Sept Jeux de L'ame (France) (Disc 4)
+== fighting force 2 - packaging
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Fighting Force 2 - Packaging (Europe)
+== final doom
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Final Doom (Japan, Europe)
+== first live
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | First Live (Japan)
+== flashback
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Flashback (USA)
+== fly!
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Fly! (Europe) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Fly! (Europe) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Fly! (Europe) (Disc 3)
+== fly! 2k
+   u   u   u   g   u   u   g   u   u   u   u   g   u   u   g   u   |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Fly! 2K (USA) (Disc 1) (Program Install)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Fly! 2K (USA) (Disc 2) (Satellite Scenery)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Fly! 2K (USA) (Disc 3) (Sectional Charts)
+== flying nightmares
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Flying Nightmares (Japan)
+== ford racing 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Ford Racing 2 (USA) (En,Fr,De,It)
+== frankenstein - through the eyes of the monster
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Frankenstein - Through the Eyes of the Monster (USA)
+== frankenstein - through the eyes of the monster - the awakening
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | Frankenstein - Through the Eyes of the Monster - The Awakening (USA)
+== franklin's reading world
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Franklin's Reading World (USA)
+== freddi fish and the case of the missing kelp seeds
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Freddi Fish and the Case of the Missing Kelp Seeds (Japan)
+== freedom force
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Freedom Force (USA)
+== full throttle
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Full Throttle (Europe)
+== fun and learning for macintosh performa
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | Fun and Learning for Macintosh Performa (USA)
+== funky funny aliens
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Funky Funny Aliens (Japan)
+== gadget - invention, travel, & adventure
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Gadget - Invention, Travel, & Adventure (Japan)
+   w29 w29 w29 x18 x15 w29 x14 w29 a23 a23 a23 x18 x15 a23 x14 a23 | Gadget - Invention, Travel, & Adventure (Japan) (Rerelease)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Gadget - Invention, Travel, & Adventure (USA)
+== game hall of fame
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | Game Hall of Fame (USA)
+== giants - citizen kabuto
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Giants - Citizen Kabuto (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Giants - Citizen Kabuto (USA) (Disc 2)
+== giants - citizen kabuto - ad & sell sheet
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Giants - Citizen Kabuto - Ad & Sell Sheet (Europe)
+== ginga eiyuu densetsu - screen saver vol. 2 for macintosh
+   w29 w29 w29 x18 x15 w29 x14 x4  w26 w26 w26 x18 x15 w26 x14 x4  | Ginga Eiyuu Densetsu - Screen Saver Vol. 2 for Macintosh (Japan)
+== ginga eiyuu densetsu v
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Ginga Eiyuu Densetsu V (Japan)
+== green eggs and ham
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Green Eggs and Ham (USA)
+== gridz
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Gridz (USA)
+== guignols de l'info, les... le jeu !
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Guignols de l'Info, Les... le Jeu ! (France)
+== guitar hero - aerosmith
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Guitar Hero - Aerosmith (USA) (En,Fr,De,Es,It) (Mac Install Disc)
+== guitar hero iii - legends of rock
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Guitar Hero III - Legends of Rock (Europe)
+== gundam 0079 - the war for earth
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Gundam 0079 - The War for Earth (Japan)
+== halo - combat evolved
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 a27 a27 x18 x15 w16 x14 a27 | Halo - Combat Evolved (France)
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 w16 x14 a27 | Halo - Combat Evolved (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w23 w27 x14 w27 | Halo - Combat Evolved (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 w16 x14 a23 | Halo - Combat Evolved (USA) (Alt)
+== hard rock casino
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Hard Rock Casino (USA) (En,Fr,De)
+== harry potter a l'ecole des sorciers
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Harry Potter a l'Ecole des Sorciers (France)
+== harry potter and the chamber of secrets
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 w27 w27 x18 w26 w27 x14 w27 | Harry Potter and the Chamber of Secrets (USA)
+   .   .   .   .   .   .   .   .   a27 a27 a27 x18 x15 a27 x14 a27 | Harry Potter et la Chambre des Secrets (France)
+== harry potter and the order of the phoenix
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Harry Potter and the Order of the Phoenix (UK, Australia)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Harry Potter and the Order of the Phoenix (USA)
+== harry potter and the sorcerer's stone
+   .   .   .   .   .   .   .   .   a33 a33 a33 x18 x15 a33 x14 a33 | Harry Potter a l'Ecole des Sorciers (France)
+   w29 w29 w29 x18 w29 w29 x14 w29 a31 a31 a31 x18 a31 a31 x14 a31 | Harry Potter and the Sorcerer's Stone (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 w33 w33 w33 x18 w31 w33 x14 w33 | Harry Potter and the Sorcerer's Stone (USA) (Deluxe Edition)
+== harry potter et la chambre des secrets
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Harry Potter et la Chambre des Secrets (France)
+== harry potter und der stein der weisen
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Harry Potter und der Stein der Weisen (Germany)
+== harry potter und die kammer des schreckens
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Harry Potter und die Kammer des Schreckens (Germany)
+== heartwork - symphony of destruction
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | HeartWork - Symphony of Destruction (Japan)
+== heather hits her first home run
+   w29 w29 w29 w29 w29 w29 x14 x9  w26 w26 w26 w26 w26 w26 x14 x9  | Heather Hits Her First Home Run (USA) (En,Es)
+== heavy metal - f.a.k.k. 2
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Heavy Metal - F.A.K.K. 2 (USA)
+== hell - a cyberpunk thriller
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Hell - A Cyberpunk Thriller (Japan)
+== hell cab
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Hell Cab (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Hell Cab (USA)
+== heretic ii
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Heretic II (USA)
+== heroes of might and magic
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Heroes of Might and Magic (USA)
+== heroes of might and magic ii - the succession wars
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Heroes of Might and Magic II - The Succession Wars (USA)
+== heroes of might and magic iii
+   w29 w29 w29 x18 w29 w29 x14 w29 a31 a31 a31 x18 a31 a31 x14 a31 | Heroes of Might and Magic III (USA)
+   .   .   .   .   .   .   .   .   w31 w31 w31 x18 w31 w31 x14 w31 | Heroes of Might and Magic III Complete (USA) (Disc 1) (Install Disc)
+== heroes of might and magic iii - deluxe artwork
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Heroes of Might and Magic III - Deluxe Artwork (Europe)
+== heroes of might and magic iii complete
+   u   u   u   g   u   u   g   u   g   g   g   g   g   g   g   g   |
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Heroes of Might and Magic III Complete (USA) (Disc 1) (Install Disc)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Heroes of Might and Magic III Complete (USA) (Disc 2) (Play Disc)
+== heroes of might and magic v
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Heroes of Might and Magic V (USA)
+== hexen - beyond heretic
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Hexen - Beyond Heretic (USA)
+== hexen - deathkings of the dark citadel
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Hexen - Deathkings of the Dark Citadel (USA)
+== hexen ii
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Hexen II (USA)
+== highschool terra story
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Highschool Terra Story (Japan)
+== homeworld 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Homeworld 2 (USA)
+== i have no mouth, and i must scream
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | I Have No Mouth, and I Must Scream (USA) (En,Fr,De,Es)
+== ian and stuart's one
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Ian and Stuart's One (Australia)
+== ian and stuart's two
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Ian and Stuart's Two (Australia)
+== icewind dale - localization disc
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Icewind Dale - Localization Disc (Europe) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Icewind Dale - Localization Disc (Europe) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Icewind Dale - Localization Disc (Europe) (Disc 3)
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Icewind Dale - Localization Disc (Europe) (Disc 4)
+== id anthology
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | id Anthology (USA) (Disc 4) (Mac)
+== if you give a mouse a cookie
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | If You Give a Mouse a Cookie (USA)
+== imac & powerpc cards & casino games
+   w29 w29 w29 x18 x15 w29 x14 x8  w26 w26 w26 x18 x15 w26 x14 x8  | iMac & PowerPC Cards & Casino Games (Canada)
+== in memoriam
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | In Memoriam (Europe) (Mac Install)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | In Memoriam (Europe) (Mac Install) (Rerelease)
+   w29 w29 w29 w29 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | In Memoriam (Germany) (MAC - Install)
+== in memoriam (mac install)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w27 w27 w27 x18 x15 w27 x14 w27 | In Memoriam (Europe) (Mac Install)
+   .   .   .   .   .   .   .   .   a23 a23 a23 x18 x15 a23 x14 a23 | In Memoriam (Europe) (Mac Install) (Rerelease)
+   .   .   .   .   .   .   .   .   a27 a27 a27 w26 x15 a27 x14 a27 | In Memoriam (Germany) (MAC - Install)
+== inca teikoku - ougon sato no fukkatsu
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Inca Teikoku - Ougon Sato no Fukkatsu (Japan)
+== indiana jones and his desktop adventures
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Indiana Jones and his Desktop Adventures (Japan)
+== indiana jones and the emperor's tomb
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Indiana Jones and the Emperor's Tomb (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Indiana Jones and the Emperor's Tomb (USA) (Disc 2)
+== indiana jones and the fate of atlantis
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Indiana Jones and the Fate of Atlantis (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | Indiana Jones and the Fate of Atlantis (USA) (Rerelease)
+== inherit the earth - quest for the orb
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Inherit the Earth - Quest for the Orb (USA)
+== initial d second stage - typing kantou saisoku project
+   w29 w29 w29 x18 x15 w29 x14 x9  w26 w26 w26 x18 x15 w26 x14 x9  | Initial D Second Stage - Typing Kantou Saisoku Project (Japan)
+== international tennis open
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | International Tennis Open (Europe) (En,Fr)
+== iron helix
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Iron Helix (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Iron Helix (USA)
+== ishido - the way of stones
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Ishido - The Way of Stones (USA)
+== j. b. harold - blue chicago blues
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | J. B. Harold - Blue Chicago Blues (Japan) (Disc 1)
+== jack nicklaus 4
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Jack Nicklaus 4 (USA)
+== janou touryuumon
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Janou Touryuumon (Japan)
+== jazz jackrabbit 2
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Jazz Jackrabbit 2 (USA)
+== jeopardy! 2nd edition
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Jeopardy! 2nd Edition (USA)
+== jeopardy! deluxe
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Jeopardy! Deluxe (USA)
+== journeyman project 2, the - buried in time
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Journeyman Project 2, The - Buried in Time (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Journeyman Project 2, The - Buried in Time (Japan) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Journeyman Project 2, The - Buried in Time (Japan) (Disc 3)
+== journeyman project, the
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a21 a21 a21 x18 x15 a21 x14 a21 | Journeyman Project, The (Japan) (v1.1J)
+   w29 w29 w29 x18 x15 w29 x14 w29 w21 w21 w21 x18 x15 w21 x14 w21 | Journeyman Project, The (Japan) (v1.2J)
+== jump raven
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Jump Raven (Japan)
+== kana - imouto
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Kana - Imouto (Japan)
+== karma - curse of the 12 caves
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Karma - Curse of the 12 Caves (France) (Covermount)
+== kid pix 3d
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Kid Pix 3D (USA)
+== kid pix deluxe 3x
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Kid Pix Deluxe 3X (USA)
+== kid pix deluxe 4.1 for schools
+   w29 w29 w29 w29 w29 w29 x14 x9  w26 w26 w26 w26 w26 w26 x14 x9  | Kid Pix Deluxe 4.1 for Schools (USA) (En,Es) (Program CD)
+== kid pix studio
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Kid Pix Studio (USA) (OEM)
+== kid pix studio deluxe
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Kid Pix Studio Deluxe (USA)
+== kidou senshi gundam illustration world vol. 1
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Kidou Senshi Gundam Illustration World Vol. 1 (Japan)
+== klik & play
+   w29 w29 w29 x18 x15 w29 x14 x4  a27 a27 w27 x18 x15 a27 x14 x4  | Klik & Play (France)
+   w29 w29 w29 x18 x15 w29 x14 x4  w27 w27 a27 x18 x15 w27 x14 x4  | Klik & Play (Japan)
+== kyoto sennen monogatari - cosmology of kyoto
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Kyoto Sennen Monogatari - Cosmology of Kyoto (USA, Japan) (En,Ja)
+== l-zone
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | L-Zone (Japan)
+== labyrinth of time, the
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Labyrinth of Time, The (USA)
+== lara croft tomb raider - anniversary
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Lara Croft Tomb Raider - Anniversary (USA)
+== lara croft tomb raider - the angel of darkness
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Lara Croft Tomb Raider - The Angel of Darkness (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Lara Croft Tomb Raider - The Angel of Darkness (USA) (Disc 2)
+== last war
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Last War (Japan)
+== learn to play chess with fritz & chesster 2 - chess in the black castle
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Learn to Play Chess with Fritz & Chesster 2 - Chess in the Black Castle (USA)
+== legend of kyrandia, the
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Legend of Kyrandia, The (USA)
+== legend of kyrandia, the - book one
+   .   .   .   .   .   .   .   .   a19 a19 a24 x18 a19 a19 x14 a19 | Legend of Kyrandia, The (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 w19 w19 w24 x18 w19 w19 x14 w19 | Legend of Kyrandia, The - Book One (USA, Europe)
+== legend of kyrandia, the - book three
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Legend of Kyrandia, The - Book Three (USA)
+== lego star wars - the video game
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | LEGO Star Wars - The Video Game (USA)
+== lego star wars ii - the original trilogy
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | LEGO Star Wars II - The Original Trilogy (USA, Europe)
+== leisure suit larry - love for sail!
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Leisure Suit Larry - Love for Sail! (Germany)
+== leisure suit larry 6 - shape up or slip out!
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Leisure Suit Larry 6 - Shape Up or Slip Out! (USA)
+== lemmings paintball
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Lemmings Paintball (Japan)
+== links championship edition
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links Championship Edition (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links Championship Edition (USA) (Disc 2)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links Championship Edition (USA) (Disc 3)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links Championship Edition (USA) (Disc 4)
+== links ls
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links LS (USA) (Disc 1)
+== links ls 2000
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links LS 2000 (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links LS 2000 (USA) (Disc 2)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links LS 2000 (USA) (Disc 3)
+== links pro cd
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Links Pro CD (USA)
+== living books - aesop's fable - the tortoise and the hare
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Living Books - Aesop's Fable - The Tortoise and the Hare (USA)
+== living books - harry-kun to obake yashiki - saku mark schlichting
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x9  w26 w26 w26 x18 x15 w26 x14 x9  | Living Books - Harry-kun to Obake Yashiki - Saku Mark Schlichting (Japan)
+== living books - marc brown's arthur's teacher trouble
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Living Books - Marc Brown's Arthur's Teacher Trouble (USA)
+== lode runner 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Lode Runner 2 (USA)
+== long hard day on the ranch, a
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x9  a25 a25 a25 x18 a25 a25 x14 x9  | Long Hard Day on the Ranch, A (USA)
+   w29 w29 w29 w29 w29 w29 x14 x9  w25 w25 w25 w26 w25 w25 x14 x9  | Long Hard Day on the Ranch, A (USA) (En,Es)
+== lords royal collection
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Lords Royal Collection (USA) (Disc 4) (Lords of the Realm II & Lords II Siege Pack & Caesar II Demo)
+== lost eden
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Lost Eden (France)
+== lua
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Lua (Japan)
+== lunicus
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Lunicus (Japan)
+== ma-ri-a - ningyoukan no noroi
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Ma-ri-a - Ningyoukan no Noroi (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Ma-ri-a - Ningyoukan no Noroi (Japan) (Disc 2)
+== mac board games
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Mac Board Games (USA)
+== mac fan cd-rom 1999-04-01
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 1999-04-01 (Japan)
+== mac fan cd-rom 1999-04-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 1999-04-15 (Japan)
+== mac fan cd-rom 2000-04-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2000-04-15 (Japan)
+== mac fan cd-rom 2000-09-01
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2000-09-01 (Japan)
+== mac fan cd-rom 2000-12-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2000-12-15 (Japan)
+== mac fan cd-rom 2001-01-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2001-01-15 (Japan)
+== mac fan cd-rom 2001-03-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2001-03-15 (Japan)
+== mac fan cd-rom 2001-04-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2001-04-15 (Japan)
+== mac fan cd-rom 2001-05-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2001-05-15 (Japan)
+== mac fan cd-rom 2002-01-01
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2002-01-01 (Japan)
+== mac fan cd-rom 2002-02-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2002-02-15 (Japan)
+== mac fan cd-rom 2002-08-15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2002-08-15 (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2002-08-15 (Japan) (Disc 2)
+== mac fan cd-rom 2002-11-15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2002-11-15 (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2002-11-15 (Japan) (Disc 2)
+== mac fan cd-rom 2005-12
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2005-12 (Japan)
+== mac fan cd-rom 2006-02
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2006-02 (Japan)
+== mac fan cd-rom 2006-08
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan CD-ROM 2006-08 (Japan)
+== mac fan internet 1997 6
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan Internet 1997 6 (Japan)
+== mac fan internet 1997 7
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan Internet 1997 7 (Japan)
+== mac fan internet 2000 5
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan Internet 2000 5 (Japan)
+== mac fan internet 2001 5
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Fan Internet 2001 5 (Japan)
+== mac mega cd-rom n. 1, el
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | Mac Mega CD-ROM n. 1, El (Spain)
+== mac mega cd-rom n. 7, el
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | Mac Mega CD-ROM n. 7, El (Spain)
+== mac mega cd-rom n. 8, el
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | Mac Mega CD-ROM n. 8, El (Spain)
+== mac mega cd-rom n. 9, el
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | Mac Mega CD-ROM n. 9, El (Spain)
+== mac power 1997-01
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Power 1997-01 (Japan)
+== mac power 1997-03
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Power 1997-03 (Japan)
+== mac power 1997-04
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Power 1997-04 (Japan)
+== mac power 1998-03
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Mac Power 1998-03 (Japan)
+== macaddict - the disc 06 - february 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 06 - February 1997 (USA)
+== macaddict - the disc 07 - march 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 07 - March 1997 (USA)
+== macaddict - the disc 08 - april 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 08 - April 1997 (USA)
+== macaddict - the disc 09 - may 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 09 - May 1997 (USA)
+== macaddict - the disc 10 - june 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 10 - June 1997 (USA)
+== macaddict - the disc 11 - july 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 11 - July 1997 (USA)
+== macaddict - the disc 13 - september 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 13 - September 1997 (USA)
+== macaddict - the disc 14 - october 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 14 - October 1997 (USA)
+== macaddict - the disc 15 - november 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 15 - November 1997 (USA)
+== macaddict - the disc 16 - december 1997
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 16 - December 1997 (USA)
+== macaddict - the disc 17 - january 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 17 - January 1998 (USA)
+== macaddict - the disc 18 - february 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 18 - February 1998 (USA)
+== macaddict - the disc 19 - march 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 19 - March 1998 (USA)
+== macaddict - the disc 21 - may 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 21 - May 1998 (USA)
+== macaddict - the disc 22 - june 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 22 - June 1998 (USA)
+== macaddict - the disc 23 - july 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 23 - July 1998 (USA)
+== macaddict - the disc 24 - august 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 24 - August 1998 (USA)
+== macaddict - the disc 25 - september 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 25 - September 1998 (USA)
+== macaddict - the disc 26 - october 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 26 - October 1998 (USA)
+== macaddict - the disc 27 - november 1998
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 27 - November 1998 (USA)
+== macaddict - the disc 29 - january 1999
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 29 - January 1999 (USA)
+== macaddict - the disc 30 - february 1999
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 30 - February 1999 (USA)
+== macaddict - the disc 48 - august 2000
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 48 - August 2000 (USA)
+== macaddict - the disc 49 - september 2000
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 49 - September 2000 (USA)
+== macaddict - the disc 79 - march 2003
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 79 - March 2003 (USA)
+== macaddict - the disc 80 - april 2003
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 80 - April 2003 (USA)
+== macaddict - the disc 81 - may 2003
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 81 - May 2003 (USA)
+== macaddict - the disc 84 - august 2003
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 84 - August 2003 (USA)
+== macaddict - the disc 85 - september 2003
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacAddict - The Disc 85 - September 2003 (USA)
+== macaroni houren-sou interactive
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Macaroni Houren-sou Interactive (Japan)
+== macattack
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | MacAttack (Europe)
+== maccube - volume 2 - adventure, card, casino & puzzle games
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | MacCube - Volume 2 - Adventure, Card, Casino & Puzzle Games (USA)
+== maccubed^3
+   w29 w29 w29 x18 x15 w29 x14 x8  w26 w26 w26 x18 x15 w26 x14 x8  | MacCubed^3 (Canada) (Disc 3) (Kids' Games & Card, Board & Puzzle Games)
+== macformat - cd edition - august 1994
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacFormat - CD Edition - August 1994 (UK)
+== macformat - cd edition - february 1995
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacFormat - CD Edition - February 1995 (UK)
+== macformat issue 117 - june 2002
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacFormat Issue 117 - June 2002 (UK) (Disc 2)
+== macformat n. 10
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 10 (Spain)
+== macformat n. 11
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 11 (Spain)
+== macformat n. 12
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 12 (Spain)
+== macformat n. 13
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 13 (Spain)
+== macformat n. 14
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 14 (Spain)
+== macformat n. 15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 15 (Spain)
+== macformat n. 17
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 17 (Spain)
+== macformat n. 18
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 18 (Spain)
+== macformat n. 19
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 19 (Spain)
+== macformat n. 20
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 20 (Spain)
+== macformat n. 22
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 22 (Spain)
+== macformat n. 24
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 24 (Spain)
+== macformat n. 25
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 25 (Spain)
+== macformat n. 27
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 27 (Spain)
+== macformat n. 4
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 4 (Spain)
+== macformat n. 7
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 7 (Spain)
+== macformat n. 8
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 8 (Spain)
+== macformat n. 9
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 w29 x15 w29 x14 x7  w26 w26 x17 w26 x15 w26 x14 x7  | MacFormat n. 9 (Spain)
+== machome - 1999 game cd
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacHome - 1999 Game CD (USA)
+== machome cd - april 1999
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacHome CD - April 1999 (USA)
+== machome cd - february-march 1999
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacHome CD - February-March 1999 (USA)
+== machome cd - july 1999
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacHome CD - July 1999 (USA)
+== machome cd - march 1999
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacHome CD - March 1999 (USA)
+== machome cd - november 1999
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacHome CD - November 1999 (USA)
+== machome cd - september 1999
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacHome CD - September 1999 (USA)
+== macintosh - demo soft zenshuu - shinseihin tokushuu-gou
+   w29 w29 w29 x18 x15 w29 x14 x8  w26 w26 w26 x18 x15 w26 x14 x8  | Macintosh - Demo Soft Zenshuu - Shinseihin Tokushuu-gou (Japan)
+== macintosh game 50+ millennium - vol.3
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x8  w26 w26 w26 x18 x15 w26 x14 x8  | Macintosh Game 50+ Millennium - Vol.3 (Japan)
+== macintosh taikenban demo soft zenshuu
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x8  w26 w26 w26 x18 x15 w26 x14 x8  | Macintosh Taikenban Demo Soft Zenshuu (Japan)
+== maclife 50-gou kinen gouka cd-rom
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacLife 50-gou Kinen Gouka CD-ROM (Japan)
+== maclife data-rom vol. 1
+   u   u   u   g   g   u   g   g   u   u   u   g   g   u   g   g   |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacLife Data-ROM Vol. 1 (Japan) (Disc 1) (CD-ROM Daizukan)
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacLife Data-ROM Vol. 1 (Japan) (Disc 2) (NIFTY-Serve Benri-bako)
+== macpeople 1997 no. 12 6.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1997 No. 12 6.15 (Japan)
+== macpeople 1997 no. 14 7.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1997 No. 14 7.15 (Japan)
+== macpeople 1997 no. 16-no. 17 8.15-9.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1997 No. 16-No. 17 8.15-9.1 (Japan)
+== macpeople 1997 no. 18 9.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1997 No. 18 9.15 (Japan)
+== macpeople 1997 no. 20 10.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1997 No. 20 10.15 (Japan)
+== macpeople 1997 no. 22 11.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1997 No. 22 11.15 (Japan)
+== macpeople 1997 no. 24 12.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1997 No. 24 12.15 (Japan)
+== macpeople 1997 no. 8 4.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1997 No. 8 4.15 (Japan)
+== macpeople 1998 no. 10 5.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 10 5.15 (Japan)
+== macpeople 1998 no. 11 6.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 11 6.1 (Japan)
+== macpeople 1998 no. 12 6.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 12 6.15 (Japan)
+== macpeople 1998 no. 13 7.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 13 7.1 (Japan)
+== macpeople 1998 no. 14 7.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 14 7.15 (Japan)
+== macpeople 1998 no. 15 8.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 15 8.1 (Japan)
+== macpeople 1998 no. 16 8.15-9.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 16 8.15-9.1 (Japan)
+== macpeople 1998 no. 18 9.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 18 9.15 (Japan)
+== macpeople 1998 no. 19 10.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 19 10.1 (Japan)
+== macpeople 1998 no. 2 1.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 2 1.15 (Japan)
+== macpeople 1998 no. 20 10.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 20 10.15 (Japan)
+== macpeople 1998 no. 21 11.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 21 11.1 (Japan)
+== macpeople 1998 no. 22 11.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 22 11.15 (Japan)
+== macpeople 1998 no. 23 12.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 23 12.1 (Japan)
+== macpeople 1998 no. 24 12.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 24 12.15 (Japan)
+== macpeople 1998 no. 4 2.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 4 2.15 (Japan)
+== macpeople 1998 no. 5 3.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 5 3.1 (Japan)
+== macpeople 1998 no. 6 3.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 6 3.15 (Japan)
+== macpeople 1998 no. 8 4.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 8 4.15 (Japan)
+== macpeople 1998 no. 9 5.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1998 No. 9 5.1 (Japan)
+== macpeople 1999 no. 1 1.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 1 1.1 (Japan)
+== macpeople 1999 no. 10 5.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 10 5.15 (Japan)
+== macpeople 1999 no. 11 6.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 11 6.1 (Japan)
+== macpeople 1999 no. 12 6.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 12 6.15 (Japan)
+== macpeople 1999 no. 13 7.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 13 7.1 (Japan)
+== macpeople 1999 no. 14 7.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 14 7.15 (Japan)
+== macpeople 1999 no. 15 8.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 15 8.1 (Japan)
+== macpeople 1999 no. 16 8.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 16 8.15 (Japan)
+== macpeople 1999 no. 19 10.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 19 10.1 (Japan)
+== macpeople 1999 no. 2 1.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 2 1.15 (Japan)
+== macpeople 1999 no. 20 10.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 20 10.15 (Japan)
+== macpeople 1999 no. 21 11.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 21 11.1 (Japan)
+== macpeople 1999 no. 22 11.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 22 11.15 (Japan)
+== macpeople 1999 no. 23 12.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 23 12.1 (Japan)
+== macpeople 1999 no. 24 12.15-1.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 24 12.15-1.1 (Japan)
+== macpeople 1999 no. 3 2.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 3 2.1 (Japan)
+== macpeople 1999 no. 4 2.15-3.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 4 2.15-3.1 (Japan)
+== macpeople 1999 no. 6 3.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 6 3.15 (Japan)
+== macpeople 1999 no. 7 4.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 7 4.1 (Japan)
+== macpeople 1999 no. 8 4.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 8 4.15 (Japan)
+== macpeople 1999 no. 9 5.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 1999 No. 9 5.1 (Japan)
+== macpeople 2000 no. 23 12.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 2000 No. 23 12.1 (Japan)
+== macpeople 2001 10.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 2001 10.1 (Japan)
+== macpeople 2001 10.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 2001 10.15 (Japan)
+== macpeople 2002 11.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 2002 11.15 (Japan)
+== macpeople 2002 12.1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 2002 12.1 (Japan)
+== macpeople 2003 11.15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople 2003 11.15 (Japan)
+== macpeople beginners vol. 4
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacPeople Beginners Vol. 4 (Japan)
+== macuser - macbin 1
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 1 (Japan)
+== macuser - macbin 10
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 10 (Japan)
+== macuser - macbin 11
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 11 (Japan)
+== macuser - macbin 12
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 12 (Japan)
+== macuser - macbin 13
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 13 (Japan)
+== macuser - macbin 14
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 14 (Japan)
+== macuser - macbin 15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 15 (Japan)
+== macuser - macbin 16
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 16 (Japan)
+== macuser - macbin 17
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 17 (Japan)
+== macuser - macbin 18
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 18 (Japan)
+== macuser - macbin 19
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 19 (Japan) (Disc A)
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 19 (Japan) (Disc B)
+== macuser - macbin 20
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 20 (Japan)
+== macuser - macbin 29
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 29 (Japan)
+== macuser - macbin 3
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 3 (Japan)
+== macuser - macbin 5
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 5 (Japan)
+== macuser - macbin 6
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 6 (Japan)
+== macuser - macbin 7
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 7 (Japan)
+== macuser - macbin 8
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 8 (Japan)
+== macuser - macbin 9
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser - MacBin 9 (Japan)
+== macuser rom vol. 46 1997-9
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | MacUser ROM Vol. 46 1997-9 (Japan)
+== macworld - 20th anniversary - february 2004
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacWorld - 20th Anniversary - February 2004 (USA)
+== macworld - january 2001
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Macworld - January 2001 (Europe)
+== macworld gaming megapac volume 3
+   w29 w29 w29 x18 w29 w29 x14 x7  w26 w26 w26 x18 w26 w26 x14 x7  | MacWorld Gaming MegaPac Volume 3 (USA)
+== mad dog mccree
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Mad Dog McCree (USA)
+== mad paradox
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Mad Paradox (Japan)
+== magic & mayhem - the art of magic
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Magic & Mayhem - The Art of Magic (Europe) (Art Assets)
+== manhole, the
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Manhole, The (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | Manhole, The (USA) (Alt)
+== manhole, the - cd-rom masterpiece edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Manhole, The - CD-ROM Masterpiece Edition (USA)
+== maniac mansion - day of the tentacle
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Maniac Mansion - Day of the Tentacle (France)
+== marathon
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Marathon (USA) (Rerelease)
+== marathon 2 - durandal
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Marathon 2 - Durandal (USA)
+== marathon infinity
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 a21 a21 a21 x18 a21 a21 x14 a21 | Marathon Infinity (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 w21 w21 w21 x18 w21 w21 x14 w21 | Marathon Infinity (USA) (v1.2)
+== mario is missing! cd-rom deluxe
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Mario Is Missing! CD-ROM Deluxe (USA)
+== mario teaches typing
+   w29 w29 w29 x18 w29 w29 x14 x9  a21 a21 a21 x18 a21 a21 x14 x9  | Mario Teaches Typing (USA)
+   w29 w29 w29 x18 w29 w29 x14 x9  w21 w21 w21 x18 w21 w21 x14 x9  | Mario Teaches Typing (USA) (Rev 1)
+== mario's time machine deluxe
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Mario's Time Machine Deluxe (USA)
+== massive assault
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Massive Assault (Germany)
+== master levels for the mac
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Master Levels for the Mac (USA)
+== master of orion 3
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Master of Orion 3 (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Master of Orion 3 (USA) (Disc 2)
+== master of orion ii - battle at antares
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Master of Orion II - Battle at Antares (USA)
+== masters of media - the making of sakura taisen
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Masters of Media - The Making of Sakura Taisen (Japan)
+== may '96 pippin sdk cd dr1 pippin os
+   w29 w29 w29 x18 x15 w29 x14 x4  w26 w26 w26 x18 x15 w26 x14 x4  | May '96 Pippin SDK CD DR1 Pippin OS Ver. 1.1 (Japan)
+== mdk
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | MDK (Europe)
+== mechwarrior 2 - 31st century combat
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | MechWarrior 2 - 31st Century Combat (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | MechWarrior 2 - 31st Century Combat (USA) (OEM)
+     alternative to MechWarrior 2 - 31st Century Combat (USA) [9-11,13-14,16]
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | MechWarrior 2 - 31st Century Combat (USA) (OEM) (Power Macintosh 6500)
+== medal of honor - allied assault
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Medal of Honor - Allied Assault (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Medal of Honor - Allied Assault (USA) (Disc 2)
+== medal of honor - allied assault (disc 1)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a31 a31 a31 x18 a31 a31 x14 a31 | Medal of Honor - Allied Assault (USA) (Disc 1)
+   .   .   .   .   .   .   .   .   w31 w31 w31 .   w31 w31 .   w31 | Medal of Honor - Allied Assault - War Chest (USA)
+== medal of honor - allied assault (disc 2)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a31 a31 a31 x18 a31 a31 x14 a31 | Medal of Honor - Allied Assault (USA) (Disc 2)
+   .   .   .   .   .   .   .   .   w31 w31 w31 .   w31 w31 .   w31 | Medal of Honor - Allied Assault - War Chest (USA)
+== medal of honor - allied assault - breakthrough
+   w29 w29 w29 x18 w29 w29 x14 x3  a31 a31 a31 x18 a31 a31 x14 x3  | Medal of Honor - Allied Assault - Breakthrough (USA)
+   .   .   .   .   .   .   .   .   w31 w31 w31 .   w31 w31 .   w30 | Medal of Honor - Allied Assault - War Chest (USA)
+== medal of honor - allied assault - spearhead
+   w29 w29 w29 x18 w29 w29 x14 x3  a31 a31 a31 x18 a31 a31 x14 x3  | Medal of Honor - Allied Assault - Spearhead (USA)
+   .   .   .   .   .   .   .   .   w31 w31 w31 x18 w31 w31 x14 w30 | Medal of Honor - Allied Assault - War Chest (USA)
+== medal of honor - allied assault - war chest
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Medal of Honor - Allied Assault - War Chest (USA)
+== medicom vol. 1
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Medicom Vol. 1 (Japan)
+== meesterkok, de
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 x18 x15 w29 x14 x4  w26 w26 x17 x18 x15 w26 x14 x4  | Meesterkok, De (Netherlands) (Assets)
+== meshitsukai 2
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Meshitsukai 2 (Japan)
+== messiah
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Messiah (Europe) (Art Assets)
+== messiah + torment posters
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Messiah + Torment Posters (Europe) (Art Assets)
+== messiah - english manual
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Messiah - English Manual (Europe) (Art Assets)
+== metal gear solid
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Metal Gear Solid (Australia) (Artwork Vol. 1)
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Metal Gear Solid (Australia) (Artwork Vol. 2)
+== midway - dreamcast screenshots
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | Midway - Dreamcast Screenshots (World) (Press Kit)
+== might & magic - world of xeen
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Might & Magic - World of Xeen (USA)
+== mindscape cd pack volume ii for mac
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Mindscape CD Pack Volume II For Mac (USA)
+== momi no ki no shita de - the day of st. claus
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Momi no Ki no Shita de - The Day of St. Claus (Japan)
+== monopoly
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Monopoly (USA)
+== monopoly casino
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Monopoly Casino (USA)
+== monty python sacre graal
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Monty Python Sacre Graal (France)
+== monty python's complete waste of time
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Monty Python's Complete Waste of Time (USA)
+== more maccube - volume 2 - games
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | More MacCube - Volume 2 - Games (USA)
+== more maccube - volume 3 - kids, board & card games
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | More MacCube - Volume 3 - Kids, Board & Card Games (USA)
+== morton subotnick's making music
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Morton Subotnick's Making Music (USA)
+== movies, the
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Movies, The (USA)
+== moving gives me a stomach ache
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Moving Gives Me a Stomach Ache (USA)
+== mud puddle
+   w29 w29 w29 x18 w29 w29 x14 x9  a25 a25 a25 x18 a25 a25 x14 x9  | Mud Puddle (USA)
+   w29 w29 w29 w29 w29 w29 x14 x9  w25 w25 w25 w26 w25 w25 x14 x9  | Mud Puddle (USA) (En,Es)
+== mummy - tomb of the pharaoh
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Mummy - Tomb of the Pharaoh (USA)
+== murphy da yo zen'in shuugou!!
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Murphy da yo Zen'in Shuugou!! (Japan) (En,Ja)
+== musical world of professor piccolo, the
+   w29 w29 w29 x18 w29 w29 x14 x9  w23 w23 w23 x18 w23 w23 x14 x9  | Musical World of Professor Piccolo, The (USA)
+   w29 w29 w29 x18 w29 w29 x14 x9  a23 a23 a23 x18 a23 a23 x14 x9  | Musical World of Professor Piccolo, The (USA) (Alt)
+== my favorite monster
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | My Favorite Monster (USA)
+== myst
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Myst (Europe) (Rerelease)
+   w29 w29 w29 w29 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Myst (Germany) (Rerelease)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Myst (Japan)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Myst (Japan) (Kinen Kakaku-ban)
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Myst (USA) (Rerelease)
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Myst (USA, Europe)
+== myst (kinen kakaku-ban)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a24 a27 a22 x18 x15 a24 x14 a24 | Myst (Europe) (Rerelease)
+   .   .   .   .   .   .   .   .   a27 a27 a27 w26 x15 a27 x14 a27 | Myst (Germany) (Rerelease)
+   .   .   .   .   .   .   .   .   a19 a19 a19 x18 x15 a19 x14 a19 | Myst (Japan)
+   .   .   .   .   .   .   .   .   a27 w27 a27 x18 x15 a27 x14 a27 | Myst (Japan) (Kinen Kakaku-ban)
+   .   .   .   .   .   .   .   .   a22 a22 a24 x18 a23 a22 x14 a22 | Myst (USA) (Rerelease)
+   .   .   .   .   .   .   .   .   w24 a27 w24 x18 w23 w24 x14 w24 | Myst (USA, Europe)
+== myst - masterpiece edition
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Myst - Masterpiece Edition (Germany) (Rerelease)
+== myst language conversion kit
+   w29 w29 w29 x18 x15 w29 x14 x11 w26 w26 w26 x18 x15 w26 x14 x11 | Myst Language Conversion Kit (Europe)
+== myth iii - the wolf age
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Myth III - The Wolf Age (USA)
+== nanpa, the - tokyo tadaman monogatari
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Nanpa, The - Tokyo Tadaman Monogatari (Japan)
+== nautilus - intro
+   w29 w29 w29 x18 w29 w29 x14 x8  a23 a23 a23 x18 a23 a23 x14 x8  | Nautilus - Intro (USA) (Alt)
+   w29 w29 w29 x18 w29 w29 x14 x8  w23 w23 w23 x18 w23 w23 x14 x8  | Nautilus - Intro (USA) (Demo)
+== need for speed - carbon
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Need for Speed - Carbon (USA)
+== nemurenu yoru no chiisana ohanashi
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Nemurenu Yoru no Chiisana Ohanashi (Japan)
+== neverwinter nights
+   u   u   u   g   u   u   g   u   u   u   u   g   u   u   g   u   |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Neverwinter Nights (USA) (Disc 1) (Install Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Neverwinter Nights (USA) (Disc 2) (Install Disc 2 & Play Disc)
+== nfl reading
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | NFL Reading (USA)
+== nick jr. dora the explorer - animal adventures
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Nick Jr. Dora the Explorer - Animal Adventures (USA)
+== night trap
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Night Trap (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Night Trap (USA) (Disc 2)
+== nikkei mac cd 1998.10 volume 18
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.10 Volume 18 (Japan)
+== nikkei mac cd 1998.11 volume 19
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.11 Volume 19 (Japan)
+== nikkei mac cd 1998.12 volume 20
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.12 Volume 20 (Japan)
+== nikkei mac cd 1998.3 volume 11
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.3 Volume 11 (Japan)
+== nikkei mac cd 1998.4 volume 12
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.4 Volume 12 (Japan)
+== nikkei mac cd 1998.5 volume 13
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.5 Volume 13 (Japan)
+== nikkei mac cd 1998.6 volume 14
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.6 Volume 14 (Japan)
+== nikkei mac cd 1998.7 volume 15
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.7 Volume 15 (Japan)
+== nikkei mac cd 1998.8 volume 16
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.8 Volume 16 (Japan)
+== nikkei mac cd 1998.9 volume 17
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1998.9 Volume 17 (Japan)
+== nikkei mac cd 1999.1 volume 21
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.1 Volume 21 (Japan)
+== nikkei mac cd 1999.11 volume 28
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.11 Volume 28 (Japan)
+== nikkei mac cd 1999.12 volume 29
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.12 Volume 29 (Japan)
+== nikkei mac cd 1999.2 volume 22
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.2 Volume 22 (Japan)
+== nikkei mac cd 1999.3 volume 23
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.3 Volume 23 (Japan)
+== nikkei mac cd 1999.4 volume 24
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.4 Volume 24 (Japan)
+== nikkei mac cd 1999.5 volume 25
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.5 Volume 25 (Japan)
+== nikkei mac cd 1999.7 volume 26
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.7 Volume 26 (Japan)
+== nikkei mac cd 1999.9 volume 27
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 1999.9 Volume 27 (Japan)
+== nikkei mac cd 2000.1 volume 30
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD 2000.1 Volume 30 (Japan)
+== nikkei mac cd vol. 2
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD Vol. 2 (Japan)
+== nikkei mac cd vol. 3
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac CD Vol. 3 (Japan) (En,Ja)
+== nikkei mac tokubetsu furoku cd-rom 1994-2-17
+   w29 w29 w29 x18 x15 w29 x14 x7  w26 w26 w26 x18 x15 w26 x14 x7  | Nikkei Mac Tokubetsu Furoku CD-ROM 1994-2-17 (Japan)
+== nikolai's trains
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Nikolai's Trains (Canada)
+== nile - passage to egypt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Nile - Passage to Egypt (USA)
+== no one lives forever 2 - a spy in h.a.r.m.'s way
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | No One Lives Forever 2 - A Spy in H.A.R.M.'s Way (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | No One Lives Forever 2 - A Spy in H.A.R.M.'s Way (USA) (Disc 2)
+== nobunaga no yabou - shouseiroku
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Nobunaga no Yabou - Shouseiroku (Japan)
+== nova city
+   w29 w29 w29 x18 x15 w29 x14 x9  w26 w26 w26 x18 x15 w26 x14 x9  | Nova City (Japan) (En,Ja) (Advanced)
+   w29 w29 w29 x18 x15 w29 x14 x9  w26 w26 w26 x18 x15 w26 x14 x9  | Nova City (Japan) (En,Ja) (Beginner)
+   w29 w29 w29 x18 x15 w29 x14 x9  w26 w26 w26 x18 x15 w26 x14 x9  | Nova City (Japan) (En,Ja) (Intermediate)
+== obduction
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Obduction (USA)
+== obsidian
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Obsidian (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Obsidian (Japan) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Obsidian (Japan) (Disc 3)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Obsidian (Japan) (Disc 4)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Obsidian (Japan) (Disc 5)
+== oceans below
+   w29 w29 w29 x18 x15 w29 x14 x10 a27 w27 a27 x18 x15 a27 x14 x10 | Oceans Below (Japan)
+   w29 w29 w29 x18 w29 w29 x14 x9  w27 a27 w27 x18 w26 w27 x14 x9  | Oceans Below (USA)
+== oddworld - abe's exoddus - uk packaging
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Oddworld - Abe's Exoddus - UK Packaging (Europe)
+== oddworld - abe's exoddus - us manual
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Oddworld - Abe's Exoddus - US Manual (Europe)
+== odyssey - the legend of nemesis
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Odyssey - The Legend of Nemesis (USA)
+== oni
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Oni (USA)
+== operative, the - no one lives forever
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Operative, The - No One Lives Forever (USA) (Disc 1) (Game Disc)
+== outdoor wander land
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Outdoor Wander Land (Japan)
+== p.a.w.s - personal automated wagging system
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | P.A.W.S - Personal Automated Wagging System (Japan)
+== pacific hitech macgames sampler
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | Pacific HiTech MacGames Sampler (USA)
+== paper bag princess, the
+   w29 w29 w29 x18 w29 w29 x14 x9  a25 a25 a25 x18 a25 a25 x14 x9  | Paper Bag Princess, The (USA)
+   w29 w29 w29 w29 w29 w29 x14 x9  w25 w25 w25 w26 w25 w25 x14 x9  | Paper Bag Princess, The (USA) (En,Es)
+== pathways into darkness
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Pathways into Darkness (USA)
+== phantasmagoria
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Phantasmagoria (Europe) (Disc 1)
+     alternative to Phantasmagoria (USA) (Disc 1) [9-10,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Phantasmagoria (Europe) (Disc 2)
+     alternative to Phantasmagoria (USA) (Disc 2) [9-10,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Phantasmagoria (Europe) (Disc 3)
+     alternative to Phantasmagoria (USA) (Disc 3) [9-10,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Phantasmagoria (Europe) (Disc 4)
+     alternative to Phantasmagoria (USA) (Disc 4) [9-10,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Phantasmagoria (Europe) (Disc 5)
+     alternative to Phantasmagoria (USA) (Disc 5) [9-10,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Phantasmagoria (Europe) (Disc 6)
+     alternative to Phantasmagoria (USA) (Disc 6) [9-10,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Phantasmagoria (Europe) (Disc 7)
+     alternative to Phantasmagoria (USA) (Disc 7) [9-10,14,16]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Phantasmagoria (USA) (Disc 1)
+     alternative to Phantasmagoria (Europe) (Disc 1) [11]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Phantasmagoria (USA) (Disc 2)
+     alternative to Phantasmagoria (Europe) (Disc 2) [11]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Phantasmagoria (USA) (Disc 3)
+     alternative to Phantasmagoria (Europe) (Disc 3) [11]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Phantasmagoria (USA) (Disc 4)
+     alternative to Phantasmagoria (Europe) (Disc 4) [11]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Phantasmagoria (USA) (Disc 5)
+     alternative to Phantasmagoria (Europe) (Disc 5) [11]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Phantasmagoria (USA) (Disc 6)
+     alternative to Phantasmagoria (Europe) (Disc 6) [11]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Phantasmagoria (USA) (Disc 7)
+     alternative to Phantasmagoria (Europe) (Disc 7) [11]
+== phibos - suisei o otte
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Phibos - Suisei o Otte (Japan)
+== phonics alive!
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Phonics Alive! (USA)
+== pinna - desktop life
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Pinna - Desktop Life (Japan)
+== pop up computer
+   w29 w29 w29 x18 x15 w29 x14 x9  w26 w26 w26 x18 x15 w26 x14 x9  | Pop Up Computer (Japan) (En,Ja)
+== postal
+   w29 w29 w29 x18 x15 w29 x14 x8  w26 w26 w26 x18 x15 w26 x14 x8  | Postal (Europe) (Postal Manual)
+== presenting... mario's game gallery and earth savers plus many more!
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | Presenting... Mario's Game Gallery and Earth Savers Plus Many More! (USA)
+== pretty soldier sailormoon - bishoujo senshi sailor moon - cd-rom genga-shuu
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Pretty Soldier SailorMoon - Bishoujo Senshi Sailor Moon - CD-ROM Genga-shuu (Japan)
+== prince of persia
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Prince of Persia (USA)
+== princess maker 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w23 w23 w23 x18 x15 w23 x14 w23 | Princess Maker 2 (Japan)
+   w29 w29 w29 x18 x15 w29 x14 w29 a23 a23 a23 x18 x15 a23 x14 a23 | Princess Maker 2 (Japan) (Rerelease)
+== prisoner of ice
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Prisoner of Ice (France) (En,Fr,De,Nl,Sv) (Covermount)
+== putt-putt joins the parade
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Putt-Putt Joins the Parade (USA)
+== putt-putt's fun pack
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Putt-Putt's Fun Pack (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Putt-Putt's Fun Pack (USA)
+== puyo puyo fever
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Puyo Puyo Fever (Japan)
+== puyo puyo for macintosh
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Puyo Puyo for Macintosh (Japan)
+== puyo puyo tsuu
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Puyo Puyo Tsuu (Japan)
+== qrom - bringing teachers & technology together
+   w29 w29 w29 x18 w29 w29 x14 x8  w26 w26 w26 x18 w26 w26 x14 x8  | QROM - Bringing Teachers & Technology Together (USA) (Demo)
+== quake
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Quake (Europe)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w23 w24 x14 w24 | Quake (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | Quake (USA) (Alt)
+== quake 4
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Quake 4 (USA)
+== quake ii
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Quake II (USA)
+== quake iii - arena
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Quake III - Arena (Europe)
+== quantum gate i - akumu no joshou
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Quantum Gate I - Akumu no Joshou (Japan)
+== racing days
+   w29 w29 w29 x18 x15 w29 x14 w29 a21 a21 a21 x18 x15 a21 x14 a21 | Racing Days (Japan)
+   w29 w29 w29 x18 x15 w29 x14 w29 w21 w21 w21 x18 x15 w21 x14 w21 | Racing Days (Japan) (v1.1)
+== racing days - shashu data disc vol. 1 - integra type-r
+   w29 w29 w29 x18 x15 w29 x14 x6  w26 w26 w26 x18 x15 w26 x14 x6  | Racing Days - Shashu Data Disc Vol. 1 - Integra Type-R (Japan)
+== racing days - shashu-circuit kakuchou disc - opel version
+   w29 w29 w29 x18 x15 w29 x14 x3  w26 w26 w26 x18 x15 w26 x14 x3  | Racing Days - Shashu-Circuit Kakuchou Disc - Opel Version (Japan)
+== racing days - shashu-circuit kakuchou disc - supra version
+   w29 w29 w29 x18 x15 w29 x14 x3  w26 w26 w26 x18 x15 w26 x14 x3  | Racing Days - Shashu-Circuit Kakuchou Disc - Supra Version (Japan)
+== racing days - special bonus cd-rom
+   w29 w29 w29 x18 x15 w29 x14 x6  w26 w26 w26 x18 x15 w26 x14 x6  | Racing Days - Special Bonus CD-ROM (Japan)
+== racing days r
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Racing Days R (Europe) (En,Fr,De)
+== railroad tycoon 3
+   u   u   u   g   u   u   g   u   u   u   u   g   u   u   g   u   |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Railroad Tycoon 3 (USA) (Disc 1) (Install)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Railroad Tycoon 3 (USA) (Disc 2) (Play)
+== railroad tycoon ii
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Railroad Tycoon II (USA)
+== rayman 2 - the great escape
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Rayman 2 - The Great Escape (Europe) (Art Assets)
+== rayman 3 - hoodlum havoc
+   u   u   u   u   u   u   g   u   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 w29 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Rayman 3 - Hoodlum Havoc (Europe) (En,Fr,De,Es,It) (Disc 1)
+   w29 w29 w29 w29 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Rayman 3 - Hoodlum Havoc (Europe) (En,Fr,De,Es,It) (Disc 3)
+   w29 w29 w29 w29 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Rayman 3 - Hoodlum Havoc (USA) (En,Fr,De,Es,It)
+   w29 w29 w29 w29 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Rayman 3 - Hoodlum Havoc (USA) (En,Fr,De,Es,It) (Disc 1)
+   w29 w29 w29 w29 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Rayman 3 - Hoodlum Havoc (USA) (En,Fr,De,Es,It) (Disc 3)
+   w29 w29 w29 w29 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Rayman 3 - Hoodlum Havoc (USA, Europe) (En,Fr,De,Es,It) (Disc 2)
+== rayman 3 - hoodlum havoc (disc 1)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a32 a32 a32 a32 x15 a32 x14 a32 | Rayman 3 - Hoodlum Havoc (Europe) (En,Fr,De,Es,It) (Disc 1)
+   .   .   .   .   .   .   .   .   w32 w32 w32 w32 w31 w32 x14 w32 | Rayman 3 - Hoodlum Havoc (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a31 a31 a31 a31 a31 a31 x14 a31 | Rayman 3 - Hoodlum Havoc (USA) (En,Fr,De,Es,It) (Disc 1)
+== rayman 3 - hoodlum havoc (disc 2)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w31 w31 w32 w32 w31 w31 .   w31 | Rayman 3 - Hoodlum Havoc (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a31 a31 a32 a32 a31 a31 x14 a31 | Rayman 3 - Hoodlum Havoc (USA, Europe) (En,Fr,De,Es,It) (Disc 2)
+== rayman 3 - hoodlum havoc (disc 3)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a32 a32 a32 a32 x15 a32 x14 a32 | Rayman 3 - Hoodlum Havoc (Europe) (En,Fr,De,Es,It) (Disc 3)
+   .   .   .   .   .   .   .   .   w32 w32 w32 w32 w31 w32 .   w32 | Rayman 3 - Hoodlum Havoc (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a31 a31 a31 a31 a31 a31 x14 a31 | Rayman 3 - Hoodlum Havoc (USA) (En,Fr,De,Es,It) (Disc 3)
+== reader rabbit - 1st grade
+   w29 w29 w29 x18 w29 w29 x14 x9  w23 w23 w23 x18 w23 w23 x14 x9  | Reader Rabbit - 1st Grade (USA)
+   w29 w29 w29 x18 w29 w29 x14 x9  a23 a23 a23 x18 a23 a23 x14 x9  | Reader Rabbit - 1st Grade (USA) (Rerelease)
+== reader rabbit - 2nd grade
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Reader Rabbit - 2nd Grade (USA)
+== red faction
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Red Faction (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Red Faction (USA) (Disc 2)
+== residents, the - freak show
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Residents, The - Freak Show (USA)
+== residents, the - gingerbread man
+   w29 w29 w29 x18 x15 w29 x14 x10 a24 a24 w24 x18 x15 a24 x14 x10 | Residents, The - Gingerbread Man (Europe) (Expanded Album)
+   w29 w29 w29 x18 w29 w29 x14 x10 w24 w24 a24 x18 w26 w24 x14 x10 | Residents, The - Gingerbread Man (USA) (Expanded Album)
+== retool_compilations_discards
+   .   .   .   .   .   .   .   .   g   .   .   .   .   g   .   g   |
+   .   .   .   .   .   .   .   .   a2  .   .   .   .   a2  .   a2  | 3-D Ultra Pinball (Europe)
+     alternative to 3-D Ultra Pinball & Trophy Bass (USA) [9,14,16]
+== retool_compilations_winners
+   .   .   .   .   .   .   .   .   g   g   g   .   g   g   .   g   |
+   .   .   .   .   .   .   .   .   w1  w1  w1  .   w1  w1  .   w1  | 3-D Ultra Pinball & Trophy Bass (USA)
+   .   .   .   .   .   .   .   .   .   .   w24 .   .   .   .   .   | 3-D Ultra Pinball (Europe)
+   .   .   .   .   .   .   .   .   .   w24 .   .   .   .   .   .   | 3-D Ultra Pinball (Japan)
+== return to monkey island
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Return to Monkey Island (USA) (Macintosh Game Disc)
+== return to zork
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Return to Zork (USA, Europe)
+== rise of nations - gold edition
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Rise of Nations - Gold Edition (USA)
+== rocksmith - all-new 2014 edition
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Rocksmith - All-New 2014 Edition (USA) (En,Ja,Fr,De,Es,It)
+== rollercoaster tycoon 3
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | RollerCoaster Tycoon 3 (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | RollerCoaster Tycoon 3 (USA) (Rerelease)
+== rune
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Rune (USA, Japan)
+== rune - halls of valhalla
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Rune - Halls of Valhalla (USA)
+== safecracker
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 x15 w29 x14 w29 a24 a24 a24 w26 x15 a24 x14 a24 | Safecracker (Sweden) (En,Fr,De,Es,It,Nl,Sv)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 w24 x18 w26 w24 x14 w24 | Safecracker (USA, Canada) (Rerelease)
+== saikyou kareshi - dynamic darling
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Saikyou Kareshi - Dynamic Darling (Japan)
+== sam & max hit the road
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Sam & Max Hit the Road (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | Sam & Max Hit the Road (USA) (Alt)
+== san diego zoo presents, the... the animals!
+   w29 w29 w29 x18 w29 w29 x14 x10 w26 w26 w26 x18 w26 w26 x14 x10 | San Diego Zoo Presents, The... The Animals! (USA)
+== sangokushi eiketsuden
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Sangokushi Eiketsuden (Japan)
+== sangokushi iv
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Sangokushi IV (Japan)
+== sanzennen shokudou - shoku culture simulation game
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Sanzennen Shokudou - Shoku Culture Simulation Game (Japan)
+== satsui no shoumei - in the 1st degree
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Satsui no Shoumei - In the 1st Degree (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Satsui no Shoumei - In the 1st Degree (Japan) (Disc 2)
+== scary poems for rotten kids
+   w29 w29 w29 x18 w29 w29 x14 x9  a25 a25 a25 x18 a25 a25 x14 x9  | Scary Poems for Rotten Kids (USA)
+   w29 w29 w29 w29 w29 w29 x14 x9  w23 w23 w23 w23 w23 w23 x14 x9  | Scary Poems for Rotten Kids (USA) (En,Es)
+   w29 w29 w29 w29 w29 w29 x14 x9  a23 a23 a23 a23 a23 a23 x14 x9  | Scary Poems for Rotten Kids (USA) (En,Es) (Alt)
+== scavenger hunt adventure series, the - africa
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Scavenger Hunt Adventure Series, The - Africa (USA)
+== scholastic's the magic school bus explores the ocean
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Scholastic's The Magic School Bus Explores the Ocean (USA)
+== schoolhouse rock! grammar rock
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Schoolhouse Rock! Grammar Rock (USA)
+== scrabble - crossword game
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Scrabble - Crossword Game (USA)
+== secret du templier, le
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Secret du Templier, Le (France) (Covermount)
+== sesame street - let's make a word!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Sesame Street - Let's Make a Word! (USA)
+== sesame street - numbers
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Sesame Street - Numbers (USA)
+== settlers ii, the - veni, vidi, vici
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Settlers II, The - Veni, Vidi, Vici (USA)
+== seven kingdoms - artwork
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Seven Kingdoms - Artwork (Europe)
+== sexy pk - world cup-ban
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Sexy PK - World Cup-ban (Japan)
+== shadow warrior
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Shadow Warrior (USA, Europe)
+== shadow wraith
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Shadow Wraith (USA)
+== shanghai - double pack
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Shanghai - Double Pack (USA)
+== sherlock holmes - consulting detective - vol. iii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Sherlock Holmes - Consulting Detective - Vol. III (USA)
+== shrek 2
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Shrek 2 (USA)
+== sid meier's alpha centauri
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Sid Meier's Alpha Centauri (USA)
+== sid meier's civilization ii
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Sid Meier's Civilization II (USA)
+== sid meier's civilization iii complete
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Sid Meier's Civilization III Complete (USA)
+== sid meier's civilization iv
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Sid Meier's Civilization IV (USA) (En,Fr,De)
+== sid meier's civilization iv - beyond the sword
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Sid Meier's Civilization IV - Beyond the Sword (USA) (En,Fr,De)
+== sid meier's civilization v
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Sid Meier's Civilization V (USA) (En,Fr,Es)
+== sid meier's colonization
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Sid Meier's Colonization (Japan)
+== silly noisy house, a
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Silly Noisy House, A (USA)
+== simcity 2000 - cd collection
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | SimCity 2000 - CD Collection (Europe)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | SimCity 2000 - CD Collection (USA)
+== simcity 2000 special edition
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | SimCity 2000 Special Edition (USA)
+== simcity 3000
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | SimCity 3000 (USA)
+== simcity 4
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | SimCity 4 (USA) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Th) (Disc 1)
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | SimCity 4 (USA) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Th) (Disc 2)
+== simcity 4 deluxe edition
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | SimCity 4 Deluxe Edition (USA)
+== simcity enhanced cd-rom
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | SimCity Enhanced CD-ROM (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | SimCity Enhanced CD-ROM (USA)
+== simpeople
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | SimPeople (Japan)
+== sims 2, the
+   w29 w29 w29 w29 w29 w29 x14 w29 w25 w20 w25 w26 w25 w25 x14 w25 | Sims 2, The (USA) (En,Ja,Fr,De,It)
+   w29 w29 w29 x18 w29 w29 x14 w29 a25 a20 a25 x18 a25 a25 x14 a25 | Sims 2, The (USA) (Rerelease)
+== sims 2, the - bon voyage
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Sims 2, The - Bon Voyage (Expansion Pack) (USA)
+== sims 2, the - nightlife
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Sims 2, The - Nightlife (Expansion Pack) (USA)
+== sims 2, the - open for business
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 x3  w24 w24 a24 x18 w26 w24 x14 x3  | Sims 2, The - Open For Business (Expansion Pack) (USA)
+   w29 w29 w29 x18 x15 w29 x14 x3  a24 a24 w24 x18 x15 a24 x14 x3  | Sims 2, The - Open for Business (Expansion Pack) (Europe)
+== sims 2, the - pets
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Sims 2, The - Pets (Expansion Pack) (USA)
+== sims 2, the - seasons
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Sims 2, The - Seasons (Expansion Pack) (USA)
+== sims 2, the - university
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Sims 2, The - University (Expansion Pack) (USA)
+== sims, les - superstar
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 x3  .   .   .   .   .   .   .   .   | Sims, Les - Superstar (France) (Disc 1) (Disque Additionnel)
+   w29 w29 w29 x18 x15 w29 x14 x3  .   .   .   .   .   .   .   .   | Sims, Les - Superstar (France) (Disc 2) (Disque Additionnel)
+== sims, the
+   .   .   .   .   .   .   .   .   a33 w33 a33 x18 x15 a33 x14 a33 | SimPeople (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 a31 a31 a31 x18 a31 a31 x14 a31 | Sims, The (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a31 a31 a31 x18 a31 a31 x14 a31 | Sims, The (USA) (Alt)
+   w29 w29 w29 w29 w29 w29 x14 w29 a31 a31 a31 w26 a31 a31 x14 a31 | Sims, The (USA) (En,Fr,De) (Rerelease)
+   w29 w29 w29 x18 w29 w29 x14 w29 a31 a31 a31 x18 a31 a31 x14 a31 | Sims, The (USA) (Rerelease)
+   .   .   .   .   .   .   .   .   w33 a33 w33 x18 w31 w33 x14 w33 | Sims, The - Complete Collection (USA, Canada) (En,Fr)
+== sims, the - complete collection
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Sims, The - Complete Collection (USA, Canada) (En,Fr)
+== sims, the - hot date
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 w29 w29 x14 x3  .   .   .   .   .   .   .   .   | Sims, The - Hot Date (Expansion Pack) (USA)
+== sims, the - hot date (expansion pack)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w31 a28 w31 .   w31 w31 .   w30 | Sims, The - Complete Collection (USA, Canada) (En,Fr)
+     alternative to SimPeople (Japan) [10]
+   .   .   .   .   .   .   .   .   a31 a31 a31 x18 a31 a31 x14 x3  | Sims, The - Hot Date (Expansion Pack) (USA)
+     alternative to SimPeople (Japan) [10]
+== sims, the - livin' large
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 w29 w29 x14 x3  .   .   .   .   .   .   .   .   | Sims, The - Livin' Large (Expansion Pack) (USA)
+== sims, the - livin' large (expansion pack)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w31 a28 w31 .   w31 w31 .   w30 | Sims, The - Complete Collection (USA, Canada) (En,Fr)
+     alternative to SimPeople (Japan) [10]
+   .   .   .   .   .   .   .   .   a31 a31 a31 x18 a31 a31 x14 x3  | Sims, The - Livin' Large (Expansion Pack) (USA)
+     alternative to SimPeople (Japan) [10]
+== sims, the - party pack
+   .   .   .   .   .   .   .   .   w31 a28 w31 .   w31 w31 .   w31 | Sims, The - Complete Collection (USA, Canada) (En,Fr)
+     alternative to SimPeople (Japan) [10]
+   w29 w29 w29 x18 w29 w29 x14 w29 a31 a31 a31 x18 a31 a31 x14 a31 | Sims, The - Party Pack (USA)
+     alternative to SimPeople (Japan) [10]
+== sims, the - superstar
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 w29 w29 x14 x3  .   .   .   .   .   .   .   .   | Sims, The - Superstar (Expansion Pack) (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 x3  .   .   .   .   .   .   .   .   | Sims, The - Superstar (Expansion Pack) (USA) (Disc 2)
+== sims, the - superstar (expansion pack) (disc 1)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a33 a33 a33 x18 x15 a33 x14 x3  | Sims, Les - Superstar (France) (Disc 1) (Disque Additionnel)
+     alternative to SimPeople (Japan) [10]
+   .   .   .   .   .   .   .   .   w33 a28 w33 .   w31 w33 .   w30 | Sims, The - Complete Collection (USA, Canada) (En,Fr)
+     alternative to SimPeople (Japan) [10]
+   .   .   .   .   .   .   .   .   a31 a31 a31 x18 a31 a31 x14 x3  | Sims, The - Superstar (Expansion Pack) (USA) (Disc 1)
+     alternative to SimPeople (Japan) [10]
+== sims, the - superstar (expansion pack) (disc 2)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a33 a33 a33 x18 x15 a33 x14 x3  | Sims, Les - Superstar (France) (Disc 2) (Disque Additionnel)
+     alternative to SimPeople (Japan) [10]
+   .   .   .   .   .   .   .   .   w33 a28 w33 .   w31 w33 .   w30 | Sims, The - Complete Collection (USA, Canada) (En,Fr)
+     alternative to SimPeople (Japan) [10]
+   .   .   .   .   .   .   .   .   a31 a31 a31 x18 a31 a31 x14 x3  | Sims, The - Superstar (Expansion Pack) (USA) (Disc 2)
+     alternative to SimPeople (Japan) [10]
+== sims, the - vacation
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 w29 w29 x14 x3  .   .   .   .   .   .   .   .   | Sims, The - Vacation (Expansion Pack) (USA)
+== sims, the - vacation (expansion pack)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w31 a28 w31 .   w31 w31 .   w30 | Sims, The - Complete Collection (USA, Canada) (En,Fr)
+     alternative to SimPeople (Japan) [10]
+   .   .   .   .   .   .   .   .   a31 a31 a31 x18 a31 a31 x14 x3  | Sims, The - Vacation (Expansion Pack) (USA)
+     alternative to SimPeople (Japan) [10]
+== simtown
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a21 a21 a21 x18 x15 a21 x14 a21 | SimTown (Japan)
+   w29 w29 w29 x18 x15 w29 x14 w29 w21 w21 w21 x18 x15 w21 x14 w21 | SimTown (Japan) (Rev 1)
+== simtown - the town you build yourself!
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | SimTown - The Town You Build Yourself! (USA)
+== sin gold
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w23 w23 w23 x18 w23 w23 x14 w23 | Sin Gold (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | Sin Gold (USA) (Rerelease)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 a23 | Sin Gold (USA) (Rerelease) (Alt)
+== sinkha
+   w29 w29 w29 w29 x15 w29 x14 x10 a24 w27 a24 w26 x15 a24 x14 x10 | Sinkha (Japan) (En,Ja,Fr,Es,It)
+   w29 w29 w29 x18 w29 w29 x14 x10 w24 a27 w24 x18 w26 w24 x14 x10 | Sinkha (USA)
+== snk & ps2 & logo
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | SNK & PS2 & Logo (USA)
+== software toolworks presents, the - maniac sports
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Software Toolworks Presents, The - Maniac Sports (USA)
+== solid state pinball - crystal caliburn
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Solid State Pinball - Crystal Caliburn (USA)
+== solitaire mania
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Solitaire Mania (USA)
+== sotsugyou - graduation
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Sotsugyou - Graduation (Japan)
+== space ace cd-rom
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Space Ace CD-ROM (USA, Canada) (En,Fr) (For Macintosh Computers)
+== space adventure - with buzz aldrin & tom mcdonough
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Space Adventure - With Buzz Aldrin & Tom McDonough (USA)
+== space bar, the
+   u   u   u   g   u   u   g   u   u   u   u   g   u   u   g   u   |
+   w29 w29 w29 x18 w29 w29 x14 w29 a21 a21 a21 x18 a21 a21 x14 a21 | Space Bar, The (USA) (Disc 1)
+     alternative to Space Bar, The (USA) (Disc 1) (Rev 1) [9-11,13-14,16]
+   w29 w29 w29 x18 w29 w29 x14 w29 w21 w21 w21 x18 w21 w21 x14 w21 | Space Bar, The (USA) (Disc 1) (Rev 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Space Bar, The (USA) (Disc 2)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Space Bar, The (USA) (Disc 3)
+== space quest 6 - roger wilco in the spinal frontier
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Space Quest 6 - Roger Wilco in the Spinal Frontier (France)
+== space shuttle
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Space Shuttle (USA)
+== space-rat - xplode!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Space-Rat - Xplode! (Europe)
+== spaceship warlock
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Spaceship Warlock (USA)
+== spectre vr cd
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Spectre VR CD (USA)
+== spider-man
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Spider-Man (USA, Europe)
+== spycraft - the great game
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Spycraft - The Great Game (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Spycraft - The Great Game (USA) (Disc 2)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Spycraft - The Great Game (USA) (Disc 3)
+== star fighter
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Fighter (USA)
+== star trek - 25th anniversary enhanced cd-rom
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Star Trek - 25th Anniversary Enhanced CD-ROM (Japan)
+== star trek - elite force ii
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Trek - Elite Force II (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Trek - Elite Force II (USA) (Disc 2)
+== star trek - new worlds - ad
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Star Trek - New Worlds - Ad (Europe) (Art Assets)
+== star trek - starfleet academy
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Trek - Starfleet Academy (USA) (Disc 1)
+== star trek - starfleet command ii - empires at war - ad
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Star Trek - Starfleet Command II - Empires at War - Ad (Europe) (Art Assets)
+== star trek - the next generation - klingon honor guard
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Trek - The Next Generation - Klingon Honor Guard (USA) (Game Disk)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Trek - The Next Generation - Klingon Honor Guard (USA) (Install Disk)
+== star trek - voyager - elite force
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Trek - Voyager - Elite Force (USA)
+== star wars - battlefront
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - Battlefront (USA)
+== star wars - dark forces
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Star Wars - Dark Forces (Europe)
+     alternative to Star Wars - Dark Forces (USA) [9-10,14]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Star Wars - Dark Forces (USA)
+     alternative to Star Wars - Dark Forces (Europe) [11]
+   w29 w29 w29 x18 w29 w29 x14 x8  w24 w24 w24 x18 w26 w24 x14 x8  | Star Wars - Dark Forces (USA) (Special Edition - 3 Playable Levels)
+== star wars - empire at war
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - Empire at War (USA)
+== star wars - episode i - racer
+   w29 w29 w29 w29 x15 w29 x14 w29 w26 w26 w26 w26 x15 w26 x14 w26 | Star Wars - Episode I - Racer (Germany) (En,De)
+== star wars - jedi knight - jedi academy
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - Jedi Knight - Jedi Academy (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - Jedi Knight - Jedi Academy (USA) (Disc 2)
+== star wars - jedi knight gold pack
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - Jedi Knight Gold Pack (USA)
+== star wars - jedi knight ii - jedi outcast
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - Jedi Knight II - Jedi Outcast (USA)
+== star wars - knights of the old republic
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - Knights of the Old Republic (USA)
+== star wars - mac pack
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - Mac Pack (USA)
+== star wars - rebel assault
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Star Wars - Rebel Assault (Europe)
+     alternative to Star Wars - Rebel Assault (USA) (v1.01) [9-10,14]
+   w29 w29 w29 x18 w29 w29 x14 w29 a21 a21 a21 x18 a21 a21 x14 a21 | Star Wars - Rebel Assault (USA)
+     alternative to Star Wars - Rebel Assault (Europe) [11]
+     alternative to Star Wars - Rebel Assault (USA) (v1.01) [9-10,13-14]
+   w29 w29 w29 x18 w29 w29 x14 x8  w24 w24 w24 x18 w26 w24 x14 x8  | Star Wars - Rebel Assault (USA) (Demo)
+   w29 w29 w29 x18 w29 w29 x14 w29 a21 a21 a21 x18 a21 a21 x14 a21 | Star Wars - Rebel Assault (USA) (Rerelease)
+     alternative to Star Wars - Rebel Assault (Europe) [11]
+     alternative to Star Wars - Rebel Assault (USA) (v1.01) [9-10,13-14]
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w21 w24 x14 w24 | Star Wars - Rebel Assault (USA) (v1.01)
+     alternative to Star Wars - Rebel Assault (Europe) [11]
+== star wars - rebel assault ii - the hidden empire
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Star Wars - Rebel Assault II - The Hidden Empire (Japan) (Disc 1)
+     alternative to Star Wars - Rebel Assault II - The Hidden Empire (USA) (Disc 1) [9,11,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Star Wars - Rebel Assault II - The Hidden Empire (Japan) (Disc 2)
+     alternative to Star Wars - Rebel Assault II - The Hidden Empire (USA) (Disc 2) [9,11,14,16]
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Star Wars - Rebel Assault II - The Hidden Empire (USA) (Disc 1)
+     alternative to Star Wars - Rebel Assault II - The Hidden Empire (Japan) (Disc 1) [10]
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Star Wars - Rebel Assault II - The Hidden Empire (USA) (Disc 2)
+     alternative to Star Wars - Rebel Assault II - The Hidden Empire (Japan) (Disc 2) [10]
+== star wars - screen entertainment
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Star Wars - Screen Entertainment (Japan) (Mac Game Bundle)
+== star wars - the force unleashed - ultimate sith edition
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - The Force Unleashed - Ultimate Sith Edition (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - The Force Unleashed - Ultimate Sith Edition (USA) (Disc 2)
+== star wars - tie fighter - collector's cd-rom
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Star Wars - TIE Fighter - Collector's CD-ROM (USA)
+== star wars - x-wing - collector's cd-rom
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Star Wars - X-Wing - Collector's CD-ROM (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Star Wars - X-Wing - Collector's CD-ROM (USA)
+== starcraft
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | StarCraft (Europe)
+== starcraft - brood war
+   w29 w29 w29 x18 x15 w29 x14 x3  w26 w26 w26 x18 x15 w26 x14 x3  | StarCraft - Brood War (Expansion Set) (Europe)
+== stellaluna
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Stellaluna (USA)
+== stubbs the zombie in rebel without a pulse
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Stubbs the Zombie in Rebel Without a Pulse (USA) (En,Fr)
+== syndicate
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Syndicate (USA) (En,Fr,It)
+== system shock
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | System Shock (USA)
+== tale of benjamin bunny, the
+   w29 w29 w29 x18 w29 w29 x14 x9  a25 a25 a25 x18 a25 a25 x14 x9  | Tale of Benjamin Bunny, The (USA)
+   w29 w29 w29 w29 w29 w29 x14 x9  w25 w25 w25 w26 w25 w25 x14 x9  | Tale of Benjamin Bunny, The (USA) (En,Es)
+== tale of peter rabbit, the
+   w29 w29 w29 x18 w29 w29 x14 x9  a25 a25 a25 x18 a25 a25 x14 x9  | Tale of Peter Rabbit, The (USA)
+   w29 w29 w29 w29 w29 w29 x14 x9  w23 w23 w23 w23 w23 w23 x14 x9  | Tale of Peter Rabbit, The (USA) (En,Es)
+   w29 w29 w29 w29 w29 w29 x14 x9  a23 a23 a23 a23 a23 a23 x14 x9  | Tale of Peter Rabbit, The (USA) (En,Es) (Alt)
+== team xtreme - operation - weather disaster
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Team Xtreme - Operation - Weather Disaster (USA)
+== teitoku no ketsudan ii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Teitoku no Ketsudan II (Japan)
+== terry pratchett's discworld
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Terry Pratchett's Discworld (UK)
+== theme park
+   w29 w29 w29 w29 x15 w29 x14 w29 w27 a27 w27 w26 x15 w27 x14 w27 | Theme Park (Europe) (En,Fr,De,Es,It)
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Theme Park (Japan)
+== thinkin' science - first and second grades!
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Thinkin' Science - First and Second Grades! (USA)
+== thinkin' things collection 2
+   w29 w29 w29 x18 w29 w29 x14 x9  w23 w23 w23 x18 w23 w23 x14 x9  | Thinkin' Things Collection 2 (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 a23 a23 a23 x18 a23 a23 x14 w26 | Thinkin' Things Collection 2 (USA) (OEM)
+== thomas' snowsuit
+   w29 w29 w29 x18 w29 w29 x14 x9  a25 a25 a25 x18 a25 a25 x14 x9  | Thomas' Snowsuit (USA)
+   w29 w29 w29 w29 w29 w29 x14 x9  w25 w25 w25 w26 w25 w25 x14 x9  | Thomas' Snowsuit (USA) (En,Es)
+== three kingdoms - fate of the dragon - pc manual
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Three Kingdoms - Fate of the Dragon - PC Manual (Europe) (Art Assets)
+== time gal
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Time Gal (Japan)
+== titanic - adventure out of time
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Titanic - Adventure Out of Time (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Titanic - Adventure Out of Time (Japan) (Disc 2)
+== tokimeite yuuwaku
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Tokimeite Yuuwaku (Japan)
+== tomb raider - the last revelation
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Tomb Raider - The Last Revelation (Europe)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Tomb Raider - The Last Revelation (USA)
+== tomb raider - underworld
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tomb Raider - Underworld (USA)
+== tomb raider chronicles
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tomb Raider Chronicles (USA) (Game Disc)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tomb Raider Chronicles (USA) (Level Editor Disc)
+== tomb raider gold
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Tomb Raider Gold (Japan)
+   w29 w29 w29 x18 w29 w29 x14 w29 w27 a27 w27 x18 w26 w27 x14 w27 | Tomb Raider Gold (USA)
+== tomb raider ii - starring lara croft
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 a24 x18 x15 a24 x14 a24 | Tomb Raider II - Starring Lara Croft (Canada)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 w24 x18 w26 w24 x14 w24 | Tomb Raider II - Starring Lara Croft (USA)
+== tomb raider iii - adventures of lara croft
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tomb Raider III - Adventures of Lara Croft (USA)
+== tong-nou
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Tong-Nou (Japan)
+== tony hawk's pro skater 2
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tony Hawk's Pro Skater 2 (USA)
+== tony hawk's pro skater 4
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tony Hawk's Pro Skater 4 (USA) (Install Disc) (OEM)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tony Hawk's Pro Skater 4 (USA) (Play Disc) (OEM)
+== total annihilation
+   u   u   u   g   u   u   g   u   u   u   u   g   u   u   g   u   |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Total Annihilation (USA) (Disc 1) (Install Disc)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Total Annihilation (USA) (Disc 2) (Game Disc)
+== total annihilation - the core contingency & total annihilation - battle tactics
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | Total Annihilation - The Core Contingency & Total Annihilation - Battle Tactics (USA)
+== total distortion
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Total Distortion (Japan)
+== total war!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Total War! (USA)
+== train simulator - chuuou-sen
+   w29 w29 w29 x18 x15 w29 x14 w29 w23 w23 w23 x18 x15 w23 x14 w23 | Train Simulator - Chuuou-sen (201-kei) (Japan)
+   w29 w29 w29 x18 x15 w29 x14 w29 a23 a23 a23 x18 x15 a23 x14 a23 | Train Simulator - Chuuou-sen (201-kei) (Japan) (Alt)
+== train simulator - jr shikoku vol. 1
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Train Simulator - JR Shikoku Vol. 1 (Takamatsu-Kotohira, Takamatsu-Kojima) (Japan)
+== train simulator - toukaidou honsen
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Train Simulator - Toukaidou Honsen (211-kei) (Japan)
+== transmigration
+   w29 w29 w29 x18 x15 w29 x14 x6  w26 w26 w26 x18 x15 w26 x14 x6  | Transmigration (Japan) (Disc 2) (Transcript)
+== travel the world with timmy! deluxe
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Travel the World with Timmy! Deluxe (USA)
+== tron 2.0
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tron 2.0 (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tron 2.0 (USA) (Disc 2)
+== tropico 2 - pirate cove
+   u   u   u   g   u   u   g   u   u   u   u   g   u   u   g   u   |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tropico 2 - Pirate Cove (USA) (Disc 1) (Install-Play)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tropico 2 - Pirate Cove (USA) (Disc 2) (Data)
+== tropico 4 - gold edition
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Tropico 4 - Gold Edition (USA)
+== uki uki tsuri tengoku 2 - hato no gomokuzuri
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Uki Uki Tsuri Tengoku 2 - Hato no Gomokuzuri (Japan)
+== uki uki tsuri tengoku 3 - ningyotou no boat-zuri
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Uki Uki Tsuri Tengoku 3 - Ningyotou no Boat-zuri (Japan)
+== ultimate doom, the
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Ultimate Doom, The (USA)
+== unreal
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Unreal (USA)
+== unreal ads
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Unreal Ads (Europe)
+== unreal ads. 2 - maj 98
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 x17 x18 x15 w29 x14 x10 w26 w26 x17 x18 x15 w26 x14 x10 | Unreal Ads. 2 - Maj 98 (Hungary)
+== unreal tournament
+   w29 w29 w29 x18 x15 w29 x14 w29 a24 a24 w24 x18 x15 a24 x14 a24 | Unreal Tournament (Europe)
+   w29 w29 w29 x18 w29 w29 x14 w29 w24 w24 a24 x18 w26 w24 x14 w24 | Unreal Tournament (USA)
+== unreal tournament - layered psd
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Unreal Tournament - Layered PSD (Europe)
+== unreal tournament - pc manual english
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Unreal Tournament - PC Manual English (Europe) (Art Assets)
+== unreal tournament - pc manuals
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Unreal Tournament - PC Manuals (Europe)
+== unreal tournament - qxpress
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Unreal Tournament - Qxpress (Europe) (Art Assets)
+== unreal tournament 2004
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Unreal Tournament 2004 (USA)
+== urban chaos - uk manual
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Urban Chaos - UK Manual (Europe) (Art Assets)
+== urban chaos - uk packaging
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Urban Chaos - UK Packaging (Europe) (Art Assets)
+== urm - m15 wakusei ni umarete
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | URM - M15 Wakusei ni Umarete (Japan)
+== ushinawareta bunmei - kyoseki bunmei e no tabi
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Ushinawareta Bunmei - Kyoseki Bunmei e no Tabi (Japan)
+== virtual pool
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Virtual Pool (USA)
+== virtual pool 3 - ad, sell sheet
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Virtual Pool 3 - Ad, Sell Sheet (Europe)
+== virtual pool 3d
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Virtual Pool 3D (USA) (OEM)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Virtual Pool 3D (USA) (OEM) (Power Macintosh 6500)
+== virtual variety show
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Virtual Variety Show (Japan)
+== virtual villagers - a new home
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Virtual Villagers - A New Home (USA)
+== vortex, the - quantum gate ii
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Vortex, The - Quantum Gate II (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Vortex, The - Quantum Gate II (Japan) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Vortex, The - Quantum Gate II (Japan) (Disc 3)
+== vr soccer '96
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | VR Soccer '96 (USA) (OEM)
+== wacky races
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Wacky Races (Japan)
+== wallobee jack - the bingi burra stone
+   w29 w29 w29 x18 x15 w29 x14 w29 w27 a27 w27 x18 x15 w27 x14 w27 | Wallobee Jack - The Bingi Burra Stone (Canada) (En,Fr)
+   w29 w29 w29 x18 x15 w29 x14 w29 a27 w27 a27 x18 x15 a27 x14 a27 | Wallobee Jack - The Bingi Burra Stone (Japan)
+== weekend warrior
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Weekend Warrior (USA) (OEM)
+== what's the secret volume 2
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | What's the Secret Volume 2 (USA)
+== where in the world is carmen sandiego cd-rom
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Where in the World Is Carmen Sandiego CD-ROM (USA)
+== wiggleworks - peanut butter rhino & birds on stage & frog's lunch
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | WiggleWorks - Peanut Butter Rhino & Birds on Stage & Frog's Lunch (USA)
+== willy wabbit & his magical books
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 w29 x15 w29 x14 w29 a27 a27 a27 w26 x15 a27 x14 w26 | Willy Wabbit & His Magical Books (Asia)
+   w29 w29 w29 x18 w29 w29 x14 x9  w27 w27 w27 x18 w26 w27 x14 x9  | Willy Wabbit & His Magical Books (USA)
+== wing commander iii - heart of the tiger
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Wing Commander III - Heart of the Tiger (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Wing Commander III - Heart of the Tiger (USA) (Disc 2)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Wing Commander III - Heart of the Tiger (USA) (Disc 3)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Wing Commander III - Heart of the Tiger (USA) (Disc 4)
+== wipeout 2097
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Wipeout 2097 (Europe)
+== wizardry gold
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Wizardry Gold (USA)
+== word city
+   w29 w29 w29 x18 w29 w29 x14 x9  w26 w26 w26 x18 w26 w26 x14 x9  | Word City (USA)
+== world league soccer '98 - elements
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | World League Soccer '98 - Elements (Europe)
+== worms 3d
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Worms 3D (USA)
+== worms blast
+   w29 w29 w29 w29 w29 w29 x14 w29 w26 w26 w26 w26 w26 w26 x14 w26 | Worms Blast (USA) (En,Fr,De,Es,It)
+== worms world party
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | Worms World Party (Europe) (Art Assets)
+== x-plane 9
+   u   u   u   g   u   u   g   g   u   u   u   g   u   u   g   g   |
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | X-Plane 9 (USA) (Disc 1) (X-Plane 9 Program Plus U.S. Scenery)
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | X-Plane 9 (USA) (Disc 2) (Europe & North Africa Scenery)
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | X-Plane 9 (USA) (Disc 3) (Central Asia Scenery)
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | X-Plane 9 (USA) (Disc 4) (Africa & India Scenery)
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | X-Plane 9 (USA) (Disc 5) (Canada & Arctic Regions Scenery)
+   w29 w29 w29 x18 w29 w29 x14 x3  w26 w26 w26 x18 w26 w26 x14 x3  | X-Plane 9 (USA) (Disc 6) (Central & S. America and Australia Scenery)
+== x2 - wolverine's revenge
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | X2 - Wolverine's Revenge (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | X2 - Wolverine's Revenge (USA) (Disc 2)
+== xxx vol. 1
+   w29 w29 w29 x18 x15 w29 x14 x10 w26 w26 w26 x18 x15 w26 x14 x10 | XXX Vol. 1 (Japan)
+== yellow brick road ii - glinda to nishi no majo
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Yellow Brick Road II - Glinda to Nishi no Majo (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | Yellow Brick Road II - Glinda to Nishi no Majo (Japan) (Disc 2)
+== yoot tower
+   w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Yoot Tower (USA)
+== youkai ningen bem - aratanaru tamashii no meikyuu
+   u   u   u   g   g   u   g   u   u   u   u   g   g   u   g   u   |
+   w29 w29 w29 x18 x15 w29 x14 w29 w23 w23 w23 x18 x15 w23 x14 w23 | Youkai Ningen Bem - Aratanaru Tamashii no Meikyuu (Japan) (Disc 1) (Game)
+   w29 w29 w29 x18 x15 w29 x14 w29 a23 a23 a23 x18 x15 a23 x14 a23 | Youkai Ningen Bem - Aratanaru Tamashii no Meikyuu (Japan) (Disc 1) (Game) (Alt)
+     alternative to Youkai Ningen Bem - Aratanaru Tamashii no Meikyuu (Japan) (Disc 1) (Game) [9-11,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 w23 w23 w23 x18 x15 w23 x14 w23 | Youkai Ningen Bem - Aratanaru Tamashii no Meikyuu (Japan) (Disc 2) (Data Base)
+   w29 w29 w29 x18 x15 w29 x14 w29 a23 a23 a23 x18 x15 a23 x14 a23 | Youkai Ningen Bem - Aratanaru Tamashii no Meikyuu (Japan) (Disc 2) (Data Base) (Alt)
+     alternative to Youkai Ningen Bem - Aratanaru Tamashii no Meikyuu (Japan) (Disc 2) (Data Base) [9-11,14,16]
+== zork nemesis
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis (Japan) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis (Japan) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis (Japan) (Disc 3)
+== zork nemesis (disc 1)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a27 w27 a27 x18 x15 a27 x14 a27 | Zork Nemesis (Japan) (Disc 1)
+   .   .   .   .   .   .   .   .   a24 a27 a24 x18 x15 a24 x14 a24 | Zork Nemesis - The Forbidden Lands (France) (Disc 1)
+   .   .   .   .   .   .   .   .   w24 a27 w24 x18 w26 w24 x14 w24 | Zork Nemesis - The Forbidden Lands (USA) (Disc 1)
+== zork nemesis (disc 2)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a27 w27 a27 x18 x15 a27 x14 a27 | Zork Nemesis (Japan) (Disc 2)
+   .   .   .   .   .   .   .   .   a24 a27 a24 x18 x15 a24 x14 a24 | Zork Nemesis - The Forbidden Lands (France) (Disc 2)
+   .   .   .   .   .   .   .   .   w24 a27 w24 x18 w26 w24 x14 w24 | Zork Nemesis - The Forbidden Lands (USA) (Disc 2)
+== zork nemesis (disc 3)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a27 w27 a27 x18 x15 a27 x14 a27 | Zork Nemesis (Japan) (Disc 3)
+   .   .   .   .   .   .   .   .   a24 a27 a24 x18 x15 a24 x14 a24 | Zork Nemesis - The Forbidden Lands (France) (Disc 3)
+   .   .   .   .   .   .   .   .   w24 a27 w24 x18 w26 w24 x14 w24 | Zork Nemesis - The Forbidden Lands (USA) (Disc 3)
+== zork nemesis - the forbidden lands
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis - The Forbidden Lands (France) (Disc 1)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis - The Forbidden Lands (France) (Disc 2)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis - The Forbidden Lands (France) (Disc 3)
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis - The Forbidden Lands (USA) (Disc 1)
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis - The Forbidden Lands (USA) (Disc 2)
+   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   .   .   .   .   .   | Zork Nemesis - The Forbidden Lands (USA) (Disc 3)

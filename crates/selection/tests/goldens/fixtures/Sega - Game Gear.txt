@@ -1,0 +1,1380 @@
+# The built-in engine's Selections from "Sega - Game Gear.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata true
+system: Sega - Game Gear (No-Intro)
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [7,15]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Exclusions REF0042: Excluded due to categories: Applications (reason: Category exclude, Applications)
+rule r2: Exclusions REF0042: Excluded due to categories: BIOS (reason: Category exclude, BIOS)
+rule r3: Exclusions REF0042: Excluded due to categories: Demos (reason: Category exclude, Demos)
+rule r4: Exclusions REF0042: Excluded due to categories: Games, Preproduction (reason: Category exclude, Preproduction)
+rule r5: Exclusions REF0042: Excluded due to categories: Preproduction (reason: Category exclude, Preproduction)
+rule r6: Exclusions REF0044: Excluded due to a categories regex: '\\(Unl\\)' (reason: Category exclude, Unlicensed)
+rule r7: Exclusions REF0046: Excluded due to a global override (reason: Related to user global excludes)
+rule r8: Exclusions REF0046: Excluded due to a global override (reason: User global exclude)
+rule r9: Exclusions: Global post filter exclude
+rule r10: Exclusions: Region remove
+rule r11: Exclusions: Related to user global excludes
+rule r12: Includes REF0048: Included due to a global override
+rule r13: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r14: Parent selection REF0003: Group after cleaning up preproduction/bad/pirate/mixed version-revision titles
+rule r15: Parent selection REF0004: Group after handling modern title rips
+rule r16: Parent selection REF0005: [First pass] Group after filtering by user language order
+rule r17: Parent selection REF0007: Group after handling versions and revisions
+rule r18: Parent selection REF0008: Group after handling modern title rips
+rule r19: Parent selection REF0009: Group after choosing dates
+rule r20: Parent selection REF0014: Group after lower priority region, non-superset clones removed
+rule r21: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r22: Parent selection REF0119: Group after good dump/production/retail check
+rule r23: Parent selection: No other release competed
+== 5 in one funpak
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | 5 in One FunPak (USA)
+== [bios] sega game gear
+   w23 w23 w23 x13 w23 w23 x9  x2  w21 w21 w21 x13 w21 w21 x9  x2  | [BIOS] Sega Game Gear (USA) (Majesco)
+== aa harimanada
+   w23 w23 w23 x13 x10 x8  x9  w23 w21 w21 w21 x13 x10 x8  x9  w21 | Aa Harimanada (Japan)
+== addams family, the
+   w23 w23 w23 x13 w23 x8  x9  w23 w21 w21 w21 x13 w21 x8  x9  w21 | Addams Family, The (World)
+== adventures of batman & robin, the
+   w23 w23 w23 x13 w23 x8  x9  w23 w14 w14 w14 x13 w14 x8  x9  w21 | Adventures of Batman & Robin, The (USA, Europe)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Adventures of Batman & Robin, The (USA, Europe) (Beta) (1995-04-27)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Adventures of Batman & Robin, The (USA, Europe) (Beta) (1995-04-29)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Adventures of Batman & Robin, The (USA, Europe) (Beta) (1995-04-30)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Adventures of Batman & Robin, The (USA, Europe) (Beta) (1995-05-02)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Adventures of Batman & Robin, The (USA, Europe) (Beta) (1995-05-04)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Adventures of Batman & Robin, The (USA, Europe) (Beta) (1995-05-06)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Adventures of Batman & Robin, The (USA, Europe) (Beta) (1995-05-06) (Alt)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Adventures of Batman & Robin, The (USA, Europe) (Beta) (1995-05-07)
+== aerial assault
+   w23 w23 w23 x13 w23 x8  x9  w23 a17 a17 a17 x13 a17 x8  x9  a17 | Aerial Assault (World)
+   w23 w23 w23 x13 w23 x8  x9  w23 w17 w17 w17 x13 w17 x8  x9  w17 | Aerial Assault (World) (Rev 1)
+== aladdin
+   w23 w23 w23 x13 x10 x8  x9  w23 a22 w22 a22 x13 x10 x8  x9  a22 | Aladdin (Japan)
+   w23 w23 w23 x13 w23 x8  x9  w23 w22 a22 w22 x13 w14 x8  x9  w22 | Aladdin (USA, Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Aladdin (USA, Europe, Brazil) (En) (Beta) (1993-12-28)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Aladdin (USA, Europe, Brazil) (En) (Beta) (1994-01-11)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Aladdin (USA, Europe, Brazil) (En) (Beta) (1994-01-13)
+== alien 3
+   w23 w23 w23 x13 x10 x8  x9  w23 a22 w22 a22 x13 x10 x8  x9  a22 | Alien 3 (Japan)
+   w23 w23 w23 x13 w23 x8  x9  w23 w22 a22 w22 x13 w21 x8  x9  w22 | Alien 3 (USA, Europe)
+== alien syndrome
+   w23 w23 w23 x13 x10 x8  x9  w23 w22 a22 w22 x13 x10 x8  x9  w22 | Alien Syndrome (Europe)
+   w23 w23 w23 x13 x10 x8  x9  w23 a22 w22 a22 x13 x10 x8  x9  a22 | Alien Syndrome (Japan)
+== andre agassi tennis
+   w23 w23 w23 x13 w23 x8  x9  w23 w14 w14 w14 x13 w14 x8  x9  w21 | Andre Agassi Tennis (USA)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Andre Agassi Tennis (USA) (Beta)
+== arcade classics
+   w23 w23 w23 x13 w23 x8  x9  w23 w21 w21 w21 x13 w21 x8  x9  w21 | Arcade Classics (USA)
+== arch rivals - the arcade game
+   w23 w23 w23 x13 w23 x8  x9  w23 w21 w21 w21 x13 w21 x8  x9  w21 | Arch Rivals - The Arcade Game (USA)
+== archer maclean's dropzone
+   w23 w23 w23 x13 x10 x8  x9  w23 w21 w21 w21 x13 x10 x8  x9  w21 | Archer Maclean's Dropzone (Europe)
+== arena
+   w23 w23 w23 x13 w23 x8  x9  w23 w21 w21 w21 x13 w21 x8  x9  w21 | Arena (USA, Europe)
+== ariel - the little mermaid
+   w23 w23 w23 x13 w23 x8  x9  w23 w21 w21 w21 x13 w21 x8  x9  w21 | Ariel - The Little Mermaid (USA, Europe, Brazil) (En)
+== arliel - crystal densetsu
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 x8  x9  w23 .   .   .   .   .   .   .   .   | Arliel - Crystal Densetsu (Japan)
+== asterix and the great rescue
+   w23 w23 w23 w23 x10 x8  x9  w23 a20 a20 w20 w22 x10 x8  x9  a20 | Asterix and the Great Rescue (Europe) (En,Fr,De,Es,It)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Asterix and the Great Rescue (USA) (Beta) (1994-02-22)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Asterix and the Great Rescue (USA) (Beta) (1994-03-03)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Asterix and the Great Rescue (USA) (Beta) (1994-03-15)
+   w23 w23 w23 w23 w23 x8  x9  x5  a14 a14 a14 a19 a14 x8  x9  x5  | Asterix and the Great Rescue (USA) (En,Fr,De,Es,It) (Beta) (1994-01-25)
+   w23 w23 w23 w23 w23 x8  x9  x5  a14 a14 a14 a22 a14 x8  x9  x5  | Asterix and the Great Rescue (USA) (En,Fr,De,Es,It) (Beta) (1994-02-16)
+   w23 w23 w23 x13 w23 x8  x9  w23 w20 w20 a20 x13 w14 x8  x9  w20 | Asterix and the Great Rescue (USA, Brazil) (En)
+== asterix and the secret mission
+   w23 w23 w23 w23 x10 x8  x9  w23 w21 w21 w21 w21 x10 x8  x9  w21 | Asterix and the Secret Mission (Europe) (En,Fr,De)
+== ax battler - a legend of golden axe
+   w23 w23 w23 x13 w23 x8  x9  w23 w22 a22 w22 x13 w14 x8  x9  w22 | Ax Battler - A Legend of Golden Axe (USA, Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Ax Battler - A Legend of Golden Axe (USA, Europe, Brazil) (En) (Beta) (1991-08-10)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 x8  x9  a22 | Ax Battler - Golden Axe Densetsu (Japan)
+== ax battler - golden axe densetsu
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 x8  x9  w23 .   .   .   .   .   .   .   .   | Ax Battler - Golden Axe Densetsu (Japan)
+== ayrton senna's super monaco gp ii
+   w23 w23 w23 x13 x10 x8  x9  w23 a22 w22 a22 x13 x10 x8  x9  a22 | Ayrton Senna's Super Monaco GP II (Japan)
+   w23 w23 w23 x13 w23 x8  x9  w23 w22 a22 w22 x13 w14 x8  x9  w22 | Ayrton Senna's Super Monaco GP II (USA, Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 x8  x9  x5  a14 a14 a14 x13 a14 x8  x9  x5  | Ayrton Senna's Super Monaco GP II (USA, Europe, Brazil) (En) (Beta)
+== baku baku
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a22 w20 x13 x10 w12 x9  a20 | Baku Baku (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a22 a20 x13 w21 w20 x9  w20 | Baku Baku (USA)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 w12 x9  a22 | Baku Baku Animal - Sekai Shiikugakari Senshu-ken (Japan)
+== baku baku animal - sekai shiikugakari senshu-ken
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Baku Baku Animal - Sekai Shiikugakari Senshu-ken (Japan)
+== barbie super model
+   w23 w23 w23 x13 w23 w23 x9  x5  w21 w21 w21 x13 w21 w21 x9  x5  | Barbie Super Model (USA) (Proto) (1994-08-25)
+== batman forever
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Batman Forever (World)
+== batman returns
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Batman Returns (World)
+== batter up
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Batter Up (USA)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Gear Stadium (Japan)
+== battleship - the classic naval combat game
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Battleship - The Classic Naval Combat Game (USA)
+== battletoads
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 w20 x13 x10 w12 x9  a20 | Battletoads (Japan, Europe) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 a20 x13 w21 w20 x9  w20 | Battletoads (USA)
+== beavis and butt-head
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Beavis and Butt-Head (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Beavis and Butt-Head (USA, Europe) (Beta)
+== berenstain bears' camping adventure, the
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Berenstain Bears' Camping Adventure, The (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-06-28)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-07-15)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-07-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-07-22)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-07-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-01)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-11) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-12)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-13)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-14)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-19)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-20)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-24)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-25)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-26)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Berenstain Bears' Camping Adventure, The (USA) (Beta) (1994-08-26) (Alt)
+== berlin no kabe
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Berlin no Kabe (Japan)
+== bishoujo mahjong puzzle
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w23 w23 w23 x13 x10 w23 x9  x6  w21 w21 w21 x13 x10 w21 x9  x6  | Bishoujo Mahjong Puzzle (Japan) (Aftermarket) (Unl)
+== bishoujo senshi sailor moon s
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Bishoujo Senshi Sailor Moon S (Japan)
+== bonkers wax up!
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Bonkers Wax Up! (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-10-31)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-11-15)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-11-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-11-23)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-11-26)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-11-29)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-12-03)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-12-05)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-12-07)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-12-08)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-12-08) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-12-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bonkers Wax Up! (USA, Europe) (Beta) (1994-12-12)
+== bram stoker's dracula
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | Bram Stoker's Dracula (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Bram Stoker's Dracula (USA)
+== breakthru!
+   w23 w23 w23 x13 w23 w23 x9  x5  w21 w21 w21 x13 w21 w21 x9  x5  | BreakThru! (USA) (Proto)
+== bubble bobble
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Bubble Bobble (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Bubble Bobble (USA) (Beta)
+== bugs bunny in double trouble
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Bugs Bunny in Double Trouble (USA, Europe)
+== burger kitchen
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w23 w23 w23 x13 x10 w23 x9  x6  w21 w21 w21 x13 x10 w21 x9  x6  | Burger Kitchen (Japan) (Aftermarket) (Unl)
+== bust-a-move
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Bust-A-Move (USA)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Puzzle Bobble (Japan)
+== buster ball
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Buster Ball (Japan)
+== buster fight
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Buster Fight (Japan) (En,Ja)
+== caesars palace
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Caesars Palace (USA)
+== captain america and the avengers
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Captain America and the Avengers (USA)
+== car licence
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Car Licence (Japan)
+== casino funpak
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Casino FunPak (USA)
+== castle of illusion starring mickey mouse
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Castle of Illusion Starring Mickey Mouse (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Mickey Mouse no Castle Illusion (Japan)
+== cave dude
+   w23 w23 w23 x13 w23 w23 x9  x5  w21 w21 w21 x13 w21 w21 x9  x5  | Cave Dude (USA) (Proto)
+== chakan
+   w23 w23 w23 x13 w23 x7  x9  w23 w21 w21 w21 x13 w21 x7  x9  w21 | Chakan (USA, Europe)
+== championship hockey
+   w23 w23 w23 x13 x10 x7  x9  w23 w21 w21 w21 x13 x10 x7  x9  w21 | Championship Hockey (Europe)
+== chase h.q.
+   w23 w23 w23 x13 w23 x7  x9  w23 w22 a22 w22 x13 w21 x7  x9  w22 | Chase H.Q. (USA)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 x11 x9  a22 | Taito Chase H.Q. (Japan)
+== cheese cat-astrophe starring speedy gonzales
+   w23 w23 w23 w23 w23 x7  x9  w23 w21 w21 w21 w21 w21 x7  x9  w21 | Cheese Cat-Astrophe Starring Speedy Gonzales (USA, Europe, Brazil) (En,Fr,De,Es)
+== chessmaster, the
+   w23 w23 w23 x13 w23 x7  x9  w23 w21 w21 w21 x13 w21 x7  x9  w21 | Chessmaster, The (USA, Europe, Brazil) (En)
+== chicago syndicate
+   w23 w23 w23 x13 w23 x7  x9  w23 w22 w22 w22 x13 w14 x7  x9  w21 | Chicago Syndicate (USA, Brazil) (En)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-05-05)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-01)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-05)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-07)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-08)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-12)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-14)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-19)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-20)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-22)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-26)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-28)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-29)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-29) (Alt)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-06-30)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-03)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-05)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-06)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-10)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-11)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-19)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-20)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-21)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chicago Syndicate (USA, Brazil) (En) (Beta) (1995-07-21) (Alt)
+   .   .   .   .   .   .   .   .   a22 a22 a22 x13 x10 x11 x9  x5  | Empire Syndicate (Unknown) (Beta)
+== choplifter iii
+   w23 w23 w23 x13 w23 x7  x9  w23 w21 w21 w21 x13 w21 x7  x9  w21 | Choplifter III (USA)
+== chuck rock
+   w23 w23 w23 x13 w23 x7  x9  w23 w14 w14 w14 x13 w14 x7  x9  w21 | Chuck Rock (World)
+   w23 w23 w23 x13 w23 x7  x9  x5  a14 a14 a14 x13 a14 x7  x9  x5  | Chuck Rock (World) (Beta)
+== chuck rock ii - son of chuck
+   w23 w23 w23 x13 x10 x7  x9  w23 a20 a20 w20 x13 x10 x7  x9  a20 | Chuck Rock II - Son of Chuck (Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 x7  x9  w23 w20 w20 a20 x13 w21 x7  x9  w20 | Chuck Rock II - Son of Chuck (USA)
+== cj elephant fugitive
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | CJ Elephant Fugitive (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | CJ Elephant Fugitive (USA, Europe) (Beta) (1993-10-22)
+== cliffhanger
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Cliffhanger (USA)
+== clutch hitter
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Clutch Hitter (USA)
+== coca-cola kid
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Coca-Cola Kid (Japan)
+== columns
+   w23 w23 w23 x13 x10 w23 x9  w23 a17 a17 a17 x13 x10 a17 x9  a17 | Columns (Japan) (En)
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 a20 x13 x10 a20 x9  a20 | Columns (Japan) (En) (Rev 1)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 w20 x13 w21 w20 x9  w20 | Columns (USA, Europe, Brazil) (En) (Rev 2)
+== cool spot
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | Cool Spot (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Cool Spot (USA)
+== cosmic spacehead
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Cosmic Spacehead (USA, Europe)
+== crayon shin-chan - taiketsu! kantam panic!!
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Crayon Shin-chan - Taiketsu! Kantam Panic!! (Japan)
+== crazy faces
+   w23 w23 w23 x13 x10 w23 x9  x5  w21 w21 w21 x13 x10 w21 x9  x5  | Crazy Faces (Europe) (Proto)
+== crystal warriors
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 x8  x9  a22 | Arliel - Crystal Densetsu (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w21 x9  w22 | Crystal Warriors (USA, Europe)
+== cutthroat island
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | CutThroat Island (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | CutThroat Island (USA) (Beta)
+== daffy duck in hollywood
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Daffy Duck in Hollywood (Europe, Brazil) (En,Fr,De,Es,It)
+== david robinson's supreme court
+   w23 w23 w23 x13 w23 w23 x9  x3  w21 w21 w21 x13 w21 w21 x9  x3  | David Robinson's Supreme Court (USA) (Auto Demo)
+== deep duck trouble starring donald duck
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Deep Duck Trouble Starring Donald Duck (USA, Europe)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Donald Duck no 4-Tsu no Hihou (Japan)
+== defenders of oasis
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w15 w22 x9  w22 | Defenders of Oasis (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Defenders of Oasis (USA, Europe) (Beta)
+   w23 w23 w23 x13 w23 w23 x9  w23 a15 a15 a15 x13 a15 a15 x9  a15 | Defenders of Oasis (USA, Europe) (Virtual Console)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Shadam Crusader - Harukanaru Oukoku (Japan)
+== desert speedtrap starring road runner and wile e. coyote
+   w23 w23 w23 w23 x10 w23 x9  w23 a20 a20 w20 w21 x10 a20 x9  a20 | Desert Speedtrap Starring Road Runner and Wile E. Coyote (Europe) (En,Fr,De,Es,It)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Desert Speedtrap Starring Road Runner and Wile E. Coyote (USA, Brazil) (En)
+== desert strike
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 w23 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Desert Strike (Europe) (En,Fr,De,Es)
+== desert strike - return to the gulf
+   .   .   .   .   .   .   .   .   a20 a20 w20 w21 x10 a20 x9  a20 | Desert Strike (Europe) (En,Fr,De,Es)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Desert Strike - Return to the Gulf (USA)
+== devilish
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a22 w20 x13 x10 a20 x9  a20 | Devilish (Europe, Brazil) (En)
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Devilish (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a22 a20 x13 w21 w20 x9  w20 | Devilish (USA)
+== dinobasher starring bignose the caveman
+   w23 w23 w23 x13 x10 w23 x9  x5  w21 w21 w21 x13 x10 w21 x9  x5  | Dinobasher Starring Bignose the Caveman (Europe) (Proto)
+== donald duck no 4-tsu no hihou
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Donald Duck no 4-Tsu no Hihou (Japan)
+== donald duck no lucky dime
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Donald Duck no Lucky Dime (Japan)
+== donald no magical world
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Donald no Magical World (Japan) (En,Ja)
+== doraemon - noranosuke no yabou
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Doraemon - Noranosuke no Yabou (Japan)
+== doraemon - waku waku pocket paradise
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Doraemon - Waku Waku Pocket Paradise (Japan)
+== double dragon
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Double Dragon (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Double Dragon (USA, Europe) (Beta)
+== dr. franken
+   w23 w23 w23 x13 x10 w23 x9  x3  w21 w21 w21 x13 x10 w21 x9  x3  | Dr. Franken (Europe) (Demo)
+== dr. robotnik's mean bean machine
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Dr. Robotnik's Mean Bean Machine (USA, Europe)
+== dracula no shiro
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w23 w23 w23 x13 x10 w23 x9  x6  w21 w21 w21 x13 x10 w21 x9  x6  | Dracula no Shiro (Japan) (Aftermarket) (Unl)
+== dragon - the bruce lee story
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | Dragon - The Bruce Lee Story (Europe)
+   w23 w23 w23 x13 x10 w23 x9  x5  a14 a14 a14 x13 x10 a14 x9  x5  | Dragon - The Bruce Lee Story (Europe) (Beta)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Dragon - The Bruce Lee Story (USA)
+== dragon crystal
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w15 w22 x9  w22 | Dragon Crystal (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 a15 a15 a15 x13 a15 a15 x9  a15 | Dragon Crystal (USA, Europe) (Virtual Console)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Dragon Crystal - Tsurani no Meikyuu (Japan)
+   .   .   .   .   .   .   .   .   a15 a15 a15 x13 x10 a15 x9  a15 | Dragon Crystal - Tsurani no Meikyuu (Japan) (Virtual Console)
+== dragon crystal - tsurani no meikyuu
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Dragon Crystal - Tsurani no Meikyuu (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Dragon Crystal - Tsurani no Meikyuu (Japan) (Virtual Console)
+== dunk kids
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Dunk Kids (Japan)
+== dynamite headdy
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Dynamite Headdy (Japan)
+   w23 w23 w23 x13 x10 w23 x9  x5  a14 a14 a14 x13 x10 a14 x9  x5  | Dynamite Headdy (Japan) (Beta)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | Dynamite Headdy (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Dynamite Headdy (USA, Europe) (Beta) (1994-06-15)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Dynamite Headdy (USA, Europe) (Beta) (1994-07-01)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Dynamite Headdy (USA, Europe) (Beta) (1994-07-05)
+== earthworm jim
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | Earthworm Jim (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Earthworm Jim (USA)
+== ecco - the tides of time
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Ecco - The Tides of Time (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Ecco The Dolphin II (Japan)
+== ecco the dolphin
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Ecco The Dolphin (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | Ecco The Dolphin (USA, Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Ecco The Dolphin (USA, Europe, Brazil) (En) (Beta 1) (1993-06-14)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Ecco The Dolphin (USA, Europe, Brazil) (En) (Beta 2) (July, 1993)
+== ecco the dolphin ii
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Ecco The Dolphin II (Japan)
+== empire syndicate
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  x5  .   .   .   .   .   .   .   .   | Empire Syndicate (Unknown) (Beta)
+== ernie els golf
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Ernie Els Golf (Europe) (En,Fr,De,Es,It)
+== eternal legend - eien no densetsu
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Eternal Legend - Eien no Densetsu (Japan)
+== evander holyfield's 'real deal' boxing
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Evander Holyfield's 'Real Deal' Boxing (USA, Europe)
+== excellent dizzy collection, the
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Excellent Dizzy Collection, The (Europe)
+== f-15 strike eagle
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | F-15 Strike Eagle (USA, Europe)
+== f1
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | F1 (USA, Europe)
+== f1 - world championship edition
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | F1 - World Championship Edition (Europe)
+== faceball 2000
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Faceball 2000 (Japan)
+== factory panic
+   w23 w23 w23 x13 x10 w23 x9  w23 w22 a22 w22 x13 x10 w22 x9  w22 | Factory Panic (Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Ganbare Gorby! (Japan)
+== fantastic dizzy
+   w23 w23 w23 w23 w23 w23 x9  w23 w21 w21 w21 w21 w21 w21 x9  w21 | Fantastic Dizzy (USA, Europe) (En,Fr,De,Es,It)
+== fantasy zone
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 w20 x13 x10 a20 x9  a20 | Fantasy Zone (Japan, Europe) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 a20 x13 w21 w20 x9  w20 | Fantasy Zone (USA, Brazil) (En)
+== fatal fury special
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a22 w20 x13 x10 a20 x9  a20 | Fatal Fury Special (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a22 a20 x13 w21 w20 x9  w20 | Fatal Fury Special (USA)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Garou Densetsu Special (Japan)
+== fifa international soccer
+   w23 w23 w23 x13 x10 x8  x9  w23 a22 w22 a22 x13 x10 x8  x9  a22 | FIFA International Soccer (Japan)
+   w23 w23 w23 x13 w23 x8  x9  w23 w22 a22 w22 x13 w21 x8  x9  w22 | FIFA International Soccer (USA, Europe)
+== fifa soccer 96
+   w23 w23 w23 w23 w23 x8  x9  w23 w21 w21 w21 w21 w21 x8  x9  w21 | FIFA Soccer 96 (USA, Europe) (En,Fr,De,Es)
+== foreman for real
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Foreman for Real (Japan, USA) (En)
+== frank thomas big hurt baseball
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Frank Thomas Big Hurt Baseball (USA)
+== fray - shugyou hen
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Fray - Shugyou Hen (Japan)
+== fred couples golf
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Fred Couples Golf (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Fred Couples Golf (USA)
+== frogger
+   w23 w23 w23 x13 w23 w23 x9  x5  w21 w21 w21 x13 w21 w21 x9  x5  | Frogger (USA) (Proto)
+== from tv animation slam dunk - shouri e no starting 5
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | From TV Animation Slam Dunk - Shouri e no Starting 5 (Japan)
+== g-loc - air battle
+   w23 w23 w23 x13 x10 w23 x9  w23 a17 a17 a17 x13 x10 a17 x9  a17 | G-LOC - Air Battle (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | G-LOC - Air Battle (Japan) (Rev 1)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | G-LOC - Air Battle (USA, Europe, Brazil) (En)
+== galaga '91
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Galaga '91 (Japan)
+== galaga 2
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Galaga '91 (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 w22 a22 w22 x13 x10 w22 x9  w22 | Galaga 2 (Europe)
+== gamble panic
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Gamble Panic (Japan)
+== gambler jiko chuushinha
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Gambler Jiko Chuushinha (Japan)
+== ganbare gorby!
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Ganbare Gorby! (Japan)
+== garfield - caught in the act
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Garfield - Caught in the Act (USA, Europe)
+== garou densetsu special
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Garou Densetsu Special (Japan)
+== gear stadium
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Gear Stadium (Japan)
+== gear stadium heiseiban
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Gear Stadium Heiseiban (Japan)
+== gear works
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Gear Works (USA)
+== george foreman's ko boxing
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | George Foreman's KO Boxing (USA, Europe)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Heavy Weight Champ (Japan)
+== gg aleste
+   w23 w23 w23 x13 x10 w23 x9  w23 w15 w15 w15 x13 x10 w15 x9  w15 | GG Aleste (Japan) (En)
+   w23 w23 w23 x13 x10 w23 x9  w23 a15 a15 a15 x13 x10 a15 x9  a15 | GG Aleste (Japan) (En) (Aleste Collection)
+== gg aleste 3
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | GG Aleste 3 (Japan) (En) (Aleste Collection)
+== gg aleste ii
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | GG Aleste II (Japan) (En) (Aleste Collection)
+== gg portrait - pai chen
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | GG Portrait - Pai Chen (Japan)
+== gg portrait - yuuki akira
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | GG Portrait - Yuuki Akira (Japan)
+== gg shinobi, the
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | GG Shinobi, The (Japan)
+== global gladiators
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Global Gladiators (Europe)
+== gojira - kaijuu daishingeki
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Gojira - Kaijuu Daishingeki (Japan)
+== gp rider
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | GP Rider (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | GP Rider (World)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | GP Rider (World) (Beta) (1994-01-04)
+== greendog - the beached surfer dude!
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Greendog - The Beached Surfer Dude! (USA, Brazil) (En)
+== griffin
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Griffin (Japan)
+== gunstar heroes
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Gunstar Heroes (Japan)
+== halley wars
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Halley Wars (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Halley Wars (USA, Europe, Brazil) (En)
+== head buster
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Head Buster (Japan)
+== heavy weight champ
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Heavy Weight Champ (Japan)
+== home alone
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Home Alone (USA, Europe, Brazil) (En)
+== honoo no toukyuuji - dodge danpei
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Honoo no Toukyuuji - Dodge Danpei (Japan)
+== hook
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | Hook (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Hook (USA)
+== hurricanes
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Hurricanes (Europe)
+== hyokkori hyoutan-jima - hyoutan-jima no daikoukai
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Hyokkori Hyoutan-jima - Hyoutan-jima no Daikoukai (Japan)
+== hyper pro yakyuu '92
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Hyper Pro Yakyuu '92 (Japan)
+== in the wake of vampire
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | In the Wake of Vampire (Japan) (En)
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | In the Wake of Vampire (Japan) (En) (Virtual Console)
+== incredible crash dummies, the
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Incredible Crash Dummies, The (World)
+== incredible hulk, the
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Incredible Hulk, The (USA, Europe)
+== indiana jones and the last crusade
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Indiana Jones and the Last Crusade (USA, Europe, Brazil) (En)
+== iron man x-o manowar in heavy metal
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Iron Man X-O Manowar in Heavy Metal (USA)
+== itchy & scratchy game, the
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Itchy & Scratchy Game, The (USA, Europe)
+== j.league gg pro-striker '94
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | J.League GG Pro-Striker '94 (Japan)
+== j.league soccer - dream eleven
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | J.League Soccer - Dream Eleven (Japan)
+== james bond 007 - the duel
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | James Bond 007 - The Duel (Europe)
+== james pond 3 - operation starfi5h
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | James Pond 3 - Operation Starfi5h (Europe)
+== james pond ii - codename robocod
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | James Pond II - Codename RoboCod (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | James Pond II - Codename RoboCod (USA)
+== jang pung ii
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  x6  .   .   .   .   .   .   .   .   | Jang Pung II (Korea) (En) (Unl)
+== jeopardy!
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Jeopardy! (USA)
+== jeopardy! - sports edition
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Jeopardy! - Sports Edition (USA)
+== joe montana football
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 a20 x13 x10 a20 x9  a20 | Joe Montana Football (Japan, Brazil) (En) (Rev 1)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 w20 x13 w21 w20 x9  w20 | Joe Montana Football (USA, Europe)
+== journey from darkness - strider returns
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Journey from Darkness - Strider Returns (USA, Europe)
+== judge dredd
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Judge Dredd (USA, Europe)
+== junction
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 a20 x13 x10 a20 x9  a20 | Junction (Japan) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 w20 x13 w21 w20 x9  w20 | Junction (USA)
+== jungle book, the
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | Jungle Book, The (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Jungle Book, The (USA)
+== jungle strike
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Jungle Strike (USA)
+== jurassic park
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Jurassic Park (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Jurassic Park (USA, Europe, Brazil) (En)
+== kaitou saint tail
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Kaitou Saint Tail (Japan)
+== kawasaki superbike challenge
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | Kawasaki Superbike Challenge (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Kawasaki Superbike Challenge (USA)
+== kenyuu densetsu yaiba
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Kenyuu Densetsu Yaiba (Japan)
+== kick & rush
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Kick & Rush (Japan)
+== kinetic connection
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Kinetic Connection (Japan)
+== kishin douji zenki
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Kishin Douji Zenki (Japan)
+== klax
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | KLAX (USA, Europe)
+== krusty's fun house
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Krusty's Fun House (USA, Europe)
+== kuni-chan no game tengoku
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Kuni-chan no Game Tengoku (Japan)
+== kuni-chan no game tengoku part 2
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Kuni-chan no Game Tengoku Part 2 (Japan)
+== land of illusion starring mickey mouse
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Land of Illusion Starring Mickey Mouse (USA, Europe, Brazil) (En)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Mickey Mouse no Mahou no Crystal (Japan)
+== last action hero
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Last Action Hero (USA)
+== legend of illusion starring mickey mouse
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | Legend of Illusion Starring Mickey Mouse (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Legend of Illusion Starring Mickey Mouse (USA, Europe) (Beta) (1994-09-22)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Legend of Illusion Starring Mickey Mouse (USA, Europe) (Beta) (1994-09-30)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Legend of Illusion Starring Mickey Mouse (USA, Europe) (Beta) (1994-09-30) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Legend of Illusion Starring Mickey Mouse (USA, Europe) (Beta) (1994-10-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Legend of Illusion Starring Mickey Mouse (USA, Europe) (Beta) (1994-10-14)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Legend of Illusion Starring Mickey Mouse (USA, Europe) (Beta) (1994-10-17)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Mickey Mouse Densetsu no Oukoku - Legend of Illusion (Japan)
+== lemmings
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Lemmings (World)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lemmings (World) (Beta)
+== lemmings 2 - the tribes
+   w23 w23 w23 x13 x10 w23 x9  x5  w21 w21 w21 x13 x10 w21 x9  x5  | Lemmings 2 - The Tribes (Europe) (Proto) (1995-09-04)
+== lion king, the
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a22 w20 x13 x10 a20 x9  a20 | Lion King, The (Europe)
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Lion King, The (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a22 a20 x13 w14 w20 x9  w20 | Lion King, The (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-03)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-12)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-13)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-14)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-16)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-17)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-17) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Lion King, The (USA) (Beta) (1994-08-20)
+== lost world, the - jurassic park
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Lost World, The - Jurassic Park (USA)
+== lucky dime caper starring donald duck, the
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Donald Duck no Lucky Dime (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Lucky Dime Caper Starring Donald Duck, The (USA, Europe, Brazil) (En)
+== lunar - sanposuru gakuen
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Lunar - Sanposuru Gakuen (Japan)
+== madden 96
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Madden 96 (USA, Europe)
+== madden nfl 95
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Madden NFL 95 (USA)
+== madou monogatari a - dokidoki vacation
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Madou Monogatari A - Dokidoki Vacation (Japan)
+== madou monogatari i - 3-tsu no madoukyuu
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Madou Monogatari I - 3-Tsu no Madoukyuu (Japan)
+== madou monogatari ii - arle 16-sai
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Madou Monogatari II - Arle 16-Sai (Japan)
+== madou monogatari iii - kyuukyoku joou-sama
+   w23 w23 w23 x13 x10 w23 x9  w23 a17 a17 a17 x13 x10 a17 x9  a17 | Madou Monogatari III - Kyuukyoku Joou-sama (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 w17 w17 w17 x13 x10 w17 x9  w17 | Madou Monogatari III - Kyuukyoku Joou-sama (Japan) (Rev A)
+== magic knight rayearth
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Magic Knight Rayearth (Japan)
+== magic knight rayearth 2 - making of magic knight
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Magic Knight Rayearth 2 - Making of Magic Knight (Japan)
+== magical puzzle popils
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Magical Puzzle Popils (World) (En,Ja)
+== magical taruruuto-kun
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Magical Taruruuto-kun (Japan)
+== majors, the - pro baseball
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Majors, The - Pro Baseball (USA)
+== man overboard!
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Man Overboard! (Europe)
+== mappy
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Mappy (Japan)
+== marble madness
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Marble Madness (USA, Europe)
+== marko's magic football
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Marko's Magic Football (Europe) (En,Fr,De,Es)
+== master of darkness
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Master of Darkness (Europe) (Virtual Console)
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Master of Darkness (Europe, Brazil) (En)
+== mega man
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Mega Man (USA)
+== megami tensei gaiden - last bible
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Megami Tensei Gaiden - Last Bible (Japan)
+== megami tensei gaiden - last bible special
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Megami Tensei Gaiden - Last Bible Special (Japan)
+== mickey mouse densetsu no oukoku - legend of illusion
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Mickey Mouse Densetsu no Oukoku - Legend of Illusion (Japan)
+== mickey mouse no castle illusion
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Mickey Mouse no Castle Illusion (Japan)
+== mickey mouse no mahou no crystal
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Mickey Mouse no Mahou no Crystal (Japan)
+== mickey's ultimate challenge
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Mickey's Ultimate Challenge (USA)
+== micro machines
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Micro Machines (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Micro Machines (USA, Europe) (Beta) (1993-10-22)
+== micro machines 2 - turbo tournament
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Micro Machines 2 - Turbo Tournament (Europe)
+== mighty morphin power rangers
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Mighty Morphin Power Rangers (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Mighty Morphin Power Rangers (USA, Europe) (Beta) (1994-07-16)
+== mighty morphin power rangers - the movie
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Mighty Morphin Power Rangers - The Movie (USA, Europe, Brazil) (En)
+== mlbpa baseball
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | MLBPA Baseball (USA)
+== moldorian - hikari to yami no sister
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Moldorian - Hikari to Yami no Sister (Japan)
+== monster truck wars
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Monster Truck Wars (USA, Europe)
+== monster world ii - dragon no wana
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Monster World II - Dragon no Wana (Japan)
+== mortal kombat
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | Mortal Kombat (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Mortal Kombat (USA, Europe) (Beta)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Mortal Kombat - Shinken Kourin Densetsu (Japan)
+== mortal kombat - shinken kourin densetsu
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Mortal Kombat - Shinken Kourin Densetsu (Japan)
+== mortal kombat 3
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Mortal Kombat 3 (Europe)
+== mortal kombat ii
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Mortal Kombat II (World)
+== ms. pac-man
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Ms. Pac-Man (USA)
+== nazo puyo
+   w23 w23 w23 x13 x10 w23 x9  w23 a17 a17 a17 x13 x10 a17 x9  a17 | Nazo Puyo (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 w17 w17 w17 x13 x10 w17 x9  w17 | Nazo Puyo (Japan) (Rev 1)
+== nazo puyo - arle no roux
+   w23 w23 w23 x13 x10 w23 x9  w23 w14 w14 w14 x13 x10 w14 x9  w21 | Nazo Puyo - Arle no Roux (Japan)
+   w23 w23 w23 x13 x10 w23 x9  x5  a14 a14 a14 x13 x10 a14 x9  x5  | Nazo Puyo - Arle no Roux (Japan) (Beta)
+== nazo puyo 2
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Nazo Puyo 2 (Japan)
+== nba action starring david robinson
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | NBA Action Starring David Robinson (USA, Brazil) (En)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1993-11-28)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1993-12-01)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-01-04)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-01-06)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-01-10)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-01-24)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-01-29)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-02)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-03)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-06)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-08)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-12)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-15)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-17)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-20)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-24)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-25)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-25) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-26)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-28)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-02-28) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-03-01)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-03-02)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-03-03)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-03-04)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-03-04) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-03-05)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NBA Action Starring David Robinson (USA, Brazil) (En) (Beta) (1994-03-08)
+== nba jam
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | NBA Jam (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 a20 x13 w17 w22 x9  w22 | NBA Jam (USA) (Rev 1)
+   w23 w23 w23 x13 w23 w23 x9  w23 a17 a17 w20 x13 a17 a17 x9  a17 | NBA Jam (USA, Europe)
+== nba jam - tournament edition
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | NBA Jam - Tournament Edition (World)
+== neko daisuki!
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Neko Daisuki! (Japan)
+== nfl '95
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | NFL '95 (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-08-08)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-08-25)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-08-25) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-08-26)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-08-31)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-09-02)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-09-08)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-09-10)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-09-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-09-11) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-09-12)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-09-14)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NFL '95 (USA) (Beta) (1994-09-14) (Alt)
+== nfl quarterback club
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | NFL Quarterback Club (World)
+== nfl quarterback club 96
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | NFL Quarterback Club 96 (USA)
+== nhl all-star hockey
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | NHL All-Star Hockey (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1994-12-15)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1994-12-22)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1994-12-29)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1994-12-31)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-02)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-03)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-07)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-13)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-16)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-20)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-24)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-24) (Alt 2)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-24) (Alt 3)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-24) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | NHL All-Star Hockey (USA) (Beta) (1995-01-25)
+== nhl hockey
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | NHL Hockey (USA, Europe)
+== ninja gaiden
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Ninja Gaiden (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Ninja Gaiden (USA, Europe, Brazil) (En)
+== ninku
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Ninku (Japan)
+== ninku 2 - tenkuuryuu e no michi
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Ninku 2 - Tenkuuryuu e no Michi (Japan)
+== ninku gaiden - hiroyuki daikatsugeki
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Ninku Gaiden - Hiroyuki Daikatsugeki (Japan)
+== nomo hideo no world series baseball
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Nomo Hideo no World Series Baseball (Japan)
+== off the wall
+   w23 w23 w23 x13 w23 w23 x9  x5  w21 w21 w21 x13 w21 w21 x9  x5  | Off the Wall (USA) (Proto) (1992-06-28)
+== olympic gold
+   w23 w23 w23 w23 x10 w23 x9  w23 a20 a20 w20 w20 x10 a20 x9  a20 | Olympic Gold (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv)
+   w23 w23 w23 w23 w23 w23 x9  w23 w20 w20 a20 a20 w21 w20 x9  w20 | Olympic Gold (Japan, USA, Brazil) (En,Fr,De,Es,It,Nl,Pt,Sv)
+   w23 w23 w23 w23 x10 w23 x9  x6  a20 a20 a20 a20 x10 a20 x9  x6  | Olympic Gold (Taiwan) (En,Fr,De,Es,It,Nl,Pt,Sv) (Unl)
+== ottifants, the
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Ottifants, The (Europe) (En,Fr,De,Es,It)
+== outrun
+   w23 w23 w23 x13 x10 w23 x9  w23 w16 a22 w16 x13 x10 w16 x9  w16 | OutRun (Europe, Brazil) (En)
+   w23 w23 w23 x13 x10 w23 x9  w23 a16 w22 a16 x13 x10 a16 x9  a16 | OutRun (Japan, Europe, Korea) (Ja)
+== outrun europa
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | OutRun Europa (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | OutRun Europa (USA)
+== pac-attack
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Pac-Attack (USA)
+== pac-in-time
+   w23 w23 w23 x13 w23 w23 x9  x5  w21 w21 w21 x13 w21 w21 x9  x5  | Pac-in-Time (USA) (Proto)
+== pac-man
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 a20 x13 x10 a20 x9  a20 | Pac-Man (Japan) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 w20 x13 w21 w20 x9  w20 | Pac-Man (USA)
+== panzer dragoon mini
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Panzer Dragoon Mini (Japan)
+== paperboy
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Paperboy (USA, Europe)
+== paperboy 2
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Paperboy 2 (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Paperboy 2 (USA) (Beta)
+== pengo
+   w23 w23 w23 x13 x10 w23 x9  w23 w22 a22 w22 x13 x10 w22 x9  w22 | Pengo (Europe)
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Pengo (Japan)
+== pet club - inu daisuki!
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Pet Club - Inu Daisuki! (Japan)
+== pete sampras tennis
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Pete Sampras Tennis (USA, Europe)
+== pga tour 96
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | PGA Tour 96 (USA, Europe)
+== pga tour golf
+   w23 w23 w23 x13 w23 w23 x9  w23 w17 w17 a20 x13 w17 w17 x9  w17 | PGA Tour Golf (USA) (Rev 1)
+   w23 w23 w23 x13 w23 w23 x9  w23 a17 a17 w20 x13 a17 a17 x9  a17 | PGA Tour Golf (USA, Europe)
+== pga tour golf ii
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | PGA Tour Golf II (USA, Europe)
+== phantasy star adventure
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Phantasy Star Adventure (Japan)
+== phantasy star gaiden
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Phantasy Star Gaiden (Japan)
+== phantom 2040
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Phantom 2040 (USA, Europe)
+== pinball dreams
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Pinball Dreams (USA)
+== pocket jansou
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Pocket Jansou (Japan)
+== poker face - paul's cribbage
+   w23 w23 w23 x13 w23 w23 x9  x5  w21 w21 w21 x13 w21 w21 x9  x5  | Poker Face - Paul's Cribbage (USA) (Proto)
+== poker face paul's blackjack
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Poker Face Paul's Blackjack (USA)
+== poker face paul's cribbage
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w23 w23 w23 x13 w23 w23 x9  x4  w21 w21 w21 x13 w21 w21 x9  x4  | Poker Face Paul's Cribbage (USA) (Proto)
+== poker face paul's gin
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Poker Face Paul's Gin (USA)
+== poker face paul's poker
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Poker Face Paul's Poker (USA)
+== poker face paul's solitaire
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Poker Face Paul's Solitaire (USA)
+== pop breaker
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Pop Breaker (Japan)
+== popeye no beach volleyball
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Popeye no Beach Volleyball (Japan)
+== power drive
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Power Drive (Europe)
+== power strike ii
+   .   .   .   .   .   .   .   .   a22 a15 a22 x13 x10 a22 x9  a22 | GG Aleste II (Japan) (En) (Aleste Collection)
+   w23 w23 w23 x13 x10 w23 x9  w23 w22 w15 w22 x13 x10 w22 x9  w22 | Power Strike II (Japan, Europe) (En)
+== predator 2
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Predator 2 (USA, Europe)
+== primal rage
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Primal Rage (USA, Europe)
+== prince of persia
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Prince of Persia (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Prince of Persia (USA, Europe) (Beta)
+== princess gardening
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w23 w23 w23 x13 x10 w23 x9  x6  w21 w21 w21 x13 x10 w21 x9  x6  | Princess Gardening (Japan) (Aftermarket) (Unl)
+== pro yakyuu '91, the
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Pro Yakyuu '91, The (Japan)
+== pro yakyuu gg league
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Pro Yakyuu GG League (Japan)
+== pro yakyuu gg league '94
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Pro Yakyuu GG League '94 (Japan)
+== psychic world
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 a20 x13 x10 a20 x9  a20 | Psychic World (Japan) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 w20 x13 w21 w20 x9  w20 | Psychic World (USA, Europe, Brazil) (En) (Rev 1)
+== putt & putter
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Putt & Putter (Japan, Korea) (Ja)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Putt & Putter (USA, Europe, Brazil) (En)
+== puyo puyo
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Puyo Puyo (Japan) (En,Ja)
+== puyo puyo tsuu
+   w23 w23 w23 x13 x10 w23 x9  w23 w15 w15 w15 x13 x10 w15 x9  w15 | Puyo Puyo Tsuu (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 a15 a15 a15 x13 x10 a15 x9  a15 | Puyo Puyo Tsuu (Japan) (Virtual Console)
+== puzzle & action - ichidanto-r
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Puzzle & Action - Ichidanto-R (Japan)
+== puzzle & action - tanto-r
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Puzzle & Action - Tanto-R (Japan)
+== puzzle bobble
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Puzzle Bobble (Japan)
+== quest for the shaven yak starring ren hoek & stimpy
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Quest for the Shaven Yak Starring Ren Hoek & Stimpy (USA, Europe)
+== quiz gear fight!!, the
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Quiz Gear Fight!!, The (Japan)
+== r.b.i. baseball '94
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | R.B.I. Baseball '94 (USA)
+== r.c. grand prix
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | R.C. Grand Prix (USA)
+== rastan saga
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Rastan Saga (Japan)
+== revenge of drancon
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a22 a20 x13 w21 w20 x9  w20 | Revenge of Drancon (USA, Brazil) (En)
+   .   .   .   .   .   .   .   .   a20 a22 w20 x13 x10 a20 x9  a20 | Wonder Boy (Europe)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Wonder Boy (Japan)
+== riddick bowe boxing
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Riddick Bowe Boxing (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Riddick Bowe Boxing (USA)
+== rise of the robots
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Rise of the Robots (USA, Europe)
+== ristar
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Ristar (World)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Ristar (World) (Beta) (1994-09-09)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Ristar (World) (Beta) (1994-10-19)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Ristar (World) (Beta) (1994-10-24)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Ristar (World) (Beta) (1994-11-01)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Ristar (World) (Beta) (1994-11-02)
+== road rash
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 w20 x13 x10 a20 x9  a20 | Road Rash (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 a20 x13 w21 w20 x9  w20 | Road Rash (USA)
+== robocop 3
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | RoboCop 3 (World)
+== robocop versus the terminator
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | RoboCop versus The Terminator (USA, Europe)
+== royal stone - hirakareshi toki no tobira
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Royal Stone - Hirakareshi Toki no Tobira (Japan)
+== ryuukyuu
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Ryuukyuu (Japan)
+== samurai shodown
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Samurai Shodown (USA)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Samurai Spirits (Japan)
+== samurai spirits
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Samurai Spirits (Japan)
+== scratch golf
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Scratch Golf (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Scratch Golf (USA)
+== sd gundam - winner's history
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | SD Gundam - Winner's History (Japan)
+== sega game pack 4 in 1
+   w23 w23 w23 x13 x10 w23 x9  w23 w14 w14 w14 x13 x10 w14 x9  w21 | Sega Game Pack 4 in 1 (Europe)
+   w23 w23 w23 x13 x10 w23 x9  x5  a14 a14 a14 x13 x10 a14 x9  x5  | Sega Game Pack 4 in 1 (Europe) (Beta)
+== sensible soccer - european champions
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Sensible Soccer - European Champions (Europe)
+== shadam crusader - harukanaru oukoku
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Shadam Crusader - Harukanaru Oukoku (Japan)
+== shanghai ii
+   w23 w23 w23 x13 x10 w23 x9  w23 a17 a17 a17 x13 x10 a17 x9  a17 | Shanghai II (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 w17 w17 w17 x13 x10 w17 x9  w17 | Shanghai II (Japan) (Rev A)
+== shaq fu
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Shaq Fu (USA)
+== shikinjou
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Shikinjou (Japan)
+== shining force - the sword of hajya
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w15 w22 x9  w22 | Shining Force - The Sword of Hajya (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Shining Force - The Sword of Hajya (USA) (Beta) (1994-04-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Shining Force - The Sword of Hajya (USA) (Beta) (1994-05-30)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Shining Force - The Sword of Hajya (USA) (Beta) (1994-06-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Shining Force - The Sword of Hajya (USA) (Beta) (1994-07-08)
+   w23 w23 w23 x13 w23 w23 x9  w23 a15 a15 a22 x13 a15 a15 x9  a15 | Shining Force - The Sword of Hajya (USA, Europe) (Virtual Console)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Shining Force Gaiden II - Jashin no Kakusei (Japan)
+== shining force gaiden - ensei, jashin no kuni e
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Shining Force Gaiden - Ensei, Jashin no Kuni e (Japan)
+== shining force gaiden - final conflict
+   w23 w23 w23 x13 x10 w23 x9  w23 w15 w15 w15 x13 x10 w15 x9  w15 | Shining Force Gaiden - Final Conflict (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 a15 a15 a15 x13 x10 a15 x9  a15 | Shining Force Gaiden - Final Conflict (Japan) (Virtual Console)
+== shining force gaiden ii - jashin no kakusei
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Shining Force Gaiden II - Jashin no Kakusei (Japan)
+== shinobi
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | GG Shinobi, The (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w15 w22 x9  w22 | Shinobi (World) (Rev A)
+   w23 w23 w23 x13 w23 w23 x9  w23 a15 a15 a15 x13 a15 a15 x9  a15 | Shinobi (World) (Rev A) (Virtual Console)
+== shinobi ii - the silent fury
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Shinobi II - The Silent Fury (World)
+== side pocket
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Side Pocket (USA)
+== simpsons, the - bart vs. the space mutants
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Simpsons, The - Bart vs. the Space Mutants (USA, Europe)
+== simpsons, the - bart vs. the world
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Simpsons, The - Bart vs. the World (World)
+== simpsons, the - bartman meets radioactive man
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Simpsons, The - Bartman Meets Radioactive Man (USA)
+== skweek
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Skweek (Japan)
+== slider
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Skweek (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Slider (USA, Europe)
+== smurfs travel the world, the
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Smurfs Travel the World, The (Europe) (En,Fr,De,Es)
+== smurfs, the
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Smurfs, The (Europe) (En,Fr,De,Es)
+== solitaire funpak
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Solitaire FunPak (USA)
+== solitaire poker
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Ryuukyuu (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Solitaire Poker (USA, Europe)
+== sonic & tails
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Sonic & Tails (Japan) (En)
+   w23 w23 w23 x13 x10 w23 x9  x3  w21 w21 w21 x13 x10 w21 x9  x3  | Sonic & Tails (Japan) (En) (Sample)
+== sonic & tails 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Sonic & Tails 2 (Japan)
+== sonic blast
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Sonic Blast (World)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Blast (World) (Beta) (1996-05-31)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Blast (World) (Beta) (1996-07-04)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Blast (World) (Beta) (1996-08-06)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Blast (World) (Beta) (1996-08-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Blast (World) (Beta) (1996-08-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Blast (World) (Beta) (1996-09-02)
+== sonic chaos
+   .   .   .   .   .   .   .   .   a20 w20 a20 x13 x10 a20 x9  a20 | Sonic & Tails (Japan) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 w20 x13 w14 w20 x9  w20 | Sonic Chaos (USA, Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Chaos (USA, Europe, Brazil) (En) (Beta) (1993-05-17)
+== sonic drift
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Sonic Drift (Japan) (En)
+   w23 w23 w23 x13 x10 w23 x9  x3  w21 w21 w21 x13 x10 w21 x9  x3  | Sonic Drift (Japan) (En) (Demo)
+== sonic drift 2
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Sonic Drift 2 (World)
+== sonic labyrinth
+   w23 w23 w23 x13 w23 w23 x9  w23 a22 a22 a22 x13 a22 a22 x9  a22 | Sonic Labyrinth (USA, Europe) (Virtual Console)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 w22 w22 x13 w22 w22 x9  w22 | Sonic Labyrinth (World)
+== sonic spinball
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Sonic Spinball (USA, Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-03-07)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-03-10)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-03-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-03-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-03-28)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-03-29)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-03-30)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-04-05)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-04-12)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-04-13)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-04-15)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-04-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-04-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-04-29)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-04-29) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-05-03)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-05-05)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-05-06)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-05-25)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic Spinball (USA, Europe, Brazil) (En) (Beta) (1994-05-30)
+== sonic the hedgehog
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w22 w20 x13 x10 a20 x9  a20 | Sonic The Hedgehog (Japan, Europe, Brazil) (En) (Rev 1)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a17 a20 x13 w22 w20 x9  w20 | Sonic The Hedgehog (Japan, USA) (En)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic The Hedgehog (Japan, USA) (En) (Beta)
+   w23 w23 w23 x13 w23 w23 x9  w23 a22 a22 a22 x13 a22 a22 x9  a22 | Sonic The Hedgehog (World) (Rev 1) (Virtual Console)
+== sonic the hedgehog - triple trouble
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Sonic & Tails 2 (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | Sonic The Hedgehog - Triple Trouble (USA, Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sonic The Hedgehog - Triple Trouble (USA, Europe, Brazil) (En) (Beta) (1994-08-08)
+== sonic the hedgehog 2
+   w23 w23 w23 x13 w23 w23 x9  w23 w15 w15 w15 x13 w15 w15 x9  w15 | Sonic The Hedgehog 2 (World)
+   w23 w23 w23 x13 w23 w23 x9  x3  w21 w21 w21 x13 w21 w21 x9  x3  | Sonic The Hedgehog 2 (World) (Auto Demo)
+   w23 w23 w23 x13 w23 w23 x9  w23 a15 a15 a15 x13 a15 a15 x9  a15 | Sonic The Hedgehog 2 (World) (Virtual Console)
+     alternative to Sonic The Hedgehog 2 (World) [9-11,13-14]
+== soukoban
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Soukoban (Japan)
+== space harrier
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Space Harrier (World)
+== spider-man
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Spider-Man (USA, Europe)
+== spider-man - return of the sinister six
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Spider-Man - Return of the Sinister Six (USA, Europe)
+== spider-man - x-men - arcade's revenge
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Spider-Man - X-Men - Arcade's Revenge (USA)
+== spirou
+   w23 w23 w23 x13 x10 w23 x9  x5  w21 w21 w21 x13 x10 w21 x9  x5  | Spirou (Europe) (Proto)
+== sports illustrated - championship football & baseball
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Sports Illustrated - Championship Football & Baseball (USA)
+== sports trivia
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Sports Trivia (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia (USA) (Beta) (1995-03-08)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia (USA) (Beta) (1995-03-09)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia (USA) (Beta) (1995-03-16)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia (USA) (Beta) (1995-04-25)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia (USA) (Beta) (1995-04-25) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia (USA) (Beta) (1995-04-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia (USA) (Beta) (1995-05-04)
+== sports trivia - championship edition
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Sports Trivia - Championship Edition (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-13)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-16)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-17)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-20)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-20) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-23)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-23) (Alt 2)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-23) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-27) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-29)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-29) (Alt 2)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-29) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-30)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-03-30) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-03)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-04)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-04) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-05)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-05) (Alt 2)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-05) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-06)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-07)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-07) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-12)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-13)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Sports Trivia - Championship Edition (USA) (Beta) (1995-04-28)
+== star trek - the next generation - the advanced holodeck tutorial
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Star Trek - The Next Generation - The Advanced Holodeck Tutorial (USA)
+== star trek generations - beyond the nexus
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Star Trek Generations - Beyond the Nexus (USA)
+== star wars
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a20 a18 x13 x10 a20 x9  a20 | Star Wars (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 w20 w18 x13 w21 w20 x9  w20 | Star Wars (USA, Europe)
+== stargate
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Stargate (World)
+== street battle
+   .   .   .   .   .   .   .   .   w22 w22 w22 x13 x10 w22 x9  x6  | Jang Pung II (Korea) (En) (Unl)
+   w23 w23 w23 x13 w23 w23 x9  x5  a22 a22 a22 x13 w21 a22 x9  x5  | Street Battle (USA) (Proto) (Unl)
+== street hero
+   w23 w23 w23 x13 w23 w23 x9  x5  a17 a17 a17 x13 a17 a17 x9  x5  | Street Hero (USA) (Proto 1)
+   w23 w23 w23 x13 w23 w23 x9  x5  w17 w17 w17 x13 w17 w17 x9  x5  | Street Hero (USA) (Proto 2)
+== streets of rage
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Streets of Rage (World)
+== streets of rage 2
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Streets of Rage 2 (World)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Streets of Rage 2 (World) (Beta)
+== striker
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Striker (Europe) (En,Fr,De,Es,It)
+== super battletank
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Super Battletank (USA)
+== super columns
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Super Columns (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | Super Columns (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Super Columns (USA, Europe) (Beta) (1994-11-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Super Columns (USA, Europe) (Beta) (1994-12-01)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Super Columns (USA, Europe) (Beta) (1994-12-15)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Super Columns (USA, Europe) (Beta) (1994-12-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Super Columns (USA, Europe) (Beta) (1994-12-26)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Super Columns (USA, Europe) (Beta) (1994-12-28)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Super Columns (USA, Europe) (Beta) (1995-01-06)
+== super golf
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Super Golf (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Super Golf (USA)
+== super kick off
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Super Kick Off (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv)
+== super momotarou dentetsu iii
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Super Momotarou Dentetsu III (Japan)
+== super monaco gp
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Super Monaco GP (Japan, Korea) (Ja)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Super Monaco GP (USA, Europe, Brazil) (En)
+== super off road
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Super Off Road (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Super Off Road (USA, Europe) (Beta)
+== super smash t.v.
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Super Smash T.V. (World)
+== super space invaders
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Super Space Invaders (USA, Europe)
+== super star wars - return of the jedi
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Super Star Wars - Return of the Jedi (USA, Europe)
+== superman - the man of steel
+   w23 w23 w23 x13 x10 w23 x9  w23 w14 w14 w14 x13 x10 w14 x9  w21 | Superman - The Man of Steel (Europe)
+   w23 w23 w23 x13 x10 w23 x9  x5  a14 a14 a14 x13 x10 a14 x9  x5  | Superman - The Man of Steel (Europe) (Beta)
+== surf ninjas
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Surf Ninjas (USA, Europe, Brazil) (En)
+== sylvan tale
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Sylvan Tale (Japan)
+== t2 - the arcade game
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 a20 x13 x10 a20 x9  a20 | T2 - The Arcade Game (Japan) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 w20 x13 w21 w20 x9  w20 | T2 - The Arcade Game (USA, Europe)
+== tails adventure
+   w23 w23 w23 x13 w23 w23 x9  w23 w15 w15 w15 x13 w15 w15 x9  w15 | Tails Adventure (World) (En,Ja)
+   w23 w23 w23 x13 w23 w23 x9  w23 a15 a15 a15 x13 a15 a15 x9  a15 | Tails Adventure (World) (En,Ja) (Virtual Console)
+== tails no skypatrol
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Tails no Skypatrol (Japan)
+== taisen mahjong haopai
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Taisen Mahjong HaoPai (Japan)
+== taisen mahjong haopai 2
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Taisen Mahjong HaoPai 2 (Japan)
+== taisen-gata daisenryaku g
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Taisen-gata Daisenryaku G (Japan)
+== taito chase h.q.
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Taito Chase H.Q. (Japan)
+== talespin
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | TaleSpin (USA, Europe, Brazil) (En)
+== tama & friends - 3 choume kouen tamalympic
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Tama & Friends - 3 Choume Kouen Tamalympic (Japan)
+== tarot no yakata
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Tarot no Yakata (Japan)
+== tarzan - lord of the jungle
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Tarzan - Lord of the Jungle (Europe)
+== tatakae! pro yakyuu twin league
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Tatakae! Pro Yakyuu Twin League (Japan)
+== taz in escape from mars
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Taz in Escape from Mars (USA, Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-05-11)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-08-10)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-08-14)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-08-19)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-08-21)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-08-23)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-08-29)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-08-30)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-09-02)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-09-05)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-09-05) (Alt)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-09-06)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-09-09)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Taz in Escape from Mars (USA, Europe, Brazil) (En) (Beta) (1994-09-10)
+== taz-mania
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Taz-Mania (USA, Europe, Brazil) (En)
+== tempo jr.
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Tempo Jr. (World)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1994-11-28)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1994-12-05)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1994-12-12)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1994-12-26)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1995-01-17)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1995-01-20)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1995-01-31)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1995-02-06)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tempo Jr. (World) (Beta) (1995-02-15)
+== tengen world cup soccer
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Kick & Rush (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | Tengen World Cup Soccer (USA, Europe)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Tengen World Cup Soccer (USA, Europe) (Beta)
+== terminator 2 - judgment day
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Terminator 2 - Judgment Day (World)
+== terminator, the
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Terminator, The (USA, Europe)
+== tesserae
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Tesserae (USA)
+== tintin in tibet
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Tintin in Tibet (Europe) (En,Fr,De,Es,Nl,Sv)
+== tom and jerry - the movie
+   w23 w23 w23 x13 x10 w23 x9  w23 a22 w22 a22 x13 x10 a22 x9  a22 | Tom and Jerry - The Movie (Japan, Brazil) (Ja)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Tom and Jerry - The Movie (USA, Europe)
+== torarete tamaruka
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Torarete Tamaruka (Japan)
+== true lies
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | True Lies (World)
+== ultimate soccer
+   w23 w23 w23 w23 x10 w23 x9  w23 w21 w21 w21 w21 x10 w21 x9  w21 | Ultimate Soccer (Japan, Europe, Brazil) (En,Fr,De,Es,It)
+== urban strike
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Urban Strike (USA)
+== vampire - master of darkness
+   .   .   .   .   .   .   .   .   a20 w20 a20 x13 x10 a20 x9  a20 | In the Wake of Vampire (Japan) (En)
+   .   .   .   .   .   .   .   .   a15 a15 a15 x13 x10 a15 x9  a15 | In the Wake of Vampire (Japan) (En) (Virtual Console)
+   .   .   .   .   .   .   .   .   a15 a15 a15 x13 x10 a15 x9  a15 | Master of Darkness (Europe) (Virtual Console)
+   .   .   .   .   .   .   .   .   a20 a20 w20 x13 x10 a20 x9  a20 | Master of Darkness (Europe, Brazil) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 a20 x13 w15 w20 x9  w20 | Vampire - Master of Darkness (USA)
+   w23 w23 w23 x13 w23 w23 x9  w23 a15 a15 a15 x13 a15 a15 x9  a15 | Vampire - Master of Darkness (USA) (Virtual Console)
+== virtua fighter animation
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w21 w22 x9  w22 | Virtua Fighter Animation (USA, Europe)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Virtua Fighter Mini (Japan)
+== virtua fighter mini
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Virtua Fighter Mini (Japan)
+== vr troopers
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | VR Troopers (USA, Europe, Brazil) (En)
+== wagyan land
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Wagyan Land (Japan)
+== waternet
+   w23 w23 w23 x13 w23 w23 x9  x6  w21 w21 w21 x13 w21 w21 x9  x6  | Waternet (World) (Aftermarket) (Unl)
+== wheel of fortune
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Wheel of Fortune (USA)
+== wildsnake
+   w23 w23 w23 x13 w23 w23 x9  x5  w21 w21 w21 x13 w21 w21 x9  x5  | WildSnake (USA) (Proto)
+== wimbledon
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | Wimbledon (World)
+== winter olympics
+   w23 w23 w23 w23 x10 w23 x9  w23 a20 w20 a20 a20 x10 a20 x9  a20 | Winter Olympics (Japan) (En,Fr,De,Es,It,Pt,Sv,No)
+   w23 w23 w23 w23 w23 w23 x9  w23 w20 a20 w20 w20 w21 w20 x9  w20 | Winter Olympics (USA, Europe) (En,Fr,De,Es,It,Pt,Sv,No)
+== wizard pinball
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Wizard Pinball (Europe)
+== wolfchild
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Wolfchild (Europe)
+== wonder boy
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Wonder Boy (Europe)
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Wonder Boy (Japan)
+== wonder boy - the dragon's trap
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Monster World II - Dragon no Wana (Japan)
+   w23 w23 w23 x13 x10 w23 x9  w23 w22 a22 w22 x13 x10 w22 x9  w22 | Wonder Boy - The Dragon's Trap (Europe)
+   .   .   .   .   .   .   .   .   a14 a14 a14 x13 x10 a14 x9  x5  | Wonder Boy III - The Dragon's Trap (Europe) (Beta)
+== wonder boy iii - the dragon's trap
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  x5  .   .   .   .   .   .   .   .   | Wonder Boy III - The Dragon's Trap (Europe) (Beta)
+== woody pop
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 w20 a20 x13 x10 a20 x9  a20 | Woody Pop (Japan) (En)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a20 w20 x13 w21 w20 x9  w20 | Woody Pop (USA, Europe, Brazil) (En)
+== world class leaderboard
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | World Class Leaderboard (USA, Europe)
+== world cup usa 94
+   w23 w23 w23 w23 w23 w23 x9  w23 w21 w21 w21 w21 w21 w21 x9  w21 | World Cup USA 94 (USA, Europe, Brazil) (En,Fr,De,Es,It,Nl,Pt,Sv)
+== world derby
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | World Derby (Japan)
+== world series baseball
+   w23 w23 w23 x13 w23 w23 x9  w23 a17 a17 a17 x13 a17 a17 x9  a17 | World Series Baseball (USA)
+   w23 w23 w23 x13 w23 w23 x9  w23 w17 w17 w17 x13 w17 w17 x9  w17 | World Series Baseball (USA) (Rev 1)
+== world series baseball '95
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Nomo Hideo no World Series Baseball (Japan)
+   w23 w23 w23 x13 w23 w23 x9  w23 w22 a22 w22 x13 w14 w22 x9  w22 | World Series Baseball '95 (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | World Series Baseball '95 (USA) (Beta) (1994-06-29)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | World Series Baseball '95 (USA) (Beta) (1994-07-09)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | World Series Baseball '95 (USA) (Beta) (1994-07-19)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | World Series Baseball '95 (USA) (Beta) (1994-07-22)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | World Series Baseball '95 (USA) (Beta) (1994-07-28)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | World Series Baseball '95 (USA) (Beta) (1994-07-29)
+== wwf raw
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | WWF Raw (USA, Europe)
+== wwf wrestlemania - steel cage challenge
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | WWF Wrestlemania - Steel Cage Challenge (USA, Europe)
+== x-men
+   w23 w23 w23 x13 w23 w23 x9  w23 w21 w21 w21 x13 w21 w21 x9  w21 | X-Men (USA)
+== x-men - gamemaster's legacy
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - GameMaster's Legacy (USA, Europe) (Beta) (1994-08-10)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - GameMaster's Legacy (USA, Europe) (Beta) (1994-08-31)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - GameMaster's Legacy (USA, Europe) (Beta) (1994-09-06)
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | X-Men - Gamemaster's Legacy (USA, Europe)
+== x-men - mojo world
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | X-Men - Mojo World (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - Mojo World (USA) (Beta) (1996-06-05)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - Mojo World (USA) (Beta) (1996-06-13)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - Mojo World (USA) (Beta) (1996-06-24)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - Mojo World (USA) (Beta) (1996-06-25)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - Mojo World (USA) (Beta) (1996-06-27)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - Mojo World (USA) (Beta) (1996-06-28)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | X-Men - Mojo World (USA) (Beta) (1996-06-29)
+== x-terminator
+   w23 w23 w23 x13 x10 w23 x9  x1  w22 a22 w22 x13 x10 w22 x9  x1  | X-Terminator (Europe) (v2.1) (Program) (Unl)
+   w23 w23 w23 x13 x10 w23 x9  x1  a22 w22 a22 x13 x10 a22 x9  x1  | X-Terminator (Japan) (v2.1) (Program) (Unl)
+== yakitori meijin torigin
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w23 w23 w23 x13 x10 w23 x9  x6  w21 w21 w21 x13 x10 w21 x9  x6  | Yakitori Meijin Torigin (Japan) (Aftermarket) (Unl)
+== yogi bear in yogi bear's goldrush
+   w23 w23 w23 x13 x10 w23 x9  x5  w21 w21 w21 x13 x10 w21 x9  x5  | Yogi Bear in Yogi Bear's Goldrush (Europe) (Proto)
+== yu yu hakusho - horobishimono no gyakushuu
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Yu Yu Hakusho - Horobishimono no Gyakushuu (Japan)
+== yu yu hakusho ii - gekitou! nanakyou no tatakai
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Yu Yu Hakusho II - Gekitou! Nanakyou no Tatakai (Japan)
+== zan gear
+   w23 w23 w23 x13 x10 w23 x9  w23 w21 w21 w21 x13 x10 w21 x9  w21 | Zan Gear (Japan)
+== zool - ninja of the 'nth' dimension
+   w23 w23 w23 x13 x10 w23 x9  w23 a20 a22 w20 x13 x10 a20 x9  a20 | Zool - Ninja of the 'Nth' Dimension (Europe)
+   w23 w23 w23 x13 w23 w23 x9  w23 w20 a22 a20 x13 w21 w20 x9  w20 | Zool - Ninja of the 'Nth' Dimension (USA)
+   .   .   .   .   .   .   .   .   a22 w22 a22 x13 x10 a22 x9  a22 | Zool no Yume Bouken (Japan)
+== zool no yume bouken
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w23 w23 w23 x13 x10 w23 x9  w23 .   .   .   .   .   .   .   .   | Zool no Yume Bouken (Japan)
+== zoop
+   w23 w23 w23 x13 w23 w23 x9  w23 w14 w14 w14 x13 w14 w14 x9  w21 | Zoop (USA)
+   w23 w23 w23 x13 w23 w23 x9  x5  a14 a14 a14 x13 a14 a14 x9  x5  | Zoop (USA) (Beta) (1995-08-11)

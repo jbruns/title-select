@@ -21,9 +21,23 @@ pub(crate) struct CloneList {
     pub variants: Vec<J>,
 }
 
+/// Whether `path` is a file under exactly its name. A case-insensitive file system (macOS, Windows) would also
+/// open a file whose name differs only in case, which Linux, where the service runs, doesn't: so a Selection
+/// reads the same data files everywhere.
+fn exactly_a_file(path: &Path) -> bool {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return false;
+    };
+    path.is_file()
+        && std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .any(|entry| entry.is_ok_and(|e| e.file_name() == name))
+}
+
 /// `load_data`: a JSON file's contents, or an empty object when there's no file.
 fn load_data(path: &Path, kind: &str) -> Result<J, Error> {
-    if !path.is_file() {
+    if !exactly_a_file(path) {
         return Ok(J::Dict(IndexMap::new()));
     }
     let bytes =
@@ -92,7 +106,7 @@ pub(crate) fn import_clone_list(dat: &Dat, data: &Path) -> Result<CloneList, Err
         "retroachievements",
     );
     let chd = ra_dir.join(format!("{ra_name} (CHD).json"));
-    if chd.exists() {
+    if exactly_a_file(&chd) {
         retroachievements.extend(list(
             &load_data(&chd, "RetroAchievements CHD file")?,
             "retroachievements",
@@ -117,9 +131,9 @@ pub(crate) fn import_metadata(dat: &Dat, data: &Path) -> Result<IndexMap<String,
 
 /// `regex_test` for the Operator's filters: drops the `/regex` entries that don't compile, with a warning.
 fn regex_test(list: Vec<String>, origin: &str, post_filter: bool) -> Result<Vec<String>, Error> {
-    // Python refuses a Profile whose patterns it can't compile before either engine runs, so a pattern
-    // here compiles in Python; one the built-in engine can't read as Python does stops the run rather
-    // than being skipped, which would change the rules.
+    // `patterns::check` refuses a Profile whose patterns don't compile before the engine runs, so a pattern
+    // here compiles; one the engine can't read as Python's `re` does stops the run rather than being
+    // skipped, which would change the rules.
     for item in &list {
         let wrapped = item
             .strip_prefix('<')
@@ -302,4 +316,26 @@ pub(crate) fn read_text(path: &Path) -> Result<String, Error> {
     let bytes =
         std::fs::read(path).map_err(|e| Error::Builtin(format!("{}: {e}", path.display())))?;
     String::from_utf8(bytes).map_err(|_| Error::Builtin(format!("{} isn't UTF-8", path.display())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// On a case-insensitive file system `Retool - Post filters.json` would open `Retool - Post Filters.json`;
+    /// on Linux, where the service runs, it wouldn't. Every platform reads only the exact name.
+    #[test]
+    fn a_data_file_is_found_only_under_its_exact_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Some System.json"), r#"{"a": 1}"#).unwrap();
+        assert!(matches!(
+            load_data(&dir.path().join("Some System.json"), "clone list").unwrap(),
+            J::Dict(d) if d.len() == 1
+        ));
+        assert!(matches!(
+            load_data(&dir.path().join("Some system.json"), "clone list").unwrap(),
+            J::Dict(d) if d.is_empty()
+        ));
+        assert!(!exactly_a_file(&dir.path().join("some system.json")));
+    }
 }

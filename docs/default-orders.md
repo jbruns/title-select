@@ -23,9 +23,9 @@ so trust them over this page if the two ever differ.
 ## Where they come from
 
 Selection is derived from [Retool](https://github.com/unexpectedpanda/retool), and the default orders are Retool's
-own: `defaultRegionOrder` and `defaultVideoOrder` in its `internal-config.json`, in file order. Retool's "Use default
-order for English speakers" button fills in the same region order. Title Select uses the orders as its pinned copy of
-Retool ships them, and does not change them.
+own: `defaultRegionOrder` and `defaultVideoOrder` in the `internal-config.json` of its clone lists and metadata, in
+file order. Retool's "Use default order for English speakers" button fills in the same region order. Title Select uses
+the orders as its pinned copy of the clone lists and metadata ships them, and does not change them.
 
 ## Choosing your own order
 
