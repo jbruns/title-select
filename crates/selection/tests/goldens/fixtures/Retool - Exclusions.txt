@@ -1,0 +1,219 @@
+# The built-in engine's Selections from "Retool - Exclusions.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list false, metadata false
+system: Retool - Exclusions
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [4,12]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Exclusions REF0042: Excluded due to categories: Add-Ons (reason: Category exclude, Add-Ons)
+rule r2: Exclusions REF0042: Excluded due to categories: Applications (reason: Category exclude, Applications)
+rule r3: Exclusions REF0042: Excluded due to categories: Audio (reason: Category exclude, Audio)
+rule r4: Exclusions REF0042: Excluded due to categories: BIOS (reason: Category exclude, BIOS)
+rule r5: Exclusions REF0042: Excluded due to categories: Bonus Discs (reason: Category exclude, Bonus Discs)
+rule r6: Exclusions REF0042: Excluded due to categories: Coverdiscs (reason: Category exclude, Coverdiscs)
+rule r7: Exclusions REF0042: Excluded due to categories: Demos (reason: Category exclude, Demos)
+rule r8: Exclusions REF0042: Excluded due to categories: Educational (reason: Category exclude, Educational)
+rule r9: Exclusions REF0042: Excluded due to categories: Games, Audio (reason: Category exclude, Audio)
+rule r10: Exclusions REF0042: Excluded due to categories: Games, Demos (reason: Category exclude, Demos)
+rule r11: Exclusions REF0042: Excluded due to categories: Manuals (reason: Category exclude, Manuals)
+rule r12: Exclusions REF0042: Excluded due to categories: Multimedia (reason: Category exclude, Multimedia)
+rule r13: Exclusions REF0042: Excluded due to categories: Preproduction (reason: Category exclude, Preproduction)
+rule r14: Exclusions REF0042: Excluded due to categories: Promotional (reason: Category exclude, Promotional)
+rule r15: Exclusions REF0042: Excluded due to categories: Video (reason: Category exclude, Video)
+rule r16: Exclusions REF0044: Excluded due to a categories regex: 'EPK|Press Kit|\\(Promo\\)' (reason: Category exclude, Promotional)
+rule r17: Exclusions REF0044: Excluded due to a categories regex: '\\(Aftermarket\\)' (reason: Category exclude, Aftermarket)
+rule r18: Exclusions REF0044: Excluded due to a categories regex: '\\(Manual\\)' (reason: Category exclude, Manuals)
+rule r19: Exclusions REF0044: Excluded due to a categories regex: '\\(Pirate\\)' (reason: Category exclude, Pirate)
+rule r20: Exclusions REF0044: Excluded due to a categories regex: '\\(Unl\\)' (reason: Category exclude, Unlicensed)
+rule r21: Exclusions REF0044: Excluded due to a categories regex: '\\[b\\]' (reason: Category exclude, Bad Dumps)
+rule r22: Exclusions REF0062: Excluded due to known MIA (reason: Known MIA title)
+rule r23: Exclusions: Global post filter exclude
+rule r24: Exclusions: Region remove
+rule r25: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r26: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r27: Parent selection: No other release competed
+== [bios] test title 8
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 x23 x4  w26 w26 w26 x25 w26 w26 x23 x4  | [BIOS] Test Title 8 (USA)
+== [mia] test title 30
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 x23 x22 w26 w26 w26 x25 w26 w26 x23 x22 | [MIA] Test Title 30 (USA)
+== test title 0
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 w27 w26 w26 w26 x25 w26 w26 w26 w26 | Test Title 0 (USA)
+== test title 1
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x1  w26 w26 w26 x25 w26 w26 w26 x1  | Test Title 1 (USA)
+== test title 10
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x4  w26 w26 w26 x25 w26 w26 w26 x4  | Test Title 10 (USA) (Enhancement Chip)
+== test title 11
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x5  w26 w26 w26 x25 w26 w26 w26 x5  | Test Title 11 (USA)
+== test title 12
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x6  w26 w26 w26 x25 w26 w26 w26 x6  | Test Title 12 (USA)
+== test title 13
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 13 (USA)
+== test title 14
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x10 w26 w26 w26 x25 w26 w26 w26 x10 | Test Title 14 (USA) (Demo)
+== test title 15
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x10 w26 w26 w26 x25 w26 w26 w26 x10 | Test Title 15 (USA) (Demo 2)
+== test title 16
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x10 w26 w26 w26 x25 w26 w26 w26 x10 | Test Title 16 (USA) (Demo-CD)
+== test title 17
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 x24 w27 x23 x7  w26 w26 w26 x25 x24 w26 x23 x7  | Test Title 17 (Japan) (@barai)
+== test title 18
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 18 (USA) (GameCube Preview)
+== test title 19
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 19 (USA) (Kiosk Special)
+== test title 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x2  w26 w26 w26 x25 w26 w26 w26 x2  | Test Title 2 (USA) (Program)
+== test title 20
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 20 (USA) (Special Kiosk)
+== test title 21 kiosk demo disc
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 21 Kiosk Demo Disc (USA)
+== test title 22 - ps2 kiosk
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 22 - PS2 Kiosk (USA)
+== test title 23 - psp system kiosk
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 23 - PSP System Kiosk (USA)
+== test title 24
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 24 (USA) (Preview)
+== test title 25
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 25 (USA) (Sample)
+== test title 26
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 x24 w27 x23 x7  w26 w26 w26 x25 x24 w26 x23 x7  | Test Title 26 (Japan) (Taikenban)
+== test title 27 trial edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x7  w26 w26 w26 x25 w26 w26 w26 x7  | Test Title 27 Trial Edition (USA)
+== test title 28
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x8  w26 w26 w26 x25 w26 w26 w26 x8  | Test Title 28 (USA)
+== test title 29
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x18 w26 w26 w26 x25 w26 w26 w26 x18 | Test Title 29 (USA) (Manual)
+== test title 29a
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x11 w26 w26 w26 x25 w26 w26 w26 x11 | Test Title 29A (USA)
+== test title 3
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x2  w26 w26 w26 x25 w26 w26 w26 x2  | Test Title 3 (USA) (Test Program)
+== test title 31
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x22 w26 w26 w26 x25 w26 w26 w26 x22 | Test Title 31 (USA)
+== test title 32
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x12 w26 w26 w26 x25 w26 w26 w26 x12 | Test Title 32 (USA)
+== test title 33
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x19 w26 w26 w26 x25 w26 w26 w26 x19 | Test Title 33 (Pirate) (USA)
+== test title 34
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 34 (Alpha) (USA)
+== test title 35
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 35 (Alpha 2) (USA)
+== test title 36
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 36 (Testing Alpha) (USA)
+== test title 37
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 37 (Beta) (USA)
+== test title 38
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 38 (Beta 2) (USA)
+== test title 39
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 39 (Testing Beta) (USA)
+== test title 4 check program
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x2  w26 w26 w26 x25 w26 w26 w26 x2  | Test Title 4 Check Program (USA)
+== test title 40
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 40 (Proto) (USA)
+== test title 41
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 41 (Proto 2) (USA)
+== test title 42
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 42 (Testing Proto) (USA)
+== test title 43
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x13 w26 w26 w26 x25 w26 w26 w26 x13 | Test Title 43 (Pre-production) (USA)
+== test title 44
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x14 w26 w26 w26 x25 w26 w26 w26 x14 | Test Title 44 (USA)
+== test title 45
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x16 w26 w26 w26 x25 w26 w26 w26 x16 | Test Title 45 (USA) (Promo)
+== test title 46 epk
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x16 w26 w26 w26 x25 w26 w26 w26 x16 | Test Title 46 EPK (USA)
+== test title 47 - press kit
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x16 w26 w26 w26 x25 w26 w26 w26 x16 | Test Title 47 - Press Kit (USA)
+== test title 48
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x20 w26 w26 w26 x25 w26 w26 w26 x20 | Test Title 48 (USA) (Unl)
+== test title 49
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x17 w26 w26 w26 x25 w26 w26 w26 x17 | Test Title 49 (USA) (Aftermarket)
+== test title 5 sample program
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x2  w26 w26 w26 x25 w26 w26 w26 x2  | Test Title 5 Sample Program (USA)
+== test title 50
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x15 w26 w26 w26 x25 w26 w26 w26 x15 | Test Title 50 (USA)
+== test title 51
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x1  w26 w26 w26 x25 w26 w26 w26 x1  | Test Title 51 (USA) (Addon)
+== test title 52
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x1  w26 w26 w26 x25 w26 w26 w26 x1  | Test Title 52 (USA) (DLC)
+== test title 53
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x1  w26 w26 w26 x25 w26 w26 w26 x1  | Test Title 53 (USA) (Addon for XBLA)
+   w27 w27 w27 x25 w27 w27 w27 x1  w26 w26 w26 x25 w26 w26 w26 x1  | Test Title 53 (USA) (Avatar)
+   w27 w27 w27 x25 w27 w27 w27 x1  w26 w26 w26 x25 w26 w26 w26 x1  | Test Title 53 (USA) (Theme)
+== test title 6
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x3  w26 w26 w26 x25 w26 w26 w26 x3  | Test Title 6 (USA)
+   w27 w27 w27 x25 w27 w27 w27 x9  w26 w26 w26 x25 w26 w26 w26 x9  | Test Title 6 (USA) (Soundtrack)
+== test title 7
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x21 w26 w26 w26 x25 w26 w26 w26 x21 | Test Title 7 (USA) [b]
+== test title 9
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w27 w27 w27 x25 w27 w27 w27 x4  w26 w26 w26 x25 w26 w26 w26 x4  | Test Title 9 (USA)

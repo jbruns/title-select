@@ -1,0 +1,2118 @@
+# The built-in engine's Selections from "Nintendo - Nintendo 64 (BigEndian) (Private).dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata true
+system: Nintendo - Nintendo 64 (No-Intro)
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [7,15]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Exclusions REF0042: Excluded due to categories: Applications (reason: Category exclude, Applications)
+rule r2: Exclusions REF0042: Excluded due to categories: Applications, Preproduction (reason: Category exclude, Applications)
+rule r3: Exclusions REF0042: Excluded due to categories: Audio (reason: Category exclude, Audio)
+rule r4: Exclusions REF0042: Excluded due to categories: BIOS (reason: Category exclude, BIOS)
+rule r5: Exclusions REF0042: Excluded due to categories: Demos (reason: Category exclude, Demos)
+rule r6: Exclusions REF0042: Excluded due to categories: Demos, Preproduction (reason: Category exclude, Demos)
+rule r7: Exclusions REF0042: Excluded due to categories: Games, Preproduction (reason: Category exclude, Preproduction)
+rule r8: Exclusions REF0042: Excluded due to categories: Games, Preproduction, Demos (reason: Category exclude, Demos)
+rule r9: Exclusions REF0042: Excluded due to categories: Preproduction (reason: Category exclude, Preproduction)
+rule r10: Exclusions REF0044: Excluded due to a categories regex: '\\(Pirate\\)' (reason: Category exclude, Pirate)
+rule r11: Exclusions REF0044: Excluded due to a categories regex: '\\(Unl\\)' (reason: Category exclude, Unlicensed)
+rule r12: Exclusions REF0046: Excluded due to a global override (reason: Related to user global excludes)
+rule r13: Exclusions REF0046: Excluded due to a global override (reason: User global exclude)
+rule r14: Exclusions: Global post filter exclude
+rule r15: Exclusions: Region remove
+rule r16: Exclusions: Related to user global excludes
+rule r17: Includes REF0048: Included due to a global override
+rule r18: Language filter REF0049: Removed due to user language filters: En(?:-[A-Z][A-Z])?, De, Fr(?!-CA)(?:-[A-Z][A-Z])?, It, Ja (reason: Language remove)
+rule r19: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r20: Parent selection REF0002: Group after taking clone list priorities into account
+rule r21: Parent selection REF0003: Group after cleaning up preproduction/bad/pirate/mixed version-revision titles
+rule r22: Parent selection REF0004: Group after handling modern title rips
+rule r23: Parent selection REF0005: [First pass] Group after filtering by user language order
+rule r24: Parent selection REF0007: Group after handling versions and revisions
+rule r25: Parent selection REF0008: Group after handling modern title rips
+rule r26: Parent selection REF0011: Group after handling promotions and demotions
+rule r27: Parent selection REF0014: Group after lower priority region, non-superset clones removed
+rule r28: Parent selection REF0043: [Second pass] Group after filtering by user language order
+rule r29: Parent selection REF0059: Group after filtering by string comparison
+rule r30: Parent selection REF0060: Group after handling unlicensed/aftermarket/pirate versions
+rule r31: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r32: Parent selection REF0096: Group after choosing video standard
+rule r33: Parent selection REF0119: Group after good dump/production/retail check
+rule r34: Parent selection: No other release competed
+== 007 - the world is not enough
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | 007 - The World Is Not Enough (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | 007 - The World Is Not Enough (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | 007 - The World Is Not Enough (USA) (v2) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | 007 - The World Is Not Enough (USA) (v21) (Beta)
+== 1080 snowboarding
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | 1080 Snowboarding (Europe) (En,Ja,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w26 w27 x14 w27 | 1080 Snowboarding (Japan, USA) (En,Ja)
+   w34 w34 w34 x19 w34 w34 x14 w34 a25 a27 a25 x19 a26 a25 x14 a25 | 1080 Snowboarding (USA) (En,Ja) (LodgeNet)
+== 2048
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 w34 w34 w34 x14 x11 w31 w31 w31 w31 w31 w31 x14 x11 | 2048 (World) (En,Fr,Es) (Aftermarket) (Unl)
+== 3d model rgb test program
+   w34 w34 w34 x19 w34 w34 x14 x1  w31 w31 w31 x19 w31 w31 x14 x1  | 3D Model RGB Test Program (USA) (Test Program)
+== 40 winks
+   w34 w34 w34 w34 x15 w34 x14 x9  a33 a33 a33 w31 x15 a33 x14 x9  | 40 Winks (Europe) (En,Es,It) (Proto) (1999-10-07)
+   w34 w34 w34 x19 w34 w34 x14 x11 w33 w33 w33 x19 w21 w33 x14 x11 | 40 Winks (USA) (Aftermarket) (Unl)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | 40 Winks (USA) (Proto) (2000-01-10)
+== 64 de hakken!! tamagotchi - minna de tamagotchi world
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | 64 de Hakken!! Tamagotchi - Minna de Tamagotchi World (Japan)
+== 64 hanafuda - tenshi no yakusoku
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | 64 Hanafuda - Tenshi no Yakusoku (Japan)
+== 64 oozumou
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | 64 Oozumou (Japan)
+== 64 oozumou 2
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | 64 Oozumou 2 (Japan)
+== 64 trump collection - alice no wakuwaku trump world
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | 64 Trump Collection - Alice no Wakuwaku Trump World (Japan)
+== [bios] nintendo 64 - pif
+   w34 w34 x18 x19 x15 w34 x14 x4  w31 w31 x18 x19 x15 w31 x14 x4  | [BIOS] Nintendo 64 - PIF (Brazil)
+   w34 w34 w34 x19 x15 w34 x14 x4  w33 w31 w31 x19 x15 w33 x14 x4  | [BIOS] Nintendo 64 - PIF (Europe)
+   w34 w34 w34 x19 w34 w34 x14 x4  w33 w33 w31 x19 w31 w33 x14 x4  | [BIOS] Nintendo 64 - PIF (Japan, USA)
+== action replay pro 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 x13 x14 x11 .   .   .   .   .   .   .   .   | Action Replay Pro 64 (Europe) (v3.0) (Unl)
+   w34 w34 w34 x19 x15 x13 x14 x11 .   .   .   .   .   .   .   .   | Action Replay Pro 64 (Europe) (v3.3) (Unl)
+== aerofighters assault
+   w34 w34 w34 w34 x15 x13 x14 w34 a27 a33 w27 w31 x15 x13 x14 a27 | AeroFighters Assault (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 x13 x14 w34 w27 a33 a27 x19 w31 x13 x14 w27 | AeroFighters Assault (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 w31 x14 a33 | Sonic Wings Assault (Japan)
+== aerogauge
+   w34 w34 w34 w34 x15 x13 x14 w34 a27 a33 w27 w31 x15 x13 x14 a27 | AeroGauge (Europe) (En,Fr,De)
+     alternative to AeroGauge (Japan) (Rev 1) [10]
+     alternative to AeroGauge (USA) [9]
+   w34 w34 w34 x19 x15 x13 x14 x5  w27 w33 w27 x19 x15 x13 x14 x5  | AeroGauge (Japan) (Demo) (Kiosk)
+   w34 w34 w34 x19 x15 x13 x14 w34 a33 w33 a33 x19 x15 x13 x14 a33 | AeroGauge (Japan) (Rev 1)
+     alternative to AeroGauge (Europe) (En,Fr,De) [11]
+     alternative to AeroGauge (USA) [9]
+   w34 w34 w34 x19 w34 x13 x14 w34 w27 a33 a27 x19 w31 x13 x14 w27 | AeroGauge (USA)
+     alternative to AeroGauge (Europe) (En,Fr,De) [11]
+     alternative to AeroGauge (Japan) (Rev 1) [10]
+== ai shougi 3
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | AI Shougi 3 (Japan)
+== aidyn chronicles - the first mage
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 w17 x14 a27 | Aidyn Chronicles - The First Mage (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 w17 x14 x7  | Aidyn Chronicles - The First Mage (Europe) (Beta) (2001-03-02)
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 w17 x14 x7  | Aidyn Chronicles - The First Mage (Europe) (Beta) (2001-04-10)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 w17 x14 a24 | Aidyn Chronicles - The First Mage (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 w17 x14 x9  | Aidyn Chronicles - The First Mage (USA) (Beta) (2000-02-10)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 w17 x14 x9  | Aidyn Chronicles - The First Mage (USA) (Beta) (2000-05-09)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 w17 x14 x7  | Aidyn Chronicles - The First Mage (USA) (Beta) (2000-12-05)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Aidyn Chronicles - The First Mage (USA) (Rev 1)
+== air boarder 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Air Boarder 64 (Japan)
+== airboarder 64
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 w17 x14 a33 | Air Boarder 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 w33 a33 w33 x19 x15 w33 x14 w33 | Airboarder 64 (Europe)
+== akumajou dracula mokushiroku - real action adventure
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 x13 x14 w34 .   .   .   .   .   .   .   .   | Akumajou Dracula Mokushiroku - Real Action Adventure (Japan)
+== akumajou dracula mokushiroku gaiden - legend of cornell
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 x13 x14 w34 .   .   .   .   .   .   .   .   | Akumajou Dracula Mokushiroku Gaiden - Legend of Cornell (Japan)
+== all star tennis '99
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 x13 x14 w34 .   .   .   .   .   .   .   .   | All Star Tennis '99 (Europe) (En,Fr,De,Es,It)
+== all star tennis 99
+   .   .   .   .   .   .   .   .   a27 a27 w27 w31 x15 x13 x14 a27 | All Star Tennis '99 (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 w34 x13 x14 w34 w27 w27 a27 x19 w31 x13 x14 w27 | All Star Tennis 99 (USA)
+== all-star baseball 2000
+   w34 w34 w34 x19 x15 x13 x14 w34 a27 a27 w27 x19 x15 x13 x14 a27 | All-Star Baseball 2000 (Europe)
+   w34 w34 w34 x19 w34 x13 x14 w34 w27 w27 a27 x19 w31 x13 x14 w27 | All-Star Baseball 2000 (USA)
+== all-star baseball 2001
+   w34 w34 w34 x19 w34 x13 x14 w34 w31 w31 w31 x19 w31 x13 x14 w31 | All-Star Baseball 2001 (USA)
+== all-star baseball 99
+   w34 w34 w34 x19 x15 x13 x14 w34 a27 a27 w27 x19 x15 x13 x14 a27 | All-Star Baseball 99 (Europe)
+   w34 w34 w34 x19 w34 x13 x14 w34 w27 w27 a27 x19 w31 x13 x14 w27 | All-Star Baseball 99 (USA)
+== armorines - project s.w.a.r.m.
+   w34 w34 w34 x19 x15 x13 x14 w34 a27 a27 w27 x19 x15 x13 x14 a27 | Armorines - Project S.W.A.R.M. (Europe)
+   w34 w34 w34 w34 x15 x13 x14 w34 a33 a33 a33 w31 x15 x13 x14 a33 | Armorines - Project S.W.A.R.M. (Germany)
+   w34 w34 w34 x19 w34 x13 x14 w34 w27 w27 a27 x19 w31 x13 x14 w27 | Armorines - Project S.W.A.R.M. (USA)
+== army men - air combat
+   w34 w34 w34 x19 w34 x13 x14 w34 w31 w31 w31 x19 w31 x13 x14 w31 | Army Men - Air Combat (USA)
+== army men - sarge's heroes
+   w34 w34 w34 w34 x15 x13 x14 w34 a27 a27 w27 w31 x15 x13 x14 a27 | Army Men - Sarge's Heroes (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 x13 x14 w34 w27 w27 a27 x19 w31 x13 x14 w27 | Army Men - Sarge's Heroes (USA)
+== army men - sarge's heroes 2
+   w34 w34 w34 x19 w34 x13 x14 w34 w31 w31 w31 x19 w31 x13 x14 w31 | Army Men - Sarge's Heroes 2 (USA)
+== asteroids hyper 64
+   w34 w34 w34 x19 w34 x13 x14 w34 w31 w31 w31 x19 w31 x13 x14 w31 | Asteroids Hyper 64 (USA)
+== automobili lamborghini
+   w34 w34 w34 x19 x15 x13 x14 w34 a27 a33 w27 x19 x15 x13 x14 a27 | Automobili Lamborghini (Europe)
+   w34 w34 w34 x19 w34 x13 x14 w34 w27 a33 a27 x19 w31 x13 x14 w27 | Automobili Lamborghini (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 w31 x14 a33 | Super Speed Race 64 (Japan)
+== baku bomberman
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Baku Bomberman (Japan)
+== baku bomberman 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Baku Bomberman 2 (Japan)
+== bakuretsu muteki bangaioh
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Bakuretsu Muteki Bangaioh (Japan)
+== bakushou jinsei 64 - mezase! resort ou
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Bakushou Jinsei 64 - Mezase! Resort Ou (Japan)
+== banjo to kazooie no daibouken
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Banjo to Kazooie no Daibouken (Japan)
+== banjo to kazooie no daibouken 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Banjo to Kazooie no Daibouken 2 (Japan)
+== banjo-kazooie
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 w17 x14 a33 | Banjo to Kazooie no Daibouken (Japan)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 w17 x14 a27 | Banjo-Kazooie (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 w17 x14 a24 | Banjo-Kazooie (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Banjo-Kazooie (USA) (Rev 1)
+== banjo-tooie
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 w17 x14 a33 | Banjo to Kazooie no Daibouken 2 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 a27 x19 x15 w17 x14 a27 | Banjo-Tooie (Australia)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 w17 x14 a27 | Banjo-Tooie (Europe) (En,Fr,De,Es)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Banjo-Tooie (USA)
+== bass rush - ecogear powerworm championship
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Bass Rush - ECOGEAR PowerWorm Championship (Japan)
+== bassmasters 2000
+   w34 w34 w34 x19 w34 w34 x14 w34 w21 w21 w21 x19 w21 w21 x14 w31 | Bassmasters 2000 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 w17 x14 x9  | Bassmasters 2000 (USA) (Beta)
+== batman beyond - return of the joker
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Batman Beyond - Return of the Joker (USA)
+   .   .   .   .   .   .   .   .   a27 a27 w27 w31 x15 w17 x14 a27 | Batman of the Future - Return of the Joker (Europe) (En,Fr,De)
+== batman of the future - return of the joker
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Batman of the Future - Return of the Joker (Europe) (En,Fr,De)
+== battletanx
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | BattleTanx (USA)
+== battletanx - global assault
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 w17 x14 a27 | BattleTanx - Global Assault (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | BattleTanx - Global Assault (USA)
+== battlezone - rise of the black dogs
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Battlezone - Rise of the Black Dogs (USA)
+== beetle adventure racing!
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w27 x15 a27 x14 a27 | Beetle Adventure Racing! (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Beetle Adventure Racing! (Japan)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 a33 a27 a27 w31 w27 x14 w27 | Beetle Adventure Racing! (USA) (En,Fr,De)
+   .   .   .   .   .   .   .   .   a27 a33 a27 x19 x15 a27 x14 a27 | HSV Adventure Racing! (Australia)
+== big mountain 2000
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w31 w33 x14 w33 | Big Mountain 2000 (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Snow Speeder (Japan)
+== big2small
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Big2Small (World) (Aftermarket) (Unl)
+== bio f.r.e.a.k.s.
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Bio F.R.E.A.K.S. (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Bio F.R.E.A.K.S. (USA)
+== biohazard 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Biohazard 2 (Japan)
+== blast corps
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Blast Corps (Europe) (En,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Blast Corps (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Blast Corps (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Blastdozer (Japan)
+== blastdozer
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Blastdozer (Japan)
+== blues brothers 2000
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w21 x15 a27 x14 a27 | Blues Brothers 2000 (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 w34 x15 w34 x14 x9  a21 a21 a21 a21 x15 a21 x14 x9  | Blues Brothers 2000 (Europe) (En,Fr,De,Es,It,Nl) (Beta) (2000-01-15) (#20)
+   w34 w34 w34 w34 x15 w34 x14 x9  a21 a21 a21 a21 x15 a21 x14 x9  | Blues Brothers 2000 (Europe) (En,Fr,De,Es,It,Nl) (Beta) (2000-01-15) (#53)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Blues Brothers 2000 (USA)
+== body harvest
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Body Harvest (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Body Harvest (USA)
+== bokujou monogatari 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Bokujou Monogatari 2 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Bokujou Monogatari 2 (Japan) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Bokujou Monogatari 2 (Japan) (Rev 2)
+== bomberman 64
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 w17 x14 a33 | Baku Bomberman (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Bomberman 64 (Europe)
+     alternative to Bomberman 64 (USA) [14]
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Bomberman 64 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Bomberman 64 (USA)
+== bomberman 64 (japan)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w31 w31 w31 x19 x15 w31 x14 w31 | Bomberman 64 (Japan)
+== bomberman 64 - the second attack!
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 w17 x14 a33 | Baku Bomberman 2 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w31 w33 x14 w33 | Bomberman 64 - The Second Attack! (USA)
+== bomberman hero
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Bomberman Hero (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Bomberman Hero (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Bomberman Hero - Mirian Oujo o Sukue! (Japan)
+== bomberman hero - mirian oujo o sukue!
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Bomberman Hero - Mirian Oujo o Sukue! (Japan)
+== bottom of the 9th
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Bottom of the 9th (USA)
+== brunswick circuit pro bowling
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Brunswick Circuit Pro Bowling (USA)
+== buck bumble
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Buck Bumble (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Buck Bumble (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Buck Bumble (USA)
+== bug's life, a
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Bug's Life, A (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Bug's Life, A (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Bug's Life, A (Germany)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w33 x15 a33 x14 a33 | Bug's Life, A (Italy)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Bug's Life, A (USA)
+== bust-a-move '99
+   g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w21 w27 x14 w27 | Bust-A-Move '99 (USA)
+   .   .   .   .   .   .   .   .   a27 a33 w27 x19 x15 a27 x14 a27 | Bust-A-Move 3 DX (Europe)
+   .   .   .   .   .   .   .   .   a21 a21 a21 x19 a21 a21 x14 x7  | Bust-A-Move 3 DX (USA) (Beta) (1998-08-28)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Puzzle Bobble 64 (Japan)
+== bust-a-move 2 - arcade edition
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Bust-A-Move 2 - Arcade Edition (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Bust-A-Move 2 - Arcade Edition (USA)
+== bust-a-move 3 dx
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Bust-A-Move 3 DX (Europe)
+   w34 w34 w34 x19 w34 w34 x14 x7  .   .   .   .   .   .   .   .   | Bust-A-Move 3 DX (USA) (Beta) (1998-08-28)
+== california speed
+   w34 w34 w34 x19 x15 w34 x14 x9  a33 a33 a33 x19 x15 a33 x14 x9  | California Speed (Europe) (Proto)
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 w33 w33 x19 w31 w33 x14 w31 | California Speed (USA)
+== carmageddon 64
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 a28 x15 a27 x14 a27 | Carmageddon 64 (Europe) (En,Fr,De,Es)
+   w34 w34 w34 w34 x15 w34 x14 w34 a28 a28 a28 w28 x15 a28 x14 a28 | Carmageddon 64 (Europe) (En,Fr,Es,It)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Carmageddon 64 (USA)
+== carnivale - cenzo's adventure
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | Carnivale - Cenzo's Adventure (USA) (Proto) (2000-07-21)
+== castlevania
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 x13 x14 a33 | Akumajou Dracula Mokushiroku - Real Action Adventure (Japan)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Castlevania (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Castlevania (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Castlevania (USA) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Castlevania (USA) (Rev 2)
+== castlevania - legacy of darkness
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 x13 x14 a33 | Akumajou Dracula Mokushiroku Gaiden - Legend of Cornell (Japan)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Castlevania - Legacy of Darkness (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Castlevania - Legacy of Darkness (USA)
+== centre court tennis
+   w34 w34 w34 x19 x15 w34 x14 w34 w33 a33 w33 x19 x15 w33 x14 w33 | Centre Court Tennis (Europe)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Let's Smash (Japan)
+== chameleon twist
+   w34 w34 w34 x19 x15 x12 x14 w34 a27 a33 w27 x19 x15 x12 x14 a27 | Chameleon Twist (Europe)
+   w34 w34 w34 x19 x15 x12 x14 w34 a33 w33 a33 x19 x15 x12 x14 a33 | Chameleon Twist (Japan)
+   w34 w34 w34 x19 w34 x12 x14 w34 a24 a24 a24 x19 a24 x12 x14 a24 | Chameleon Twist (USA)
+   w34 w34 w34 x19 w34 x12 x14 w34 w27 a33 a27 x19 w24 x12 x14 w27 | Chameleon Twist (USA) (Rev 1)
+== chameleon twist 2
+   w34 w34 w34 x19 x15 x12 x14 w34 a27 a33 w27 x19 x15 x12 x14 a27 | Chameleon Twist 2 (Europe)
+   w34 w34 w34 x19 x15 x12 x14 w34 a33 w33 a33 x19 x15 x12 x14 a33 | Chameleon Twist 2 (Japan)
+   w34 w34 w34 x19 w34 x12 x14 w34 w27 a33 a27 x19 w31 x12 x14 w27 | Chameleon Twist 2 (USA)
+== charlie blast's territory
+   w34 w34 w34 x19 x15 x12 x14 w34 a27 a27 w27 x19 x15 x12 x14 a27 | Charlie Blast's Territory (Europe)
+   w34 w34 w34 x19 w34 x12 x14 w34 w27 w27 a27 x19 w31 x12 x14 w27 | Charlie Blast's Territory (USA)
+== chopper attack
+   w34 w34 w34 x19 x15 x12 x14 w34 a27 a33 w27 x19 x15 x12 x14 a27 | Chopper Attack (Europe)
+   w34 w34 w34 x19 w34 x12 x14 w34 w27 a33 a27 x19 w31 x12 x14 w27 | Chopper Attack (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 x16 x14 a33 | Wild Choppers (Japan)
+== choro q 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 x12 x14 w34 .   .   .   .   .   .   .   .   | Choro Q 64 (Japan)
+== choro q 64 2 - hacha mecha grand prix race
+   w34 w34 w34 x19 x15 x12 x14 w34 w31 w31 w31 x19 x15 x12 x14 w31 | Choro Q 64 2 - Hacha Mecha Grand Prix Race (Japan)
+== chou kuukan nighter pro yakyuu king
+   w34 w34 w34 x19 x15 x12 x14 w34 w31 w31 w31 x19 x15 x12 x14 w31 | Chou Kuukan Nighter Pro Yakyuu King (Japan)
+== chou kuukan nighter pro yakyuu king 2
+   w34 w34 w34 x19 x15 x12 x14 w34 w31 w31 w31 x19 x15 x12 x14 w31 | Chou Kuukan Nighter Pro Yakyuu King 2 (Japan)
+== chou snobo kids
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 x12 x14 w34 .   .   .   .   .   .   .   .   | Chou Snobo Kids (Japan)
+== city-tour gp - zen-nihon gt senshuken
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | City-Tour GP - Zen-Nihon GT Senshuken (Japan)
+== clay fighter - sculptor's cut
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Clay Fighter - Sculptor's Cut (USA)
+== clay fighter 63 1-3
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Clay Fighter 63 1-3 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Clay Fighter 63 1-3 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Clay Fighter 63 1-3 (USA) (Beta)
+== command & conquer
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Command & Conquer (Europe) (En,Fr)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | Command & Conquer (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Command & Conquer (USA)
+== conker's bad fur day
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Conker's Bad Fur Day (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Conker's Bad Fur Day (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Conker's Bad Fur Day (USA) (Beta) (2000-08-26) (ECTS 2000)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Conker's Bad Fur Day (USA) (Beta) (2000-10-25)
+== controller kensa-ki nus-yo n cassette
+   w34 w34 w34 x19 x15 w34 x14 x1  w31 w31 w31 x19 x15 w31 x14 x1  | Controller Kensa-ki NUS-yo N Cassette (Japan) (Test Program)
+== cruis'n exotica
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Cruis'n Exotica (USA)
+== cruis'n usa
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Cruis'n USA (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Cruis'n USA (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Cruis'n USA (USA) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Cruis'n USA (USA) (Rev 2)
+   w34 w34 w34 x19 w34 w34 x14 w34 a22 a22 a22 x19 a22 a22 x14 a22 | Cruis'n USA (USA) (Wii Virtual Console)
+== cruis'n world
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Cruis'n World (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Cruis'n World (Europe) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Cruis'n World (USA)
+== custom robo
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Custom Robo (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Custom Robo V2 (Japan)
+== custom robo v2
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w31 w31 w31 x19 x15 w31 x14 w31 | Custom Robo V2 (Japan)
+== cybertiger
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | CyberTiger (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | CyberTiger (USA)
+== daffy duck starring as duck dodgers
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Daffy Duck Starring as Duck Dodgers (Europe) (En,Fr,De,Es,It,Nl)
+== dance dance revolution - disney dancing museum
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Dance Dance Revolution - Disney Dancing Museum (Japan)
+== dark rift
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Dark Rift (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Dark Rift (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Space Dynamites (Japan)
+== deadly arts
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Deadly Arts (USA)
+   .   .   .   .   .   .   .   .   a27 a33 w27 x19 x15 a27 x14 a27 | G.A.S.P!! Fighters' NEXTream (Europe)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | G.A.S.P!! Fighters' NEXTream (Japan)
+== defi au tetris magique
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Defi au Tetris Magique (France)
+== densha de go! 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Densha de Go! 64 (Japan)
+== derby stallion 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w21 w21 w21 x19 x15 w21 x14 w31 | Derby Stallion 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Derby Stallion 64 (Japan) (Beta) [b]
+== destruction derby 64
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Destruction Derby 64 (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Destruction Derby 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Destruction Derby 64 (USA) (Beta) (1998-07-31)
+== dezaemon 3d
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Dezaemon 3D (Japan)
+== diddy kong racing
+   w34 w34 w34 w34 x15 w34 x14 w34 a24 a24 a24 a24 x15 a24 x14 a24 | Diddy Kong Racing (Europe) (En,Fr,De)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w24 x15 a27 x14 a27 | Diddy Kong Racing (Europe) (En,Fr,De) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Diddy Kong Racing (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Diddy Kong Racing (USA) (En,Fr)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Diddy Kong Racing (USA) (En,Fr) (Rev 1)
+== die hard 64
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | Die Hard 64 (USA) (Proto) (Level 1)
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | Die Hard 64 (USA) (Proto) (Level 2)
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | Die Hard 64 (USA) (Proto) (Level 3)
+== dinosaur planet
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | Dinosaur Planet (USA) (Proto) (2000-12-01)
+== donald duck - goin' quackers
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w31 w27 x14 w27 | Donald Duck - Goin' Quackers (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a27 a27 w27 w27 x15 a27 x14 a27 | Donald Duck - Quack Attack (Europe) (En,Fr,De,Es,It)
+== donald duck - quack attack
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Donald Duck - Quack Attack (Europe) (En,Fr,De,Es,It)
+== donkey kong 64
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Donkey Kong 64 (Europe) (En,Fr,De,Es)
+     alternative to Donkey Kong 64 (Japan) [10]
+     alternative to Donkey Kong 64 (USA) [9,14]
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Donkey Kong 64 (Japan)
+     alternative to Donkey Kong 64 (Europe) (En,Fr,De,Es) [11]
+     alternative to Donkey Kong 64 (USA) [9,14]
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Donkey Kong 64 (USA)
+     alternative to Donkey Kong 64 (Europe) (En,Fr,De,Es) [11]
+     alternative to Donkey Kong 64 (Japan) [10]
+   w34 w34 w34 x19 w34 w34 x14 x5  w27 w33 w27 x19 w31 w27 x14 x5  | Donkey Kong 64 (USA) (Demo) (Kiosk)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Donkey Kong 64 (USA) (LodgeNet)
+     alternative to Donkey Kong 64 (Europe) (En,Fr,De,Es) [11]
+     alternative to Donkey Kong 64 (Japan) [10]
+     alternative to Donkey Kong 64 (USA) [9,13-14]
+== donsol
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Donsol (World) (Aftermarket) (Unl)
+== doom 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Doom 64 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Doom 64 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Doom 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Doom 64 (USA) (Beta) (1996-12-10)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Doom 64 (USA) (Rev 1)
+== doraemon - nobita to 3tsu no seireiseki
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Doraemon - Nobita to 3tsu no Seireiseki (Japan)
+== doraemon 2 - nobita to hikari no shinden
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Doraemon 2 - Nobita to Hikari no Shinden (Japan)
+== doraemon 3 - nobita no machi sos!
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Doraemon 3 - Nobita no Machi SOS! (Japan)
+== doubutsu banchou
+   w34 w34 w34 x19 x15 w34 x14 x9  w31 w31 w31 x19 x15 w31 x14 x9  | Doubutsu Banchou (Japan) (Proto)
+== doubutsu no mori
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Doubutsu no Mori (Japan)
+== dr. mario 64
+   w34 w34 w34 x19 w34 w34 x14 w34 w26 w26 w26 x19 w26 w26 x14 w26 | Dr. Mario 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Dr. Mario 64 (USA) (LodgeNet)
+== dragon sword 64
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 x15 w34 x14 x9  a27 a27 w27 x19 x15 a27 x14 x9  | Dragon Sword 64 (Europe) (Proto)
+   w34 w34 w34 x19 w34 w34 x14 x9  w27 w27 a27 x19 w31 w27 x14 x9  | Dragon Sword 64 (USA) (Proto) (1999-08-25)
+== dual heroes
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Dual Heroes (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Dual Heroes (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Dual Heroes (USA)
+== duck dodgers starring daffy duck
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a27 a27 w27 w27 x15 a27 x14 a27 | Daffy Duck Starring as Duck Dodgers (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w21 w27 x14 w27 | Duck Dodgers Starring Daffy Duck (USA) (En,Fr,Es)
+   w34 w34 w34 w34 w34 w34 x14 x7  a21 a21 a21 a21 a21 a21 x14 x7  | Duck Dodgers Starring Daffy Duck (USA) (En,Fr,Es) (Beta 1)
+   w34 w34 w34 w34 w34 w34 x14 x7  a21 a21 a21 a21 a21 a21 x14 x7  | Duck Dodgers Starring Daffy Duck (USA) (En,Fr,Es) (Beta 2) (2000-03-07)
+== duke nukem - zero hour
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Duke Nukem - Zero Hour (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Duke Nukem - Zero Hour (France)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Duke Nukem - Zero Hour (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Duke Nukem - Zero Hour (USA) (Beta)
+== duke nukem 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Duke Nukem 64 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Duke Nukem 64 (Europe) (Beta)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Duke Nukem 64 (France)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Duke Nukem 64 (USA)
+== earthworm jim 3d
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Earthworm Jim 3D (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Earthworm Jim 3D (USA)
+== ecw hardcore revolution
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | ECW Hardcore Revolution (Europe)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | ECW Hardcore Revolution (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | ECW Hardcore Revolution (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | ECW Hardcore Revolution (USA) (Beta)
+== eeprom & sram erase program
+   w34 w34 w34 x19 w34 w34 x14 x1  w31 w31 w31 x19 w31 w31 x14 x1  | EEPROM & SRAM Erase Program (USA) (v1.2) (LodgeNet)
+== eikou no saint andrews
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Eikou no Saint Andrews (Japan)
+== eltale monsters
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Eltale Monsters (Japan)
+== excitebike 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Excitebike 64 (Europe)
+     alternative to Excitebike 64 (Japan) [10]
+     alternative to Excitebike 64 (USA) (Rev 1) [9,14]
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Excitebike 64 (Japan)
+     alternative to Excitebike 64 (Europe) [11]
+     alternative to Excitebike 64 (USA) (Rev 1) [9,14]
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Excitebike 64 (USA)
+     alternative to Excitebike 64 (Europe) [11]
+     alternative to Excitebike 64 (Japan) [10]
+     alternative to Excitebike 64 (USA) (Rev 1) [9,13-14]
+   w34 w34 w34 x19 w34 w34 x14 x5  w27 w33 w27 x19 w31 w27 x14 x5  | Excitebike 64 (USA) (Demo) (Kiosk)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Excitebike 64 (USA) (LodgeNet)
+     alternative to Excitebike 64 (Europe) [11]
+     alternative to Excitebike 64 (Japan) [10]
+     alternative to Excitebike 64 (USA) (Rev 1) [9,13-14]
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Excitebike 64 (USA) (Rev 1)
+     alternative to Excitebike 64 (Europe) [11]
+     alternative to Excitebike 64 (Japan) [10]
+== extreme-g
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Extreme-G (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Extreme-G (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Extreme-G (USA)
+== extreme-g xg2
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Extreme-G XG2 (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Extreme-G XG2 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Extreme-G XG2 (USA)
+== f-1 world grand prix
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | F-1 World Grand Prix (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | F-1 World Grand Prix (Europe) (Beta)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | F-1 World Grand Prix (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | F-1 World Grand Prix (Germany)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | F-1 World Grand Prix (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | F-1 World Grand Prix (USA)
+== f-1 world grand prix ii
+   w34 w34 w34 w34 x15 w34 x14 w34 w31 w31 w31 w31 x15 w31 x14 w31 | F-1 World Grand Prix II (Europe) (En,Fr,De,Es)
+== f-zero x
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | F-Zero X (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | F-Zero X (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | F-Zero X (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | F-Zero X (USA) (Beta) (The Legend of Zelda - Ocarina of Time leftover data)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | F-Zero X (USA) (LodgeNet)
+== f1 pole position 64
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w27 x15 a27 x14 a27 | F1 Pole Position 64 (Europe) (En,Fr,De)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 a33 a27 a27 w31 w27 x14 w27 | F1 Pole Position 64 (USA) (En,Fr,De)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Human Grand Prix - The New Generation (Japan)
+== f1 racing championship
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 a27 x19 x15 a27 x14 a27 | F1 Racing Championship (Brazil) (En,Fr)
+   w34 w34 w34 w34 x15 w34 x14 w34 w27 w27 w27 w31 x15 w27 x14 w27 | F1 Racing Championship (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 w34 w34 x14 x9  a33 a33 a33 x19 w31 a33 x14 x9  | F1 Racing Championship (USA) (Beta)
+== famista 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Famista 64 (Japan)
+== fifa - road to world cup 98
+   w34 w34 w34 w34 x15 x13 x14 w34 a27 a33 w27 w27 x15 x13 x14 a27 | FIFA - Road to World Cup 98 (Europe) (En,Fr,De,Es,It,Nl,Sv)
+   w34 w34 w34 w34 w34 x13 x14 w34 w27 a33 a27 a27 w31 x13 x14 w27 | FIFA - Road to World Cup 98 (USA) (En,Fr,De,Es,It,Nl,Sv)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 x13 x14 a33 | FIFA - Road to World Cup 98 - World Cup e no Michi (Japan)
+== fifa - road to world cup 98 - world cup e no michi
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 x13 x14 w34 .   .   .   .   .   .   .   .   | FIFA - Road to World Cup 98 - World Cup e no Michi (Japan)
+== fifa 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 x13 x14 w34 .   .   .   .   .   .   .   .   | FIFA 64 (Europe) (En,Fr,De)
+== fifa 99
+   w34 w34 w34 w34 x15 x13 x14 w34 a27 a27 w27 w27 x15 x13 x14 a27 | FIFA 99 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv)
+   w34 w34 w34 w34 w34 x13 x14 w34 w27 w27 a27 a27 w31 x13 x14 w27 | FIFA 99 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv)
+== fifa soccer 64
+   .   .   .   .   .   .   .   .   a27 a27 w27 w27 x15 x13 x14 a27 | FIFA 64 (Europe) (En,Fr,De)
+   w34 w34 w34 w34 w34 x13 x14 w34 w27 w27 a27 a27 w31 x13 x14 w27 | FIFA Soccer 64 (USA) (En,Fr,De)
+== fighter destiny 2
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w31 w33 x14 w33 | Fighter Destiny 2 (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Kakutou Denshou - F-Cup Maniax (Japan)
+== fighters destiny
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Fighters Destiny (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Fighters Destiny (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | Fighters Destiny (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Fighters Destiny (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Fighting Cup (Japan)
+== fighting cup
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Fighting Cup (Japan)
+== fighting force 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Fighting Force 64 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Fighting Force 64 (USA)
+== fission failure 64
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Fission Failure 64 (World) (Aftermarket) (Unl)
+== flood64
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 w34 w34 w34 x14 x11 w31 w31 w31 w31 w31 w31 x14 x11 | Flood64 (World) (En,Fr,Es) (Aftermarket) (Unl)
+== flying dragon
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Flying Dragon (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Flying Dragon (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Hiryuu no Ken Twin (Japan)
+== forsaken
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Forsaken (Europe) (En,Fr,Es,It)
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Forsaken (Germany)
+== forsaken 64
+   .   .   .   .   .   .   .   .   a27 a27 w27 w33 x15 a27 x14 a27 | Forsaken (Europe) (En,Fr,Es,It)
+   .   .   .   .   .   .   .   .   a33 a33 a33 a33 x15 a33 x14 a33 | Forsaken (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Forsaken 64 (USA)
+== fox sports college hoops '99
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Fox Sports College Hoops '99 (USA)
+== freak boy
+   w34 w34 w34 x19 x15 w34 x14 x9  w31 w31 w31 x19 x15 w31 x14 x9  | Freak Boy (Unknown) (Proto)
+== frogger 2
+   w34 w34 w34 x19 w34 w34 x14 x9  a24 a24 a24 x19 a24 a24 x14 x9  | Frogger 2 (USA) (Proto 1)
+   w34 w34 w34 x19 w34 w34 x14 x9  w24 w24 w24 x19 w24 w24 x14 x9  | Frogger 2 (USA) (Proto 2)
+== fushigi no dungeon - fuurai no shiren 2 - oni shuurai! shiren jou!
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Fushigi no Dungeon - Fuurai no Shiren 2 - Oni Shuurai! Shiren Jou! (Japan)
+== g.a.s.p!! fighters' nextream
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | G.A.S.P!! Fighters' NEXTream (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | G.A.S.P!! Fighters' NEXTream (Japan)
+== gamebooster 64
+   w34 w34 w34 x19 x15 w34 x14 x11 a27 a27 w27 x19 x15 a27 x14 x1  | GameBooster 64 (Europe) (v1.1) (Unl)
+   w34 w34 w34 x19 w34 w34 x14 x11 w27 w27 a27 x19 w31 w27 x14 x1  | GameBooster 64 (USA) (v1.1) (Unl)
+== gameshark pro
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 x13 x14 x1  | Action Replay Pro 64 (Europe) (v3.0) (Unl)
+   .   .   .   .   .   .   .   .   a27 a27 w27 x19 x15 x13 x14 x1  | Action Replay Pro 64 (Europe) (v3.3) (Unl)
+   w34 w34 w34 x19 w34 w34 x14 x11 a24 a24 a24 x19 a24 a24 x14 x1  | GameShark Pro (USA) (v2.0) (Unl)
+   w34 w34 w34 x19 w34 w34 x14 x11 w27 w27 a27 x19 w24 w24 x14 x1  | GameShark Pro (USA) (v3.3) (Unl)
+== ganbare goemon - dero dero douchuu obake tenkomori
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Ganbare Goemon - Dero Dero Douchuu Obake Tenkomori (Japan)
+== ganbare goemon - neo momoyama bakufu no odori
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Ganbare Goemon - Neo Momoyama Bakufu no Odori (Japan)
+== ganbare! nippon! olympics 2000
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Ganbare! Nippon! Olympics 2000 (Japan)
+== gauntlet legends
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Gauntlet Legends (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Gauntlet Legends (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Gauntlet Legends (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Gauntlet Legends (USA) (LodgeNet)
+== getter love!! - cho renai party game tanjou
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Getter Love!! - Cho Renai Party Game Tanjou (Japan)
+== gex 3 - deep cover gecko
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w23 x15 a27 x14 a27 | Gex 3 - Deep Cover Gecko (Europe) (En,Es,It)
+   w34 w34 w34 w34 x15 w34 x14 w34 a23 a23 a23 a23 x15 a23 x14 a23 | Gex 3 - Deep Cover Gecko (Europe) (Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Gex 3 - Deep Cover Gecko (USA)
+== gex 64 - enter the gecko
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Gex 64 - Enter the Gecko (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Gex 64 - Enter the Gecko (USA)
+== glamorous zombie flakes
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Glamorous Zombie Flakes (World) (Aftermarket) (Unl)
+== glover
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | Glover (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w30 w27 x14 w27 | Glover (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Glover (USA) (1998-07-16) (Beta) [b]
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Glover (USA) (1998-09-04) (Beta)
+   w34 w34 w34 w34 w34 w34 x14 x11 a30 a30 a30 a27 a30 a30 x14 x11 | Glover (USA) (En,Fr,De) (Aftermarket) (Unl)
+== glover 2
+   w34 w34 w34 x19 w34 w34 x14 x9  a24 a24 a24 x19 a24 a24 x14 x9  | Glover 2 (USA) (Proto 1)
+   w34 w34 w34 x19 w34 w34 x14 x9  w24 w24 w24 x19 w24 w24 x14 x9  | Glover 2 (USA) (Proto 2)
+== goemon - mononoke sugoroku
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Goemon - Mononoke Sugoroku (Japan)
+== goemon's great adventure
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Ganbare Goemon - Dero Dero Douchuu Obake Tenkomori (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Goemon's Great Adventure (USA)
+   .   .   .   .   .   .   .   .   a27 a33 w27 w31 x15 a27 x14 a27 | Mystical Ninja 2 Starring Goemon (Europe) (En,Fr,De)
+== golden nugget 64
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Golden Nugget 64 (USA)
+== goldeneye 007
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | GoldenEye 007 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | GoldenEye 007 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w22 w27 x14 w27 | GoldenEye 007 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a22 a22 a22 x19 a22 a22 x14 a22 | GoldenEye 007 (USA, Europe) (Switch Online)
+== gt 64 - championship edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | City-Tour GP - Zen-Nihon GT Senshuken (Japan)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | GT 64 - Championship Edition (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w21 w27 x14 w27 | GT 64 - Championship Edition (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | GT 64 - Championship Edition (USA) (Beta) (1998-05-25)
+== hamster monogatari 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Hamster Monogatari 64 (Japan)
+== harukanaru augusta - masters '98
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Harukanaru Augusta - Masters '98 (Japan)
+== harvest moon 64
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Bokujou Monogatari 2 (Japan)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Bokujou Monogatari 2 (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Bokujou Monogatari 2 (Japan) (Rev 2)
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w31 w33 x14 w33 | Harvest Moon 64 (USA)
+== heiwa pachinko world 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Heiwa Pachinko World 64 (Japan)
+== hercules - the legendary journeys
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Hercules - The Legendary Journeys (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Hercules - The Legendary Journeys (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Hercules - The Legendary Journeys (USA) (Beta 1)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Hercules - The Legendary Journeys (USA) (Beta 2)
+== hexen
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Hexen (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Hexen (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | Hexen (Germany)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Hexen (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Hexen (USA)
+== hey you, pikachu!
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w31 w33 x14 w33 | Hey You, Pikachu! (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Pikachuu Genki de Chuu (Japan)
+== hiryuu no ken twin
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Hiryuu no Ken Twin (Japan)
+== holy magic century
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Holy Magic Century (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Holy Magic Century (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Holy Magic Century (Germany)
+== hoshi no kirby 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Hoshi no Kirby 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Hoshi no Kirby 64 (Japan) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Hoshi no Kirby 64 (Japan) (Rev 2)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Hoshi no Kirby 64 (Japan) (Rev 3)
+== hot wheels - turbo racing
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Hot Wheels - Turbo Racing (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Hot Wheels - Turbo Racing (USA)
+== hsv adventure racing!
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | HSV Adventure Racing! (Australia)
+== human grand prix - the new generation
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Human Grand Prix - The New Generation (Japan)
+== hybrid heaven
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Hybrid Heaven (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Hybrid Heaven (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Hybrid Heaven (USA)
+== hydro thunder
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Hydro Thunder (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Hydro Thunder (France)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w26 w27 x14 w27 | Hydro Thunder (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Hydro Thunder (USA) (LodgeNet)
+== hyper olympics in nagano 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Hyper Olympics in Nagano 64 (Japan)
+== ide yosuke no mahjong juku
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Ide Yosuke no Mahjong Juku (Japan)
+== iggy's reckin' balls
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Iggy's Reckin' Balls (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w21 w27 x14 w27 | Iggy's Reckin' Balls (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Iggy's Reckin' Balls (USA) (Beta)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Iggy-kun no Bura Bura Poyon (Japan)
+== iggy-kun no bura bura poyon
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Iggy-kun no Bura Bura Poyon (Japan)
+== in-fisherman - bass hunter 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | In-Fisherman - Bass Hunter 64 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | In-Fisherman - Bass Hunter 64 (USA)
+== indiana jones and the infernal machine
+   w34 w34 w34 x19 x15 w34 x14 x9  a33 a33 a33 x19 x15 a33 x14 x9  | Indiana Jones and the Infernal Machine (Australia) (Proto)
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 w33 w33 x19 w31 w33 x14 w31 | Indiana Jones and the Infernal Machine (USA)
+== indy racing 2000
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Indy Racing 2000 (USA)
+== international superstar soccer '98
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | International Superstar Soccer '98 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | International Superstar Soccer '98 (Europe) (Beta) (1998-03-02)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | International Superstar Soccer '98 (USA)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou World Soccer - World Cup France '98 (Japan)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou World Soccer - World Cup France '98 (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Jikkyou World Soccer - World Cup France '98 (Japan) (Rev 2)
+== international superstar soccer 2000
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 a23 x15 a27 x14 a27 | International Superstar Soccer 2000 (Europe) (En,De)
+   w34 w34 w34 w34 x15 w34 x14 w34 a23 a23 a23 a33 x15 a23 x14 a23 | International Superstar Soccer 2000 (Europe) (Fr,It)
+   w34 w34 w34 w34 w34 w34 x14 w34 a24 a24 a24 a24 a24 a24 x14 a24 | International Superstar Soccer 2000 (USA) (En,Es)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 a33 a27 w33 w24 w27 x14 w27 | International Superstar Soccer 2000 (USA) (En,Es) (Rev 1)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou J.League 1999 - Perfect Striker 2 (Japan)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Jikkyou J.League 1999 - Perfect Striker 2 (Japan) (Rev 1)
+== international superstar soccer 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | International Superstar Soccer 64 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | International Superstar Soccer 64 (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Jikkyou World Soccer 3 (Japan)
+   .   .   .   .   .   .   .   .   a33 a33 x18 x19 x15 a33 x14 x10 | Ronaldinho's Soccer 64 (Brazil) (Pirate)
+== international track & field - summer games
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | International Track & Field - Summer Games (Europe) (En,Fr,De)
+== international track & field 2000
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Ganbare! Nippon! Olympics 2000 (Japan)
+   .   .   .   .   .   .   .   .   a27 a33 w27 w31 x15 a27 x14 a27 | International Track & Field - Summer Games (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | International Track & Field 2000 (USA)
+== itoi shigesato no bass tsuri no. 1 kettei ban!
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Itoi Shigesato no Bass Tsuri No. 1 Kettei Ban! (Japan)
+== j.league dynamite soccer 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | J.League Dynamite Soccer 64 (Japan)
+== j.league eleven beat 1997
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | J.League Eleven Beat 1997 (Japan)
+== j.league live 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | J.League Live 64 (Japan)
+== j.league tactics soccer
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | J.League Tactics Soccer (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | J.League Tactics Soccer (Japan) (Rev 1)
+== jangou simulation mahjong dou 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Jangou Simulation Mahjong Dou 64 (Japan)
+== jeopardy!
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Jeopardy! (USA)
+== jeremy mcgrath supercross 2000
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Jeremy McGrath Supercross 2000 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Jeremy McGrath Supercross 2000 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Jeremy McGrath Supercross 2000 (USA) (Beta)
+== jet force gemini
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Jet Force Gemini (Europe) (En,Fr,De,Es)
+     alternative to Jet Force Gemini (USA) [9,14]
+     alternative to Star Twins (Japan) [10]
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Jet Force Gemini (USA)
+     alternative to Jet Force Gemini (Europe) (En,Fr,De,Es) [11]
+     alternative to Star Twins (Japan) [10]
+   w34 w34 w34 x19 w34 w34 x14 x5  w27 w33 w27 x19 w31 w27 x14 x5  | Jet Force Gemini (USA) (Demo) (Kiosk)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Star Twins (Japan)
+     alternative to Jet Force Gemini (Europe) (En,Fr,De,Es) [11]
+     alternative to Jet Force Gemini (USA) [9,14]
+== jikkyou g1 stable
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou G1 Stable (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | Jikkyou G1 Stable (Japan) (Rev 1)
+== jikkyou j.league 1999 - perfect striker 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Jikkyou J.League 1999 - Perfect Striker 2 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Jikkyou J.League 1999 - Perfect Striker 2 (Japan) (Rev 1)
+== jikkyou j.league perfect striker
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Jikkyou J.League Perfect Striker (Japan)
+== jikkyou powerful pro yakyuu - basic ban 2001
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou Powerful Pro Yakyuu - Basic Ban 2001 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | Jikkyou Powerful Pro Yakyuu - Basic Ban 2001 (Japan) (Rev 1)
+== jikkyou powerful pro yakyuu 2000
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou Powerful Pro Yakyuu 2000 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | Jikkyou Powerful Pro Yakyuu 2000 (Japan) (Rev 1)
+== jikkyou powerful pro yakyuu 4
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou Powerful Pro Yakyuu 4 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Jikkyou Powerful Pro Yakyuu 4 (Japan) (Beta) (1996-11-30)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | Jikkyou Powerful Pro Yakyuu 4 (Japan) (Rev 1)
+== jikkyou powerful pro yakyuu 5
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou Powerful Pro Yakyuu 5 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou Powerful Pro Yakyuu 5 (Japan) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | Jikkyou Powerful Pro Yakyuu 5 (Japan) (Rev 2)
+== jikkyou powerful pro yakyuu 6
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou Powerful Pro Yakyuu 6 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Jikkyou Powerful Pro Yakyuu 6 (Japan) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | Jikkyou Powerful Pro Yakyuu 6 (Japan) (Rev 2)
+== jikkyou world soccer - world cup france '98
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Jikkyou World Soccer - World Cup France '98 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Jikkyou World Soccer - World Cup France '98 (Japan) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Jikkyou World Soccer - World Cup France '98 (Japan) (Rev 2)
+== jikkyou world soccer 3
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Jikkyou World Soccer 3 (Japan)
+== jikuu senshi turok
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Jikuu Senshi Turok (Japan)
+== jinsei game 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Jinsei Game 64 (Japan)
+== john romero's daikatana
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | John Romero's Daikatana (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | John Romero's Daikatana (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | John Romero's Daikatana (USA)
+== kakutou denshou - f-cup maniax
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Kakutou Denshou - F-Cup Maniax (Japan)
+== ken griffey jr.'s slugfest
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Ken Griffey Jr.'s Slugfest (USA)
+== killer instinct gold
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Killer Instinct Gold (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Killer Instinct Gold (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Killer Instinct Gold (USA) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Killer Instinct Gold (USA) (Rev 2)
+== king hill 64 - extreme snowboarding
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | King Hill 64 - Extreme Snowboarding (Japan)
+== kiratto kaiketsu! 64 tanteidan
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Kiratto Kaiketsu! 64 Tanteidan (Japan)
+== kirby 64 - the crystal shards
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Hoshi no Kirby 64 (Japan)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Hoshi no Kirby 64 (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Hoshi no Kirby 64 (Japan) (Rev 2)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Hoshi no Kirby 64 (Japan) (Rev 3)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Kirby 64 - The Crystal Shards (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Kirby 64 - The Crystal Shards (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Kirby 64 - The Crystal Shards (USA) (LodgeNet)
+== knife edge - nose gunner
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Knife Edge - Nose Gunner (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Knife Edge - Nose Gunner (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Knife Edge - Nose Gunner (USA)
+== knockout kings 2000
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Knockout Kings 2000 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Knockout Kings 2000 (USA)
+== kobe bryant in nba courtside
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Kobe Bryant in NBA Courtside (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Kobe Bryant in NBA Courtside (USA)
+== last legion ux
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Last Legion UX (Japan)
+== legend of zelda, the - majora's mask
+   w34 w34 w34 w34 x15 w34 x14 w34 a24 a24 a24 a24 x15 a24 x14 a24 | Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w24 x15 a27 x14 a27 | Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1)
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   w34 w34 w34 w34 x15 w34 x14 x9  a21 a21 a21 a21 x15 a21 x14 x9  | Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) (Debug)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   w34 w34 w34 w34 x15 w34 x14 w34 a22 a22 a22 a22 x15 a22 x14 a22 | Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) (Wii Virtual Console)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Legend of Zelda, The - Majora's Mask (Europe) (GameCube)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Legend of Zelda, The - Majora's Mask (USA)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   w34 w34 w34 x19 w34 w34 x14 x5  w27 w33 w27 x19 w31 w27 x14 x5  | Legend of Zelda, The - Majora's Mask (USA) (Demo) (Kiosk)
+   w34 w34 w34 x19 w34 w34 x14 w34 a22 a22 a22 x19 a22 a22 x14 a22 | Legend of Zelda, The - Majora's Mask (USA) (GameCube)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,13-14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Legend of Zelda, The - Majora's Mask (USA) (LodgeNet)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,13-14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Zelda no Densetsu - Mujura no Kamen (Japan)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   .   .   .   .   .   .   .   .   a22 a22 a22 x19 x15 a22 x14 a22 | Zelda no Densetsu - Mujura no Kamen (Japan) (GameCube)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,14]
+     alternative to Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1) [10]
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1)
+     alternative to Legend of Zelda, The - Majora's Mask (Europe) (En,Fr,De,Es) (Rev 1) [11]
+     alternative to Legend of Zelda, The - Majora's Mask (USA) [9,14]
+== legend of zelda, the - ocarina of time
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Legend of Zelda, The - Ocarina of Time (Europe) (Beta) (2003-02-13) (GameCube)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Legend of Zelda, The - Ocarina of Time (Europe) (Beta) (2003-02-21) (GameCube) (Debug)
+   w34 w34 w34 w34 x15 w34 x14 w34 a24 a24 a24 a24 x15 a24 x14 a24 | Legend of Zelda, The - Ocarina of Time (Europe) (En,Fr,De)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w24 x15 a27 x14 a27 | Legend of Zelda, The - Ocarina of Time (Europe) (En,Fr,De) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Legend of Zelda, The - Ocarina of Time (Europe) (GameCube)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Legend of Zelda, The - Ocarina of Time (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Legend of Zelda, The - Ocarina of Time (USA) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 w34 a22 a22 a22 x19 a22 a22 x14 a22 | Legend of Zelda, The - Ocarina of Time (USA) (GameCube)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Legend of Zelda, The - Ocarina of Time (USA) (LodgeNet)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Legend of Zelda, The - Ocarina of Time (USA) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Legend of Zelda, The - Ocarina of Time (USA) (Rev 2)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Zelda no Densetsu - Toki no Ocarina (Japan)
+   .   .   .   .   .   .   .   .   a22 a22 a22 x19 x15 a22 x14 a22 | Zelda no Densetsu - Toki no Ocarina (Japan) (GameCube, Zelda Collection)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Zelda no Densetsu - Toki no Ocarina (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Zelda no Densetsu - Toki no Ocarina (Japan) (Rev 2)
+   .   .   .   .   .   .   .   .   a20 a20 a20 x19 x15 a20 x14 a20 | Zelda no Densetsu - Toki no Ocarina GC (Japan) (GameCube)
+== legend of zelda, the - ocarina of time - master quest
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Legend of Zelda, The - Ocarina of Time - Master Quest (Europe) (En,Fr,De) (GameCube)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Legend of Zelda, The - Ocarina of Time - Master Quest (Europe) (GameCube) (Debug)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Legend of Zelda, The - Ocarina of Time - Master Quest (USA) (GameCube)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Zelda no Densetsu - Toki no Ocarina GC Ura (Japan) (GameCube)
+== legend of zelda, the - the sealed palace
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x10 w24 w24 w24 x19 w24 w24 x14 x10 | Legend of Zelda, The - The Sealed Palace (USA) (v1.21) (Aftermarket) (Pirate)
+   w34 w34 w34 x19 w34 w34 x14 x10 a24 a24 a24 x19 a24 a24 x14 x10 | Legend of Zelda, The - The Sealed Palace (USA) (v1.3) (Aftermarket) (Pirate)
+== lego racers
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | LEGO Racers (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w31 w27 x14 w27 | LEGO Racers (USA) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+== let's smash
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Let's Smash (Japan)
+== lode runner 3-d
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Lode Runner 3-D (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Lode Runner 3-D (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Lode Runner 3-D (USA)
+== lylat wars
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Lylat Wars (Australia) (En,Fr,De)
+== lylatwars
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Lylatwars (Europe) (En,Fr,De)
+== mace - the dark age
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Mace - The Dark Age (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Mace - The Dark Age (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Mace - The Dark Age (USA) (Beta)
+== madden football 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Madden Football 64 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Madden Football 64 (USA)
+== madden nfl 2000
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Madden NFL 2000 (USA)
+== madden nfl 2001
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Madden NFL 2001 (USA)
+== madden nfl 2002
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Madden NFL 2002 (USA)
+== madden nfl 99
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Madden NFL 99 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Madden NFL 99 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Madden NFL 99 (USA) (1998-08-05) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Madden NFL 99 (USA) (Rev 1)
+== magical tetris challenge
+   .   .   .   .   .   .   .   .   a33 a33 a33 x19 x15 a33 x14 a33 | Defi au Tetris Magique (France)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Magical Tetris Challenge (Europe)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | Magical Tetris Challenge (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Magical Tetris Challenge (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Magical Tetris Challenge featuring Mickey (Japan)
+== magical tetris challenge featuring mickey
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Magical Tetris Challenge featuring Mickey (Japan)
+== mahjong 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Mahjong 64 (Japan)
+== mahjong hourouki classic
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Mahjong Hourouki Classic (Japan)
+== mahjong master
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Mahjong Master (Japan)
+== major league baseball featuring ken griffey jr.
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 a27 x19 x15 a27 x14 a27 | Major League Baseball Featuring Ken Griffey Jr. (Australia)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 w27 x19 w31 w27 x14 w27 | Major League Baseball Featuring Ken Griffey Jr. (USA)
+== mario golf
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Mario Golf (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Mario Golf (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Mario Golf (USA) (LodgeNet)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | Mario Golf 64 (Japan)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Mario Golf 64 (Japan) (Rev 1)
+== mario golf 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Mario Golf 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Mario Golf 64 (Japan) (Rev 1)
+== mario kart 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Mario Kart 64 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Mario Kart 64 (Europe) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Mario Kart 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Mario Kart 64 (Japan) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Mario Kart 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Mario Kart 64 (USA) (LodgeNet)
+== mario no photopie
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Mario no Photopie (Japan)
+== mario party
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Mario Party (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Mario Party (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Mario Party (USA)
+== mario party 2
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w22 x15 a27 x14 a27 | Mario Party 2 (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 w34 x15 w34 x14 w34 a22 a22 a22 a22 x15 a22 x14 a22 | Mario Party 2 (Europe) (En,Fr,De,Es,It) (Wii Virtual Console)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Mario Party 2 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Mario Party 2 (Japan) (Wii Virtual Console)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w22 w27 x14 w27 | Mario Party 2 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a22 a22 a22 x19 a22 a22 x14 a22 | Mario Party 2 (USA) (Wii Virtual Console)
+== mario party 3
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Mario Party 3 (Europe) (En,Fr,De,Es)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Mario Party 3 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Mario Party 3 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Mario Party 3 (USA) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Mario Party 3 (USA) (LodgeNet)
+== mario story
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Mario Story (Japan)
+== mario tennis
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Mario Tennis (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Mario Tennis (Europe) (Wii Virtual Console)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Mario Tennis (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Mario Tennis (USA) (LodgeNet)
+   w34 w34 w34 x19 w34 w34 x14 w34 a22 a22 a22 x19 a22 a22 x14 a22 | Mario Tennis (USA) (Wii Virtual Console)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Mario Tennis 64 (Japan)
+   .   .   .   .   .   .   .   .   a22 a22 a22 x19 x15 a22 x14 a22 | Mario Tennis 64 (Japan) (Wii Virtual Console)
+== mario tennis 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Mario Tennis 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Mario Tennis 64 (Japan) (Wii Virtual Console)
+== mega man 64
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w21 w33 x14 w33 | Mega Man 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Mega Man 64 (USA) (Beta)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Rockman Dash - Hagane no Boukenshin (Japan)
+== mia hamm soccer 64
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 w33 w31 w27 x14 w27 | Mia Hamm Soccer 64 (USA) (En,Es)
+   .   .   .   .   .   .   .   .   a27 a27 w27 x19 x15 a27 x14 a27 | Michael Owen's WLS 2000 (Europe)
+   .   .   .   .   .   .   .   .   a21 a21 a21 a33 x15 a21 x14 x7  | Michael Owen's WLS 2000 (Europe) (En,Fr,De,Es,It) (Beta)
+   .   .   .   .   .   .   .   .   a33 a33 a33 a33 x15 a33 x14 a33 | RTL World League Soccer 2000 (Germany)
+   .   .   .   .   .   .   .   .   a33 a33 a33 x19 x15 a33 x14 a33 | Telefoot Soccer 2000 (France)
+== michael owen's wls 2000
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Michael Owen's WLS 2000 (Europe)
+   w34 w34 w34 w34 x15 w34 x14 x7  .   .   .   .   .   .   .   .   | Michael Owen's WLS 2000 (Europe) (En,Fr,De,Es,It) (Beta)
+== mickey no racing challenge usa
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Mickey no Racing Challenge USA (Japan)
+== mickey's speedway usa
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Mickey no Racing Challenge USA (Japan)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Mickey's Speedway USA (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Mickey's Speedway USA (USA)
+== micro machines 64 turbo
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Micro Machines 64 Turbo (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Micro Machines 64 Turbo (USA)
+== midway's greatest arcade hits - volume 1
+   w34 w34 w34 x19 w34 w34 x14 w34 w26 w26 w26 x19 w26 w26 x14 w26 | Midway's Greatest Arcade Hits - Volume 1 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Midway's Greatest Arcade Hits - Volume 1 (USA) (LodgeNet)
+== mike piazza's strike zone
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Mike Piazza's Strike Zone (USA)
+== milo's astro lanes
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Milo's Astro Lanes (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Milo's Astro Lanes (USA)
+== mini racers
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 w34 w34 x14 x9  .   .   .   .   .   .   .   .   | Mini Racers (USA) (Ja) (Proto)
+== mischief makers
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Mischief Makers (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Mischief Makers (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Mischief Makers (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Yuke Yuke!! Trouble Makers (Japan)
+== mission - impossible
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Mission - Impossible (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 a21 x14 x7  | Mission - Impossible (Europe) (Beta)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Mission - Impossible (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Mission - Impossible (Germany)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Mission - Impossible (Italy)
+   w34 w34 x18 w34 x15 w34 x14 w34 a24 a24 x18 a24 x15 a24 x14 a24 | Mission - Impossible (Spain)
+   w34 w34 x18 w34 x15 w34 x14 w34 a33 a33 x18 w33 x15 a33 x14 a33 | Mission - Impossible (Spain) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Mission - Impossible (USA)
+== monaco grand prix
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Monaco Grand Prix (USA)
+   .   .   .   .   .   .   .   .   a27 a27 w27 w33 x15 a27 x14 a27 | Monaco Grand Prix - Racing Simulation 2 (Europe) (En,Fr,Es,It)
+   .   .   .   .   .   .   .   .   a33 a33 a33 a33 x15 a33 x14 a33 | Racing Simulation 2 (Germany)
+== monaco grand prix - racing simulation 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Monaco Grand Prix - Racing Simulation 2 (Europe) (En,Fr,Es,It)
+== monopoly
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Monopoly (USA)
+== monster truck madness 64
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Monster Truck Madness 64 (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Monster Truck Madness 64 (USA)
+== morita shougi 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Morita Shougi 64 (Japan)
+== mortal kombat 4
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Mortal Kombat 4 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w26 w27 x14 w27 | Mortal Kombat 4 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Mortal Kombat 4 (USA) (LodgeNet)
+== mortal kombat mythologies - sub-zero
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Mortal Kombat Mythologies - Sub-Zero (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Mortal Kombat Mythologies - Sub-Zero (USA)
+== mortal kombat trilogy
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Mortal Kombat Trilogy (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Mortal Kombat Trilogy (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Mortal Kombat Trilogy (USA) (1996-05-13) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Mortal Kombat Trilogy (USA) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Mortal Kombat Trilogy (USA) (Rev 2)
+== mrc - multi-racing championship
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | MRC - Multi-Racing Championship (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | MRC - Multi-Racing Championship (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | MRC - Multi-Racing Championship (USA)
+== ms. pac-man - maze madness
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Ms. Pac-Man - Maze Madness (USA)
+== mystical ninja 2 starring goemon
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Mystical Ninja 2 Starring Goemon (Europe) (En,Fr,De)
+== mystical ninja starring goemon
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Ganbare Goemon - Neo Momoyama Bakufu no Odori (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Mystical Ninja Starring Goemon (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Mystical Ninja Starring Goemon (USA)
+== nagano winter olympics '98
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Hyper Olympics in Nagano 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Nagano Winter Olympics '98 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Nagano Winter Olympics '98 (USA)
+== namco museum 64
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Namco Museum 64 (USA)
+== nascar 2000
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | NASCAR 2000 (USA)
+== nascar 99
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | NASCAR 99 (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NASCAR 99 (USA)
+== nba courtside 2 featuring kobe bryant
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | NBA Courtside 2 featuring Kobe Bryant (USA)
+== nba hangtime
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NBA Hangtime (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NBA Hangtime (USA)
+== nba in the zone '98
+   .   .   .   .   .   .   .   .   a27 a33 w27 x19 x15 a27 x14 a27 | NBA Pro 98 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | NBA in the Zone '98 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | NBA in the Zone '98 (USA)
+== nba in the zone '99
+   .   .   .   .   .   .   .   .   a27 a33 w27 x19 x15 a27 x14 a27 | NBA Pro 99 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | NBA in the Zone '99 (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | NBA in the Zone 2 (Japan)
+== nba in the zone 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | NBA in the Zone 2 (Japan)
+== nba in the zone 2000
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NBA in the Zone 2000 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NBA in the Zone 2000 (USA)
+== nba jam 2000
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NBA Jam 2000 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NBA Jam 2000 (USA)
+== nba jam 99
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NBA Jam 99 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | NBA Jam 99 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | NBA Jam 99 (USA) (Beta) (1998-09-25)
+== nba live 2000
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | NBA Live 2000 (Europe) (En,Fr,De,Es)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w31 w27 x14 w27 | NBA Live 2000 (USA) (En,Fr,De,Es)
+== nba live 99
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | NBA Live 99 (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w31 w27 x14 w27 | NBA Live 99 (USA) (En,Fr,De,Es,It)
+== nba pro 98
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | NBA Pro 98 (Europe)
+== nba pro 99
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | NBA Pro 99 (Europe)
+== nba showtime - nba on nbc
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | NBA Showtime - NBA on NBC (USA)
+== neon genesis evangelion
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Neon Genesis Evangelion (Japan)
+== new tetris, the
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | New Tetris, The (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w26 w27 x14 w27 | New Tetris, The (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | New Tetris, The (USA) (LodgeNet)
+== nfl blitz
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | NFL Blitz (USA)
+== nfl blitz - special edition
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | NFL Blitz - Special Edition (USA)
+== nfl blitz 2000
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | NFL Blitz 2000 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w24 w24 w24 x19 w24 w24 x14 w24 | NFL Blitz 2000 (USA) (Rev 1)
+== nfl blitz 2001
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | NFL Blitz 2001 (USA)
+== nfl qb club 2001
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | NFL QB Club 2001 (USA)
+== nfl quarterback club 2000
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NFL Quarterback Club 2000 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NFL Quarterback Club 2000 (USA)
+== nfl quarterback club 98
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NFL Quarterback Club 98 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NFL Quarterback Club 98 (USA)
+== nfl quarterback club 99
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NFL Quarterback Club 99 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NFL Quarterback Club 99 (USA)
+== nhl 99
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | NHL 99 (Europe) (En,De,Sv,Fi)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NHL 99 (USA)
+== nhl blades of steel '99
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NHL Blades of Steel '99 (USA)
+   .   .   .   .   .   .   .   .   a27 a27 w27 x19 x15 a27 x14 a27 | NHL Pro 99 (Europe)
+== nhl breakaway 98
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NHL Breakaway 98 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NHL Breakaway 98 (USA)
+== nhl breakaway 99
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | NHL Breakaway 99 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | NHL Breakaway 99 (USA)
+== nhl pro 99
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | NHL Pro 99 (Europe)
+== nightmare creatures
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Nightmare Creatures (USA)
+== nintama rantarou 64 game gallery
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Nintama Rantarou 64 Game Gallery (Japan)
+== nintendo 64 modem
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Nintendo 64 Modem (Japan) (Add-on)
+== nintendo all-star! dairantou smash brothers
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Nintendo All-Star! Dairantou Smash Brothers (Japan)
+== nuclear strike 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Nuclear Strike 64 (Europe) (En,Fr)
+     alternative to Nuclear Strike 64 (USA) [9-10,14]
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w21 x15 a33 x14 a33 | Nuclear Strike 64 (Germany)
+     alternative to Nuclear Strike 64 (Europe) (En,Fr) [11]
+     alternative to Nuclear Strike 64 (USA) [9-10,14]
+   w34 w34 w34 w34 x15 w34 x14 x9  a21 a21 a21 a21 x15 a21 x14 x9  | Nuclear Strike 64 (Germany) (1999-11-17) (Beta)
+     alternative to Nuclear Strike 64 (Europe) (En,Fr) [11]
+     alternative to Nuclear Strike 64 (USA) [9-10,14]
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Nuclear Strike 64 (USA)
+     alternative to Nuclear Strike 64 (Europe) (En,Fr) [11]
+   w34 w34 w34 x19 w34 w34 x14 x6  w27 w27 w27 x19 w21 w27 x14 x6  | Nuclear Strike 64 (USA) (1999-09-21) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Nuclear Strike 64 (USA) (Beta) (Earlier)
+     alternative to Nuclear Strike 64 (Europe) (En,Fr) [11]
+     alternative to Nuclear Strike 64 (USA) [9-10,13-14]
+== nushi zuri 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Nushi Zuri 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | Nushi Zuri 64 (Japan) (Rev 1)
+== nushi zuri 64 - shiokaze ni notte
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Nushi Zuri 64 - Shiokaze ni Notte (Japan)
+== o.d.t.
+   w34 w34 w34 w34 x15 w34 x14 x9  a27 a27 w27 w27 x15 a27 x14 x9  | O.D.T. (Europe) (En,Fr,De,Es,It) (Proto)
+   w34 w34 w34 w34 w34 w34 x14 x9  w27 w27 a27 a27 w31 w27 x14 x9  | O.D.T. (USA) (En,Fr,Es) (Proto)
+== off road challenge
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Off Road Challenge (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Off Road Challenge (USA)
+== ogre battle 64 - person of lordly caliber
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Ogre Battle 64 - Person of Lordly Caliber (Japan) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Ogre Battle 64 - Person of Lordly Caliber (Japan) (Rev 1) (Wii Virtual Console)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Ogre Battle 64 - Person of Lordly Caliber (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w24 w33 x14 w33 | Ogre Battle 64 - Person of Lordly Caliber (USA) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 a22 a22 a33 x19 a22 a22 x14 a22 | Ogre Battle 64 - Person of Lordly Caliber (USA, Europe) (Rev 1) (Wii Virtual Console)
+== olympic hockey 98
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Olympic Hockey 98 (Europe) (En,Fr,De,Es)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Olympic Hockey 98 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Olympic Hockey 98 (USA)
+== onegai monsters
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Onegai Monsters (Japan)
+== operation winback
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Operation WinBack (Europe) (En,Fr,De,Es,It)
+== pachinko 365 nichi
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Pachinko 365 Nichi (Japan)
+== paper mario
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Mario Story (Japan)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Paper Mario (Europe) (En,Fr,De,Es)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Paper Mario (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Paper Mario (USA) (LodgeNet)
+== paperboy
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Paperboy (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Paperboy (USA)
+== parlor! pro 64 - pachinko jikki simulation game
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Parlor! Pro 64 - Pachinko Jikki Simulation Game (Japan)
+== pd ultraman battle collection 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | PD Ultraman Battle Collection 64 (Japan)
+== penny racers
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 x12 x14 a33 | Choro Q 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 x16 x14 a27 | Penny Racers (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 x16 x14 w27 | Penny Racers (USA)
+== perfect dark
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Perfect Dark (Europe) (2000-04-26) (Debug)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Perfect Dark (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Perfect Dark (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Perfect Dark (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Perfect Dark (USA) (2000-03-22) (Debug)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Perfect Dark (USA) (Rev 1)
+== pga european tour
+   g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | PGA European Tour (USA)
+   .   .   .   .   .   .   .   .   a21 a21 a21 a21 x15 a21 x14 x7  | PGA European Tour Golf (Europe) (En,De) (Version B.29) (Beta)
+   .   .   .   .   .   .   .   .   a27 a27 w27 w21 x15 a27 x14 a27 | PGA European Tour Golf (Europe) (En,Fr,De,Es,It)
+== pga european tour golf
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 x7  .   .   .   .   .   .   .   .   | PGA European Tour Golf (Europe) (En,De) (Version B.29) (Beta)
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | PGA European Tour Golf (Europe) (En,Fr,De,Es,It)
+== pikachuu genki de chuu
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Pikachuu Genki de Chuu (Japan)
+== pilotwings 64
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Pilotwings 64 (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Pilotwings 64 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Pilotwings 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Pilotwings 64 (USA) (LodgeNet)
+== pokemon puzzle league
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Pokemon Puzzle League (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Pokemon Puzzle League (Europe) (Wii Virtual Console)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Pokemon Puzzle League (France)
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Pokemon Puzzle League (France) (Wii Virtual Console)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w22 x15 a33 x14 a33 | Pokemon Puzzle League (Germany)
+   w34 w34 w34 w34 x15 w34 x14 w34 a22 a22 a22 a22 x15 a22 x14 a22 | Pokemon Puzzle League (Germany) (Wii Virtual Console)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w22 w27 x14 w27 | Pokemon Puzzle League (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a22 a22 a22 x19 a22 a22 x14 a22 | Pokemon Puzzle League (USA) (Wii Virtual Console)
+== pokemon snap
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 a27 x19 x15 a27 x14 a27 | Pokemon Snap (Australia)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Pokemon Snap (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Pokemon Snap (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Pokemon Snap (Germany)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Pokemon Snap (Italy)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Pokemon Snap (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Pokemon Snap (Japan) (Rev 1) (Wii Virtual Console)
+   w34 w34 x18 w34 x15 w34 x14 w34 a33 a33 x18 w33 x15 a33 x14 a33 | Pokemon Snap (Spain)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Pokemon Snap (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Pokemon Snap (USA) (LodgeNet)
+== pokemon snap station
+   w34 w34 w34 x19 w34 w34 x14 x5  w31 w31 w31 x19 w31 w31 x14 x5  | Pokemon Snap Station (USA) (Demo) (Kiosk)
+== pokemon stadium
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Pokemon Stadium (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Pokemon Stadium (Europe) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Pokemon Stadium (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Pokemon Stadium (Germany)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Pokemon Stadium (Italy)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Pokemon Stadium (Japan)
+   w34 w34 x18 w34 x15 w34 x14 w34 a33 a33 x18 w33 x15 a33 x14 a33 | Pokemon Stadium (Spain)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Pokemon Stadium (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Pokemon Stadium (USA) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Pokemon Stadium (USA) (Rev 2)
+== pokemon stadium (japan)
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   w31 w31 w31 x19 x15 w31 x14 w31 | Pokemon Stadium (Japan)
+== pokemon stadium 2
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Pokemon Stadium 2 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Pokemon Stadium 2 (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Pokemon Stadium 2 (Germany)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Pokemon Stadium 2 (Italy)
+   w34 w34 w34 x19 x15 w34 x14 w34 a29 a29 a29 x19 x15 a29 x14 a29 | Pokemon Stadium 2 (Japan)
+   w34 w34 x18 w34 x15 w34 x14 w34 a33 a33 x18 w33 x15 a33 x14 a33 | Pokemon Stadium 2 (Spain)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Pokemon Stadium 2 (USA)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Pokemon Stadium Kin Gin (Japan)
+== pokemon stadium kin gin
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Pokemon Stadium Kin Gin (Japan)
+== polaris snocross
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Polaris SnoCross (USA)
+== power league 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Power League 64 (Japan)
+== power rangers - lightspeed rescue
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Power Rangers - Lightspeed Rescue (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Power Rangers - Lightspeed Rescue (USA)
+== powerpuff girls, the - chemical x-traction
+   w34 w34 w34 x19 w34 w34 x14 w34 w21 w21 w21 x19 w21 w21 x14 w31 | Powerpuff Girls, The - Chemical X-Traction (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Powerpuff Girls, The - Chemical X-Traction (USA) (Beta) (2001-09-27)
+== premier manager 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Premier Manager 64 (Europe)
+== pro mahjong kiwame 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Pro Mahjong Kiwame 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 w24 w24 w24 x19 x15 w24 x14 w24 | Pro Mahjong Kiwame 64 (Japan) (Rev 1)
+== pro mahjong tsuwamono 64 - jansou battle ni chousen
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Pro Mahjong Tsuwamono 64 - Jansou Battle ni Chousen (Japan)
+== puyo puyo sun 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Puyo Puyo Sun 64 (Japan)
+== puyo puyoon party
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Puyo Puyoon Party (Japan)
+== puzzle bobble 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Puzzle Bobble 64 (Japan)
+== pyoro 64
+   w34 w34 w34 x19 x15 w34 x14 x11 a32 a32 a32 x19 x15 a32 x14 x11 | Pyoro 64 (Unknown) (MPAL) (Aftermarket) (Unl)
+   w34 w34 w34 x19 x15 w34 x14 x11 w32 w32 w32 x19 x15 w32 x14 x11 | Pyoro 64 (Unknown) (NTSC) (Aftermarket) (Unl)
+   w34 w34 w34 x19 x15 w34 x14 x11 a32 a32 a32 x19 x15 a32 x14 x11 | Pyoro 64 (Unknown) (PAL) (Aftermarket) (Unl)
+== quake
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Quake (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Quake (USA)
+== quake ii
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Quake II (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Quake II (USA)
+== quest 64
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Eltale Monsters (Japan)
+   .   .   .   .   .   .   .   .   a27 a33 w27 x19 x15 a27 x14 a27 | Holy Magic Century (Europe)
+   .   .   .   .   .   .   .   .   a33 a33 a33 x19 x15 a33 x14 a33 | Holy Magic Century (France)
+   .   .   .   .   .   .   .   .   a33 a33 a33 w31 x15 a33 x14 a33 | Holy Magic Century (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Quest 64 (USA)
+== r64
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x3  w31 w31 w31 x19 w31 w31 x14 x3  | R64 (World) (Aftermarket) (Unl)
+== racing simulation 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Racing Simulation 2 (Germany)
+== rakugakids
+   w34 w34 w34 x19 x15 w34 x14 w34 w33 a33 w33 x19 x15 w33 x14 w33 | Rakugakids (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Rakugakids (Japan)
+== rally '99
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Rally '99 (Japan)
+== rally challenge 2000
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Rally '99 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w31 w33 x14 w33 | Rally Challenge 2000 (USA)
+== rampage - world tour
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Rampage - World Tour (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Rampage - World Tour (USA)
+== rampage 2 - universal tour
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Rampage 2 - Universal Tour (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w26 w27 x14 w27 | Rampage 2 - Universal Tour (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Rampage 2 - Universal Tour (USA) (LodgeNet)
+== rat attack
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Rat Attack (Europe) (En,Fr,De,Es,It,Nl)
+== rat attack!
+   .   .   .   .   .   .   .   .   a27 a27 w27 w31 x15 a27 x14 a27 | Rat Attack (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Rat Attack! (USA)
+== rayman 2 - the great escape
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | Rayman 2 - The Great Escape (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w31 w27 x14 w27 | Rayman 2 - The Great Escape (USA) (En,Fr,De,Es,It)
+== razmoket, les - la chasse aux tresors
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Razmoket, Les - La Chasse aux Tresors (France)
+== razor freestyle scooter
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Razor Freestyle Scooter (USA)
+== re-volt
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Re-Volt (Europe) (En,Fr,De,Es)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Re-Volt (USA)
+== ready 2 rumble boxing
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Ready 2 Rumble Boxing (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w26 w27 x14 w27 | Ready 2 Rumble Boxing (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Ready 2 Rumble Boxing (USA) (LodgeNet)
+== ready 2 rumble boxing - round 2
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Ready 2 Rumble Boxing - Round 2 (USA)
+== resident evil 2
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Biohazard 2 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Resident Evil 2 (Europe) (En,Fr)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Resident Evil 2 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Resident Evil 2 (USA) (Rev 1)
+== road rash 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Road Rash 64 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Road Rash 64 (Europe) (Beta) (1999-10-12)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Road Rash 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Road Rash 64 (USA) (Beta 1)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Road Rash 64 (USA) (Beta 2)
+== roadsters
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | Roadsters (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w31 w27 x14 w27 | Roadsters (USA) (En,Fr,Es)
+== robot poncots 64 - 7tsu no umi no caramel
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Robot Poncots 64 - 7tsu no Umi no Caramel (Japan)
+== robotech - crystal dreams
+   w34 w34 w34 x19 w34 w34 x14 x9  a24 a24 a24 x19 a24 a24 x14 x9  | Robotech - Crystal Dreams (USA) (Proto 1)
+   w34 w34 w34 x19 w34 w34 x14 x9  w24 w24 w24 x19 w24 w24 x14 x9  | Robotech - Crystal Dreams (USA) (Proto 2)
+== robotron 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Robotron 64 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Robotron 64 (USA)
+== rocket - robot on wheels
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Rocket - Robot on Wheels (Europe) (Beta) (1999-09-29)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Rocket - Robot on Wheels (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Rocket - Robot on Wheels (USA)
+== rockman dash - hagane no boukenshin
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Rockman Dash - Hagane no Boukenshin (Japan)
+== ronaldinho's soccer 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 x18 x19 x15 w34 x14 x10 .   .   .   .   .   .   .   .   | Ronaldinho's Soccer 64 (Brazil) (Pirate)
+== rr64 - ridge racer 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | RR64 - Ridge Racer 64 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | RR64 - Ridge Racer 64 (USA)
+== rtl world league soccer 2000
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | RTL World League Soccer 2000 (Germany)
+== rugrats - die grosse schatzsuche
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Rugrats - Die grosse Schatzsuche (Germany)
+== rugrats - scavenger hunt
+   .   .   .   .   .   .   .   .   a33 a33 a33 x19 x15 a33 x14 a33 | Razmoket, Les - La Chasse aux Tresors (France)
+   .   .   .   .   .   .   .   .   a33 a33 a33 w31 x15 a33 x14 a33 | Rugrats - Die grosse Schatzsuche (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Rugrats - Scavenger Hunt (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Rugrats - Scavenger Hunt (USA) (Beta) (1999-04-02)
+   .   .   .   .   .   .   .   .   a27 a27 w27 x19 x15 a27 x14 a27 | Rugrats - Treasure Hunt (Europe)
+== rugrats - treasure hunt
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Rugrats - Treasure Hunt (Europe)
+== rugrats in paris - the movie
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Rugrats in Paris - The Movie (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Rugrats in Paris - The Movie (USA)
+== rush 2 - extreme racing usa
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Rush 2 - Extreme Racing USA (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w26 w27 x14 w27 | Rush 2 - Extreme Racing USA (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Rush 2 - Extreme Racing USA (USA) (LodgeNet)
+== s.c.a.r.s.
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | S.C.A.R.S. (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | S.C.A.R.S. (USA)
+== saikyou habu shougi
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Saikyou Habu Shougi (Japan)
+== san francisco rush - extreme racing
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | San Francisco Rush - Extreme Racing (Europe) (En,Fr,De)
+   w34 w34 w34 w34 w34 w34 x14 w34 a24 a24 a24 a24 a24 a24 x14 a24 | San Francisco Rush - Extreme Racing (USA) (En,Fr,De)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w24 w27 x14 w27 | San Francisco Rush - Extreme Racing (USA) (En,Fr,De) (Rev 1)
+== san francisco rush 2049
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | San Francisco Rush 2049 (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | San Francisco Rush 2049 (USA)
+== sblobber 64
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Sblobber 64 (World) (Aftermarket) (Unl)
+== scooby-doo! - classic creep capers
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Scooby-Doo! - Classic Creep Capers (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Scooby-Doo! - Classic Creep Capers (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Scooby-Doo! - Classic Creep Capers (USA) (Rev 1)
+== sd hiryuu no ken densetsu
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | SD Hiryuu no Ken Densetsu (Japan)
+== sesame street - elmo's letter adventure
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Sesame Street - Elmo's Letter Adventure (USA)
+== sesame street - elmo's number journey
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Sesame Street - Elmo's Number Journey (USA)
+== shadow man
+   w34 w34 x18 x19 x15 w34 x14 w34 a33 a33 x18 x19 x15 a33 x14 a33 | Shadow Man (Brazil)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w33 x15 a27 x14 a27 | Shadow Man (Europe) (En,Es,It)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Shadow Man (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Shadow Man (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Shadow Man (USA)
+== shadowgate 64 - trials of the four towers
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Shadowgate 64 - Trials of the Four Towers (Europe)
+   w34 w34 w34 w34 x15 w34 x14 w34 a23 a23 a23 w27 x15 a23 x14 a23 | Shadowgate 64 - Trials of the Four Towers (Europe) (Es,It)
+   w34 w34 w34 w34 x15 w34 x14 w34 a23 a23 a23 a23 x15 a23 x14 a23 | Shadowgate 64 - Trials of the Four Towers (Europe) (Fr,De,Nl)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Shadowgate 64 - Trials of the Four Towers (Japan)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 a33 a27 a27 w21 w27 x14 w27 | Shadowgate 64 - Trials of the Four Towers (USA) (En,Es)
+   w34 w34 w34 w34 w34 w34 x14 x7  a21 a21 a21 a21 a21 a21 x14 x7  | Shadowgate 64 - Trials of the Four Towers (USA) (En,Es) (Beta)
+== shin nihon pro wrestling toukon road - brave spirits
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Shin Nihon Pro Wrestling Toukon Road - Brave Spirits (Japan)
+== shin nihon pro wrestling toukon road 2 - the next generation
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Shin Nihon Pro Wrestling Toukon Road 2 - The Next Generation (Japan)
+== simcity 2000
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | SimCity 2000 (Japan)
+== simcopter 64
+   w34 w34 w34 x19 w34 w34 x14 x7  w31 w31 w31 x19 w31 w31 x14 x7  | SimCopter 64 (USA) (Proto)
+== snobo kids
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Snobo Kids (Japan)
+== snow speeder
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Snow Speeder (Japan)
+== snowboard kids
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Snobo Kids (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Snowboard Kids (Europe, Australia)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Snowboard Kids (USA)
+== snowboard kids 2
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 x12 x14 a33 | Chou Snobo Kids (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 a27 x19 x15 x16 x14 a27 | Snowboard Kids 2 (Australia)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 w27 x19 w31 x16 x14 w27 | Snowboard Kids 2 (USA)
+== sonic wings assault
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Sonic Wings Assault (Japan)
+== south park
+   w34 w34 x18 x19 x15 w34 x14 w34 a33 a33 x18 x19 x15 a33 x14 a33 | South Park (Brazil)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w33 x15 a27 x14 a27 | South Park (Europe) (En,Fr,Es)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | South Park (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | South Park (USA)
+== south park - chef's luv shack
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | South Park - Chef's Luv Shack (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | South Park - Chef's Luv Shack (USA)
+== south park rally
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | South Park Rally (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 a21 x14 x7  | South Park Rally (Europe) (Beta) (2000-01-08)
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 a21 x14 x7  | South Park Rally (Europe) (Beta) (2000-01-17)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | South Park Rally (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | South Park Rally (USA) (Beta) (2000-01-14)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | South Park Rally (USA) (Beta) (2000-01-27)
+== space dynamites
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Space Dynamites (Japan)
+== space invaders
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Space Invaders (USA)
+== spacestation silicon valley
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | SpaceStation Silicon Valley (Europe) (En,Fr,De,Es,It,Nl,Pt)
+   w34 w34 w34 x19 x15 w34 x14 x9  a33 a33 a33 x19 x15 a33 x14 x9  | SpaceStation Silicon Valley (Japan) (Proto)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | SpaceStation Silicon Valley (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | SpaceStation Silicon Valley (USA) (Rev 1)
+== spider-man
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Spider-Man (USA)
+== star fox 64
+   .   .   .   .   .   .   .   .   a27 a33 a27 a27 x15 a27 x14 a27 | Lylat Wars (Australia) (En,Fr,De)
+   .   .   .   .   .   .   .   .   a27 a33 w27 w27 x15 a27 x14 a27 | Lylatwars (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Star Fox 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a22 a22 a22 x19 x15 a22 x14 a22 | Star Fox 64 (Japan) (Rev 1) (Wii Virtual Console)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Star Fox 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Star Fox 64 (USA) (LodgeNet)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Star Fox 64 (USA) (Rev 1)
+== star soldier - vanishing earth
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 w27 a27 x19 x15 a27 x14 a27 | Star Soldier - Vanishing Earth (Japan) (En)
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 a21 x14 x7  | Star Soldier - Vanishing Earth (Japan) (En) (Beta) (1998-03-10)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a27 w27 x19 w31 w27 x14 w27 | Star Soldier - Vanishing Earth (USA)
+== star twins
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Star Twins (Japan)
+== star wars - rogue squadron
+   w34 w34 w34 w34 x15 w34 x14 w34 a24 a24 a24 a24 x15 a24 x14 a24 | Star Wars - Rogue Squadron (Europe) (En,Fr,De)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w24 x15 a27 x14 a27 | Star Wars - Rogue Squadron (Europe) (En,Fr,De) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Star Wars - Rogue Squadron (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Star Wars - Rogue Squadron (USA) (LodgeNet)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Star Wars - Rogue Squadron (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Star Wars - Shutsugeki! Rogue Chuutai (Japan)
+== star wars - shadows of the empire
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Star Wars - Shadows of the Empire (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Star Wars - Shadows of the Empire (USA)
+   w34 w34 w34 x19 w34 w34 x14 x11 a30 a30 a30 x19 a30 a30 x14 x11 | Star Wars - Shadows of the Empire (USA) (Aftermarket) (Unl)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Star Wars - Shadows of the Empire (USA) (Beta) (1996-10-15)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Star Wars - Shadows of the Empire (USA) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Star Wars - Shadows of the Empire (USA) (Rev 2)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Star Wars - Teikoku no Kage (Japan)
+== star wars - shutsugeki! rogue chuutai
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Star Wars - Shutsugeki! Rogue Chuutai (Japan)
+== star wars - teikoku no kage
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Star Wars - Teikoku no Kage (Japan)
+== star wars episode i - battle for naboo
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Star Wars Episode I - Battle for Naboo (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Star Wars Episode I - Battle for Naboo (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Star Wars Episode I - Battle for Naboo (USA) (Beta)
+== star wars episode i - racer
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Star Wars Episode I - Racer (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Star Wars Episode I - Racer (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w30 w27 x14 w27 | Star Wars Episode I - Racer (USA)
+   w34 w34 w34 x19 w34 w34 x14 x11 a30 a30 a30 x19 a30 a30 x14 x11 | Star Wars Episode I - Racer (USA) (Aftermarket) (Unl)
+== starcraft 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 a27 x19 x15 a27 x14 a27 | StarCraft 64 (Australia)
+   w34 w34 w34 w34 x15 w34 x14 x9  a33 a33 a33 w31 x15 a33 x14 x9  | StarCraft 64 (Germany) (Proto)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 w27 x19 w21 w27 x14 w27 | StarCraft 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | StarCraft 64 (USA) (Beta)
+== starshot - space circus fever
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 a33 x15 a27 x14 a27 | Starshot - Space Circus Fever (Europe) (En,Fr,De)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 w33 w31 w27 x14 w27 | Starshot - Space Circus Fever (USA) (En,Fr,Es)
+== stunt racer 64
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Stunt Racer 64 (USA)
+== styx
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Styx (World) (Aftermarket) (Unl)
+== super b-daman - battle phoenix 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Super B-Daman - Battle Phoenix 64 (Japan)
+== super bowling
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Super Bowling (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w31 w33 x14 w33 | Super Bowling (USA)
+== super mario 64
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Super Mario 64 (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Super Mario 64 (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Super Mario 64 (Japan) (Rev 3) (Shindou Edition)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Super Mario 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Super Mario 64 (USA) (LodgeNet)
+== super robot spirits
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Super Robot Spirits (Japan)
+== super robot taisen 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Super Robot Taisen 64 (Japan)
+== super smash bros.
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Nintendo All-Star! Dairantou Smash Brothers (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 a27 x19 x15 a27 x14 a27 | Super Smash Bros. (Australia)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Super Smash Bros. (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w26 w27 x14 w27 | Super Smash Bros. (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Super Smash Bros. (USA) (LodgeNet)
+== super speed race 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Super Speed Race 64 (Japan)
+== supercross 2000
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Supercross 2000 (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Supercross 2000 (USA)
+== superman
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Superman (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 x19 w34 w34 x14 x9  .   .   .   .   .   .   .   .   | Superman (USA) (Beta) (1998-09-06)
+== superman - the new superman aventures
+   .   .   .   .   .   .   .   .   a27 a27 w27 w27 x15 a27 x14 a27 | Superman (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   a21 a21 a21 x19 a21 a21 x14 x9  | Superman (USA) (Beta) (1998-09-06)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w21 w27 x14 w27 | Superman - The New Superman Aventures (USA) (En,Fr,Es)
+== susume! taisen puzzle dama - toukon! marutama chou
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Susume! Taisen Puzzle Dama - Toukon! Marutama Chou (Japan)
+== swoop 64, the
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Swoop 64, The (World) (Aftermarket) (Unl)
+== sydney 2000
+   w34 w34 w34 x19 x15 w34 x14 x9  a27 a27 w27 x19 x15 a27 x14 x9  | Sydney 2000 (Europe) (Proto)
+   w34 w34 w34 x19 w34 w34 x14 x9  w27 w27 a27 x19 w31 w27 x14 x9  | Sydney 2000 (USA) (Proto)
+== tamiya racing 64
+   .   .   .   .   .   .   .   .   a23 w23 a23 x19 a23 a23 x14 x9  | Mini Racers (USA) (Ja) (Proto)
+   w34 w34 w34 x19 w34 w34 x14 x9  w23 a23 w23 x19 w23 w23 x14 x9  | Tamiya Racing 64 (USA) (Proto)
+== tarzan
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Tarzan (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Tarzan (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | Tarzan (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Tarzan (USA)
+== taz express
+   w34 w34 w34 w34 x15 w34 x14 w34 w33 w33 w33 w31 x15 w33 x14 w31 | Taz Express (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 x19 w34 w34 x14 x9  a33 a33 a33 x19 w31 a33 x14 x9  | Taz Express (USA) (Proto) (2000-05-15)
+== telefoot soccer 2000
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Telefoot Soccer 2000 (France)
+== telelocation - gemini
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Telelocation - Gemini (World) (64Brew Game Jam 2020) (Aftermarket) (Unl)
+== telocation - gemini
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Telocation - Gemini (World) (v1.2) (Aftermarket) (Unl)
+== tetris 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Tetris 64 (Japan) (En)
+== tetrisphere
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Tetrisphere (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Tetrisphere (USA)
+== tg rally 2
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | TG Rally 2 (Europe)
+== tigger's honey hunt
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Tigger's Honey Hunt (Europe) (En,Fr,De,Es,It,Nl,Da)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Tigger's Honey Hunt (USA)
+== tom and jerry in fists of furry
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Tom and Jerry in Fists of Furry (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Tom and Jerry in Fists of Furry (USA)
+== tom clancy's rainbow six
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Tom Clancy's Rainbow Six (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Tom Clancy's Rainbow Six (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | Tom Clancy's Rainbow Six (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Tom Clancy's Rainbow Six (USA)
+== tommy thunder
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | Tommy Thunder (USA) (Proto) (1997-10-01)
+== tomte trouble
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x11 w31 w31 w31 x19 w31 w31 x14 x11 | Tomte Trouble (World) (Aftermarket) (Unl)
+== tonic trouble
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 a21 x14 x7  | Tonic Trouble (Europe) (Beta)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Tonic Trouble (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Tonic Trouble (USA) (Rev 1)
+== tony hawk's pro skater
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Tony Hawk's Pro Skater (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Tony Hawk's Pro Skater (USA) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Tony Hawk's Pro Skater (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a27 a27 w27 x19 x15 a27 x14 a27 | Tony Hawk's Skateboarding (Europe)
+== tony hawk's pro skater 2
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Tony Hawk's Pro Skater 2 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Tony Hawk's Pro Skater 2 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Tony Hawk's Pro Skater 2 (USA) (Beta) (2001-04-20)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Tony Hawk's Pro Skater 2 (USA) (v012) (Beta) (2001-06-04)
+== tony hawk's pro skater 3
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Tony Hawk's Pro Skater 3 (USA)
+== tony hawk's skateboarding
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Tony Hawk's Skateboarding (Europe)
+== toon panic
+   w34 w34 w34 x19 x15 w34 x14 x9  w31 w31 w31 x19 x15 w31 x14 x9  | Toon Panic (Japan) (Proto)
+== top gear hyper bike
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Top Gear Hyper Bike (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Top Gear Hyper Bike (Japan)
+== top gear hyper-bike
+   .   .   .   .   .   .   .   .   a27 a33 w27 x19 x15 a27 x14 a27 | Top Gear Hyper Bike (Europe)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Top Gear Hyper Bike (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w21 w27 x14 w27 | Top Gear Hyper-Bike (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Top Gear Hyper-Bike (USA) (Beta)
+== top gear overdrive
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Top Gear Overdrive (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Top Gear Overdrive (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w21 w27 x14 w27 | Top Gear Overdrive (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Top Gear Overdrive (USA) (Beta)
+== top gear rally
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 a27 x19 x15 a27 x14 a27 | Top Gear Rally (Asia) (En)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Top Gear Rally (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Top Gear Rally (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Top Gear Rally (USA)
+== top gear rally 2
+   .   .   .   .   .   .   .   .   a20 a20 a20 x19 x15 a20 x14 a20 | TG Rally 2 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Top Gear Rally 2 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Top Gear Rally 2 (Europe) (Beta) (1999-08-31)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Top Gear Rally 2 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w21 w27 x14 w27 | Top Gear Rally 2 (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Top Gear Rally 2 (USA) (Beta)
+== toy story 2 - buzz l'eclair a la rescousse!
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Toy Story 2 - Buzz l'Eclair a la Rescousse! (France)
+== toy story 2 - buzz lightyear to the rescue!
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Toy Story 2 - Buzz Lightyear to the Rescue! (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Toy Story 2 - Buzz Lightyear to the Rescue! (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Toy Story 2 - Buzz Lightyear to the Rescue! (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a33 a33 a33 x19 x15 a33 x14 a33 | Toy Story 2 - Buzz l'Eclair a la Rescousse! (France)
+   .   .   .   .   .   .   .   .   a24 a24 a24 a24 x15 a24 x14 a24 | Toy Story 2 - Captain Buzz Lightyear auf Rettungsmission! (Germany)
+   .   .   .   .   .   .   .   .   a33 a33 a33 w24 x15 a33 x14 a33 | Toy Story 2 - Captain Buzz Lightyear auf Rettungsmission! (Germany) (Rev 1)
+== toy story 2 - captain buzz lightyear auf rettungsmission!
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Toy Story 2 - Captain Buzz Lightyear auf Rettungsmission! (Germany)
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Toy Story 2 - Captain Buzz Lightyear auf Rettungsmission! (Germany) (Rev 1)
+== transformers - beast wars metals 64
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Transformers - Beast Wars Metals 64 (Japan)
+== transformers - beast wars transmetals
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Transformers - Beast Wars Metals 64 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w33 a33 w33 x19 w31 w33 x14 w33 | Transformers - Beast Wars Transmetals (USA)
+== triple play 2000
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Triple Play 2000 (USA)
+== tsumi to batsu - hoshi no keishousha
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Tsumi to Batsu - Hoshi no Keishousha (Japan)
+== turok - dinosaur hunter
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | Jikuu Senshi Turok (Japan)
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,14]
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Turok - Dinosaur Hunter (Europe)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,14]
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Turok - Dinosaur Hunter (Europe) (Rev 1)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,14]
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | Turok - Dinosaur Hunter (Europe) (Rev 2)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,14]
+   w34 w34 w34 w34 x15 w34 x14 w34 a24 a24 a24 a24 x15 a24 x14 a24 | Turok - Dinosaur Hunter (Germany)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,14]
+   w34 w34 w34 w34 x15 w34 x14 w34 a24 a24 a24 a24 x15 a24 x14 a24 | Turok - Dinosaur Hunter (Germany) (Rev 1)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,14]
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w24 x15 a33 x14 a33 | Turok - Dinosaur Hunter (Germany) (Rev 2)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,14]
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Turok - Dinosaur Hunter (USA)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,13-14]
+   w34 w34 w34 x19 w34 w34 x14 x8  w27 w33 w27 x19 w31 w27 x14 x8  | Turok - Dinosaur Hunter (USA) (Demo) (Kiosk, E3 1997)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Turok - Dinosaur Hunter (USA) (Rev 1)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+     alternative to Turok - Dinosaur Hunter (USA) (Rev 2) [9,13-14]
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Turok - Dinosaur Hunter (USA) (Rev 2)
+     alternative to Jikuu Senshi Turok (Japan) [10]
+     alternative to Turok - Dinosaur Hunter (Europe) (Rev 2) [11]
+== turok - legenden des verlorenen landes
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 w34 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Turok - Legenden des Verlorenen Landes (Germany)
+== turok - rage wars
+   .   .   .   .   .   .   .   .   a33 a33 a33 a33 x15 a33 x14 a33 | Turok - Legenden des Verlorenen Landes (Germany)
+   w34 w34 w34 x19 x15 w34 x14 w34 a28 a28 a28 x19 x15 a28 x14 a28 | Turok - Rage Wars (Europe)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w33 x15 a27 x14 a27 | Turok - Rage Wars (Europe) (En,Fr,It)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Turok - Rage Wars (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Turok - Rage Wars (USA) (Rev 1)
+== turok 2 - seeds of evil
+   w34 w34 w34 x19 x15 w34 x14 w34 a28 a28 a28 x19 x15 a28 x14 a28 | Turok 2 - Seeds of Evil (Europe)
+     alternative to Turok 2 - Seeds of Evil (Europe) (En,Fr,Es,It) [11]
+     alternative to Turok 2 - Seeds of Evil (USA) (Rev 1) [9,14]
+     alternative to Violence Killer - Turok New Generation (Japan) [10]
+   w34 w34 w34 x19 x15 w34 x14 x5  a27 a27 w27 x19 x15 a27 x14 x5  | Turok 2 - Seeds of Evil (Europe) (Demo) (Kiosk)
+     alternative to Turok 2 - Seeds of Evil (USA) (Demo) (Kiosk) [9-10,14]
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w33 x15 a27 x14 a27 | Turok 2 - Seeds of Evil (Europe) (En,Fr,Es,It)
+     alternative to Turok 2 - Seeds of Evil (USA) (Rev 1) [9,14]
+     alternative to Violence Killer - Turok New Generation (Japan) [10]
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 a33 x15 a33 x14 a33 | Turok 2 - Seeds of Evil (Germany)
+     alternative to Turok 2 - Seeds of Evil (Europe) (En,Fr,Es,It) [11]
+     alternative to Turok 2 - Seeds of Evil (USA) (Rev 1) [9,14]
+     alternative to Violence Killer - Turok New Generation (Japan) [10]
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Turok 2 - Seeds of Evil (USA)
+     alternative to Turok 2 - Seeds of Evil (Europe) (En,Fr,Es,It) [11]
+     alternative to Turok 2 - Seeds of Evil (USA) (Rev 1) [9,13-14]
+     alternative to Violence Killer - Turok New Generation (Japan) [10]
+   w34 w34 w34 x19 w34 w34 x14 x5  w27 w27 a27 x19 w31 w27 x14 x5  | Turok 2 - Seeds of Evil (USA) (Demo) (Kiosk)
+     alternative to Turok 2 - Seeds of Evil (Europe) (Demo) (Kiosk) [11]
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Turok 2 - Seeds of Evil (USA) (Rev 1)
+     alternative to Turok 2 - Seeds of Evil (Europe) (En,Fr,Es,It) [11]
+     alternative to Violence Killer - Turok New Generation (Japan) [10]
+   .   .   .   .   .   .   .   .   a33 w27 a33 x19 x15 a33 x14 a33 | Violence Killer - Turok New Generation (Japan)
+     alternative to Turok 2 - Seeds of Evil (Europe) (En,Fr,Es,It) [11]
+     alternative to Turok 2 - Seeds of Evil (USA) (Rev 1) [9,14]
+== turok 3 - shadow of oblivion
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Turok 3 - Shadow of Oblivion (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Turok 3 - Shadow of Oblivion (Europe) (Beta) (2000-05-31)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Turok 3 - Shadow of Oblivion (Europe) (Beta) (2000-06-06) [b]
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Turok 3 - Shadow of Oblivion (Europe) (Beta) (2000-07-10) [b]
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 a21 x14 x7  | Turok 3 - Shadow of Oblivion (Europe) (Beta) (2000-07-16T211412)
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 a21 x14 x7  | Turok 3 - Shadow of Oblivion (Europe) (Beta) (2000-07-16T220245)
+   w34 w34 w34 x19 x15 w34 x14 x7  a21 a21 a21 x19 x15 a21 x14 x7  | Turok 3 - Shadow of Oblivion (Europe) (Beta) (2000-07-18)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w21 w27 x14 w27 | Turok 3 - Shadow of Oblivion (USA)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Turok 3 - Shadow of Oblivion (USA) (Beta) (2000-05-03)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Turok 3 - Shadow of Oblivion (USA) (Beta) (2000-06-26)
+   w34 w34 w34 x19 w34 w34 x14 x7  a21 a21 a21 x19 a21 a21 x14 x7  | Turok 3 - Shadow of Oblivion (USA) (Beta) (2000-07-16)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | Turok 3 - Shadow of Oblivion (USA) (Beta) (2000-07-18)
+== twisted edge - extreme snowboarding
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | King Hill 64 - Extreme Snowboarding (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | Twisted Edge - Extreme Snowboarding (USA)
+   .   .   .   .   .   .   .   .   a27 a33 w27 x19 x15 a27 x14 a27 | Twisted Edge - Snowboarding (Europe)
+== twisted edge - snowboarding
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Twisted Edge - Snowboarding (Europe)
+== utchan nanchan no hono no challenger - denryuu ira ira bou
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Utchan Nanchan no Hono no Challenger - Denryuu Ira Ira Bou (Japan)
+== v-rally edition 99
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | V-Rally Edition 99 (Europe) (En,Fr,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | V-Rally Edition 99 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | V-Rally Edition 99 (USA)
+== viewpoint 2064
+   w34 w34 w34 x19 x15 w34 x14 x9  w31 w31 w31 x19 x15 w31 x14 x9  | Viewpoint 2064 (Japan) (Proto)
+== vigilante 8
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Vigilante 8 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 a33 a33 x19 x15 a33 x14 a33 | Vigilante 8 (France)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | Vigilante 8 (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Vigilante 8 (USA)
+== vigilante 8 - 2nd offense
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Vigilante 8 - 2nd Offense (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Vigilante 8 - 2nd Offense (USA)
+== violence killer - turok new generation
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Violence Killer - Turok New Generation (Japan)
+== virtual chess 64
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | Virtual Chess 64 (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w26 w27 x14 w27 | Virtual Chess 64 (USA) (En,Fr,Es)
+   w34 w34 w34 w34 w34 w34 x14 w34 a26 a26 a26 a26 a26 a26 x14 a26 | Virtual Chess 64 (USA) (En,Fr,Es) (LodgeNet)
+== virtual pool 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Virtual Pool 64 (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w26 w27 x14 w27 | Virtual Pool 64 (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Virtual Pool 64 (USA) (LodgeNet)
+== virtual pro wrestling 2 - oudou keishou
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Virtual Pro Wrestling 2 - Oudou Keishou (Japan)
+== virtual pro wrestling 64
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Virtual Pro Wrestling 64 (Japan)
+== waialae country club - true golf classics
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Waialae Country Club - True Golf Classics (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Waialae Country Club - True Golf Classics (Europe) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Waialae Country Club - True Golf Classics (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | Waialae Country Club - True Golf Classics (USA) (Rev 1)
+== war gods
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | War Gods (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | War Gods (USA)
+== wave race 64 - kawasaki jet ski
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Wave Race 64 - Kawasaki Jet Ski (Europe) (En,De)
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Wave Race 64 - Kawasaki Jet Ski (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | Wave Race 64 - Kawasaki Jet Ski (Japan) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Wave Race 64 - Kawasaki Jet Ski (Japan) (Rev 2) (Shindou Edition)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Wave Race 64 - Kawasaki Jet Ski (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Wave Race 64 - Kawasaki Jet Ski (USA) (LodgeNet)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Wave Race 64 - Kawasaki Jet Ski (USA) (Rev 1)
+== wayne gretzky's 3d hockey
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Wayne Gretzky's 3D Hockey (Europe) (En,Fr,De,Es)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Wayne Gretzky's 3D Hockey (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | Wayne Gretzky's 3D Hockey (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w24 w27 x14 w27 | Wayne Gretzky's 3D Hockey (USA) (Rev 1)
+== wayne gretzky's 3d hockey '98
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | Wayne Gretzky's 3D Hockey '98 (Europe) (En,Fr,De,Es)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Wayne Gretzky's 3D Hockey '98 (USA)
+== wcw backstage assault
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | WCW Backstage Assault (USA)
+== wcw mayhem
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | WCW Mayhem (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | WCW Mayhem (USA)
+== wcw nitro
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | WCW Nitro (USA)
+== wcw vs. nwo - world tour
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | WCW vs. nWo - World Tour (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | WCW vs. nWo - World Tour (USA)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | WCW vs. nWo - World Tour (USA) (Rev 1)
+== wcw-nwo revenge
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | WCW-nWo Revenge (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | WCW-nWo Revenge (USA)
+== wetrix
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w27 x15 a27 x14 a27 | Wetrix (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | Wetrix (Japan)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 a33 a27 a27 w31 w27 x14 w27 | Wetrix (USA) (En,Fr,De,Es,It,Nl)
+== whack 'n' roll
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | Whack 'n' Roll (USA) (v0.8.2) (Beta) (1998-02-05)
+== wheel of fortune
+   w34 w34 w34 x19 w34 w34 x14 w34 w31 w31 w31 x19 w31 w31 x14 w31 | Wheel of Fortune (USA)
+== wide-boy64
+   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a21 a21 a21 x19 a21 a21 x14 x1  | Wide-Boy64 AGB (World) (v0.00b) (Beta)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 a24 a24 x14 x1  | Wide-Boy64 AGB (World) (v0.02c)
+   .   .   .   .   .   .   .   .   w24 w24 w24 x19 w24 w24 x14 x1  | Wide-Boy64 AGB (World) (v0.04c)
+   .   .   .   .   .   .   .   .   a20 a20 a20 x19 a20 a20 x14 x1  | Wide-Boy64 CGB (World) (v1.02)
+== wide-boy64 agb
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 w34 w34 x14 x2  .   .   .   .   .   .   .   .   | Wide-Boy64 AGB (World) (v0.00b) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 w34 .   .   .   .   .   .   .   .   | Wide-Boy64 AGB (World) (v0.02c)
+   w34 w34 w34 x19 w34 w34 x14 w34 .   .   .   .   .   .   .   .   | Wide-Boy64 AGB (World) (v0.04c)
+== wide-boy64 cgb
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 w34 w34 x14 w34 .   .   .   .   .   .   .   .   | Wide-Boy64 CGB (World) (v1.02)
+== wild choppers
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Wild Choppers (Japan)
+== wildwaters
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | Wildwaters (USA) (1999-06-15) (Proto)
+== winback
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | WinBack (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | WinBack (Japan) (Rev 1)
+== winback - covert operations
+   .   .   .   .   .   .   .   .   a27 a33 w27 w31 x15 a27 x14 a27 | Operation WinBack (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a24 a24 a24 x19 x15 a24 x14 a24 | WinBack (Japan)
+   .   .   .   .   .   .   .   .   a33 w33 a33 x19 x15 a33 x14 a33 | WinBack (Japan) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | WinBack - Covert Operations (USA)
+== wipeout 64
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Wipeout 64 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 x9  a21 a21 a21 x19 x15 a21 x14 x9  | Wipeout 64 (Europe) (Beta)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Wipeout 64 (USA)
+== wizard of the board
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 x19 w34 w34 x14 x11 w32 w32 w32 x19 w32 w32 x14 x11 | Wizard of the Board (World) (NTSC) (Aftermarket) (Unl)
+   w34 w34 w34 x19 w34 w34 x14 x11 a32 a32 a32 x19 a32 a32 x14 x11 | Wizard of the Board (World) (PAL) (Aftermarket) (Unl)
+== wonder project j2 - koruro no mori no jozet
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Wonder Project J2 - Koruro no Mori no Jozet (Japan)
+== world cup 98
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | World Cup 98 (Europe) (En,Fr,De,Es,It,Nl,Sv,Da)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w31 w27 x14 w27 | World Cup 98 (USA) (En,Fr,De,Es,It,Nl,Sv,Da)
+== world driver championship
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w31 x15 a27 x14 a27 | World Driver Championship (Europe) (En,Fr,De,Es,It)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | World Driver Championship (USA)
+== worms armageddon
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a27 w27 w27 x15 a27 x14 a27 | Worms Armageddon (Europe) (En,Fr,De,Es,It,Nl)
+   w34 w34 w34 w34 w34 w34 x14 w34 w27 w27 a27 a27 w30 w27 x14 w27 | Worms Armageddon (USA) (En,Fr,Es)
+   w34 w34 w34 w34 w34 w34 x14 x11 a30 a30 a30 a30 a30 a30 x14 x11 | Worms Armageddon (USA) (En,Fr,Es) (Aftermarket) (Unl)
+== wwf attitude
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | WWF Attitude (Europe)
+   w34 w34 w34 w34 x15 w34 x14 w34 a33 a33 a33 w31 x15 a33 x14 a33 | WWF Attitude (Germany)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | WWF Attitude (USA)
+== wwf no mercy
+   w34 w34 w34 x19 x15 w34 x14 w34 a24 a24 a24 x19 x15 a24 x14 a24 | WWF No Mercy (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | WWF No Mercy (Europe) (Rev 1)
+   w34 w34 w34 x19 w34 w34 x14 w34 a24 a24 a24 x19 a24 a24 x14 a24 | WWF No Mercy (USA)
+   w34 w34 w34 x19 w34 w34 x14 x9  a21 a21 a21 x19 a21 a21 x14 x9  | WWF No Mercy (USA) (Beta) (2000-09-11)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w24 w27 x14 w27 | WWF No Mercy (USA) (Rev 1)
+== wwf war zone
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | WWF War Zone (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | WWF War Zone (USA)
+== wwf wrestlemania 2000
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a33 w27 x19 x15 a27 x14 a27 | WWF WrestleMania 2000 (Europe)
+   w34 w34 w34 x19 x15 w34 x14 w34 a33 w33 a33 x19 x15 a33 x14 a33 | WWF WrestleMania 2000 (Japan)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a33 a27 x19 w31 w27 x14 w27 | WWF WrestleMania 2000 (USA)
+== x'treme roller
+   w34 w34 w34 x19 w34 w34 x14 x9  w31 w31 w31 x19 w31 w31 x14 x9  | X'treme Roller (USA) (Proto)
+== xena - warrior princess - the talisman of fate
+   w34 w34 w34 x19 x15 w34 x14 w34 a27 a27 w27 x19 x15 a27 x14 a27 | Xena - Warrior Princess - The Talisman of Fate (Europe)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 w27 a27 x19 w31 w27 x14 w27 | Xena - Warrior Princess - The Talisman of Fate (USA)
+== xeno crisis
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w34 w34 w34 w34 w34 w34 x14 x11 w31 w31 w31 w31 w31 w31 x14 x11 | Xeno Crisis (World) (En,Ja,Fr,Es,It,Nl,Pt) (Aftermarket) (Unl)
+== xplorer 64
+   w34 w34 w34 w34 x15 w34 x14 x11 w31 w31 w31 w31 x15 w31 x14 x11 | Xplorer 64 (Germany) (v1.067) (Unl)
+== yakouchuu ii - satsujin kouro
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Yakouchuu II - Satsujin Kouro (Japan)
+== yoshi story
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Yoshi Story (Japan)
+== yoshi's story
+   .   .   .   .   .   .   .   .   a33 w27 a33 x19 x15 a33 x14 a33 | Yoshi Story (Japan)
+   w34 w34 w34 w34 x15 w34 x14 w34 a27 a33 w27 w31 x15 a27 x14 a27 | Yoshi's Story (Europe) (En,Fr,De)
+   w34 w34 w34 x19 w34 w34 x14 w34 w27 a27 a27 x19 w26 w27 x14 w27 | Yoshi's Story (USA) (En,Ja)
+   w34 w34 w34 x19 w34 w34 x14 w34 a26 a26 a26 x19 a26 a26 x14 a26 | Yoshi's Story (USA) (En,Ja) (LodgeNet)
+== yuke yuke!! trouble makers
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Yuke Yuke!! Trouble Makers (Japan)
+== zelda no densetsu - mujura no kamen
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Mujura no Kamen (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Mujura no Kamen (Japan) (GameCube)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Mujura no Kamen (Japan) (Rev 1)
+== zelda no densetsu - toki no ocarina
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Toki no Ocarina (Japan)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Toki no Ocarina (Japan) (GameCube, Zelda Collection)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Toki no Ocarina (Japan) (Rev 1)
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Toki no Ocarina (Japan) (Rev 2)
+== zelda no densetsu - toki no ocarina gc
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Toki no Ocarina GC (Japan) (GameCube)
+== zelda no densetsu - toki no ocarina gc ura
+   g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
+   w34 w34 w34 x19 x15 w34 x14 w34 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Toki no Ocarina GC Ura (Japan) (GameCube)
+== zool - majuu tsukai densetsu
+   w34 w34 w34 x19 x15 w34 x14 w34 w31 w31 w31 x19 x15 w31 x14 w31 | Zool - Majuu Tsukai Densetsu (Japan)

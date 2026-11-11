@@ -1,0 +1,1178 @@
+# The built-in engine's Selections from "Nintendo - Wii U - Datfile.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata false
+system: Nintendo - Wii U (Redump)
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [7,15]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Compilations REF0029: Compare languages
+rule r2: Compilations REF0069: Group after filtering by region order
+rule r3: Compilations REF0075: Tie breaker, remove the compilation title
+rule r4: Exclusions REF0042: Excluded due to categories: Demos (reason: Category exclude, Demos)
+rule r5: Exclusions REF0042: Excluded due to categories: Educational (reason: Category exclude, Educational)
+rule r6: Exclusions REF0042: Excluded due to categories: Preproduction (reason: Category exclude, Preproduction)
+rule r7: Exclusions REF0046: Excluded due to a global override (reason: User global exclude)
+rule r8: Exclusions: Global post filter exclude
+rule r9: Exclusions: Region remove
+rule r10: Includes REF0048: Included due to a global override
+rule r11: Language filter REF0049: Removed due to user language filters: En(?:-[A-Z][A-Z])?, De, Fr(?!-CA)(?:-[A-Z][A-Z])?, It, Ja (reason: Language remove)
+rule r12: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r13: Parent selection REF0002: Group after taking clone list priorities into account
+rule r14: Parent selection REF0003: Group after cleaning up preproduction/bad/pirate/mixed version-revision titles
+rule r15: Parent selection REF0005: [First pass] Group after filtering by user language order
+rule r16: Parent selection REF0007: Group after handling versions and revisions
+rule r17: Parent selection REF0014: Group after lower priority region, non-superset clones removed
+rule r18: Parent selection REF0043: [Second pass] Group after filtering by user language order
+rule r19: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r20: Parent selection REF0119: Group after good dump/production/retail check
+rule r21: Parent selection: No other release competed
+rule r22: Superset parent selection REF0076: Group after choosing superset titles
+== 007 legends
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | 007 Legends (Europe) (En,Fr,De)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | 007 Legends (USA) (En,Fr)
+== 0100872 - disc, cat-i rtl nov '14 usa-fl
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 0100872 - DISC, CAT-I RTL NOV '14 USA-FL (USA)
+== 0103771 - disc, cat-i rtl mar '16 usa-pt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 0103771 - DISC, CAT-I RTL MAR '16 USA-PT (USA)
+== 101446 - disc, cat-i rtl dec '14 usa-pt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 101446 - DISC, CAT-I RTL DEC '14 USA-PT (USA)
+== 102079 - disc, cat-i rtl may '15 usa-pt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 102079 - DISC, CAT-I RTL MAY '15 USA-PT (USA)
+== 102812 - disc, cat-i rtl aug '15 usa-pt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 102812 - DISC, CAT-I RTL AUG '15 USA-PT (USA)
+== 103292 - disc, cat-i rtl nov '15 usa-pt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 103292 - DISC, CAT-I RTL NOV '15 USA-PT (USA)
+== 104571 - disc, cat-i rtl oct '16 usa-pt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 104571 - Disc, CAT-I RTL OCT '16 USA-PT (USA)
+== 81641 - disc, cat-i pikmin 3 eventrtlcanusa
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 81641 - DISC, CAT-I PIKMIN 3 EVENTRTLCANUSA (USA)
+== 81642 - disc, cat-i pikmin 3 post rtl
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 81642 - DISC, CAT-I PIKMIN 3 POST RTL (USA)
+== 81854 - disc, cat-i update rtl aug '13 usawm
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 81854 - DISC, CAT-I UPDATE RTL AUG '13 USAWM (USA)
+== 83178 - disc, cat-i rtl mar '14 usa-pt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 83178 - DISC, CAT-I RTL MAR '14 USA-PT (USA)
+== 83402 - cat-i rtl may '14 usa-pt
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | 83402 - CAT-I RTL MAY '14 USA-PT (USA)
+== abc wipeout - create & crash
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 x7  x8  w21 w19 w19 w19 x12 w19 x7  x8  w19 | ABC Wipeout - Create & Crash (USA)
+== abc wipeout 3
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 x7  x8  w21 w19 w19 w19 x12 w19 x7  x8  w19 | ABC Wipeout 3 (USA)
+== adventure time - explore the dungeon because i don't know!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a17 w17 w17 x9  x7  x8  a17 | Adventure Time - Explore the Dungeon Because I Don't Know! (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 x7  x8  w21 w17 w17 a17 a17 w19 x7  x8  w17 | Adventure Time - Explore the Dungeon Because I Don't Know! (USA) (En,Fr,Es)
+== adventure time - finn & jake investigations
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a17 w17 w17 x9  x7  x8  a17 | Adventure Time - Finn & Jake Investigations (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 x7  x8  w21 w17 w17 a17 a17 w19 x7  x8  w17 | Adventure Time - Finn & Jake Investigations (USA) (En,Fr,Es,Pt)
+== amazing spider-man 2, the
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a17 w17 w19 x9  x7  x8  a17 | Amazing Spider-Man 2, The (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 x7  x8  w21 w17 w17 a17 x12 w19 x7  x8  w17 | Amazing Spider-Man 2, The (USA) (En,Fr)
+== amazing spider-man, the - ultimate edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a17 w17 w17 x9  x7  x8  a17 | Amazing Spider-Man, The - Ultimate Edition (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 x7  x8  w21 w17 w17 a17 a17 w19 x7  x8  w17 | Amazing Spider-Man, The - Ultimate Edition (USA) (En,Fr,Es)
+== angry birds star wars
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a17 w17 w17 x9  x7  x8  a17 | Angry Birds Star Wars (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 x7  x8  w21 w17 w17 a17 a17 w19 x7  x8  w17 | Angry Birds Star Wars (USA) (En,Fr,Es,Pt)
+== angry birds trilogy
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a17 w17 w19 x9  x7  x8  a17 | Angry Birds Trilogy (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 x7  x8  w21 w17 w17 a17 x12 w19 x7  x8  w17 | Angry Birds Trilogy (USA) (En,Fr)
+== animal crossing - amiibo festival
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a20 w17 w17 x9  x7  x8  a17 | Animal Crossing - Amiibo Festival (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 w21 w21 x7  x8  w21 w17 a20 a17 a17 w19 x7  x8  w17 | Animal Crossing - Amiibo Festival (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  w19 x8  a20 | Doubutsu no Mori - Amiibo Festival (Japan)
+== art academy - atelier
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  x5  w19 w19 w19 w19 x9  x7  x8  x5  | Art Academy - Atelier (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+== assassin's creed iii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a20 w17 w17 x9  x7  x8  a17 | Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Ru)
+   w21 w21 w21 x12 x9  x7  x8  w21 a20 w20 a20 x12 x9  x7  x8  a20 | Assassin's Creed III (Japan)
+   w21 w21 w21 w21 w21 x7  x8  w21 w17 a20 a17 a17 w19 x7  x8  w17 | Assassin's Creed III (USA) (En,Fr,Es,Pt)
+== assassin's creed iv - black flag
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  x7  x8  w21 a17 a20 w17 w17 x9  x7  x8  a17 | Assassin's Creed IV - Black Flag (Europe) (En,Fr,De,Es,It,Nl,Ru)
+   w21 w21 w21 x12 x9  x7  x8  w21 a20 w20 a20 x12 x9  x7  x8  a20 | Assassin's Creed IV - Black Flag (Japan)
+   w21 w21 w21 w21 w21 x7  x8  w21 w17 a20 a17 a17 w19 x7  x8  w17 | Assassin's Creed IV - Black Flag (USA) (En,Fr,Es,Pt)
+== axiom verge
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 x7  x8  w21 w19 w19 w19 w19 w19 x7  x8  w19 | Axiom Verge (USA) (En,Fr,De,Es,It,Pt)
+== baila latino
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Baila Latino (Europe) (En,Fr,De,Es,It)
+== barbie & her sisters - puppy rescue
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  w10 x8  a17 | Barbie & Her Sisters - Puppy Rescue (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Barbie & Her Sisters - Puppy Rescue (USA) (En,Fr,Es,Pt)
+== barbie dreamhouse party
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  w10 x8  a17 | Barbie Dreamhouse Party (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Barbie Dreamhouse Party (USA) (En,Fr,Es)
+== batman - arkham city - armored edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  w10 x8  a20 | Batman - Arkham City - Armored Edition (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Batman - Arkham City - Armored Edition (USA) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a17 a20 w17 w17 x9  w10 x8  a17 | Batman - Arkham City - Armoured Edition (Europe) (En,Fr,De,Es,It,Ru)
+== batman - arkham city - armoured edition
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Batman - Arkham City - Armoured Edition (Europe) (En,Fr,De,Es,It,Ru)
+== batman - arkham origins
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  w10 x8  a17 | Batman - Arkham Origins (Europe) (En,Fr,De,Es,It,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  w10 x8  a20 | Batman - Arkham Origins (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Batman - Arkham Origins (USA) (En,Fr,Es)
+== bayonetta
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  w10 x8  a17 | Bayonetta (Europe) (En,Ja,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w17 a20 x12 x9  w10 x8  a20 | Bayonetta (Japan) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a17 a17 a17 w19 w17 x8  w17 | Bayonetta (USA) (En,Ja,Fr,De,Es,It)
+== bayonetta 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  w10 x8  a17 | Bayonetta 2 (Europe) (En,Ja,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w17 a20 x12 x9  w10 x8  a20 | Bayonetta 2 (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a17 a17 a17 w19 w17 x8  w17 | Bayonetta 2 (USA) (En,Ja,Fr,De,Es,It)
+== ben 10 - omniverse
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Ben 10 - Omniverse (Europe) (En,Fr,De,Es,It,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Ben 10 - Omniverse (USA) (En,Fr,Es)
+== ben 10 - omniverse 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Ben 10 - Omniverse 2 (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Ben 10 - Omniverse 2 (USA) (En,Fr,Es)
+== biohazard - revelations - unveiled edition
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Biohazard - Revelations - Unveiled Edition (Japan) (Rev 1)
+== book of unwritten tales 2, the
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Book of Unwritten Tales 2, The (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Book of Unwritten Tales 2, The (USA) (En,Fr,De,Es,It,Pl)
+== brunswick pro bowling
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Brunswick Pro Bowling (USA)
+== cabela's big game hunter - pro hunts
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Cabela's Big Game Hunter - Pro Hunts (USA)
+== cabela's dangerous hunts 2013
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Cabela's Dangerous Hunts 2013 (Europe) (En,Fr,De,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Cabela's Dangerous Hunts 2013 (USA) (En,Fr)
+== call of duty - black ops ii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 a20 w17 x12 x9  a17 x8  a17 | Call of Duty - Black Ops II (Europe) (En,Fr)
+   w21 w21 w21 w21 x9  w21 x8  w21 a15 a15 a15 w20 x9  a15 x8  a15 | Call of Duty - Black Ops II (Europe) (Es,It)
+   w21 w21 w21 w21 x9  w21 x8  w21 a20 a20 a20 a20 x9  a20 x8  a20 | Call of Duty - Black Ops II (Germany)
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 w20 a17 x12 x9  a17 x8  a17 | Call of Duty - Black Ops II (Japan) (En,Ja)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 a20 a17 x12 w19 w17 x8  w17 | Call of Duty - Black Ops II (USA) (En,Fr)
+== call of duty - ghosts
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 a15 x9  a17 x8  a17 | Call of Duty - Ghosts (Europe) (En,Fr,De)
+   w21 w21 w21 w21 x9  w21 x8  w21 a15 a15 a15 w15 x9  a15 x8  a15 | Call of Duty - Ghosts (Europe) (Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Call of Duty - Ghosts (Japan)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 a20 a17 x12 w19 w17 x8  w17 | Call of Duty - Ghosts (USA) (En,Fr)
+== captain toad - treasure tracker
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Captain Toad - Treasure Tracker (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Captain Toad - Treasure Tracker (Europe) (En,Fr,De,Es,It) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Captain Toad - Treasure Tracker (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Captain Toad - Treasure Tracker (USA) (En,Fr,Es) (Rev 1)
+   .   .   .   .   .   .   .   .   a16 a16 a16 x12 x9  a16 x8  a16 | Susume! Kinopio Taichou (Japan)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Susume! Kinopio Taichou (Japan) (Rev 1)
+== cocoto magic circus 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Cocoto Magic Circus 2 (Europe) (En,Fr,De,Es,It,Nl,Pt)
+== dairantou smash brothers for wii u
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Dairantou Smash Brothers for Wii U (Japan)
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Dairantou Smash Brothers for Wii U (Japan) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Dairantou Smash Brothers for Wii U (Japan) (Rev 7)
+== darksiders - warmastered edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Darksiders - Warmastered Edition (Europe) (En,Fr,De,Es,It,Pt,Zh,Pl,Ru,Cs)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w20 a17 a17 w19 w17 x8  w17 | Darksiders - Warmastered Edition (USA) (En,Ja,Fr,De,Es,It,Pt,Zh,Ko,Pl,Ru,Cs)
+== darksiders ii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Darksiders II (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Darksiders II (USA) (En,Fr,Es)
+== demo update 02-2015 - smash bros + mario party 10 - 9599f2b3
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  x4  w19 w19 w19 w19 x9  w19 x8  x4  | Demo Update 02-2015 - Smash Bros + Mario Party 10 - 9599F2B3 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+== deus ex - human revolution - director's cut
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Deus Ex - Human Revolution - Director's Cut (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Deus Ex - Human Revolution - Director's Cut (USA) (En,Fr,Es)
+== devil's third
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 a20 w17 x12 x9  a17 x8  a17 | Devil's Third (Europe) (En,Fr)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Devil's Third (Japan)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 a20 a17 x12 w19 w17 x8  w17 | Devil's Third (USA) (En,Fr)
+== disc, cat-i rtl jan '13 usa
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  x4  w19 w19 w19 x12 w19 w19 x8  x4  | DISC, CAT-I RTL JAN '13 USA (USA)
+== disney ducktales - remastered
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 w21 x8  w21 w19 w19 w19 w19 w19 w19 x8  w19 | Disney DuckTales - Remastered (USA) (En,Fr,Es,Pt)
+== disney epic mickey 2 - futatsu no chikara
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Disney Epic Mickey 2 - Futatsu no Chikara (Japan)
+== disney epic mickey 2 - the power of two
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Disney Epic Mickey 2 - Futatsu no Chikara (Japan)
+   w21 w21 w21 w21 x9  w21 x8  w21 a18 a18 a18 a18 x9  a18 x8  a18 | Disney Epic Mickey 2 - The Power of Two (Europe) (En,Es)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Disney Epic Mickey 2 - The Power of Two (Europe) (En,Fr,De,Es,It,Pt)
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 a20 a17 x12 x9  a17 x8  a17 | Disney Epic Mickey 2 - The Power of Two (Scandinavia) (En,Sv,No,Da)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Disney Epic Mickey 2 - The Power of Two (USA) (En,Fr,Es)
+== disney infinity
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Disney Infinity (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Disney Infinity (Japan)
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 a20 a17 x12 x9  a17 x8  a17 | Disney Infinity (Scandinavia) (En,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Disney Infinity (USA) (En,Fr,Es,Pt)
+== disney infinity 2.0 - play without limits
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Disney Infinity 2.0 - Play Without Limits (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Disney Infinity 2.0 - Play Without Limits (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Disney Infinity 2.0 - Play Without Limits (Scandinavia) (En,Sv,No,Da,Fi) (Rev 2)
+== disney infinity 2.0 edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a16 a16 a16 a16 x9  a16 x8  a16 | Disney Infinity 2.0 - Play Without Limits (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   a17 a17 w17 w17 x9  a17 x8  a17 | Disney Infinity 2.0 - Play Without Limits (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
+   .   .   .   .   .   .   .   .   a17 a17 a17 x12 x9  a17 x8  a17 | Disney Infinity 2.0 - Play Without Limits (Scandinavia) (En,Sv,No,Da,Fi) (Rev 2)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Disney Infinity 2.0 Edition (USA) (En,Fr,Es,Pt)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w16 w17 x8  w17 | Disney Infinity 2.0 Edition (USA) (En,Fr,Es,Pt) (Rev 1)
+== disney infinity 3.0
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Disney Infinity 3.0 (Japan)
+== disney infinity 3.0 - play without limits
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Disney Infinity 3.0 - Play Without Limits (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Disney Infinity 3.0 - Play Without Limits (Scandinavia) (En,Sv,No,Da,Fi)
+== disney infinity 3.0 edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Disney Infinity 3.0 (Japan)
+   .   .   .   .   .   .   .   .   a17 a20 w17 w17 x9  a17 x8  a17 | Disney Infinity 3.0 - Play Without Limits (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   a17 a20 a17 x12 x9  a17 x8  a17 | Disney Infinity 3.0 - Play Without Limits (Scandinavia) (En,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Disney Infinity 3.0 Edition (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Disney Infinity 3.0 Edition (USA) (En,Fr,Es) (Rev 2)
+== disney phineas and ferb - quest for cool stuff
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Disney Phineas and Ferb - Quest for Cool Stuff (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Disney Phineas and Ferb - Quest for Cool Stuff (USA)
+== disney planes
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Disney Planes (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 x11 x12 x9  w21 x8  w21 a20 a20 x11 x12 x9  a20 x8  a20 | Disney Planes (Russia)
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 a17 a17 x12 x9  a17 x8  a17 | Disney Planes (Scandinavia) (En,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Disney Planes (USA) (En,Fr,Es,Pt)
+== disney planes - fire & rescue
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Disney Planes - Fire & Rescue (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Disney Planes - Fire & Rescue (USA) (En,Fr,Es,Pt)
+== disney-pixar cars 3 - driven to win
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Disney-Pixar Cars 3 - Driven to Win (Europe) (En,Fr,De,Es,It,Nl,Pl,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Disney-Pixar Cars 3 - Driven to Win (USA) (En,Fr,Es,Pt)
+== donkey kong - tropical freeze
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Donkey Kong - Tropical Freeze (Japan) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Donkey Kong - Tropical Freeze (Japan) (Rev 3)
+== donkey kong country - tropical freeze
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a16 a16 a16 x12 x9  a16 x8  a16 | Donkey Kong - Tropical Freeze (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Donkey Kong - Tropical Freeze (Japan) (Rev 3)
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Donkey Kong Country - Tropical Freeze (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Donkey Kong Country - Tropical Freeze (Europe) (En,Fr,De,Es,It) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Donkey Kong Country - Tropical Freeze (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Donkey Kong Country - Tropical Freeze (USA) (En,Fr,Es) (Rev 1)
+== doubutsu no mori - amiibo festival
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Doubutsu no Mori - Amiibo Festival (Japan)
+== dragon quest x - 5000-nen no tabiji - haruka naru kokyou e online
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Dragon Quest X - 5000-nen no Tabiji - Haruka naru Kokyou e Online (Japan)
+== dragon quest x - all in one package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 a22 a22 a22 x12 x9  a22 x8  a22 | Dragon Quest X - All in One Package (Japan) (BDQJ)
+   w21 w21 w21 x12 x9  w21 x8  w21 a22 a22 a22 x12 x9  a22 x8  a22 | Dragon Quest X - All in One Package (Japan) (BTPJ)
+   .   .   .   .   .   .   .   .   w22 w22 w22 x12 x9  w22 x8  w22 | Dragon Quest X - All in One Package Version 1-Version 4 (Japan)
+== dragon quest x - all in one package version 1-version 4
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Dragon Quest X - All in One Package Version 1-Version 4 (Japan)
+== dragon quest x - inishie no ryuu no denshou online
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Dragon Quest X - Inishie no Ryuu no Denshou Online (Japan)
+== dragon quest x - mezameshi itsutsu no shuzoku online
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Dragon Quest X - Mezameshi Itsutsu no Shuzoku Online (Japan) (Rev 1)
+== dragon quest x - nemureru yuusha to michibiki no meiyuu online
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Dragon Quest X - Nemureru Yuusha to Michibiki no Meiyuu Online (Japan) (Rev 10)
+== dreamworks how to train your dragon 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | DreamWorks How to Train Your Dragon 2 (Europe) (En,Fr,De,Es,It,Pt)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | DreamWorks How to Train Your Dragon 2 (USA)
+== dreamworks kung fu panda - showdown of legendary legends
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | DreamWorks Kung Fu Panda - Showdown of Legendary Legends (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | DreamWorks Kung Fu Panda - Showdown of Legendary Legends (USA) (En,Fr,Es,Pt)
+== dreamworks penguins of madagascar
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | DreamWorks Penguins of Madagascar (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | DreamWorks Penguins of Madagascar (USA) (En,Fr,Es,Pt)
+== dreamworks rise of the guardians
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | DreamWorks Rise of the Guardians (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | DreamWorks Rise of the Guardians (USA) (En,Fr,Es)
+== dreamworks the croods - prehistoric party!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | DreamWorks The Croods - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | DreamWorks The Croods - Prehistoric Party! (USA) (En,Fr,Es)
+== dreamworks turbo - super stunt squad
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | DreamWorks Turbo - Super Stunt Squad (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | DreamWorks Turbo - Super Stunt Squad (USA) (En,Fr,Es)
+== espn sports connection
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | ESPN Sports Connection (USA) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a17 a20 w17 w17 x9  a17 x8  a17 | Sports Connection (Europe) (En,Fr,De,Es,It,Nl,Ru,Ca)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Sports Connection (Japan)
+== f1 race stars - powered up edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | F1 Race Stars - Powered Up Edition (Japan) (Rev 1)
+== famicom remix 1 + 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Famicom Remix 1 + 2 (Japan)
+== family party - 30 great games - obstacle arcade
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Family Party - 30 Great Games - Obstacle Arcade (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Family Party - 30 Great Games - Obstacle Arcade (USA) (En,Fr,Es)
+== fast & furious - showdown
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Fast & Furious - Showdown (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Fast & Furious - Showdown (USA) (En,Fr)
+== fast racing neo
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Fast Racing Neo (Europe) (En,Fr,De,Es,It)
+== fifa 13
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 w21 x9  x7  x8  w21 .   .   .   .   .   .   .   .   | FIFA 13 (Europe) (En,Fr,De,Es,It,Nl)
+== fifa 13 - world class soccer
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  x7  x8  w21 .   .   .   .   .   .   .   .   | FIFA 13 - World Class Soccer (Japan)
+== fifa soccer 13
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a17 a20 w17 w17 x9  x7  x8  a17 | FIFA 13 (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  x7  x8  a20 | FIFA 13 - World Class Soccer (Japan)
+   w21 w21 w21 w21 w21 x7  x8  w21 w17 a20 a17 a17 w19 x7  x8  w17 | FIFA Soccer 13 (USA) (En,Fr,Es)
+== finding teddy ii - definitive edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Finding Teddy II - Definitive Edition (Europe) (En,Fr,De,Es,It,Pt,Ru)
+== fit music for wii u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Fit Music for Wii U (Europe) (En,Fr,De,Es,It)
+== fujiko f. fujio characters daishuugou! sf dotabata party!!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Fujiko F. Fujio Characters Daishuugou! SF Dotabata Party!! (Japan)
+== funky barn
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Funky Barn (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Funky Barn (USA) (En,Fr,Es) (Rev 1)
+== game & wario
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Game & Wario (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Game & Wario (Japan) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Game & Wario (USA) (En,Fr,Es)
+== game party champions
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Game Party Champions (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Game Party Champions (USA) (En,Fr,Es)
+== gen'ei ibunroku fe
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Gen'ei Ibunroku FE (Japan)
+== giana sisters - twisted dreams - director's cut
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 w21 x8  w21 w19 w19 w19 w19 w19 w19 x8  w19 | Giana Sisters - Twisted Dreams - Director's Cut (USA) (En,Fr,Es)
+== ginsei shougi - kyoutendo toufuu raijin
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Ginsei Shougi - Kyoutendo Toufuu Raijin (Japan)
+== gotouchi tetsudou - gotouchi chara to nippon zenkoku no tabi
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Gotouchi Tetsudou - Gotouchi Chara to Nippon Zenkoku no Tabi (Japan)
+== guitar hero live
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Guitar Hero Live (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Guitar Hero Live (USA) (En,Fr,Es)
+== hello kitty kruisers
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Hello Kitty Kruisers (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Hello Kitty Kruisers (USA)
+== hot wheels - world's best driver
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Hot Wheels - World's Best Driver (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Hot Wheels - World's Best Driver (USA) (En,Fr,Es,Pt)
+== hunter's trophy 2 - europa
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Hunter's Trophy 2 - Europa (Europe) (En,Fr,De,Es,It)
+== hyrule warriors
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Hyrule Warriors (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Hyrule Warriors (Europe) (En,Fr,De,Es,It) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Hyrule Warriors (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Hyrule Warriors (USA) (En,Fr,Es) (Rev 1)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Zelda Musou (Japan) (Rev 1)
+== injustice - gods among us
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Injustice - Gods Among Us (Europe) (En,Fr,De,Es,It,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Injustice - Gods Among Us (USA) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Injustice - Hero no Gekitotsu (Japan)
+== injustice - hero no gekitotsu
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Injustice - Hero no Gekitotsu (Japan)
+== jeopardy!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Jeopardy! (USA)
+== jett tailfin
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Jett Tailfin (Europe) (En,Fr,De,Es,It)
+== jikkuri egokoro kyoushitsu
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  x5  w19 w19 w19 x12 x9  w19 x8  x5  | Jikkuri Egokoro Kyoushitsu (Japan) (Rev 1)
+== just dance - disney party 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance - Disney Party 2 (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance - Disney Party 2 (USA) (En,Fr,De,Es,It,Pt)
+== just dance 2014
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance 2014 (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance 2014 (USA) (En,Fr,Es,Pt)
+== just dance 2015
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance 2015 (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance 2015 (USA) (En,Fr,Es,Pt)
+== just dance 2016
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance 2016 (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance 2016 (USA) (En,Fr,Es,Pt)
+== just dance 2017
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance 2017 (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance 2017 (USA) (En,Fr,Es,Pt)
+== just dance 2018
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance 2018 (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance 2018 (USA) (En,Fr,Es,Pt)
+== just dance 2019
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance 2019 (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance 2019 (USA) (En,Fr,Es,Pt)
+== just dance 4
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance 4 (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance 4 (USA) (En,Fr,Es,Pt)
+== just dance kids 2014
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Just Dance Kids 2014 (Europe) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Just Dance Kids 2014 (USA) (En,Fr,Es)
+== just dance wii u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Just Dance Wii U (Japan) (Rev 1)
+== kamen rider - battride war ii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 a22 a22 a22 x12 x9  a22 x8  a22 | Kamen Rider - Battride War II (Japan)
+   .   .   .   .   .   .   .   .   w22 w22 w22 x12 x9  w22 x8  w22 | Kamen Rider - Battride War II - Premium TV & Movie Sound Edition (Japan)
+== kamen rider - battride war ii - premium tv & movie sound edition
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Kamen Rider - Battride War II - Premium TV & Movie Sound Edition (Japan)
+== kamen rider summonride!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Kamen Rider Summonride! (Japan)
+== kirby and the rainbow curse
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Kirby and the Rainbow Curse (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a17 a20 w17 w17 x9  a17 x8  a17 | Kirby and the Rainbow Paintbrush (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Touch! Kirby Super Rainbow (Japan)
+== kirby and the rainbow paintbrush
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Kirby and the Rainbow Paintbrush (Europe) (En,Fr,De,Es,It)
+== legend of kay - anniversary
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Legend of Kay - Anniversary (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Legend of Kay - Anniversary (USA) (En,Fr,De,Es,It)
+== legend of zelda, the - breath of the wild
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Legend of Zelda, The - Breath of the Wild (Europe) (En,Fr,De,Es,It,Nl,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Legend of Zelda, The - Breath of the Wild (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Zelda no Densetsu - Breath of the Wild (Japan)
+== legend of zelda, the - the wind waker hd
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Legend of Zelda, The - The Wind Waker HD (Europe, Australia) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Legend of Zelda, The - The Wind Waker HD (USA, Asia) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Zelda no Densetsu - Kaze no Takuto HD (Japan)
+== legend of zelda, the - twilight princess hd
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Legend of Zelda, The - Twilight Princess HD (Europe, Australia) (En,Fr,De,Es,It) (Rev 2)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Legend of Zelda, The - Twilight Princess HD (USA) (En,Fr,Es) (Rev 2)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Zelda no Densetsu - Twilight Princess HD (Japan) (Rev 1)
+== lego batman 2 - dc super heroes
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | LEGO Batman 2 - DC Super Heroes (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | LEGO Batman 2 - DC Super Heroes (USA) (En,Fr,Es,Pt)
+== lego batman 3 - beyond gotham
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | LEGO Batman 3 - Beyond Gotham (Europe) (En,Fr,De,Es,It,Nl,Da)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | LEGO Batman 3 - Beyond Gotham (USA) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | LEGO Batman 3 - The Game - Gotham kara Uchuu e (Japan)
+== lego batman 3 - the game - gotham kara uchuu e
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | LEGO Batman 3 - The Game - Gotham kara Uchuu e (Japan)
+== lego city undercover
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | LEGO City Undercover (Europe) (En,Fr,De,Es,It,Nl,Pt,Da,Ru)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | LEGO City Undercover (Europe) (En,Fr,De,Es,It,Nl,Pt,Da,Ru) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | LEGO City Undercover (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | LEGO City Undercover (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | LEGO City Undercover (USA) (En,Fr,Es) (Rev 1)
+== lego dimensions
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 a20 x9  a17 x8  a17 | LEGO Dimensions (Europe) (En,Fr,De,Nl,Da) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 w20 w19 w17 x8  w17 | LEGO Dimensions (USA) (En,Fr,Es)
+== lego jurassic world
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | LEGO Jurassic World (Europe) (En,Fr,De,Es,It,Nl,Da)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | LEGO Jurassic World (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | LEGO Jurassic World (USA) (En,Fr,Es,Pt)
+== lego marvel avengers
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | LEGO Marvel Avengers (Europe) (En,Fr,De,Es,It,Nl,Da)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | LEGO Marvel Avengers (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | LEGO Marvel Avengers (USA) (En,Fr,Es,Pt)
+== lego marvel super heroes
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | LEGO Marvel Super Heroes (Europe) (En,Fr,De,Es,It,Nl,Da)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | LEGO Marvel Super Heroes (USA) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | LEGO Marvel Super Heroes - The Game (Japan)
+== lego marvel super heroes - the game
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | LEGO Marvel Super Heroes - The Game (Japan)
+== lego movie - the game
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | LEGO Movie - The Game (Japan)
+== lego movie, the - videogame
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | LEGO Movie - The Game (Japan)
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | LEGO Movie, The - Videogame (Europe) (En,Fr,Es,It,Nl,Da)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | LEGO Movie, The - Videogame (Europe) (En,Fr,Es,It,Nl,Da) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | LEGO Movie, The - Videogame (USA) (En,Fr,Es,Pt)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | LEGO Movie, The - Videogame (USA) (En,Fr,Es,Pt) (Rev 1)
+== lego star wars - force no kakusei
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | LEGO Star Wars - Force no Kakusei (Japan)
+== lego star wars - the force awakens
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | LEGO Star Wars - Force no Kakusei (Japan)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | LEGO Star Wars - The Force Awakens (Europe) (En,Fr,De,Es,It,Nl,Da)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | LEGO Star Wars - The Force Awakens (USA) (En,Fr,Es,Pt)
+== lego the hobbit
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | LEGO The Hobbit (Europe) (En,Fr,De,Es,It,Nl,Da)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | LEGO The Hobbit (USA) (En,Fr,Es,Pt)
+== luv me buddies - wonderland
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Luv Me Buddies - Wonderland (Europe) (En,Fr,De,Es,It)
+== madden nfl 13
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Madden NFL 13 (USA)
+== mario & sonic at rio olympic
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Mario & Sonic at Rio Olympic (Japan) (Rev 1)
+== mario & sonic at the rio 2016 olympic games
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Mario & Sonic at Rio Olympic (Japan) (Rev 1)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Mario & Sonic at the Rio 2016 Olympic Games (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Mario & Sonic at the Rio 2016 Olympic Games (USA) (En,Fr,Es)
+== mario & sonic at the sochi 2014 olympic winter games
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Mario & Sonic at the Sochi 2014 Olympic Winter Games (Europe) (En,Fr,De,Es,It,Nl,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Mario & Sonic at the Sochi 2014 Olympic Winter Games (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Mario & Sonic at the Sochi Olympic (Japan) (Rev 1)
+== mario & sonic at the sochi olympic
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Mario & Sonic at the Sochi Olympic (Japan) (Rev 1)
+== mario kart 8
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Mario Kart 8 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Mario Kart 8 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 1)
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Mario Kart 8 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 3)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Mario Kart 8 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 4)
+   w21 w21 w21 x12 x9  w21 x8  w21 a16 a16 a16 x12 x9  a16 x8  a16 | Mario Kart 8 (Japan)
+   w21 w21 w21 x12 x9  w21 x8  w21 a16 a16 a16 x12 x9  a16 x8  a16 | Mario Kart 8 (Japan) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Mario Kart 8 (Japan) (Rev 3)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Mario Kart 8 (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Mario Kart 8 (USA) (En,Fr,Es) (Rev 2)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Mario Kart 8 (USA) (En,Fr,Es) (Rev 3)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Mario Kart 8 (USA) (En,Fr,Es) (Rev 5)
+== mario party 10
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Mario Party 10 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Mario Party 10 (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Mario Party 10 (USA) (En,Fr,Es)
+== mario tennis - ultra smash
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Mario Tennis - Ultra Smash (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Mario Tennis - Ultra Smash (Japan) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Mario Tennis - Ultra Smash (USA) (En,Fr,Es)
+== mario vs. donkey kong - minna de mini land
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Mario vs. Donkey Kong - Minna de Mini Land (Japan)
+== marvel avengers - battle for earth
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Marvel Avengers - Battle for Earth (Europe) (En,Fr,De,Es,It,Nl,Pl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Marvel Avengers - Battle for Earth (USA) (En,Fr,Es,Pt)
+== mass effect 3 - special edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Mass Effect 3 - Special Edition (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Mass Effect 3 - Special Edition (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Mass Effect 3 - Tokubetsu-ban (Japan)
+== mass effect 3 - tokubetsu-ban
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Mass Effect 3 - Tokubetsu-ban (Japan)
+== mighty no. 9
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Mighty No. 9 (Europe) (En,Ja,Fr,De,Es,It,Pt,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Mighty No. 9 (USA) (En,Ja,Fr,De,Es,It,Pt,Ru)
+== minecraft - story mode - a telltale games series - the complete adventure
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Minecraft - Story Mode - A Telltale Games Series - The Complete Adventure (Europe) (En,Fr,De,Es,Pt,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Minecraft - Story Mode - A Telltale Games Series - The Complete Adventure (USA) (En,Fr,Es,Pt)
+== minecraft - wii u edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Minecraft - Wii U Edition (Europe) (En,Ja,Fr,De,Es,It,Nl,Pt,Zh,Ko,Ru) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w17 a20 x12 x9  a20 x8  a20 | Minecraft - Wii U Edition (Japan) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a17 a17 a17 w19 w17 x8  w17 | Minecraft - Wii U Edition (USA) (En,Ja,Fr,De,Es,It,Nl,Pt,Zh,Ko,Ru) (Rev 1)
+== monster high - 13 wishes
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Monster High - 13 Wishes (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Monster High - 13 Wishes (USA) (En,Fr,Es)
+== monster high - new ghoul in school
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Monster High - New Ghoul in School (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Monster High - New Ghoul in School (USA) (En,Fr,Es,Pt)
+== monster hunter 3 ultimate
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w19 x9  a17 x8  a17 | Monster Hunter 3 Ultimate (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 a20 a17 x12 w19 w17 x8  w17 | Monster Hunter 3 Ultimate (USA)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Monster Hunter 3G - HD Ver. (Japan)
+== monster hunter 3g - hd ver.
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Monster Hunter 3G - HD Ver. (Japan)
+== monster hunter frontier g - beginner's package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Monster Hunter Frontier G - Beginner's Package (Japan) (Rev 1)
+== monster hunter frontier g - memorial package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Monster Hunter Frontier G - Memorial Package (Japan)
+== monster hunter frontier g5 - premium package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Monster Hunter Frontier G5 - Premium Package (Japan)
+== monster hunter frontier g6 - premium package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Monster Hunter Frontier G6 - Premium Package (Japan)
+== monster hunter frontier g7 - premium package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Monster Hunter Frontier G7 - Premium Package (Japan)
+== monster hunter frontier g8 - premium package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Monster Hunter Frontier G8 - Premium Package (Japan)
+== monster hunter frontier g9 - premium package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Monster Hunter Frontier G9 - Premium Package (Japan)
+== monster hunter frontier gg - premium package
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Monster Hunter Frontier GG - Premium Package (Japan)
+== musou orochi 2 hyper
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Musou Orochi 2 Hyper (Japan)
+== nba 2k13
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | NBA 2K13 (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | NBA 2K13 (USA)
+== need for speed - most wanted u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Need for Speed - Most Wanted U (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a17 a20 w17 w17 x9  a17 x8  a17 | Need for Speed - Most Wanted U - A Criterion Game (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Need for Speed - Most Wanted U - A Criterion Game (Japan)
+== need for speed - most wanted u - a criterion game
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Need for Speed - Most Wanted U - A Criterion Game (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Need for Speed - Most Wanted U - A Criterion Game (Japan)
+== nes remix pack
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 w21 x8  w21 w19 w19 w19 w19 w19 w19 x8  w19 | NES Remix Pack (USA) (En,Fr,Es)
+== new super luigi u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 .   .   x9  a17 x8  a17 | New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+     alternative to New Super Luigi U (Japan) [10]
+     alternative to New Super Luigi U (USA) (En,Fr,Es) [9,14,16]
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 .   a20 x12 x9  a20 x8  a20 | New Super Luigi U (Japan)
+     alternative to New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11]
+     alternative to New Super Luigi U (USA) (En,Fr,Es) [9,14,16]
+   w21 w21 w21 w21 w21 w21 x8  w21 .   a20 a17 a17 .   .   x8  .   | New Super Luigi U (USA) (En,Fr,Es)
+     alternative to New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11-12]
+     alternative to New Super Luigi U (Japan) [10]
+== new super mario bros. u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 .   .   x9  a17 x8  a17 | New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+     alternative to New Super Mario Bros. U (Japan) [10]
+     alternative to New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2) [9,14,16]
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 .   a20 x12 x9  a20 x8  a20 | New Super Mario Bros. U (Japan)
+     alternative to New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11]
+     alternative to New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2) [9,14,16]
+   w21 w21 w21 w21 w21 w21 x8  w21 .   a20 a17 a17 .   .   x8  .   | New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2)
+     alternative to New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11-12]
+     alternative to New Super Mario Bros. U (Japan) [10]
+== new super mario bros. u + new super luigi u
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   gd  .   gd  .   |
+   w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   x9  .   x8  .   | New Super Mario Bros. U + New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 .   .   .   .   .   .   x8  .   | New Super Mario Bros. U + New Super Luigi U (USA) (En,Fr,Es)
+== nickelodeon spongebob squarepants - plankton's robotic revenge
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Nickelodeon SpongeBob SquarePants - Plankton's Robotic Revenge (Europe) (En,Fr,De,Es,It,Nl,Sv)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Nickelodeon SpongeBob SquarePants - Plankton's Robotic Revenge (USA) (En,Fr)
+== ninja gaiden 3 - razor's edge
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Ninja Gaiden 3 - Razor's Edge (Europe) (En,Ja,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w17 a20 x12 x9  a20 x8  a20 | Ninja Gaiden 3 - Razor's Edge (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a17 a17 a17 w19 w17 x8  w17 | Ninja Gaiden 3 - Razor's Edge (USA) (En,Ja,Fr,De,Es,It)
+== nintendo land
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Nintendo Land (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Nintendo Land (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Nintendo Land (USA) (En,Fr,Es)
+== one piece - unlimited world r
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | One Piece - Unlimited World R (Japan)
+== one piece - unlimited world red
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | One Piece - Unlimited World R (Japan)
+   w21 w21 w21 w21 x9  w21 x8  w21 w20 a20 w20 w19 x9  w20 x8  w20 | One Piece - Unlimited World Red (Europe) (En,Fr,De,Es,It)
+== pac-man and the ghostly adventures
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Pac-Man and the Ghostly Adventures (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Pac-Man and the Ghostly Adventures (USA) (En,Fr,Es,Pt)
+== pac-man and the ghostly adventures 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Pac-Man and the Ghostly Adventures 2 (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Pac-Man and the Ghostly Adventures 2 (USA) (En,Fr,Es,Pt)
+== paper mario - color splash
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Paper Mario - Color Splash (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Paper Mario - Color Splash (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Paper Mario - Color Splash (USA) (En,Fr,Es)
+== pikmin 3
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Pikmin 3 (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Pikmin 3 (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Pikmin 3 (USA) (En,Fr,Es) (Rev 1)
+== pokken - pokken tournament
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Pokken - Pokken Tournament (Japan)
+== pokken tournament
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Pokken - Pokken Tournament (Japan)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Pokken Tournament (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Pokken Tournament (USA) (En,Fr,Es)
+== project zero - maiden of black water
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Project Zero - Maiden of Black Water (Europe) (En,Fr,De)
+== puyo puyo tetris
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Puyo Puyo Tetris (Japan)
+== rabbids land
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Rabbids Land (Europe) (En,Fr,De,Es,It,Nl,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Rabbids Land (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Rabbids Land (USA) (En,Fr,Es,Pt)
+== rapala pro bass fishing
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Rapala Pro Bass Fishing (USA)
+== rayman legends
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Rayman Legends (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Rayman Legends (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Rayman Legends (USA) (En,Fr,Es)
+== resident evil - revelations
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w17 a20 x12 x9  a20 x8  a20 | Biohazard - Revelations - Unveiled Edition (Japan) (Rev 1)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Resident Evil - Revelations (Europe) (En,Ja,Fr,De,Es,It,Nl,Pt,Pl,Ru) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a17 a17 a17 w19 w17 x8  w17 | Resident Evil - Revelations (USA) (En,Ja,Fr,De,Es,It,Nl,Pt,Pl,Ru) (Rev 1)
+== retool_compilations_discards
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  .   gd  |
+   .   .   .   .   .   .   .   .   a2  a1  a3  a3  .   a2  .   a2  | New Super Mario Bros. U + New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+     alternative to New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11-12]
+     alternative to New Super Luigi U (Japan) [10]
+     alternative to New Super Luigi U (USA) (En,Fr,Es) [9,14,16]
+   .   .   .   .   .   .   .   .   a3  a1  a2  a2  a3  a3  .   a3  | New Super Mario Bros. U + New Super Luigi U (USA) (En,Fr,Es)
+     alternative to New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11-12]
+     alternative to New Super Luigi U (Japan) [10]
+     alternative to New Super Luigi U (USA) (En,Fr,Es) [9,13-14,16]
+== retool_compilations_winners
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  .   gd  |
+   .   .   .   .   .   .   .   .   .   .   w2  w2  .   .   .   .   | New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   .   .   .   .   .   .   .   .   .   w20 .   .   .   .   .   .   | New Super Luigi U (Japan)
+   .   .   .   .   .   .   .   .   w2  .   .   .   w19 w2  .   w2  | New Super Luigi U (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   .   .   w2  w2  .   .   .   .   | New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   .   .   .   .   .   .   .   .   .   w20 .   .   .   .   .   .   | New Super Mario Bros. U (Japan)
+   .   .   .   .   .   .   .   .   w2  .   .   .   w19 w2  .   w2  | New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2)
+== rodea the sky soldier
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Rodea the Sky Soldier (Europe) (En,Ja,Fr,De)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w17 a20 x12 x9  a20 x8  a20 | Rodea the Sky Soldier (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a17 a17 a17 w19 w17 x8  w17 | Rodea the Sky Soldier (USA) (En,Ja,Fr,De)
+== runbow - deluxe edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 w21 x8  w21 w19 w19 w19 w19 w19 w19 x8  w19 | Runbow - Deluxe Edition (USA) (En,Ja,Fr,De,Es,It)
+== ryuu ga gotoku 1 & 2 hd for wii u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Ryuu ga Gotoku 1 & 2 HD for Wii U (Japan)
+== sangokushi 12
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 a13 a13 a13 x12 x9  a13 x8  a13 | Sangokushi 12 (Japan)
+   .   .   .   .   .   .   .   .   w13 w13 w13 x12 x9  w13 x8  w13 | Sangokushi 12 with Power-Up Kit (Japan)
+== sangokushi 12 with power-up kit
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Sangokushi 12 with Power-Up Kit (Japan)
+== scribblenauts unlimited
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 a17 a17 x12 x9  a17 x8  a17 | Scribblenauts Unlimited (Australia)
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Scribblenauts Unlimited (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Scribblenauts Unlimited (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Scribblenauts Unlimited (USA) (En,Fr,Es,Pt)
+== scribblenauts unmasked - a dc comics adventure
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 a17 a17 x12 x9  a17 x8  a17 | Scribblenauts Unmasked - A DC Comics Adventure (Australia)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 w17 w19 w19 w17 x8  w17 | Scribblenauts Unmasked - A DC Comics Adventure (USA) (En,Fr,Es,Pt)
+== shakedown - hawaii
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Shakedown - Hawaii (USA)
+== shantae - half-genie hero
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 w21 w21 x8  w21 w19 w19 w19 w19 w19 w19 x8  w19 | Shantae - Half-Genie Hero (USA) (En,Fr,Es)
+== shin hokuto musou
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Shin Hokuto Musou (Japan)
+== shmup collection
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Shmup Collection (Europe)
+== shovel knight
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Shovel Knight (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Shovel Knight (USA)
+== simple series for wii u vol. 1 - the family party
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Simple Series for Wii U Vol. 1 - The Family Party (Japan)
+== sing party
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | SiNG Party (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | SiNG Party (USA) (En,Fr,Es,Pt)
+== skylanders - giants
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Skylanders - Giants (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Skylanders - Giants (USA) (En,Fr,Es,Pt)
+== skylanders - imaginators
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Skylanders - Imaginators (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+     alternative to Skylanders - Imaginators (USA) (En,Fr,Es,Pt) [9-10,14]
+   w21 w21 w21 w21 x9  w21 x8  x4  w17 w17 w17 w17 x9  w17 x8  x4  | Skylanders - Imaginators (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi) (Demo)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Skylanders - Imaginators (USA) (En,Fr,Es,Pt)
+     alternative to Skylanders - Imaginators (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi) [11-12]
+== skylanders - spyro's adventure
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Skylanders - Spyro's Adventure (Japan)
+== skylanders - superchargers
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Skylanders - SuperChargers (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Skylanders - SuperChargers (USA) (En,Fr,Es,Pt)
+== skylanders - swap force
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Skylanders - Swap Force (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Skylanders - Swap Force (USA) (En,Fr,Es,Pt)
+== skylanders - trap team
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Skylanders - Trap Team (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Skylanders - Trap Team (USA) (En,Fr,Es,Pt)
+== smurfs 2, the
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Smurfs 2, The (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Smurfs 2, The (USA) (En,Fr,Es)
+== sniper elite v2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Sniper Elite V2 (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Sniper Elite V2 (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Sniper Elite V2 (USA) (En,Fr,Es)
+== snoopy's grand adventure
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Snoopy's Grand Adventure (Europe) (En,Fr,De,Es,It,Nl,Sv)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Snoopy's Grand Adventure (USA) (En,Fr)
+== sonic & all-stars racing transformed
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Sonic & All-Stars Racing Transformed (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Sonic & All-Stars Racing Transformed (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Sonic & All-Stars Racing Transformed (USA) (En,Fr,Es)
+== sonic boom - rise of lyric
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Sonic Boom - Rise of Lyric (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  x6  a14 a14 a14 x12 a14 a14 x8  x6  | Sonic Boom - Rise of Lyric (USA) (Beta) (2004-07-18)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w14 w17 x8  w17 | Sonic Boom - Rise of Lyric (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Sonic Toon - Taiko no Hihou (Japan)
+== sonic lost world
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Sonic Lost World (Europe) (En,Ja,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w17 a20 x12 x9  a20 x8  a20 | Sonic Lost World (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a17 a17 a17 w19 w17 x8  w17 | Sonic Lost World (USA) (En,Ja,Fr,De,Es,It)
+== sonic toon - taiko no hihou
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Sonic Toon - Taiko no Hihou (Japan)
+== splatoon
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Splatoon (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a16 a16 a16 x12 x9  a16 x8  a16 | Splatoon (Japan)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Splatoon (Japan) (Rev 2)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Splatoon (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Splatoon (USA) (En,Fr,Es) (Rev 2)
+== sports connection
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Sports Connection (Europe) (En,Fr,De,Es,It,Nl,Ru,Ca)
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Sports Connection (Japan)
+== star fox guard
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Star Fox Guard (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Star Fox Guard (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Star Fox Guard (USA) (En,Fr,Es)
+== star fox zero
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Star Fox Zero (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Star Fox Zero (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Star Fox Zero (USA) (En,Fr,Es)
+== steamworld collection
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | SteamWorld Collection (Europe) (En,Ja,Fr,De,Es,It,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | SteamWorld Collection (USA) (En,Ja,Fr,De,Es,It,Ru)
+== super mario 3d world
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Super Mario 3D World (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Super Mario 3D World (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Mario 3D World (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Super Mario 3D World (USA) (En,Fr,Es) (Rev 2)
+== super mario maker
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Super Mario Maker (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Super Mario Maker (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Mario Maker (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Mario Maker (USA) (En,Fr,Es) (Rev 4)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Super Mario Maker (USA) (En,Fr,Es) (Rev 5)
+== super smash bros. for wii u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a16 a16 a16 x12 x9  a16 x8  a16 | Dairantou Smash Brothers for Wii U (Japan)
+   .   .   .   .   .   .   .   .   a16 a16 a16 x12 x9  a16 x8  a16 | Dairantou Smash Brothers for Wii U (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Dairantou Smash Brothers for Wii U (Japan) (Rev 7)
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Super Smash Bros. for Wii U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Super Smash Bros. for Wii U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 1)
+   w21 w21 w21 w21 x9  w21 x8  w21 a16 a16 a16 a16 x9  a16 x8  a16 | Super Smash Bros. for Wii U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 4)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Super Smash Bros. for Wii U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 6)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Smash Bros. for Wii U (USA) (En,Fr,Es)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Smash Bros. for Wii U (USA) (En,Fr,Es) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w16 w17 x8  w17 | Super Smash Bros. for Wii U (USA) (En,Fr,Es) (Rev 10)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Smash Bros. for Wii U (USA) (En,Fr,Es) (Rev 2)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Smash Bros. for Wii U (USA) (En,Fr,Es) (Rev 3)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Smash Bros. for Wii U (USA) (En,Fr,Es) (Rev 4)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Smash Bros. for Wii U (USA) (En,Fr,Es) (Rev 5)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Smash Bros. for Wii U (USA) (En,Fr,Es) (Rev 6)
+   w21 w21 w21 w21 w21 w21 x8  w21 a16 a16 a16 a16 a16 a16 x8  a16 | Super Smash Bros. for Wii U (USA) (En,Fr,Es) (Rev 9)
+== susume! kinopio taichou
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Susume! Kinopio Taichou (Japan)
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Susume! Kinopio Taichou (Japan) (Rev 1)
+== taiko no tatsujin - atsumete tomodachi daisakusen!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Taiko no Tatsujin - Atsumete Tomodachi Daisakusen! (Japan)
+== taiko no tatsujin - tokumori!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Taiko no Tatsujin - Tokumori! (Japan)
+== taiko no tatsujin - wii u version!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Taiko no Tatsujin - Wii U Version! (Japan)
+== tank! tank! tank!
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Tank! Tank! Tank! (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Tank! Tank! Tank! (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Tank! Tank! Tank! (USA) (En,Fr,Es)
+== tekken tag tournament 2 - wii u edition
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Tekken Tag Tournament 2 - Wii U Edition (Europe) (En,Fr,De,Es,It) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Tekken Tag Tournament 2 - Wii U Edition (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Tekken Tag Tournament 2 - Wii U Edition (USA) (En,Fr,Es) (Rev 1)
+== terraria
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Terraria (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Terraria (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Terraria (USA) (En,Fr,Es)
+== teslagrad
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 w19 w19 w19 w19 x9  w19 x8  w19 | Teslagrad (Europe) (En,Fr,De,Es,It)
+== tokyo mirage sessions fe
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Gen'ei Ibunroku FE (Japan)
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 a20 w17 x12 x9  a17 x8  a17 | Tokyo Mirage Sessions FE (Europe)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 a20 a17 x12 w19 w17 x8  w17 | Tokyo Mirage Sessions FE (USA)
+== tom clancy's splinter cell - blacklist
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Tom Clancy's Splinter Cell - Blacklist (Europe) (En,Fr,De,Es,It,Nl,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Tom Clancy's Splinter Cell - Blacklist (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Tom Clancy's Splinter Cell - Blacklist (USA) (En,Fr,Es,Pt)
+== touch! kirby super rainbow
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Touch! Kirby Super Rainbow (Japan)
+== transformers - rise of the dark spark
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Transformers - Rise of the Dark Spark (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Transformers - Rise of the Dark Spark (USA) (En,Fr)
+== transformers prime - the game
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Transformers Prime - The Game (Europe) (En,Fr,De,Es,It,Nl,Sv)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Transformers Prime - The Game (USA) (En,Fr)
+== tumblestone
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Tumblestone (USA)
+== voice, the - i want you
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Voice, The - I Want You (USA)
+== walking dead, the - survival instinct
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w19 x9  a17 x8  a17 | Walking Dead, The - Survival Instinct (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 w17 a17 x12 w19 w17 x8  w17 | Walking Dead, The - Survival Instinct (USA)
+== warriors orochi 3 hyper
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Musou Orochi 2 Hyper (Japan)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w19 x9  a17 x8  a17 | Warriors Orochi 3 Hyper (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 a20 a17 x12 w19 w17 x8  w17 | Warriors Orochi 3 Hyper (USA)
+== watch dogs
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Watch Dogs (Japan)
+== watch_dogs
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Watch Dogs (Japan)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Watch_Dogs (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Watch_Dogs (USA) (En,Fr,Es,Pt)
+== wheel of fortune
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 w21 w21 x8  w21 w19 w19 w19 x12 w19 w19 x8  w19 | Wheel of Fortune (USA)
+== wii fit u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Wii Fit U (Europe) (En,Fr,De,Es,It) (Rev 2)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Wii Fit U (Japan) (Rev 3)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Wii Fit U (USA) (En,Fr,Es) (Rev 2)
+== wii karaoke u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  x4  w19 w19 w19 x12 x9  w19 x8  x4  | Wii Karaoke U (Japan) (Trial Disc) (Rev 1)
+== wii party u
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Wii Party U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Wii Party U (Japan) (Rev 2)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Wii Party U (USA) (En,Fr,Es) (Rev 1)
+== wii sports club
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Wii Sports Club (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) (Rev 1)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | Wii Sports Club (Japan) (Rev 1)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Wii Sports Club (USA) (En,Fr,Es) (Rev 1)
+== wonderful 101, the
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w19 x9  a17 x8  a17 | Wonderful 101, The (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w17 a20 x12 x9  a20 x8  a20 | Wonderful 101, The (Japan)
+   w21 w21 w21 x12 w21 w21 x8  w21 a16 a16 a16 x12 a16 a16 x8  a16 | Wonderful 101, The (USA) (En,Ja)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 a17 a17 x12 w16 w17 x8  w17 | Wonderful 101, The (USA) (En,Ja) (Rev 1)
+== xenoblade chronicles x
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Xenoblade Chronicles X (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Xenoblade Chronicles X (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Xenoblade X (Japan)
+== xenoblade x
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Xenoblade X (Japan)
+== yoshi wool world
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Yoshi Wool World (Japan) (Rev 1)
+== yoshi's woolly world
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a20 w20 a20 x12 x9  a20 x8  a20 | Yoshi Wool World (Japan) (Rev 1)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | Yoshi's Woolly World (Europe) (En,Fr,De,Es,It,Nl)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | Yoshi's Woolly World (USA) (En,Fr,Es)
+== youkai watch dance - just dance special version
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Youkai Watch Dance - Just Dance Special Version (Japan)
+== your shape - fitness evolved 2013
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Your Shape - Fitness Evolved 2013 (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 w17 a17 a17 w19 w17 x8  w17 | Your Shape - Fitness Evolved 2013 (USA) (En,Fr,Es)
+== zelda musou
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Zelda Musou (Japan) (Rev 1)
+== zelda no densetsu - breath of the wild
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Breath of the Wild (Japan)
+== zelda no densetsu - kaze no takuto hd
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Kaze no Takuto HD (Japan)
+== zelda no densetsu - twilight princess hd
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w21 w21 w21 x12 x9  w21 x8  w21 .   .   .   .   .   .   .   .   | Zelda no Densetsu - Twilight Princess HD (Japan) (Rev 1)
+== zero - nuregarasu no miko
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 x12 x9  w21 x8  w21 w19 w19 w19 x12 x9  w19 x8  w19 | Zero - Nuregarasu no Miko (Japan)
+== zombiu
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w17 x9  a17 x8  a17 | ZombiU (Europe) (En,Fr,De,Es,It,Nl,Ru)
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 a17 a20 x9  a17 x8  a17 | ZombiU (Germany) (En,De)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | ZombiU (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w17 a20 a17 a17 w19 w17 x8  w17 | ZombiU (USA) (En,Fr,Es,Pt)
+== zumba fitness - world party
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w17 w19 x9  a17 x8  a17 | Zumba Fitness - World Party (Europe) (En,Fr,De,Es,It)
+   w21 w21 w21 x12 x9  w21 x8  w21 a17 w20 a17 x12 x9  a17 x8  a17 | Zumba Fitness - World Party (Japan) (En,Ja)
+   w21 w21 w21 x12 w21 w21 x8  w21 w17 a20 a17 x12 w19 w17 x8  w17 | Zumba Fitness - World Party (USA)

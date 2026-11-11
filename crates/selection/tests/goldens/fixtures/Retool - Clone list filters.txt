@@ -1,0 +1,95 @@
+# The built-in engine's Selections from "Retool - Clone list filters.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata false
+system: Retool - Clone list filters
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Exclusions REF0044: Excluded due to a categories regex: '\\(Pirate\\)' (reason: Category exclude, Pirate)
+rule r2: Exclusions: Global post filter exclude
+rule r3: Exclusions: Region remove
+rule r4: Language filter REF0049: Removed due to user language filters: En(?:-[A-Z][A-Z])?, De, Fr(?!-CA)(?:-[A-Z][A-Z])?, It, Ja (reason: Language remove)
+rule r5: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r6: Parent selection REF0014: Group after lower priority region, non-superset clones removed
+rule r7: Parent selection REF0059: Group after filtering by string comparison
+rule r8: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r9: Parent selection REF0119: Group after good dump/production/retail check
+rule r10: Parent selection: No other release competed
+== test title 0
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w10 w10 w10 x5  w10 w10 w10 w10 .   .   .   .   .   .   .   .   | Test Title 0 (Disc 1) (USA)
+   w10 w10 w10 x5  w10 w10 w10 w10 .   .   .   .   .   .   .   .   | Test Title 0 (Disc 2) (USA)
+   w10 w10 w10 w10 x3  w10 x2  w10 .   .   .   .   .   .   .   .   | Test Title 0 (Germany)
+== test title 0 (disc 1)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w9  w9  w9  x5  w8  w9  w9  w9  | Test Title 0 (Disc 1) (USA)
+   .   .   .   .   .   .   .   .   a9  a9  a9  w8  x3  a9  a9  a9  | Test Title 0 (Germany)
+== test title 0 (disc 2)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w8  w8  w8  x5  w8  w8  w8  w8  | Test Title 0 (Disc 2) (USA)
+== test title 1
+   ud  ud  ud  ud  gd  ud  gd  ud  gd  .   gd  gd  gd  gd  gd  gd  |
+   w10 w10 w10 w10 x3  w10 x2  w10 a7  .   a7  a7  x3  a7  a7  a7  | Test Title 1 (Asia) (Disc 1) (Japanese Version)
+   w10 w10 w10 w10 x3  w10 x2  w10 a9  .   a9  a9  x3  a9  a9  a9  | Test Title 1 (Asia) (Disc 2) (International Version)
+   w10 w10 w10 x5  x3  w10 x2  w10 a6  .   w6  x5  x3  a6  a6  a6  | Test Title 1 (Europe)
+   w10 w10 w10 w10 x3  w10 x2  w10 a9  .   a9  a9  x3  a9  a9  a9  | Test Title 1 (Germany)
+   w10 w10 w10 w10 x3  w10 x2  w10 a9  .   a9  a9  x3  a9  a9  a9  | Test Title 1 (Italy)
+   w10 w10 w10 x5  x3  w10 x2  w10 a7  .   a7  x5  x3  a7  a7  a7  | Test Title 1 (Japan) (Disc 1) (Japanese Version)
+   w10 w10 w10 x5  x3  w10 x2  w10 a9  .   a9  x5  x3  a9  a9  a9  | Test Title 1 (Japan) (Disc 2) (International Version)
+   w10 w10 x4  w10 x3  w10 x2  w10 a9  .   x4  w9  x3  a9  a9  a9  | Test Title 1 (Spain)
+   w10 w10 w10 x5  w10 w10 w10 w10 w6  .   a6  x5  w8  w6  w6  w6  | Test Title 1 (USA)
+   .   .   .   .   .   .   .   .   a9  .   a9  x5  x3  a9  a9  a9  | Test Titre 1 (France)
+== test title 1 (disc 1) (japanese version)
+   .   .   .   .   .   .   .   .   .   gd  .   .   .   .   .   .   |
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Test Title 1 (Asia) (Disc 1) (Japanese Version)
+   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | Test Title 1 (Japan) (Disc 1) (Japanese Version)
+== test title 1 (disc 2) (international version)
+   .   .   .   .   .   .   .   .   .   gd  .   .   .   .   .   .   |
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Test Title 1 (Asia) (Disc 2) (International Version)
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Test Title 1 (Europe)
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Test Title 1 (Germany)
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Test Title 1 (Italy)
+   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | Test Title 1 (Japan) (Disc 2) (International Version)
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Test Title 1 (Spain)
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Test Title 1 (USA)
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Test Titre 1 (France)
+== test title 2
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w10 w10 w10 x5  x3  w10 x2  w10 .   .   .   .   .   .   .   .   | Test Title 2 (Europe)
+   w10 w10 w10 x5  w10 w10 w10 w10 w8  w8  w8  x5  w8  w8  w8  w8  | Test Title 2 (USA)
+== test title 2 (europe)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w8  w8  w8  x5  x3  w8  x2  w8  | Test Title 2 (Europe)
+== test title 3
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w10 w10 w10 x5  w10 w10 w10 w10 w8  w8  w8  x5  w8  w8  w8  w8  | Test Title 3 (USA)
+   w10 w10 w10 x5  w10 w10 w10 w10 .   .   .   .   .   .   .   .   | Test Title 3 (USA) (Fr)
+== test title 3 (french)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w8  w8  w8  x5  w8  w8  w8  w8  | Test Title 3 (USA) (Fr)
+== test title 4
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w10 w10 w10 x5  w10 w10 w10 w10 w8  w8  w8  x5  w8  w8  w8  w8  | Test Title 4 (USA)
+   w10 w10 w10 x5  w10 w10 w10 x1  .   .   .   .   .   .   .   .   | Test Title 4 (USA) (Pirate)
+== test title 4 (pirate)
+   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w8  w8  w8  x5  w8  w8  w8  x1  | Test Title 4 (USA) (Pirate)
+== test titre 1
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w10 w10 w10 x5  x3  w10 x2  w10 .   .   .   .   .   .   .   .   | Test Titre 1 (France)

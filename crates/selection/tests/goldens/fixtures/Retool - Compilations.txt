@@ -1,0 +1,162 @@
+# The built-in engine's Selections from "Retool - Compilations.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata false
+system: Retool - Compilations
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [4,12]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Compilations REF0020: Compare clone list priority
+rule r2: Compilations REF0028: Compare languages
+rule r3: Compilations REF0069: Group after filtering by region order
+rule r4: Compilations REF0072: Looking for this ideal combination: ["(('test title 10',), 'Canada')", "(('test title 9', 'test title 10'), 'Canada')"]
+rule r5: Compilations REF0072: Looking for this ideal combination: ["(('test title 11',), 'USA')", "(('test title 11', 'test title 12', 'test title 13'), 'USA')", "(('test title 12',), 'USA')"]
+rule r6: Compilations REF0072: Looking for this ideal combination: ["(('test title 3', 'test title 4'), 'USA')", "(('test title 4',), 'USA')"]
+rule r7: Compilations REF0072: Looking for this ideal combination: ["(('test title 5',), 'USA')", "(('test title 5', 'test title 6'), 'USA')", "(('test title 7',), 'USA')", "(('test title 8',), 'USA')"]
+rule r8: Compilations REF0075: Tie breaker, remove the compilation title
+rule r9: Compilations REF0128: Group after comparing compilations
+rule r10: Exclusions: Global post filter exclude
+rule r11: Exclusions: Region remove
+rule r12: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r13: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r14: Parent selection: No other release competed
+rule r15: Superset parent selection REF0076: Group after choosing superset titles
+== retool_compilations_discards
+   .   .   .   .   .   .   .   .   gd  gd  gd  .   gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a8  a8  a8  .   a8  a8  a8  a8  | Test Title 0 + 1 + 2 (USA)
+     alternative to Test Title 0 (USA) [9-11,13-16]
+   .   .   .   .   .   .   .   .   a4  a4  a4  .   a5  a4  a4  a4  | Test Title 11 + 12 (USA)
+     alternative to Test Title 11 (USA) [9-11,13-16]
+   .   .   .   .   .   .   .   .   a8  a8  a8  .   a8  a8  a8  a8  | Test Title 11 + 14 (USA)
+     alternative to Test Title 11 (USA) [9-11,13-16]
+   .   .   .   .   .   .   .   .   a9  a9  a9  .   a9  a9  a9  a9  | Test Title 15 + 16 (USA)
+     alternative to Test Title 15 + 16 (USA) (Rev 1) [9-11,13-16]
+   .   .   .   .   .   .   .   .   a1  a1  a1  .   a1  a1  a1  a1  | Test Title 3 (USA)
+     alternative to Test Title 3 + 4 (USA) [9-11,13-16]
+   .   .   .   .   .   .   .   .   .   .   a8  .   .   .   .   .   | Test Title 5 + 6 (USA)
+     alternative to Test Title 5 (USA) [11]
+   .   .   .   .   .   .   .   .   a3  a3  .   .   .   a3  a3  a3  | Test Title 6 (Europe)
+     alternative to Test Title 5 + 6 (USA) [9-10,14-16]
+   .   .   .   .   .   .   .   .   a8  a8  a8  .   a8  a8  a8  a8  | Test Title 6 + 7 + 8 (USA)
+     alternative to Test Title 5 + 6 (USA) [9-10,13-16]
+     alternative to Test Title 6 (Europe) [11]
+   .   .   .   .   .   .   .   .   a8  a8  a8  .   a8  a8  a8  a8  | Test Title 7 + 8 (USA)
+     alternative to Test Title 7 - Special Edition (USA) [9-11,13-16]
+   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   a2  | Test Title 9 (Canada) (Fr)
+     alternative to Test Title 9 + 10 (Canada) (En,Fr+Fr) [9-11,14,16]
+== retool_compilations_winners
+   .   .   .   .   .   .   .   .   gd  gd  gd  .   ud  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   w13 w13 w13 .   w13 w13 w13 w13 | Test Title 0 (USA)
+   .   .   .   .   .   .   .   .   w13 w13 w13 .   w13 w13 w13 w13 | Test Title 1 (USA)
+   .   .   .   .   .   .   .   .   w4  w4  w4  .   .   w4  .   w4  | Test Title 10 (Canada)
+   .   .   .   .   .   .   .   .   w5  w5  w5  .   w5  w5  w5  w5  | Test Title 11 (USA)
+   .   .   .   .   .   .   .   .   w5  w5  w5  .   w5  w5  w5  w5  | Test Title 11 + 12 + 13 (USA)
+   .   .   .   .   .   .   .   .   w5  w5  w5  .   u5  w5  w5  w5  | Test Title 12 (USA)
+   .   .   .   .   .   .   .   .   w13 w13 w13 .   w13 w13 w13 w13 | Test Title 14 (USA)
+   .   .   .   .   .   .   .   .   w9  w9  w9  .   w9  w9  w9  w9  | Test Title 15 + 16 (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   w13 w13 w13 .   w13 w13 w13 w13 | Test Title 2 (USA)
+   .   .   .   .   .   .   .   .   w6  w6  w6  .   w6  w6  w6  w6  | Test Title 3 + 4 (USA)
+   .   .   .   .   .   .   .   .   w6  w6  w6  .   w6  w6  w6  w6  | Test Title 4 (USA)
+   .   .   .   .   .   .   .   .   w7  w7  w13 .   w7  w7  w7  w7  | Test Title 5 (USA)
+   .   .   .   .   .   .   .   .   w7  w7  .   .   w7  w7  w7  w7  | Test Title 5 + 6 (USA)
+   .   .   .   .   .   .   .   .   .   .   w13 .   .   .   .   .   | Test Title 6 (Europe)
+   .   .   .   .   .   .   .   .   w7  w7  w15 .   w7  w7  w7  w7  | Test Title 7 - Special Edition (USA)
+   .   .   .   .   .   .   .   .   w7  w7  w13 .   w7  w7  w7  w7  | Test Title 8 (USA)
+   .   .   .   .   .   .   .   .   w4  w4  w4  .   .   w4  .   w4  | Test Title 9 + 10 (Canada) (En,Fr+Fr)
+== test title 0
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 0 (USA)
+== test title 0 + 1 + 2
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 0 + 1 + 2 (USA)
+== test title 1
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 1 (USA)
+== test title 10
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  gd  .   gd  .   |
+   w14 w14 w14 x12 x11 w14 x10 w14 .   .   .   x12 x11 .   x10 .   | Test Title 10 (Canada)
+== test title 11
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 11 (USA)
+== test title 11 + 12
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 11 + 12 (USA)
+== test title 11 + 12 + 13
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 11 + 12 + 13 (USA)
+== test title 11 + 14
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 11 + 14 (USA)
+== test title 12
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 12 (USA)
+== test title 14
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 14 (USA)
+== test title 15 + 16
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 15 + 16 (USA)
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 15 + 16 (USA) (Rev 1)
+== test title 2
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 2 (USA)
+== test title 3
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w14 w14 w14 x12 w14 w14 w14 w14 a1  a1  a1  x12 a1  a1  a1  a1  | Test Title 3 (USA)
+     alternative to Test Title 3 + 4 (USA) [9-11,13-16]
+== test title 3 + 4
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 3 + 4 (USA)
+== test title 4
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 4 (USA)
+== test title 5
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 5 (USA)
+== test title 5 + 6
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 5 + 6 (USA)
+== test title 6
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  gd  gd  gd  |
+   w14 w14 w14 x12 x11 w14 x10 w14 a3  a3  .   x12 x11 a3  a3  a3  | Test Title 6 (Europe)
+     alternative to Test Title 5 + 6 (USA) [9-10,14-16]
+== test title 6 + 7 + 8
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 6 + 7 + 8 (USA)
+== test title 7
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w14 w14 w14 x12 w14 w14 w14 w14 a15 a15 a15 x12 a15 a15 a15 a15 | Test Title 7 (USA)
+     alternative to Test Title 7 - Special Edition (USA) [9-11,13-16]
+   .   .   .   .   .   .   .   .   .   .   .   x12 .   .   .   .   | Test Title 7 - Special Edition (USA)
+== test title 7 + 8
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 7 + 8 (USA)
+== test title 7 - special edition
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   .   .   .   .   .   | Test Title 7 - Special Edition (USA)
+== test title 8
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |
+   w14 w14 w14 x12 w14 w14 w14 w14 .   .   .   x12 .   .   .   .   | Test Title 8 (USA)
+== test title 9
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w14 w14 w14 x12 x11 w14 x10 w14 a2  a2  a2  x12 x11 a2  x10 a2  | Test Title 9 (Canada) (Fr)
+     alternative to Test Title 9 + 10 (Canada) (En,Fr+Fr) [9-11,14,16]
+== test title 9 + 10
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  gd  .   gd  .   |
+   w14 w14 w14 x12 x11 w14 x10 w14 .   .   .   x12 x11 .   x10 .   | Test Title 9 + 10 (Canada) (En,Fr+Fr)

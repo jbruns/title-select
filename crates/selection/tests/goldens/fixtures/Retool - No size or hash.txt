@@ -1,0 +1,37 @@
+# The built-in engine's Selections from "Retool - No size or hash.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list false, metadata false
+system: Retool - No size or hash
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [5,7,13,15]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Exclusions: Global post filter exclude
+rule r2: Exclusions: Region remove
+rule r3: Language filter REF0049: Removed due to user language filters: En(?:-[A-Z][A-Z])?, De, Fr(?!-CA)(?:-[A-Z][A-Z])?, It, Ja (reason: Language remove)
+rule r4: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r5: Parent selection REF0005: [First pass] Group after filtering by user language order
+rule r6: Parent selection REF0043: [Second pass] Group after filtering by user language order
+rule r7: Parent selection REF0074: Only one title in this region, skipping filtering
+rule r8: Parent selection: No other release competed
+== test title
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w8 w8 w8 x4 x2 w8 x1 w8 a6 a6 a6 x4 x2 a6 x1 a6 | Test Title (Europe)
+   w8 w8 x3 x4 x2 w8 x1 w8 a5 a5 x3 x4 x2 a5 x1 a5 | Test Title (Europe) (Da,No,Sv)
+   w8 w8 w8 w8 x2 w8 x1 w8 w6 w6 w6 w7 x2 w6 x1 w6 | Test Title (Europe) (En,Fr,De,It)

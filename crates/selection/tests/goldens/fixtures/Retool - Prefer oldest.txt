@@ -1,0 +1,68 @@
+# The built-in engine's Selections from "Retool - Prefer oldest.dat", frozen while Retool was its oracle.
+# Profiles, one column each:
+#    1: user-config-regions-1.yaml, 1G1R off
+#    2: user-config-regions-4.yaml, 1G1R off
+#    3: user-config-languages-1.yaml, 1G1R off
+#    4: user-config-languages-2.yaml, 1G1R off
+#    5: user-config-clone-list-filters-1.yaml, 1G1R off
+#    6: user-config-overrides.yaml, 1G1R off
+#    7: user-config-post-filters.yaml, 1G1R off
+#    8: user-config-regions-1.yaml, games only, 1G1R off
+#    9: user-config-regions-1.yaml, 1G1R on
+#   10: user-config-regions-4.yaml, 1G1R on
+#   11: user-config-languages-1.yaml, 1G1R on
+#   12: user-config-languages-2.yaml, 1G1R on
+#   13: user-config-clone-list-filters-1.yaml, 1G1R on
+#   14: user-config-overrides.yaml, 1G1R on
+#   15: user-config-post-filters.yaml, 1G1R on
+#   16: user-config-regions-1.yaml, games only, 1G1R on
+# Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
+coverage: clone list true, metadata false
+system: Retool - Prefer oldest
+warning: No titles in the input DAT match your preferences. No DAT file has been created. [4,12]
+warning: Stage: Filter languages [3-4,11-12]
+warning: Stage: Inclusions [6,14]
+rule r1: Language filter REF0049: Removed due to user language filters: Es(?!-(MX|XL))(?:-[A-Z][A-Z])?, It, De (reason: Language remove)
+rule r2: Parent selection REF0002: Group after taking clone list priorities into account
+rule r3: Parent selection REF0007: Group after handling versions and revisions
+rule r4: Parent selection REF0009: Group after choosing dates
+rule r5: Parent selection REF0113: Marking a title as English-friendly due to a condition in the Variants object being true
+rule r6: Parent selection: No other release competed
+rule r7: Superset parent selection REF0076: Group after choosing superset titles
+== test title
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x1 w6 w6 w6 w6 a4 a4 a4 x1 a4 a4 a4 a4 | Test Title (USA)
+   w6 w6 w6 x1 w6 w6 w6 w6 a4 a4 a4 x1 a4 a4 a4 a4 | Test Title (USA) (2004-01-01)
+   w6 w6 w6 x1 w6 w6 w6 w6 w4 w4 w4 x1 w4 w4 w4 w4 | Test Title (USA) (2004-02-01)
+== test title 2
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x1 w6 w6 w6 w6 a4 a4 a4 x1 a4 a4 a4 a4 | Test Title 2 (USA) (2004-01-01)
+   w6 w6 w6 x1 w6 w6 w6 w6 w4 w4 w4 x1 w4 w4 w4 w4 | Test Title 2 (USA) (2004-02-01)
+== test title 3
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x1 w6 w6 w6 w6 a3 a3 a3 x1 a3 a3 a3 a3 | Test Title 3 (USA)
+   w6 w6 w6 x1 w6 w6 w6 w6 a3 a3 a3 x1 a3 a3 a3 a3 | Test Title 3 (USA) (Rev 1)
+   w6 w6 w6 x1 w6 w6 w6 w6 w3 w3 w3 x1 w3 w3 w3 w3 | Test Title 3 (USA) (Rev 2)
+== test title 4
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x1 w6 w6 w6 w6 a7 a7 a7 x1 a7 a7 a7 a7 | Test Title 4 (USA)
+   .  .  .  .  .  .  .  .  w7 w7 w7 x1 w7 w7 w7 w7 | Test Title 4 - GOTY (USA)
+== test title 4 - goty
+   gd gd gd gd gd gd gd gd .  .  .  .  .  .  .  .  |
+   w6 w6 w6 x1 w6 w6 w6 w6 .  .  .  .  .  .  .  .  | Test Title 4 - GOTY (USA)
+== test title 5
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x1 w6 w6 w6 w6 a2 a2 a2 x1 a2 a2 a2 a2 | Test Title 5 (USA)
+   .  .  .  .  .  .  .  .  w2 w2 w2 x1 w2 w2 w2 w2 | Test Title 5 - I like this version (USA)
+== test title 5 - i like this version
+   gd gd gd gd gd gd gd gd .  .  .  .  .  .  .  .  |
+   w6 w6 w6 x1 w6 w6 w6 w6 .  .  .  .  .  .  .  .  | Test Title 5 - I like this version (USA)
+== test title 6
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x1 w6 w6 w6 w6 a3 a3 a3 x1 a3 a3 a3 a3 | Test Title 6 (USA)
+   w6 w6 w6 x1 w6 w6 w6 w6 a3 a3 a3 x1 a3 a3 a3 a3 | Test Title 6 (USA) (Rev 1)
+   w6 w6 w6 x1 w6 w6 w6 w6 w3 w3 w3 x1 w3 w3 w3 w3 | Test Title 6 (USA) (Rev 2)
+== test title 7
+   gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd gd |
+   w6 w6 w6 x1 w6 w6 w6 w6 a5 a5 a5 x1 a5 a5 a5 a5 | Test Title 7 (USA)
+   w6 w6 w6 x1 w6 w6 w6 w6 w5 w5 w5 x1 w5 w5 w5 w5 | Test Title 7 (USA) (PlayStation the Best)

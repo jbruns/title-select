@@ -13,6 +13,11 @@ pub fn upstream() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../third_party/retool/upstream")
 }
 
+/// Retool's test inputs: DATs under `source/`, configs, clone lists, metadata, MIAs and RetroAchievements.
+pub fn fixtures() -> PathBuf {
+    upstream().join("tests")
+}
+
 /// The install at `TITLE_SELECT_RETOOL`. A missing install fails the test: it never skips.
 pub fn engine() -> Engine {
     Engine::locate(None).unwrap_or_else(|e| {
