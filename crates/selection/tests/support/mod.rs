@@ -17,14 +17,37 @@ pub fn fixtures() -> PathBuf {
 /// The engine with the clone lists at `TITLE_SELECT_CLONE_LISTS`. Missing clone lists fail the test: it never
 /// skips.
 pub fn engine() -> Engine {
-    Engine::locate(None).unwrap_or_else(|e| {
+    let engine = Engine::locate(None).unwrap_or_else(|e| {
         panic!("{e}\nthe Selection tests need the clone lists: run tools/clone-lists/fetch")
-    })
+    });
+    let root = std::env::var_os(title_select_selection::CLONE_LISTS_ENV).map_or_else(
+        || title_select_selection::DEFAULT_CLONE_LISTS.into(),
+        PathBuf::from,
+    );
+    complete(&root, "run tools/clone-lists/fetch");
+    engine
+}
+
+/// Fails the test unless `root` holds every folder the engine reads, with clone lists and metadata in them: a
+/// missing one would only drop coverage, and goldens would differ for a reason they don't name.
+fn complete(root: &Path, fix: &str) {
+    for dir in ["clonelists", "metadata", "mias", "retroachievements"] {
+        let path = root.join(dir);
+        let files = std::fs::read_dir(&path)
+            .unwrap_or_else(|e| panic!("{}: {e}\nthe data is incomplete: {fix}", path.display()))
+            .count();
+        assert!(
+            files > 0 || !matches!(dir, "clonelists" | "metadata"),
+            "{} is empty\nthe data is incomplete: {fix}",
+            path.display()
+        );
+    }
 }
 
 /// The engine reading Retool's test clone lists, metadata, MIAs and RetroAchievements, under the internal config
 /// frozen beside them, so that a clone-list bump doesn't change what the fixtures select.
 pub fn fixture_engine() -> Engine {
+    complete(&fixtures(), "restore third_party/retool/fixtures from git");
     Engine::unverified(&fixtures()).unwrap()
 }
 
