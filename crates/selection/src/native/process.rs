@@ -21,7 +21,6 @@ pub(crate) struct CloneList {
     pub variants: Vec<J>,
 }
 
-/// `load_data`: a JSON file's contents, or an empty object when there's no file.
 /// Whether `path` is a file under exactly its name. A case-insensitive file system (macOS, Windows) would also
 /// open a file whose name differs only in case, which Linux, where the service runs, doesn't: so a Selection
 /// reads the same data files everywhere.
@@ -36,6 +35,7 @@ fn exactly_a_file(path: &Path) -> bool {
             .any(|entry| entry.is_ok_and(|e| e.file_name() == name))
 }
 
+/// `load_data`: a JSON file's contents, or an empty object when there's no file.
 fn load_data(path: &Path, kind: &str) -> Result<J, Error> {
     if !exactly_a_file(path) {
         return Ok(J::Dict(IndexMap::new()));
