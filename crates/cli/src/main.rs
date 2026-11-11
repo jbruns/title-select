@@ -1,16 +1,15 @@
 mod client;
-mod conformance;
 
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use title_select_api::JobState;
 use title_select_api::ingest::Proposal;
 use title_select_api::lifecycle::{Holds, RegistrationKind, Unregistration};
-use title_select_api::selection::{SelectionEngine, SelectionProfile};
+use title_select_api::selection::SelectionProfile;
 use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Report};
 use title_select_server::Settings;
 use title_select_store::config::Config;
@@ -126,16 +125,13 @@ enum Command {
         /// The workbench's built bundle (`target/site` after `cargo leptos build`), served at `/`.
         #[arg(long, env = "TITLE_SELECT_UI")]
         ui: Option<PathBuf>,
-        /// The selection engine install that `tools/retool/setup` builds, for selections and previews. Defaults
-        /// to `/opt/retool`. Without one the service still runs audits.
-        #[arg(long, env = title_select_selection::RETOOL_ENV)]
-        retool: Option<PathBuf>,
+        /// The clone lists that `tools/clone-lists/fetch` fetches, for selections and previews. Defaults to
+        /// `/opt/clone-lists`. Without them the service still runs audits.
+        #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
+        clone_lists: Option<PathBuf>,
     },
-    /// Select from a DAT with a selection profile, running the pinned selection engine, and print the explained
-    /// selection as JSON: every group's winner, alternatives and exclusions with the rule responsible for each.
-    ///
-    /// The selection engine runs in a scratch folder in the store's `tmp` when `--store` is given, else in the
-    /// system's temporary folder, and the folder is deleted afterwards.
+    /// Select from a DAT with a selection profile, using the pinned clone lists, and print the explained selection
+    /// as JSON: every group's winner, alternatives and exclusions with the rule responsible for each.
     Select {
         /// The Logiqx XML DAT file to select from.
         #[arg(long)]
@@ -143,48 +139,16 @@ enum Command {
         /// The selection profile, as JSON.
         #[arg(long)]
         profile: PathBuf,
-        /// The selection engine install that `tools/retool/setup` builds. Defaults to `/opt/retool`.
-        #[arg(long, env = title_select_selection::RETOOL_ENV)]
-        retool: Option<PathBuf>,
+        /// The clone lists that `tools/clone-lists/fetch` fetches. Defaults to `/opt/clone-lists`.
+        #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
+        clone_lists: Option<PathBuf>,
         /// Seconds the selection engine may run before it is stopped.
         #[arg(long, default_value_t = title_select_selection::DEFAULT_TIMEOUT.as_secs(), value_parser = clap::value_parser!(u64).range(1..))]
         timeout: u64,
         /// Write the selection to this file instead of stdout.
         #[arg(long)]
         output: Option<PathBuf>,
-        /// The engine that selects: the bundled selection engine, or the built-in one.
-        #[arg(long, value_enum, default_value_t = EngineArg::Bundled)]
-        engine: EngineArg,
     },
-    /// Compare the built-in selection engine with the bundled one on DATs you hold, offline, and report where
-    /// their selections differ, group by group. Exits 1 if any difference remains unexplained.
-    ///
-    /// Where they differ, the bundled engine runs again, considering titles in other orders: some of its tie-breaks
-    /// follow the order it happens to meet titles in, and a difference it reproduces that way is reported as
-    /// order-sensitive rather than as a real difference.
-    Conformance {
-        /// DAT files, or folders searched for `*.dat` files.
-        #[arg(required = true)]
-        paths: Vec<PathBuf>,
-        /// The selection profile, as JSON. Defaults to an empty profile: every region and language, no filters.
-        #[arg(long)]
-        profile: Option<PathBuf>,
-        /// The selection engine install that `tools/retool/setup` builds. Defaults to `/opt/retool`.
-        #[arg(long, env = title_select_selection::RETOOL_ENV)]
-        retool: Option<PathBuf>,
-        /// Seconds each engine may run on each DAT before it is stopped.
-        #[arg(long, default_value_t = title_select_selection::DEFAULT_TIMEOUT.as_secs(), value_parser = clap::value_parser!(u64).range(1..))]
-        timeout: u64,
-        /// The most other orders the bundled engine tries where the engines differ, from 0 to 1000.
-        #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u32).range(0..=1000))]
-        orders: u32,
-        /// Print the report as JSON instead of text.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Run one selection engine for a shadow run, from a request file the service writes.
-    #[command(hide = true, name = title_select_selection::SHADOW_SUBCOMMAND)]
-    SelectionShadow { request: PathBuf, response: PathBuf },
     /// Check that the service is up, for a container healthcheck. Prints nothing on success; exits 1 with the
     /// reason on stderr otherwise.
     Health {
@@ -195,23 +159,6 @@ enum Command {
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=300))]
         timeout: u64,
     },
-}
-
-#[derive(Clone, Copy, ValueEnum)]
-enum EngineArg {
-    /// The bundled selection engine.
-    Bundled,
-    /// The built-in selection engine.
-    Builtin,
-}
-
-impl From<EngineArg> for SelectionEngine {
-    fn from(engine: EngineArg) -> Self {
-        match engine {
-            EngineArg::Bundled => SelectionEngine::Bundled,
-            EngineArg::Builtin => SelectionEngine::Builtin,
-        }
-    }
 }
 
 #[derive(Subcommand)]
@@ -353,18 +300,14 @@ enum IngestCommand {
     },
 }
 
-/// The package version, then the upstream commits selection is pinned to.
+/// The package version, then the clone-list commit selection is pinned to.
 fn version() -> &'static str {
     static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         let package = env!("CARGO_PKG_VERSION");
-        match title_select_selection::upstream() {
-            Ok(up) => format!(
-                "{package}\nselection engine: {} at {}, patch set {}\nclone lists and metadata: {} at {}",
-                up.retool.repository,
-                up.retool.commit,
-                up.patch_set_sha256,
-                up.clone_lists.repository,
-                up.clone_lists.commit,
+        match title_select_selection::clone_lists() {
+            Ok(pinned) => format!(
+                "{package}\nclone lists and metadata: {} at {}",
+                pinned.repository, pinned.commit,
             ),
             Err(err) => format!("{package}\n{err}"),
         }
@@ -389,60 +332,19 @@ fn open_store(cli_store: Option<&Path>) -> Result<Store, String> {
 
 /// The configuration file, or no roots when none is given.
 fn load_config(path: Option<&Path>) -> Result<Config, String> {
-    match path {
-        Some(path) => Config::load(path).map_err(|e| e.to_string()),
-        None => Ok(Config::default()),
+    let config = match path {
+        Some(path) => Config::load(path).map_err(|e| e.to_string())?,
+        None => Config::default(),
+    };
+    for warning in config.warnings() {
+        eprintln!("title-select: {warning}");
     }
+    Ok(config)
 }
 
 fn read_profile(path: &Path) -> Result<SelectionProfile, String> {
     serde_json::from_slice(&std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?)
         .map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// Where the selection engine runs: the store's `tmp` when there is a store, else the system's temporary folder.
-fn selection_work_dir(store: Option<&Path>) -> PathBuf {
-    match store {
-        Some(store) => store.join(title_select_store::TMP),
-        None => std::env::temp_dir(),
-    }
-}
-
-/// The DAT files among `paths`, and the `*.dat` files under those that are folders, sorted.
-fn dats_in(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
-        let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        for entry in entries {
-            let path = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
-            if path.is_dir() {
-                walk(&path, out)?;
-            } else if path
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("dat"))
-            {
-                out.push(path);
-            }
-        }
-        Ok(())
-    }
-    let mut dats = Vec::new();
-    for path in paths {
-        if path.is_dir() {
-            let before = dats.len();
-            walk(path, &mut dats)?;
-            dats[before..].sort();
-        } else if path.is_file() {
-            dats.push(path.clone());
-        } else {
-            return Err(format!("{}: no such file or folder", path.display()));
-        }
-    }
-    if dats.is_empty() {
-        return Err(
-            "no DAT files found: name DAT files, or folders that hold `*.dat` files".into(),
-        );
-    }
-    Ok(dats)
 }
 
 fn write_report(report: &impl serde::Serialize, output: Option<PathBuf>) -> Result<(), String> {
@@ -577,7 +479,11 @@ fn run(cli: Cli) -> Result<(), String> {
             write_report(&audit.report, output)
         }
         Command::Audit { .. } => unreachable!("clap requires --dat with a directory, or --set"),
-        Command::Serve { listen, ui, retool } => {
+        Command::Serve {
+            listen,
+            ui,
+            clone_lists,
+        } => {
             let store = store.ok_or("no store: pass --store <dir> or set TITLE_SELECT_STORE")?;
             title_select_server::run(Settings {
                 store: store.to_path_buf(),
@@ -585,30 +491,27 @@ fn run(cli: Cli) -> Result<(), String> {
                 listen,
                 token_file: cli.token_file,
                 ui,
-                retool,
+                clone_lists,
                 hold_jobs: false,
-                shadow_command: None,
             })
             .map_err(|e| e.to_string())
         }
         Command::Select {
             dat,
             profile,
-            retool,
+            clone_lists,
             timeout,
             output,
-            engine,
         } => {
             let profile = read_profile(&profile)?;
-            let outcome = title_select_selection::Engine::locate(retool.as_deref())
-                .and_then(|selection_engine| {
-                    selection_engine.run(
+            let outcome = title_select_selection::Engine::locate(clone_lists.as_deref())
+                .and_then(|engine| {
+                    engine.run(
                         &dat,
                         &profile,
                         &title_select_selection::RunOptions {
                             timeout: std::time::Duration::from_secs(timeout),
-                            engine: engine.into(),
-                            ..title_select_selection::RunOptions::new(selection_work_dir(store))
+                            ..title_select_selection::RunOptions::new()
                         },
                     )
                 })
@@ -617,29 +520,6 @@ fn run(cli: Cli) -> Result<(), String> {
                 eprintln!("title-select: selection engine warning: {warning}");
             }
             write_report(&outcome.selection, output)
-        }
-        Command::Conformance {
-            paths,
-            profile,
-            retool,
-            timeout,
-            orders,
-            json,
-        } => {
-            let profile = match profile {
-                Some(path) => read_profile(&path)?,
-                None => SelectionProfile::default(),
-            };
-            let engine = title_select_selection::Engine::locate(retool.as_deref())
-                .map_err(|e| e.to_string())?;
-            let options = title_select_selection::RunOptions {
-                timeout: std::time::Duration::from_secs(timeout),
-                ..title_select_selection::RunOptions::new(selection_work_dir(store))
-            };
-            conformance::run(&engine, &dats_in(&paths)?, &profile, &options, orders, json)
-        }
-        Command::SelectionShadow { request, response } => {
-            title_select_selection::serve_shadow(&request, &response).map_err(|e| e.to_string())
         }
         Command::Health { url, timeout } => {
             client::health(&url, std::time::Duration::from_secs(timeout))

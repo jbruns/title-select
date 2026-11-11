@@ -1,8 +1,8 @@
 //! The settings a run reads, as Retool's `Config` holds them once it has read `internal-config.json`, the user
 //! configuration and the system's settings file, and as its command line sets its options.
 //!
-//! The bundled engine reads YAML that `config.rs` writes from the Profile; this module reads the Profile directly
-//! and reaches the same values, override markers resolved.
+//! Retool read YAML that Title Select wrote from the Profile; this module reads the Profile directly and reaches
+//! the same values, override markers resolved.
 
 use indexmap::IndexMap;
 use title_select_api::selection::{

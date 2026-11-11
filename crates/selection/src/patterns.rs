@@ -1,27 +1,11 @@
-//! Checks the regular expressions in a Profile's overrides and post filters with the engine's own Python `re`,
-//! because Retool skips an invalid one with only a warning, which would make a silently different Selection.
-
-use std::io::Write as _;
-use std::path::Path;
-use std::process::{Command, Stdio};
+//! Checks the regular expressions in a Profile's overrides and post filters before a run, because Retool skipped an
+//! invalid one with only a warning, which would make a silently different Selection. The engine reads each as
+//! Python's `re` would (`native::userre`) and refuses what it can't read faithfully, so the check is the same.
 
 use title_select_api::selection::{Overrides, SelectionProfile};
 
 use crate::Error;
-
-/// Compiles each pattern as Retool matches it (`re.search(pattern, name, flags=re.I)`) and prints, per pattern,
-/// `null` or the error.
-const COMPILE: &str = r#"
-import json, re, sys
-problems = []
-for pattern in json.load(sys.stdin):
-    try:
-        re.compile(pattern, flags=re.I)
-        problems.append(None)
-    except Exception as err:
-        problems.append(str(err))
-json.dump(problems, sys.stdout)
-"#;
+use crate::native::user_regex;
 
 /// One regular expression in a Profile and where it is.
 struct Regex<'a> {
@@ -79,50 +63,15 @@ fn push<'a>(found: &mut Vec<Regex<'a>>, lines: &'a [String], place: String, over
     }
 }
 
-/// Refuses a Profile whose overrides or post filters hold a regular expression `python` cannot compile.
-pub(crate) fn check(python: &Path, profile: &SelectionProfile) -> Result<(), Error> {
-    let regexes = regexes(profile);
-    if regexes.is_empty() {
-        return Ok(());
-    }
-    let context = || format!("checking patterns with {}", python.display());
-    let io = |source| Error::Io {
-        context: context(),
-        source,
-    };
-    let mut child = Command::new(python)
-        .args(["-I", "-c", COMPILE])
-        .env_clear()
-        .env("PYTHONIOENCODING", "utf-8")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(io)?;
-    let input: Vec<&str> = regexes.iter().map(|r| r.expression).collect();
-    let mut stdin = child.stdin.take().expect("stdin is piped");
-    stdin
-        .write_all(&serde_json::to_vec(&input).expect("strings serialize"))
-        .map_err(io)?;
-    drop(stdin);
-    let output = child.wait_with_output().map_err(io)?;
-    if !output.status.success() {
-        return Err(Error::Install(format!(
-            "{} failed: {}",
-            context(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        )));
-    }
-    let compiled: Vec<Option<String>> = serde_json::from_slice(&output.stdout)
-        .map_err(|e| Error::Install(format!("{}: {e}", context())))?;
-    let problems: Vec<String> = regexes
+/// Refuses a Profile whose overrides or post filters hold a regular expression the engine can't read.
+pub(crate) fn check(profile: &SelectionProfile) -> Result<(), Error> {
+    let problems: Vec<String> = regexes(profile)
         .iter()
-        .zip(compiled)
-        .filter_map(|(regex, problem)| {
-            let problem = problem?;
+        .filter_map(|regex| {
+            let problem = user_regex(regex.expression).err()?;
             Some(format!(
-                "{line:?} in your {place} isn't a valid regular expression ({problem}). A line that starts \
-                 with / is a regular expression: fix it, or remove the / to match the text as written.",
+                "{line:?} in your {place} isn't a regular expression selection can read ({problem}). A line that \
+                 starts with / is a regular expression: fix it, or remove the / to match the text as written.",
                 line = regex.line,
                 place = regex.place,
             ))
@@ -172,5 +121,24 @@ mod tests {
                 ("/(", "(", "Test - System post filters".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn a_pattern_the_engine_cant_read_is_refused_with_where_it_is() {
+        let profile = SelectionProfile {
+            post_filters: vec!["/^Pong".into(), "/(".into(), "/(?x) a # c".into()],
+            ..Default::default()
+        };
+        let Err(Error::Patterns(problems)) = check(&profile) else {
+            panic!("refused");
+        };
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems[0]
+                .starts_with("\"/(\" in your global post filters isn't a regular expression"),
+            "{problems:?}"
+        );
+        assert!(problems[1].contains("verbose mode"), "{problems:?}");
+        assert!(check(&SelectionProfile::default()).is_ok());
     }
 }

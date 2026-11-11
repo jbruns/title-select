@@ -476,41 +476,27 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
-    use std::process::{Command, Stdio};
-
     use super::super::pyre::Re;
 
-    /// Python's `re.search(pattern, subject, flags=re.I) is not None` for each subject, or `None` where Python
-    /// doesn't compile the pattern.
-    fn python(cases: &[(&str, Vec<&str>)]) -> Vec<Option<Vec<bool>>> {
-        let script = r#"
-import json, re, sys
-out = []
-for pattern, subjects in json.load(sys.stdin):
-    try:
-        r = re.compile(pattern, flags=re.I)
-    except Exception:
-        out.append(None)
-        continue
-    out.append([r.search(s) is not None for s in subjects])
-json.dump(out, sys.stdout)
-"#;
-        let mut child = Command::new(super::super::tests::engine().python())
-            .args(["-I", "-W", "ignore", "-c", script])
-            .env("PYTHONIOENCODING", "utf-8")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(&serde_json::to_vec(cases).unwrap())
-            .unwrap();
-        let out = child.wait_with_output().unwrap();
-        serde_json::from_slice(&out.stdout).unwrap()
+    /// Python's `re.search(pattern, subject, flags=re.I) is not None` for each of [`SUBJECTS`], or `None` where
+    /// Python doesn't compile the pattern: what the bundled Retool's Python answered for each case, frozen in
+    /// `tests/oracle/` (one JSON array per pattern: the pattern, then a `0`/`1` per subject or `null`).
+    fn python(frozen: &str, patterns: &[&str]) -> Vec<Option<Vec<bool>>> {
+        let rows: Vec<(String, Option<String>)> = frozen
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(rows.len(), patterns.len());
+        rows.into_iter()
+            .zip(patterns)
+            .map(|((pattern, bits), want)| {
+                assert_eq!(pattern, *want, "the frozen cases are these patterns");
+                bits.map(|bits| {
+                    assert_eq!(bits.len(), SUBJECTS.len());
+                    bits.chars().map(|c| c == '1').collect()
+                })
+            })
+            .collect()
     }
 
     const SUBJECTS: &[&str] = &[
@@ -600,7 +586,10 @@ json.dump(out, sys.stdout)
         ];
         let cases: Vec<(&str, Vec<&str>)> =
             patterns.iter().map(|p| (*p, SUBJECTS.to_vec())).collect();
-        let expected = python(&cases);
+        let expected = python(
+            include_str!("../../tests/oracle/user-patterns.jsonl"),
+            &patterns,
+        );
         let mut refused = Vec::new();
         for ((pattern, subjects), expected) in cases.iter().zip(expected) {
             let ours = Re::user(pattern);
@@ -658,7 +647,11 @@ json.dump(out, sys.stdout)
             .map(|p| (p.as_str(), SUBJECTS.to_vec()))
             .collect();
         let (mut supported, mut refused) = (0, 0);
-        for ((pattern, subjects), expected) in cases.iter().zip(python(&cases)) {
+        let frozen = python(
+            include_str!("../../tests/oracle/generated-patterns.jsonl"),
+            &patterns.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        for ((pattern, subjects), expected) in cases.iter().zip(frozen) {
             match (Re::user(pattern), expected) {
                 (Ok(re), Some(expected)) => {
                     supported += 1;
@@ -671,7 +664,7 @@ json.dump(out, sys.stdout)
                         );
                     }
                 }
-                // A Profile with a pattern Python refuses is refused before either engine runs.
+                // A Profile with a pattern Python refused is refused before the engine runs.
                 (_, None) => {}
                 (Err(_), Some(_)) => refused += 1,
             }

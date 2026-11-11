@@ -1,22 +1,21 @@
-//! Differential tests on synthetic DATs: both engines run on DATs generated from a seed, with profiles generated
-//! from the same seed, and must conform (`Engine::conformance`). There is no written specification of Retool's
-//! selection, so many small, varied DATs stand in for one.
+//! Regression tests on synthetic DATs: the engine runs on DATs generated from a seed, with profiles generated from
+//! the same seed, and must select as the golden `tests/goldens/synthetic.txt` records. Until the cutover (ADR 0015)
+//! these were differential tests that the bundled Retool conformed with; the golden froze the built-in engine's
+//! Selections then. There is no written specification of Retool's selection, so many small, varied DATs stand in
+//! for one.
 //!
 //! Two kinds of DAT are generated: invented titles that mix regions, languages and the tags selection weighs
 //! (revisions, versions, prereleases, unlicensed and modern releases, discs, compilations, duplicates), and
 //! samples of Retool's fixture DATs, whose titles its fixture clone lists, metadata and MIAs name.
 //!
-//! `SYNTHETIC_DATS` sets how many DATs to generate (default 48) and `SYNTHETIC_SEED` the first seed (default 1).
+//! The golden holds seeds 1 to 48; `dump` writes one seed's DAT, profile and trace.
 
 mod support;
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use title_select_api::selection::{Category, Compilations, SelectionProfile};
-
-/// The most other set orders to try: rarely, a difference shows under only one order in eight or fewer.
-const SET_ORDERS: u32 = 128;
+use title_select_api::selection::{Category, Compilations, Rule, Selection, SelectionProfile};
 
 /// xorshift64*: a small, seedable generator, so a failing seed can be rerun alone.
 struct Rng(u64);
@@ -215,7 +214,7 @@ fn fixture_games(dat: &Path) -> (String, Vec<String>) {
 }
 
 fn fixture_dats() -> Vec<PathBuf> {
-    let dir = support::upstream().join("tests/source/systems");
+    let dir = support::fixtures().join("source/systems");
     let mut dats: Vec<PathBuf> = std::fs::read_dir(dir)
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -305,18 +304,59 @@ fn synthetic_profile(seed: u64) -> SelectionProfile {
     profile
 }
 
+/// What the engine made of one seed's DAT, with its warnings, or why it failed.
+type Ran = Result<(Selection, Vec<String>), String>;
+
+/// One seed's Selection: its system, warnings, and every release with its placement and rule.
+fn render(name: &str, ran: &Ran) -> String {
+    let mut out = format!("== {name}\n");
+    let (selection, warnings) = match ran {
+        Ok(ran) => ran,
+        Err(e) => {
+            writeln!(out, "error: {e}").unwrap();
+            return out;
+        }
+    };
+    writeln!(out, "system: {}", selection.system).unwrap();
+    for warning in warnings {
+        writeln!(out, "warning: {warning}").unwrap();
+    }
+    let rule = |rule: &Rule| match &rule.reference {
+        Some(reference) => format!("{} {reference}: {}", rule.stage, rule.message),
+        None => format!("{}: {}", rule.stage, rule.message),
+    };
+    for group in &selection.groups {
+        let flags = match (group.unresolved, group.drift) {
+            (true, true) => " (unresolved, drift)",
+            (true, false) => " (unresolved)",
+            (false, true) => " (drift)",
+            (false, false) => "",
+        };
+        writeln!(out, "{}{flags}", group.group).unwrap();
+        for w in &group.winners {
+            let kind = if w.unresolved { "u" } else { "w" };
+            writeln!(out, "  {kind} {} | {}", w.title, rule(&w.rule)).unwrap();
+        }
+        for a in &group.alternatives {
+            writeln!(out, "  a {} < {} | {}", a.title, a.clone_of, rule(&a.rule)).unwrap();
+        }
+        for x in &group.exclusions {
+            let reason = Some(&x.reason)
+                .filter(|r| **r != x.rule.message)
+                .map(|r| format!(" (reason: {r})"))
+                .unwrap_or_default();
+            writeln!(out, "  x {} | {}{reason}", x.title, rule(&x.rule)).unwrap();
+        }
+    }
+    out
+}
+
 #[test]
-fn the_engines_conform_on_synthetic_dats() {
-    let count: u64 = std::env::var("SYNTHETIC_DATS")
-        .map(|n| n.parse().unwrap())
-        .unwrap_or(48);
-    let first: u64 = std::env::var("SYNTHETIC_SEED")
-        .map(|n| n.parse().unwrap())
-        .unwrap_or(1);
+fn the_engine_keeps_its_selections_on_synthetic_dats() {
     let fixtures = fixture_dats();
     let engine = support::fixture_engine();
-    let seeds: Vec<u64> = (first..first + count).collect();
-    let results: Vec<(String, title_select_selection::Conformance)> = std::thread::scope(|scope| {
+    let seeds: Vec<u64> = (1..=48).collect();
+    let results: Vec<(String, Ran)> = std::thread::scope(|scope| {
         let parallel = std::thread::available_parallelism().map_or(4, |n| n.get());
         let chunks: Vec<&[u64]> = seeds
             .chunks(seeds.len().div_ceil(parallel).max(1))
@@ -334,15 +374,11 @@ fn the_engines_conform_on_synthetic_dats() {
                             let dat = work.path().join("synthetic.dat");
                             std::fs::write(&dat, text).unwrap();
                             let profile = synthetic_profile(seed);
-                            let conformance = engine
-                                .conformance(
-                                    &dat,
-                                    &profile,
-                                    &support::options(work.path()),
-                                    SET_ORDERS,
-                                )
-                                .unwrap_or_else(|e| panic!("{name}: {e}"));
-                            (name, conformance)
+                            let ran = engine
+                                .run(&dat, &profile, &support::options())
+                                .map(|o| (o.selection, o.warnings))
+                                .map_err(|e| e.to_string());
+                            (name, ran)
                         })
                         .collect::<Vec<_>>()
                 })
@@ -354,51 +390,20 @@ fn the_engines_conform_on_synthetic_dats() {
             .collect()
     });
 
-    let groups: usize = results
+    let golden: String = results
         .iter()
-        .filter_map(|(_, c)| c.comparison.as_ref())
-        .map(|c| c.groups)
-        .sum();
-    let units: usize = results.iter().map(|(_, c)| c.units).sum();
-    let differing: usize = results.iter().map(|(_, c)| c.differing.len()).sum();
-    let order_sensitive: usize = results.iter().map(|(_, c)| c.order_sensitive().len()).sum();
-    let failed_alike = results
-        .iter()
-        .filter(|(_, c)| c.failures.iter().all(Option::is_some))
-        .count();
-    eprintln!(
-        "{} synthetic DATs, {groups} groups, {units} units compared: {differing} differ, {order_sensitive} of them \
-         order-sensitive; both engines failed on {failed_alike}",
-        results.len()
-    );
-    let mut failures = String::new();
-    for (name, c) in &results {
-        if c.conforms() {
-            continue;
-        }
-        writeln!(
-            failures,
-            "== {name}: {:?}, failures {:?}",
-            c.verdict(),
-            c.failures
-        )
-        .unwrap();
-        for unit in c.unexplained().into_iter().take(20) {
-            let [a, b] = &c.differing[unit];
-            writeln!(failures, "unit {unit}:\n- {a:?}\n+ {b:?}").unwrap();
-        }
-    }
-    assert!(failures.is_empty(), "{failures}");
+        .map(|(name, ran)| render(name, ran))
+        .collect();
+    support::golden("synthetic.txt", &golden);
 }
 
-/// Not a test: with `SYNTHETIC_SEED` and `DUMP_TO` set, writes one seed's DAT, profile and both engines' traces.
+/// Not a test: with `SYNTHETIC_SEED` and `DUMP_TO` set, writes one seed's DAT, profile and trace.
 #[test]
 #[ignore]
 fn dump() {
     let seed: u64 = std::env::var("SYNTHETIC_SEED").unwrap().parse().unwrap();
     let to = PathBuf::from(std::env::var("DUMP_TO").unwrap());
     let engine = support::fixture_engine();
-    let work = tempfile::tempdir().unwrap();
     let (_, text) = synthetic_dat(seed, &fixture_dats());
     let dat = to.join("synthetic.dat");
     std::fs::write(&dat, text).unwrap();
@@ -408,15 +413,12 @@ fn dump() {
         serde_json::to_string_pretty(&profile).unwrap(),
     )
     .unwrap();
-    let options = support::options(work.path());
     std::fs::write(
-        to.join("bundled.jsonl"),
-        engine.run(&dat, &profile, &options).unwrap().trace,
-    )
-    .unwrap();
-    std::fs::write(
-        to.join("builtin.jsonl"),
-        engine.run_builtin(&dat, &profile, &options).unwrap().trace,
+        to.join("trace.jsonl"),
+        engine
+            .run(&dat, &profile, &support::options())
+            .unwrap()
+            .trace,
     )
     .unwrap();
 }

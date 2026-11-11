@@ -75,10 +75,10 @@ pub fn About() -> impl IntoView {
             <p>
                 "Selection is derived from " <a href=RETOOL>"Retool"</a>
                 ", with the community-maintained " <a href=CLONE_LISTS>"Retool clone lists and metadata"</a>
-                ". Title Select runs a pinned, patched copy of Retool offline, with a pinned copy of the clone lists and metadata, and explains each choice from Retool's own trace. Both projects are published under the BSD 3-Clause License, shown below."
+                ". Title Select's selection engine is a port of Retool, built into Title Select: it selects as Retool does, offline, with a pinned copy of the clone lists and metadata, and explains each choice from the trace Retool would print. Both projects are published under the BSD 3-Clause License, shown below."
             </p>
             <p class="note">
-                "To see the exact upstream commits this build is pinned to, run " <code>"title-select --version"</code>
+                "To see the clone-list commit this build is pinned to, run " <code>"title-select --version"</code>
                 "."
             </p>
         </section>
@@ -91,7 +91,7 @@ pub fn About() -> impl IntoView {
                 "The default region order puts USA first, then the regions whose releases are most often in English, then the rest of the world. The default video order prefers NTSC, then PAL. So the defaults suit English speakers."
             </p>
             <p>
-                "They are Retool's own default orders, the ones its \"Use default order for English speakers\" button fills in. Title Select uses them as the pinned copy of Retool ships them, and does not change them."
+                "They are Retool's own default orders, the ones its \"Use default order for English speakers\" button fills in. Title Select uses them as the pinned copy of the clone lists and metadata ships them, and does not change them."
             </p>
             <p>
                 "To prefer other regions, open a " <A href="/profiles">"selection profile"</A>

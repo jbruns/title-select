@@ -19,7 +19,7 @@
 # Group cells: . absent, g present, u unresolved, d with a release without metadata. Release cells: . absent, else w winner, u unresolved winner, a alternative, x exclusion, and the rule that decided it.
 # Profile 14 was never checked against Retool, which doesn't finish it in reasonable time.
 coverage: clone list true, metadata true [1-13,15-16]
-error: the built-in selection engine: stopped: too many combinations of compilations to compare: 30 choose 7 [14]
+error: the selection engine: stopped: too many combinations of compilations to compare: 30 choose 7 [14]
 system: Nintendo - Nintendo Entertainment System (No-Intro) [1-13,15-16]
 unmatched clone-list term: Anamanaguchi - Power Supply 10th Anniversary NES Cart [9-13,15-16]
 unmatched clone-list term: Flea! (Broke Studio) [9-13,15-16]

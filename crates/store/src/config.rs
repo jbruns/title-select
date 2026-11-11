@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 
 use ipnet::IpNet;
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use title_select_api::Workers;
 use title_select_api::paths::{
     DEFAULT_LIBRARY_FOLDER_TEMPLATE, DEFAULT_SOURCE_SET_TEMPLATE, PathTemplate, relative_path,
 };
-use title_select_api::selection::SelectionEngine;
 
 /// How many full Audits a Source Set keeps when the configuration does not say.
 pub const DEFAULT_AUDITS_KEPT: usize = 20;
@@ -154,23 +154,28 @@ pub struct Selections {
     /// The latest full Selections kept per Source Set; older ones are pruned to their record.
     #[serde(default = "default_selections_keep")]
     pub keep: usize,
-    /// The engine that makes Selections and previews.
+    /// Keys from before the cutover to the one engine (ADR 0015), accepted with any value and ignored, so a
+    /// configuration that still sets them loads; `Config::warnings` names them. Remove them in a later release.
     #[serde(default)]
-    pub engine: SelectionEngine,
-    /// Also run the other engine for each Selection Job, and record how its Selection compares.
+    engine: Option<IgnoredAny>,
     #[serde(default)]
-    pub shadow: bool,
-    /// The largest result, in MiB, a shadow run may return; a larger one is recorded as the shadow run's error.
-    #[serde(default = "default_shadow_result_mib")]
-    pub shadow_result_mib: u64,
+    shadow: Option<IgnoredAny>,
+    #[serde(default)]
+    shadow_result_mib: Option<IgnoredAny>,
 }
 
-/// Comfortably above the largest Selection the fixture DATs make, about 3 MB; see
-/// `title_select_selection::DEFAULT_SHADOW_RESULT`.
-pub const DEFAULT_SHADOW_RESULT_MIB: u64 = 64;
-
-fn default_shadow_result_mib() -> u64 {
-    DEFAULT_SHADOW_RESULT_MIB
+impl Selections {
+    /// The ignored keys this configuration sets, in the order the file documented them.
+    pub fn ignored_keys(&self) -> Vec<&'static str> {
+        [
+            ("engine", self.engine.is_some()),
+            ("shadow", self.shadow.is_some()),
+            ("shadow_result_mib", self.shadow_result_mib.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(key, set)| set.then_some(key))
+        .collect()
+    }
 }
 
 fn default_selections_keep() -> usize {
@@ -181,9 +186,9 @@ impl Default for Selections {
     fn default() -> Self {
         Selections {
             keep: DEFAULT_SELECTIONS_KEPT,
-            engine: SelectionEngine::default(),
-            shadow: false,
-            shadow_result_mib: DEFAULT_SHADOW_RESULT_MIB,
+            engine: None,
+            shadow: None,
+            shadow_result_mib: None,
         }
     }
 }
@@ -364,6 +369,20 @@ impl Default for Config {
 pub struct Error(String);
 
 impl Config {
+    /// What to tell you at startup about this configuration: keys it sets that are ignored.
+    pub fn warnings(&self) -> Vec<String> {
+        let keys = self.selections.ignored_keys();
+        let (names, verb, it) = match keys.as_slice() {
+            [] => return Vec::new(),
+            [one] => (one.to_string(), "is", "it"),
+            [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "are", "them"),
+        };
+        vec![format!(
+            "[selections] {names} {verb} ignored: selection has one engine now. You can remove {it} from your \
+             configuration."
+        )]
+    }
+
     pub fn load(path: &Path) -> Result<Config, Error> {
         let text =
             std::fs::read_to_string(path).map_err(|e| Error(format!("{}: {e}", path.display())))?;
@@ -508,25 +527,28 @@ mod tests {
     }
 
     #[test]
-    fn selections_use_the_bundled_engine_without_a_shadow_unless_configured() {
-        let default = Config::default().selections;
-        assert_eq!(
-            (default.engine, default.shadow),
-            (SelectionEngine::Bundled, false)
-        );
+    fn the_old_engine_keys_load_and_are_named_in_a_warning() {
+        assert!(Config::default().warnings().is_empty());
         let config = Config::parse(
-            "[selections]\nengine = \"builtin\"\nshadow = true\nshadow_result_mib = 8",
+            "[selections]\nkeep = 3\nengine = \"python\"\nshadow = true\nshadow_result_mib = 8",
         )
         .unwrap();
+        assert_eq!(config.selections.keep, 3);
         assert_eq!(
-            (
-                config.selections.engine,
-                config.selections.shadow,
-                config.selections.shadow_result_mib
-            ),
-            (SelectionEngine::Builtin, true, 8)
+            config.warnings(),
+            [
+                "[selections] engine, shadow and shadow_result_mib are ignored: selection has one engine now. \
+              You can remove them from your configuration."
+            ]
         );
-        assert!(Config::parse("[selections]\nengine = \"python\"").is_err());
+        let one = Config::parse("[selections]\nshadow = false").unwrap();
+        assert_eq!(
+            one.warnings(),
+            [
+                "[selections] shadow is ignored: selection has one engine now. You can remove it from your \
+              configuration."
+            ]
+        );
     }
 
     #[test]

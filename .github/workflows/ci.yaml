@@ -27,9 +27,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # rustup on the runner installs the toolchain rust-toolchain.toml pins.
       - run: rustup show active-toolchain
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      # The patched Retool the Selection tests run, with its pinned clone lists.
-      - run: tools/retool/setup
+      # The pinned clone lists the Selection tests read.
+      - run: tools/clone-lists/fetch
       # The image's own chdman, from its pinned MAME release, for the CHD tests; they fail in CI without it.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -48,6 +47,8 @@ jobs:
       - run: cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings
       - run: cargo clippy --package title-select-ui --target wasm32-unknown-unknown --features bench --locked -- -D warnings
       - run: cargo test --locked
+      # Every fixture golden: a debug build checks only some of them, a release build all of them in about a minute.
+      - run: cargo test --release --locked --package title-select-selection --test fixtures
 
   image:
     name: image build, smoke test
@@ -86,18 +87,21 @@ jobs:
               | grep -qi '^content-type: text/plain'
             grep -q 'Copyright' "$RUNNER_TEMP/$licence.txt"
           done
-      # A Selection runs the image's Retool offline, writing only to the store's tmp.
+      # A Selection runs offline on the image's clone lists, writing nothing.
       - name: select smoke test
         run: |
           printf '{"region_order": ["USA"]}\n' > "$RUNNER_TEMP/profile.json"
           chmod 644 "$RUNNER_TEMP/profile.json"
           docker run --rm --read-only --network none -v title-select-select:/store \
-            -v "$PWD/third_party/retool/upstream/tests/source/features:/dats:ro" \
+            -v "$PWD/third_party/retool/fixtures/source/features:/dats:ro" \
             -v "$RUNNER_TEMP/profile.json:/run/profile.json:ro" \
             title-select:ci select --dat '/dats/Retool - Prefer regions.dat' --profile /run/profile.json \
             > "$RUNNER_TEMP/selection.json"
-          jq -e '.summary.groups > 0 and (.pins.retool_commit | length == 40)' "$RUNNER_TEMP/selection.json"
-          docker run --rm title-select:ci --version | grep -q "$(grep -m1 '^commit = ' third_party/retool/pins.toml | cut -d'"' -f2)"
+          commit="$(grep -m1 '^commit = ' third_party/clone-lists/pins.toml | cut -d'"' -f2)"
+          jq -e --arg commit "$commit" '.summary.groups > 0 and .pins.clone_list_commit == $commit
+            and (.pins.title_select_version | length > 0) and (.pins | has("retool_commit") | not)' \
+            "$RUNNER_TEMP/selection.json"
+          docker run --rm title-select:ci --version | grep -q "$commit"
       # CHD builds run the image's chdman, the pinned MAME release's, from the path the image names.
       - name: chdman smoke test
         run: |

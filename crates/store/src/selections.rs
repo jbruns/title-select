@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use title_select_api::selection::{
     Alternative, CoverageDrift, Exclusion, GroupChoice, ReleaseRow, Role, Rule, Selection,
-    SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, ShadowRun, Winner,
+    SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary, Winner,
 };
 use title_select_api::{
     Availability, DatRevisionRecord, GameStatus, Job, JobKind, JobState, ProfileVersionRef,
@@ -490,35 +490,6 @@ impl Store {
         })
     }
 
-    /// Records the shadow run beside the Selection: the other engine's run and how its Selection compared. A
-    /// Selection pruned before its shadow run ends doesn't keep it.
-    pub fn record_shadow(&self, id: i64, shadow: &ShadowRun) -> Result<()> {
-        self.write(|tx| {
-            record_by_id(tx, id)?;
-            tx.execute(
-                "UPDATE selections SET shadow = ?2 WHERE id = ?1 AND pruned_at IS NULL",
-                params![id, to_json(shadow)],
-            )?;
-            Ok(())
-        })
-    }
-
-    /// The shadow run recorded beside the Selection, if shadow mode was on when it was made.
-    pub fn selection_shadow(&self, id: i64) -> Result<Option<ShadowRun>> {
-        self.read(|c| {
-            record_by_id(c, id)?;
-            let text: Option<String> =
-                c.query_row("SELECT shadow FROM selections WHERE id = ?1", [id], |r| {
-                    r.get(0)
-                })?;
-            text.map(|t| {
-                serde_json::from_str(&t)
-                    .map_err(|e| Error::Io(format!("selection {id}: shadow run: {e}")))
-            })
-            .transpose()
-        })
-    }
-
     /// Every release of the Selection, in order.
     pub fn selection_rows(&self, id: i64) -> Result<Vec<ReleaseRow>> {
         self.read(|c| {
@@ -651,7 +622,7 @@ impl Store {
                 )?;
                 tx.execute("DELETE FROM selection_groups WHERE selection_id = ?1", [id])?;
                 tx.execute(
-                    "UPDATE selections SET pruned_at = ?1, shadow = NULL WHERE id = ?2",
+                    "UPDATE selections SET pruned_at = ?1 WHERE id = ?2",
                     params![at, id],
                 )?;
             }

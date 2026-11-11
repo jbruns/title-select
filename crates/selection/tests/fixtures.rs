@@ -88,13 +88,12 @@ type Ran = Result<(Selection, Vec<String>), String>;
 
 fn run(dat: &Path, profiles: &[(String, SelectionProfile)]) -> Vec<Ran> {
     let engine = support::fixture_engine();
-    let work = tempfile::tempdir().unwrap();
-    let options = support::options(work.path());
+    let options = support::options();
     profiles
         .iter()
         .map(|(_, profile)| {
             engine
-                .run_builtin(dat, profile, &options)
+                .run(dat, profile, &options)
                 .map(|o| (o.selection, o.warnings))
                 .map_err(|e| e.to_string())
         })

@@ -57,13 +57,8 @@ impl Env {
             listen: "127.0.0.1:0".parse().unwrap(),
             token_file: Some(self.tmp.path().join("token")),
             ui: None,
-            retool: None,
+            clone_lists: None,
             hold_jobs: false,
-            shadow_command: Some(title_select_selection::ShadowCommand {
-                program: std::env::current_exe().unwrap(),
-                args: vec!["--exact".into(), "shadow_child".into(), "--quiet".into()],
-                envs: vec![(SHADOW_CHILD.into(), "1".into())],
-            }),
         }
     }
 
@@ -261,20 +256,6 @@ impl Events {
                 return (names, *job);
             }
         }
-    }
-}
-
-const SHADOW_CHILD: &str = "TITLE_SELECT_TEST_SHADOW_CHILD";
-
-/// The Service's shadow runs: this test binary, re-run as `title-select selection-shadow`.
-#[test]
-fn shadow_child() {
-    if std::env::var_os(SHADOW_CHILD).is_some() {
-        let args: Vec<String> = std::env::args().collect();
-        let [.., request, response] = &args[..] else {
-            panic!("{args:?}")
-        };
-        title_select_selection::serve_shadow(request.as_ref(), response.as_ref()).unwrap();
     }
 }
 
@@ -1508,11 +1489,12 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
     assert!(!set.join("Combat (USA).zip").exists());
 }
 
-/// Selection Profiles and Selections, run by the pinned selection engine (`tools/retool/setup` builds it).
+/// Selection Profiles and Selections, run by the selection engine on the pinned clone lists (`tools/clone-lists/fetch`
+/// fetches them).
 mod selections {
     use super::*;
     use serde_json::{Value, json};
-    use title_select_api::selection::{ChoiceStatus, Role, Selection, SelectionEngine, ShadowRun};
+    use title_select_api::selection::{ChoiceStatus, Role, Selection};
     use title_select_api::{
         GameStatus, Preview, ProfileRecord, SavedProfile, SelectionDiff, SelectionRecord,
         SelectionReleaseRow,
@@ -1657,17 +1639,13 @@ mod selections {
         client.add_set();
         let job: Job = client.start_audit().body_mut().read_json().unwrap();
         assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+        // Each run stages its DAT in a scratch folder that lives as long as the run.
         let runs = || -> Vec<PathBuf> {
             std::fs::read_dir(env.store().join("tmp"))
                 .into_iter()
                 .flatten()
                 .map(|e| e.unwrap().path())
-                .filter(|p| {
-                    p.file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .starts_with("selection-")
-                })
+                .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("dat-"))
                 .collect()
         };
         let wait_for = |what: &str, done: &dyn Fn() -> bool, within: std::time::Duration| {
@@ -1852,193 +1830,29 @@ mod selections {
     }
 
     #[test]
-    fn in_shadow_mode_a_selection_records_how_the_other_engine_compares() {
-        let env = Env::new();
-        let (_service, client) = ready(&env);
-        let (_, plain) = save(&client, json!({"region_order": ["USA", "Europe"]}));
-        let none: Option<ShadowRun> = client.json(&format!("/selections/{}/shadow", plain.id));
-        assert_eq!(none, None, "shadow mode is off by default");
-        drop((_service, client));
-
-        let service =
-            title_select_server::spawn(env.settings("[selections]\nshadow = true\n")).unwrap();
-        let client = Client::new(&service);
-        let (_, made) = save(&client, json!({"region_order": ["Europe", "USA"]}));
-        // The shadow run follows the recorded selection.
-        let shadow = (0..600)
-            .find_map(|_| {
-                let shadow: Option<ShadowRun> =
-                    client.json(&format!("/selections/{}/shadow", made.id));
-                shadow.or_else(|| {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    None
-                })
-            })
-            .expect("a shadow run is recorded beside the selection");
-        assert_eq!(
-            (shadow.engine, shadow.shadow),
-            (SelectionEngine::Bundled, SelectionEngine::Builtin)
-        );
-        assert_eq!(shadow.error, None);
-        let comparison = shadow.comparison.unwrap();
-        assert!(comparison.groups > 0);
-        assert!(comparison.is_identical(), "{comparison:?}");
-        assert_eq!(
-            winners(&selection(&client, made.id), "pong"),
-            ["Pong (Europe)"]
-        );
-    }
-
-    #[test]
-    fn a_shadow_run_that_fails_is_recorded_as_its_error_and_the_selection_stands() {
+    fn a_configuration_that_still_sets_the_old_engine_keys_selects_as_before() {
         let env = Env::new();
         drop(ready(&env));
-        let service = title_select_server::spawn(Settings {
-            shadow_command: Some(title_select_selection::ShadowCommand {
-                program: "/bin/sh".into(),
-                args: vec!["-c".into(), "echo 'ran out of memory' >&2; exit 1".into()],
-                envs: Vec::new(),
-            }),
-            ..env.settings("[selections]\nshadow = true\n")
-        })
+        let service = title_select_server::spawn(env.settings(
+            "[selections]\nengine = \"bundled\"\nshadow = true\nshadow_result_mib = 8\n",
+        ))
         .unwrap();
         let client = Client::new(&service);
         let (_, made) = save(&client, json!({"region_order": ["Europe", "USA"]}));
+        let selected = selection(&client, made.id);
+        assert_eq!(winners(&selected, "pong"), ["Pong (Europe)"]);
+        assert_eq!(selected.pins.retool_commit, None);
         assert_eq!(
-            winners(&selection(&client, made.id), "pong"),
-            ["Pong (Europe)"]
+            selected.pins.title_select_version.as_deref(),
+            Some(env!("CARGO_PKG_VERSION"))
         );
-        let shadow = (0..600)
-            .find_map(|_| {
-                let shadow: Option<ShadowRun> =
-                    client.json(&format!("/selections/{}/shadow", made.id));
-                shadow.or_else(|| {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    None
-                })
-            })
-            .expect("the failed shadow run is recorded");
-        assert_eq!(shadow.comparison, None);
-        assert!(shadow.error.unwrap().contains("ran out of memory"));
-    }
-
-    fn shadow_of(client: &Client, id: i64) -> ShadowRun {
-        (0..600)
-            .find_map(|_| {
-                let shadow: Option<ShadowRun> = client.json(&format!("/selections/{id}/shadow"));
-                shadow.or_else(|| {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    None
-                })
-            })
-            .expect("a shadow run is recorded beside the selection")
-    }
-
-    fn shell_shadow(env: &Env, script: &str) -> Settings {
-        Settings {
-            shadow_command: Some(title_select_selection::ShadowCommand {
-                program: "/bin/sh".into(),
-                args: vec!["-c".into(), script.into()],
-                envs: Vec::new(),
-            }),
-            ..env.settings("[selections]\nshadow = true\n")
-        }
-    }
-
-    #[test]
-    fn one_shadow_run_runs_and_one_waits_and_a_newer_one_takes_the_waiting_one_s_place() {
-        let env = Env::new();
-        drop(ready(&env));
-        let dir = env.tmp.path();
-        // The first shadow run holds on until released; the others fail at once.
-        let service = title_select_server::spawn(shell_shadow(
-            &env,
-            &format!(
-                "cd '{}' && if mkdir first 2>/dev/null; then while [ ! -e release ]; do sleep 0.1; done; \
-                 echo first >&2; else echo later >&2; fi; exit 1",
-                dir.display()
+        assert_eq!(
+            status_of(
+                client
+                    .get(&format!("/selections/{}/shadow", made.id))
+                    .call()
             ),
-        ))
-        .unwrap();
-        let client = Client::new(&service);
-        let made: Vec<i64> = [["Europe", "USA"], ["USA", "Europe"], ["Japan", "USA"]]
-            .into_iter()
-            .map(|order| save(&client, json!({"region_order": order})).1.id)
-            .collect();
-        let replaced = shadow_of(&client, made[1]);
-        assert!(replaced.error.unwrap().starts_with("skipped: busy"));
-        std::fs::write(dir.join("release"), "").unwrap();
-        assert!(shadow_of(&client, made[0]).error.unwrap().contains("first"));
-        assert!(shadow_of(&client, made[2]).error.unwrap().contains("later"));
-    }
-
-    #[test]
-    fn stopping_the_service_kills_a_running_shadow_run_with_what_it_started() {
-        let env = Env::new();
-        drop(ready(&env));
-        let pid_file = env.tmp.path().join("grandchild");
-        let service = title_select_server::spawn(shell_shadow(
-            &env,
-            &format!("sleep 300 & echo $! > '{}'; wait", pid_file.display()),
-        ))
-        .unwrap();
-        let client = Client::new(&service);
-        save(&client, json!({"region_order": ["Europe", "USA"]}));
-        let pid = (0..600)
-            .find_map(|_| {
-                let pid = std::fs::read_to_string(&pid_file)
-                    .ok()
-                    .and_then(|t| t.trim().parse::<i32>().ok());
-                pid.or_else(|| {
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                    None
-                })
-            })
-            .expect("the shadow run starts");
-        let pid = rustix::process::Pid::from_raw(pid).unwrap();
-        let started = std::time::Instant::now();
-        drop((client, service));
-        assert!(started.elapsed() < std::time::Duration::from_secs(30));
-        let gone = (0..250).any(|_| {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            rustix::process::test_kill_process(pid).is_err()
-        });
-        assert!(gone, "the shadow run's own child outlived the service");
-    }
-
-    #[test]
-    fn a_service_starts_again_straight_after_stopping_with_a_shadow_run_in_flight() {
-        let env = Env::new();
-        drop(ready(&env));
-        let pid_file = env.tmp.path().join("grandchild");
-        let settings = || {
-            shell_shadow(
-                &env,
-                &format!("sleep 300 & echo $! > '{}'; wait", pid_file.display()),
-            )
-        };
-        let service = title_select_server::spawn(settings()).unwrap();
-        let client = Client::new(&service);
-        let (_, made) = save(&client, json!({"region_order": ["Europe", "USA"]}));
-        assert!(
-            (0..600).any(|_| {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                pid_file.exists()
-            }),
-            "the shadow run starts"
-        );
-        drop((client, service));
-        let service = title_select_server::spawn(settings()).unwrap();
-        let client = Client::new(&service);
-        let shadow: Option<ShadowRun> = client.json(&format!("/selections/{}/shadow", made.id));
-        let error = shadow
-            .expect("the stopped shadow run was recorded before the service stopped")
-            .error
-            .unwrap();
-        assert!(!error.is_empty());
-        assert_eq!(
-            winners(&selection(&client, made.id), "pong"),
-            ["Pong (Europe)"]
+            404
         );
     }
 
@@ -2181,10 +1995,10 @@ mod selections {
     }
 
     #[test]
-    fn without_an_engine_selections_are_unavailable_and_audits_still_run() {
+    fn without_clone_lists_selections_are_unavailable_and_audits_still_run() {
         let env = Env::new();
         let service = title_select_server::spawn(Settings {
-            retool: Some(env.tmp.path().join("no-engine")),
+            clone_lists: Some(env.tmp.path().join("no-clone-lists")),
             ..env.settings("")
         })
         .unwrap();

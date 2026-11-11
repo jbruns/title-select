@@ -1076,6 +1076,50 @@ mod tests {
     }
 
     #[test]
+    fn the_shadow_migration_drops_the_shadow_runs_and_keeps_every_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        drop(Store::open_with(dir.path(), &migrations::MIGRATIONS[..22]).unwrap());
+        let conn = Connection::open(dir.path().join(DATABASE)).unwrap();
+        conn.execute_batch(
+            "INSERT INTO dats (id, provider, name) VALUES (1, 'Test', 'Test');
+             INSERT INTO dat_revisions (id, dat_id, sha256, version, file_name, imported_at)
+                 VALUES (1, 1, 'a', '1', 'x.dat', 'then');
+             INSERT INTO source_sets (id, name, root, path, dat_id, added_at) VALUES (1, 'Set', 'r', 'p', 1, 'then');
+             INSERT INTO profiles (id, name, created_at) VALUES (1, 'Profile', 'then');
+             INSERT INTO profile_versions (id, profile_id, version, json, sha256, saved_at, saved_by)
+                 VALUES (1, 1, 1, '{}', 'b', 'then', 'you');",
+        )
+        .unwrap();
+        for (id, shadow) in [(1, Some(r#"{"primary":"bundled"}"#)), (2, None)] {
+            conn.execute(
+                "INSERT INTO selections (id, source_set_id, dat_revision_id, profile_version_id, system,
+                     system_settings, pins, summary, coverage_drift, stale_choices, created_at, shadow)
+                 VALUES (?1, 1, 1, 1, 'Test', 0, '{}', '{}', '{}', '{}', 'then', ?2)",
+                rusqlite::params![id, shadow],
+            )
+            .unwrap();
+        }
+        drop(conn);
+
+        let store = Store::open(dir.path()).unwrap();
+        let (ids, columns) = store
+            .read(|c| {
+                let mut stmt = c.prepare("SELECT id FROM selections ORDER BY id")?;
+                let ids = stmt
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<Vec<i64>>>()?;
+                let mut stmt = c.prepare("SELECT name FROM pragma_table_info('selections')")?;
+                let columns = stmt
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<Vec<String>>>()?;
+                Ok((ids, columns))
+            })
+            .unwrap();
+        assert_eq!(ids, [1, 2]);
+        assert!(!columns.contains(&"shadow".to_owned()), "{columns:?}");
+    }
+
+    #[test]
     fn a_store_from_a_newer_schema_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let first = migrations::MIGRATIONS[0];

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # The Service image: one static binary, the workbench's bundle with the licence texts its About page shows, the
-# patched Retool that Selection runs, and the pinned chdman that CHD builds run, on distroless Python, run as the nonroot user. It needs no writable path but the store volume, so it runs with a
-# read-only root filesystem.
+# pinned clone lists that Selection reads, and the pinned chdman that CHD builds run, on distroless cc (the C library
+# chdman links), run as the nonroot user. It needs no writable path but the store volume, so it runs with a read-only
+# root filesystem.
 
 FROM rust:1.99.1-alpine@sha256:b1d5dd5a22a09404d3e798c0cf051b689077360374eb505fa5bb93c479693d87 AS build
 ARG TARGETARCH
@@ -36,20 +37,16 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && mkdir -p /ui/licences && cp LICENSE /ui/licences/title-select.txt
 RUN mkdir /store
 
-# Retool for Selection (ADR 0001): its runtime files, patched, with the pinned clone lists and a venv from the
-# hash-locked requirements. The builder's Python is Debian 12's, the same 3.11 the runtime image runs.
-FROM debian:12-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS retool
+# The clone lists, metadata, MIAs and RetroAchievements data Selection reads (ADR 0015), at the pinned commit, checked
+# against the pinned archive sha256.
+FROM debian:12-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS clone-lists
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git python3 python3-venv \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-COPY third_party/retool third_party/retool
-COPY tools/retool tools/retool
-RUN python3 -m venv /opt/retool/venv \
-    && /opt/retool/venv/bin/pip install --no-cache-dir --no-deps --only-binary :all: --require-hashes \
-      -r third_party/retool/requirements.txt \
-    && python3 tools/retool/build.py build --dest /opt/retool --runtime-only --no-pristine \
-    && rm -r /opt/retool/cache
+COPY third_party/clone-lists third_party/clone-lists
+COPY tools/clone-lists tools/clone-lists
+RUN tools/clone-lists/fetch /opt/clone-lists
 
 # chdman, for CHD builds, from a pinned MAME release: only chdman is built, not the emulator. MAME's tools build links
 # SDL, which chdman never calls: SDL's headers are there to compile against, but a stub stands in for its library, and
@@ -75,20 +72,21 @@ RUN make -j"$(nproc)" SUBTARGET=tiny TOOLS=1 EMULATOR=0 IGNORE_GIT=1 OPTIMIZE=2 
 FROM scratch AS chdman
 COPY --from=chdman-build /out/chdman /chdman
 
-FROM gcr.io/distroless/python3-debian12:nonroot@sha256:7d1042ce588ab97019fe95c24ffca7bc5a82ccdac572511d5e09bda4435c89c5
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 COPY --from=build /title-select /title-select
 COPY --from=build /ui /ui
 COPY --from=build --chown=65532:65532 /store /store
-COPY --from=retool /opt/retool /opt/retool
-# The vendored Retool's licence and the fetched clone lists' licence, for the workbench's About page.
-COPY --from=retool /opt/retool/retool/LICENSE /ui/licences/retool.txt
-COPY --from=retool /opt/retool/retool/clonelists-LICENSE /ui/licences/retool-clonelists-metadata.txt
+COPY --from=clone-lists /opt/clone-lists /opt/clone-lists
+# Retool's licence, which the selection engine ported from it carries, and the clone lists' licence, for the
+# workbench's About page.
+COPY third_party/retool/LICENSE /ui/licences/retool.txt
+COPY --from=clone-lists /opt/clone-lists/LICENSE /ui/licences/retool-clonelists-metadata.txt
 COPY --from=chdman-build /out/chdman /usr/local/bin/chdman
 COPY --from=chdman-build /out/mame.txt /ui/licences/mame.txt
 ENV TITLE_SELECT_STORE=/store \
     TITLE_SELECT_LISTEN=0.0.0.0:8080 \
     TITLE_SELECT_UI=/ui \
-    TITLE_SELECT_RETOOL=/opt/retool \
+    TITLE_SELECT_CLONE_LISTS=/opt/clone-lists \
     TITLE_SELECT_CHDMAN=/usr/local/bin/chdman
 VOLUME /store
 EXPOSE 8080

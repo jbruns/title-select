@@ -117,9 +117,9 @@ pub(crate) fn import_metadata(dat: &Dat, data: &Path) -> Result<IndexMap<String,
 
 /// `regex_test` for the Operator's filters: drops the `/regex` entries that don't compile, with a warning.
 fn regex_test(list: Vec<String>, origin: &str, post_filter: bool) -> Result<Vec<String>, Error> {
-    // Python refuses a Profile whose patterns it can't compile before either engine runs, so a pattern
-    // here compiles in Python; one the built-in engine can't read as Python does stops the run rather
-    // than being skipped, which would change the rules.
+    // `patterns::check` refuses a Profile whose patterns don't compile before the engine runs, so a pattern
+    // here compiles; one the engine can't read as Python's `re` does stops the run rather than being
+    // skipped, which would change the rules.
     for item in &list {
         let wrapped = item
             .strip_prefix('<')

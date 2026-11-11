@@ -1,5 +1,5 @@
 //! The message each trace reference prints, as `TraceTools.trace_title` holds them without colours. `{N}` stands
-//! for the reference's Nth variable. Generated from the bundled engine.
+//! for the reference's Nth variable. Generated from the patched Retool.
 
 pub(crate) fn template(reference: &str) -> &'static str {
     match reference {

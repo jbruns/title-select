@@ -6,13 +6,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use title_select_api::selection::{Selection, SelectionEngine, SelectionProfile, ShadowRun};
+use title_select_api::selection::{Selection, SelectionProfile};
 use title_select_selection::{Engine, Error, RunOptions};
 use title_select_store::{Store, TMP};
 
-/// Why a Selection or preview cannot run without an engine install.
-pub const UNAVAILABLE: &str = "the selection engine is not installed on this server, so selections and previews \
-    are unavailable; start the server with --retool, or set TITLE_SELECT_RETOOL";
+/// Why a Selection or preview cannot run without the clone lists.
+pub const UNAVAILABLE: &str = "the clone lists aren't installed on this server, so selections and previews are \
+    unavailable; start the server with --clone-lists, or set TITLE_SELECT_CLONE_LISTS";
 
 /// The DAT blob `blob` staged under its imported file name `file`, in a scratch folder under the store's `tmp`.
 struct Staged {
@@ -39,114 +39,24 @@ fn stage(store: &Store, blob: &Path, file: &str) -> Result<Staged, Error> {
     Ok(Staged { _dir: dir, dat })
 }
 
-/// Runs `engine_choice` on the DAT blob `blob`, staged under its imported file name `file`. Returns the Selection
-/// and the engine's warnings.
+/// Runs the engine on the DAT blob `blob`, staged under its imported file name `file`. Returns the Selection and
+/// the engine's warnings.
 pub fn select(
     store: &Store,
     engine: &Engine,
     blob: &Path,
     file: &str,
     profile: &SelectionProfile,
-    engine_choice: SelectionEngine,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<(Selection, Vec<String>), Error> {
     let staged = stage(store, blob, file)?;
-    let mut options = RunOptions::new(store.dir().join(TMP));
+    let mut options = RunOptions::new();
     options.cancel = cancel;
-    options.engine = engine_choice;
     let outcome = engine.run(&staged.dat, profile, &options)?;
     for warning in &outcome.warnings {
         eprintln!("title-select: selection engine warning for {file}: {warning}");
     }
     Ok((outcome.selection, outcome.warnings))
-}
-
-/// Runs the engine other than `engine_choice` on the same DAT blob in a child process, and compares its Selection
-/// with `selection`, which `engine_choice` made with `warnings`. Logs a line on how they compare. Run it after the
-/// Selection is recorded: it can take as long again, and whatever goes wrong is the shadow run's error.
-#[allow(clippy::too_many_arguments)]
-pub fn shadow(
-    store: &Store,
-    engine: &Engine,
-    blob: &Path,
-    file: &str,
-    profile: &SelectionProfile,
-    config: &title_select_store::config::Selections,
-    selection: &Selection,
-    warnings: &[String],
-) -> ShadowRun {
-    let shadow = match stage(store, blob, file) {
-        Ok(staged) => {
-            let mut options = RunOptions::new(store.dir().join(TMP));
-            options.engine = config.engine;
-            options.shadow_result = config.shadow_result_mib.saturating_mul(1 << 20);
-            engine.shadow(&staged.dat, profile, &options, selection, warnings)
-        }
-        Err(e) => ShadowRun::new(
-            config.engine,
-            config.engine.other(),
-            None,
-            Some(e.to_string()),
-        ),
-    };
-    eprintln!("title-select: {}", shadow_summary(file, &shadow));
-    shadow
-}
-
-/// One line on how a shadow run compared, for the Service log.
-pub fn shadow_summary(file: &str, shadow: &ShadowRun) -> String {
-    let engines = format!(
-        "{} engine in the shadow of the {} engine",
-        engine_name(shadow.shadow),
-        engine_name(shadow.engine)
-    );
-    match (&shadow.comparison, &shadow.error) {
-        (_, Some(error)) => format!("shadow run for {file}: the {engines} failed: {error}"),
-        (Some(c), None) if c.is_identical() => {
-            format!(
-                "shadow run for {file}: the {engines} made the same selection in all {} groups",
-                c.groups
-            )
-        }
-        (Some(c), None) => {
-            let mut groups: Vec<&str> = c
-                .differences
-                .iter()
-                .filter(|d| !d.explanation_only)
-                .map(|d| d.group.as_str())
-                .take(10)
-                .collect();
-            if c.differing > groups.len() {
-                groups.push("…");
-            }
-            format!(
-                "shadow run for {file}: the {engines} placed releases differently in {} of {} groups{}, explained {} \
-                 more differently{}. These differences are unclassified: some may only reflect the order the bundled \
-                 engine meets titles in. Run `title-select conformance` on {file} to classify them",
-                c.differing,
-                c.groups,
-                if groups.is_empty() {
-                    String::new()
-                } else {
-                    format!(" ({})", groups.join(", "))
-                },
-                c.explained_differently,
-                if c.warnings.is_some() {
-                    ", and warned differently"
-                } else {
-                    ""
-                },
-            )
-        }
-        (None, None) => format!("shadow run for {file}: the {engines} made no comparison"),
-    }
-}
-
-fn engine_name(engine: SelectionEngine) -> &'static str {
-    match engine {
-        SelectionEngine::Bundled => "bundled",
-        SelectionEngine::Builtin => "built-in",
-    }
 }
 
 /// The preview each actor has in flight. A newer preview from the same actor cancels the older one.
@@ -232,7 +142,7 @@ pub fn systems(
     };
     if !unnamed.is_empty() {
         let dats: Vec<&Path> = unnamed.iter().map(|(_, blob)| blob.as_path()).collect();
-        let names = engine.systems(&dats, &store.dir().join(TMP))?;
+        let names = engine.systems(&dats)?;
         let mut known = SYSTEMS.lock().unwrap();
         let known = known.get_or_insert_with(HashMap::new);
         for ((sha, _), name) in unnamed.into_iter().zip(names) {
@@ -276,34 +186,5 @@ mod tests {
             "a dropped request kills its run"
         );
         assert!(!previews.0.lock().unwrap().contains_key("someone"));
-    }
-
-    #[test]
-    fn a_shadow_runs_log_line_marks_its_differences_unclassified() {
-        use title_select_api::selection::EngineComparison;
-        let run = |warnings| {
-            let comparison = EngineComparison {
-                groups: 3,
-                warnings,
-                ..EngineComparison::default()
-            };
-            shadow_summary(
-                "Test.dat",
-                &ShadowRun::new(
-                    SelectionEngine::Bundled,
-                    SelectionEngine::Builtin,
-                    Some(comparison),
-                    None,
-                ),
-            )
-        };
-        let differing = run(Some([vec!["a".into()], vec![]]));
-        assert!(differing.contains("unclassified"), "{differing}");
-        assert!(
-            differing.contains("`title-select conformance` on Test.dat"),
-            "{differing}"
-        );
-        let alike = run(None);
-        assert!(!alike.contains("unclassified"), "{alike}");
     }
 }
