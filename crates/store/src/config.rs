@@ -505,7 +505,8 @@ impl Config {
         let notify = &mut config.notify;
         match &notify.url {
             Some(url) => {
-                if let Some(why) = crate::fetch::refusal(url) {
+                // The URL may carry a token, so the error never names it.
+                if let Some(why) = crate::fetch::refusal_unnamed(url) {
                     return Err(Error(format!("notify.url: {why}")));
                 }
             }
@@ -644,6 +645,23 @@ mod tests {
             "[notify]\nurl = \"https://hooks.example/x\"\nworkbench_url = \"ts.example\"",
         ] {
             assert!(Config::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_refused_notify_url_is_never_echoed() {
+        for url in [
+            "ftp://hooks.example/secret-token",
+            "https://user:secret-token@hooks.example/x",
+            "not a url secret-token",
+            "https://hooks.no-intro.org/secret-token",
+        ] {
+            let err = Config::parse(&format!("[notify]\nurl = {url:?}"))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("notify.url: it "), "{err}");
+            assert!(!err.contains("secret-token"), "{err}");
+            assert!(!err.contains("hooks."), "{err}");
         }
     }
 
