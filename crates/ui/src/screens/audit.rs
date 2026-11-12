@@ -9,7 +9,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_params_map;
 use leptos_struct_table::ColumnSort;
 use title_select_api::{
-    ALGORITHMS, AuditEvidence, AuditSummary, Finding, GameStatus, Job, StartAudit,
+    ALGORITHMS, AuditEvidence, AuditSummary, Finding, GameStatus, HeaderRule, Job, StartAudit,
 };
 use wasm_bindgen::JsCast;
 
@@ -18,8 +18,8 @@ use crate::app::{Loading, Problem};
 use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
     StatusFilter, audit_evidence_label, entry_name, evidence_text, finding_label,
-    game_status_label, game_status_text, needs_review_from_counts, parse_ndjson, payload_read_text,
-    short_sha, when,
+    game_status_label, game_status_text, header_rule_text, header_text, needs_review_from_counts,
+    parse_ndjson, payload_read_text, short_sha, warning_counts, warning_text, when,
 };
 use crate::table::{DataTable, Grid, RowSource, Rows, sort_of};
 
@@ -101,6 +101,19 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
     let findings = audit.findings.clone();
     let games = audit.games.clone();
     let needs_review = needs_review_from_counts(&findings);
+    let rule = audit.header_rule.as_ref().and_then(|r| r.rule);
+    let header_rule = audit.header_rule.as_ref().map(|named| {
+        view! {
+            <dt>"Header rule"</dt>
+            <dd>{header_rule_text(named)}</dd>
+        }
+    });
+    let warnings = warning_counts(&audit).map(|said| {
+        view! {
+            <dt>"Warnings"</dt>
+            <dd>{said}</dd>
+        }
+    });
 
     view! {
         <h1>{format!("Audit #{id}")}</h1>
@@ -120,6 +133,8 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
             <dd>{when(&audit.finished_at)}</dd>
             <dt>"Evidence"</dt>
             <dd>{audit_evidence_label(audit.evidence)}</dd>
+            {header_rule}
+            {warnings}
         </dl>
         <div class="actions">
             {(!pruned)
@@ -209,7 +224,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                         aria-labelledby="tab-games"
                         hidden=move || tab.get() != Tab::Games
                     >
-                        <GamesPanel games=loaded.games.clone() />
+                        <GamesPanel games=loaded.games.clone() rule />
                     </div>
                 }
                     .into_any()
@@ -639,6 +654,7 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
     let entry = entries.rows[i].entry.clone();
     let evidence = evidence_text(&entry);
     let read = payload_read_text(&entry);
+    let header = header_text(&entry);
     let roms = entry
         .roms
         .iter()
@@ -666,6 +682,13 @@ fn entry_detail(entries: &AuditEntries, i: usize) -> AnyView {
             <dd>{finding_label(entry.finding)} " " {state_badge(entries.derived(i))}</dd>
             <dt>"Evidence"</dt>
             <dd>{if evidence.is_empty() { "None".to_string() } else { evidence }}</dd>
+            {header
+                .map(|header| {
+                    view! {
+                        <dt>"Header"</dt>
+                        <dd>{header}</dd>
+                    }
+                })}
             {read
                 .map(|read| {
                     view! {
@@ -778,7 +801,7 @@ impl Grid for GameItem {
 }
 
 #[component]
-pub fn GamesPanel(games: Arc<AuditGames>) -> impl IntoView {
+pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl IntoView {
     let total = games.len();
     let sorting = RwSignal::new(VecDeque::<(GameCol, ColumnSort)>::new());
     let filter = RwSignal::new(GameFilter::default());
@@ -826,9 +849,22 @@ pub fn GamesPanel(games: Arc<AuditGames>) -> impl IntoView {
                 <ul class="data">{game.claimed_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
             }
         });
+        let warnings = (!game.warnings.is_empty()).then(|| {
+            view! {
+                <h4>"Warnings"</h4>
+                <ul class="data">
+                    {game
+                        .warnings
+                        .iter()
+                        .map(|w| view! { <li>{format!("It {}", warning_text(*w, rule))}</li> })
+                        .collect_view()}
+                </ul>
+            }
+        });
         Some(view! {
             <h3>{game.name.clone()}</h3>
             <p>{format!("Game status: {}", game_status_text(&game))}</p>
+            {warnings}
             {absent}
             {claimed}
         })

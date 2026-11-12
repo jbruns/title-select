@@ -126,6 +126,46 @@ fn run_ok(cmd: &mut Command) -> String {
 }
 
 #[test]
+fn a_headerless_nes_match_is_warned_of_in_the_report_and_counted_in_the_history() {
+    let f = Fixture::new();
+    let dat = write_dat_with_header(
+        f.dat_dir.path(),
+        "No-Intro_NES.xml",
+        &[("Zelda (USA)", vec![rom("Zelda (USA).nes", b"zelda")])],
+    );
+    write_file(&f.set_path("Zelda (USA).nes"), b"zelda");
+    let config = f.dat_dir.path().join("title-select.toml");
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    std::fs::write(
+        &config,
+        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
+    )
+    .unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store)
+            .env("TITLE_SELECT_CONFIG", &config);
+        cmd
+    };
+    run_ok(
+        ts().args(["dat", "import"])
+            .arg(&dat)
+            .args(["--provider", "Test"]),
+    );
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
+
+    let report: serde_json::Value =
+        serde_json::from_str(&run_ok(ts().args(["audit", "--set", rel]))).unwrap();
+
+    assert_eq!(report["games"][0]["warnings"][0], "header_missing");
+    assert_eq!(report["summary"]["warnings"]["header_missing"], 1);
+    let history = run_ok(ts().args(["set", "history", rel]));
+    assert!(history.contains(" header_missing=1\t"), "{history}");
+}
+
+#[test]
 fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history() {
     let (f, dat) = pong_fixture();
     let config = f.dat_dir.path().join("title-select.toml");

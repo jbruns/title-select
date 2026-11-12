@@ -285,6 +285,9 @@ pub struct AuditSummary {
     /// How many of its Games carry each Game Warning; those of none are left out.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub warnings: BTreeMap<GameWarning, usize>,
+    /// The Header Rule its DAT Revision names, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_rule: Option<NamedHeaderRule>,
 }
 
 /// A Source Set with what the list of Source Sets shows of it: its latest finished Audit and its open Repair.

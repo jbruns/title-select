@@ -114,6 +114,10 @@ fn a_stored_audit_keeps_the_header_rule_each_header_and_the_warnings() {
 
     let summary = env.store.audit(stored.id).unwrap();
     assert_eq!(summary.warnings[&GameWarning::HeaderMissing], 1);
+    assert_eq!(
+        summary.header_rule.as_ref(),
+        report.dat_revision.header_rule.as_ref()
+    );
     let (games, _) = env.store.games(stored.id, None, 10, None).unwrap();
     assert!(
         games

@@ -436,6 +436,7 @@ mod tests {
             evidence: Default::default(),
             claimed: Some(0),
             warnings: BTreeMap::new(),
+            header_rule: None,
         }
     }
 

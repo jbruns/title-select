@@ -239,7 +239,7 @@ const SUMMARY_QUERY: &str = "SELECT a.id, s.name, a.started_at, a.finished_at, r
             CASE WHEN a.pruned_at IS NULL THEN
                 (SELECT COUNT(*) FROM audit_entries e WHERE e.audit_id = a.id AND e.evidence_level = 'claim')
             END,
-            a.header_missing
+            a.header_missing, a.header_rule
      FROM audits a
      JOIN dat_revisions r ON r.id = a.dat_revision_id
      JOIN source_sets s ON s.id = a.source_set_id";
@@ -259,6 +259,10 @@ fn summary_from_row(r: &Row) -> rusqlite::Result<AuditSummary> {
         findings,
         games,
         warnings: warnings_from(r, 18)?,
+        header_rule: r
+            .get::<_, Option<String>>(18 + GameWarning::ALL.len())?
+            .as_deref()
+            .map(NamedHeaderRule::new),
     })
 }
 

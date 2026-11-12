@@ -23,7 +23,8 @@ use crate::build_model::build_state_label;
 use crate::events::use_live;
 use crate::library_model::live_status;
 use crate::model::{
-    EntryFilter, audit_choices, audit_evidence_label, needs_review_from_counts, short_sha, when,
+    EntryFilter, audit_choices, audit_evidence_label, needs_review_from_counts, short_sha,
+    warning_counts, when,
 };
 use crate::parts::icon::Glyph;
 use crate::parts::legend::{Legend, present};
@@ -374,6 +375,10 @@ fn Overview(
             <dd>{audit_evidence_label(a.evidence)}</dd>
             <dt>"Coverage"</dt>
             <dd>{model::evidence_coverage(&a)}</dd>
+            {warning_counts(&a).map(|said| view! {
+                <dt>"Warnings"</dt>
+                <dd>{said}</dd>
+            })}
         }
     });
     view! {
@@ -582,6 +587,7 @@ fn LatestAudit(latest: Option<AuditSummary>, games: bool) -> impl IntoView {
         .into_any();
     }
     let id = audit.id;
+    let rule = audit.header_rule.as_ref().and_then(|r| r.rule);
     let data = LocalResource::new(move || load(id));
     let initial = query.with_untracked(|q| EntryFilter {
         text: q.get("q").unwrap_or_default(),
@@ -596,7 +602,9 @@ fn LatestAudit(latest: Option<AuditSummary>, games: bool) -> impl IntoView {
         {move || match data.get() {
             None => view! { <Loading what="the audit" /> }.into_any(),
             Some(Err(message)) => view! { <Problem message /> }.into_any(),
-            Some(Ok(loaded)) if games => view! { <GamesPanel games=loaded.games /> }.into_any(),
+            Some(Ok(loaded)) if games => {
+                view! { <GamesPanel games=loaded.games rule /> }.into_any()
+            }
             Some(Ok(loaded)) => {
                 view! { <EntriesPanel entries=loaded.entries initial=initial.clone() /> }.into_any()
             }
