@@ -114,15 +114,6 @@ fn evidence(a: &Assessment) -> AnyView {
     view! { <ul class="plain">{sha} {dat} {matches}</ul> }.into_any()
 }
 
-/// How often the folder is scanned on its own, or none when only you start scans. The scheduler keeps its own time,
-/// so this names the cadence rather than guess at the next scan.
-fn scan_cadence(folder: &IngestFolder) -> Option<String> {
-    folder.scan_every_minutes.map(|m| match m {
-        1 => "scanned every minute".to_string(),
-        m => format!("scanned every {m} minutes"),
-    })
-}
-
 /// An Ingest Folder in the list of them.
 #[derive(Debug, Clone, PartialEq)]
 struct FolderRow(IngestFolder);
@@ -367,8 +358,10 @@ fn FolderView(
     let facts = move || match (latest.get(), folder.get()) {
         (Some(folder), _) => {
             let schedule = match folder.scan_every_minutes {
-                Some(m) => format!("Every {m} minutes, and when you ask"),
-                None => "Only when you ask".into(),
+                Some(m) => {
+                    format!("Every {m} minutes, when you ask, and once arriving items could settle")
+                }
+                None => "When you ask, and once arriving items could settle".into(),
             };
             view! {
                 <dl class="facts">
@@ -382,6 +375,10 @@ fn FolderView(
                     <dd>{schedule}</dd>
                     <dt>"Last scan"</dt>
                     <dd>{folder.last_scan_at.as_deref().map(when).unwrap_or_else(|| "Never".into())}</dd>
+                    {folder.next_check_at.as_deref().map(|at| view! {
+                        <dt>"Next check"</dt>
+                        <dd>{format!("{}, for items still arriving", when(at))}</dd>
+                    })}
                 </dl>
             }
             .into_any()
@@ -413,8 +410,8 @@ fn FolderView(
 struct ItemRow {
     item: IngestItem,
     status: IngestStatus,
-    /// How often an arriving item is looked at: the folder's scan cadence, or none when only you start scans.
-    cadence: Option<String>,
+    /// When an arriving item is next looked at, from [`ingest_model::arriving_note`].
+    arriving: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -436,10 +433,7 @@ impl ItemRow {
                 Some(job) => format!("Moving · job #{job}"),
                 None => "Moving".into(),
             },
-            IngestStatus::Arriving => match &self.cadence {
-                Some(every) => format!("Assessed once settled · {every}"),
-                None => "Assessed once settled · when you scan".into(),
-            },
+            IngestStatus::Arriving => self.arriving.clone(),
             IngestStatus::MatchesSourceSet => match &item.assessment.proposal {
                 Some(Proposal::SourceSet {
                     source_set, game, ..
@@ -610,7 +604,13 @@ fn Items(
         })
     };
     let all = last_good_rows(move || items.get());
-    let cadence = Memo::new(move |_| folder.with(|f| f.as_ref().and_then(scan_cadence)));
+    let arriving = Memo::new(move |_| {
+        folder.with(|f| {
+            f.as_ref()
+                .map(ingest_model::arriving_note)
+                .unwrap_or_default()
+        })
+    });
     let rows: Signal<Arc<Vec<ItemRow>>> = Signal::derive(move || {
         Arc::new(
             all.get()
@@ -619,7 +619,7 @@ fn Items(
                     ingest_model::status(item).map(|status| ItemRow {
                         item: item.clone(),
                         status,
-                        cadence: cadence.get(),
+                        arriving: arriving.get(),
                     })
                 })
                 .collect(),

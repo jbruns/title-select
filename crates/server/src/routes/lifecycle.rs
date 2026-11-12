@@ -287,12 +287,15 @@ async fn unregister_ingest_folder(
 ) -> ApiResult<Json<Unregistration>> {
     let Path(root) = root?;
     let config = state.config.clone();
-    Ok(Json(
+    let unregistered = {
+        let root = root.clone();
         blocking(&state, move |store| {
             store.unregister_ingest_folder(&config, &root)
         })
-        .await?,
-    ))
+        .await?
+    };
+    state.jobs.follow_ups.forget(&root);
+    Ok(Json(unregistered))
 }
 
 /// Retires a Selection Profile: it is hidden from new choices, and its versions stay for the selections that used

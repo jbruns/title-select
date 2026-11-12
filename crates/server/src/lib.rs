@@ -4,6 +4,7 @@
 //! The Service owns the store, and its lock, for as long as it runs.
 
 mod auth;
+mod follow_ups;
 mod jobs;
 mod metrics;
 mod notify;
@@ -218,6 +219,11 @@ impl Prepared {
         }
         if !self.hold_jobs {
             tokio::spawn(jobs::schedule_ingest_scans(
+                state.store.clone(),
+                state.config.clone(),
+                state.jobs.clone(),
+            ));
+            tokio::spawn(follow_ups::run(
                 state.store.clone(),
                 state.config.clone(),
                 state.jobs.clone(),

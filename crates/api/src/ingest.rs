@@ -32,6 +32,11 @@ pub struct IngestFolder {
     pub scan_every_minutes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_scan_at: Option<String>,
+    /// When the Service scans it again on its own because items are arriving: once the earliest of them could have
+    /// settled, or, after a scan that failed, when it retries. None when nothing is waiting to settle, or no Service
+    /// is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_check_at: Option<String>,
     /// How many items are in each state.
     #[serde(default)]
     pub counts: Vec<(ItemState, u64)>,

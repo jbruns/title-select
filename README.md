@@ -283,7 +283,7 @@ path = "/data/downloads/games"
 writable = true             # an ingest root is always declared writable
 kind = "ingest"
 settle_secs = 60            # unchanged this long before an item is assessed (the default)
-# scan_every_minutes = 15   # scan on a schedule; by default only when you ask
+# scan_every_minutes = 15   # scan on a schedule; by default when you ask, and once arriving items could settle
 
 [roots.additions]           # the additions sets, one folder per system; see "Additions"
 path = "/data/additions"
@@ -875,7 +875,12 @@ or a folder you drop files into. There may be several. Registering one writes a 
 scans and every write fail.
 
 A scan reads the folder and changes nothing in it. It is a job you start, or that `scan_every_minutes` queues; the
-folder is not watched. Dotfiles and partial downloads (`.part`, `.!qB`, `.crdownload`, `.tmp`) are ignored. A new or
+folder is not watched. When a scan leaves items arriving, the service scans that folder again once the earliest of them
+could have settled, `settle_secs` after it last changed, so you don't have to start another scan. An item that changed
+again by then gets a further follow-up scan. A folder has at most one follow-up scan pending, and the ingest folder
+screen says when it is due. If a scan of the folder fails, the service tries again while items are arriving, waiting
+`settle_secs` at first and twice as long after each failure, up to 15 minutes. Follow-up scans are ordinary jobs,
+started by `follow-up`. When the service restarts, it works out again which follow-ups your arriving items need. Dotfiles and partial downloads (`.part`, `.!qB`, `.crdownload`, `.tmp`) are ignored. A new or
 changed item is arriving until its size, modification time and change time stay the same for `settle_secs`; then it
 is assessed: hashed once, and matched against the current DAT revision of every source set. Its hashes are reused
 while its device, inode, size, modification time and change time are unchanged, as an incremental audit reuses an
@@ -1133,7 +1138,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/kept-deletions/{id}/approval`        | approve it: `{"digest"}`; deletes them and answers with each outcome, `409` when they changed |
 | `GET /api/v1/ingest-folders`                       | every ingest root, with its counts of items by state once registered |
 | `POST /api/v1/ingest-folders`                      | register one: `{"root"}`; `201`                              |
-| `GET /api/v1/ingest-folders/{root}`                | one ingest folder                                            |
+| `GET /api/v1/ingest-folders/{root}`                | one ingest folder, with `next_check_at` while a follow-up scan is pending |
 | `POST /api/v1/ingest-folders/{root}/scans`         | scan it; `202` with the scan job                             |
 | `GET /api/v1/ingest-folders/{root}/items`          | its items, with each one's state, evidence, proposal and `last_move`: the plan or repair that last moved it, its job, and whether it is still under way |
 | `GET /api/v1/ingest-folders/{root}/plans`          | its plans, newest first                                      |
@@ -1281,6 +1286,9 @@ it. `events` lists the events to send, all six by default; an event you don't li
 | `dat_revision.new` | a DAT revision is imported, by upload, drop-in or fetch | `<provider>/<DAT name>` | DATs |
 | `fetch.failed` | a request to Redump or MAME fails | `<provider>/<system>` | DATs |
 | `drift.found` | a check of a library folder finds more entries Title Select did not build than the check before | `<root>/<path>` | the library folder |
+
+Follow-up scans of ingest folders are jobs too, so each sends `job.finished` or `job.failed`. If that's too many events
+for you, leave `job.finished` out of `events`.
 
 Each event is sent once, as it happens: a source set that stays stale isn't reported again until it has been audited
 and goes stale anew. Events from before the Service started are never sent.

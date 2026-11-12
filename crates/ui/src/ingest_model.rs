@@ -5,9 +5,11 @@ use std::collections::BTreeMap;
 
 use title_select_api::additions::NewAddition;
 use title_select_api::ingest::{
-    IngestAction, IngestItem, IngestOutcome, IngestPlan, ItemState, PlanIngest, Proposal,
+    IngestAction, IngestFolder, IngestItem, IngestOutcome, IngestPlan, ItemState, PlanIngest,
+    Proposal,
 };
 
+use crate::model::when;
 use crate::parts::icon::Glyph;
 use crate::parts::status::{IngestStatus, Status};
 use crate::screens::additions::new_addition;
@@ -15,6 +17,18 @@ use crate::screens::additions::new_addition;
 /// Whether a move of the item out of the folder is under way.
 pub fn moving(item: &IngestItem) -> bool {
     item.last_move.as_ref().is_some_and(|m| m.under_way)
+}
+
+/// When an arriving item in `folder` is next looked at: the follow-up scan the Service has pending, else the folder's
+/// own scan cadence, else the next scan, whoever starts it.
+pub fn arriving_note(folder: &IngestFolder) -> String {
+    let next = match (&folder.next_check_at, folder.scan_every_minutes) {
+        (Some(at), _) => format!("next check {}", when(at)),
+        (None, Some(1)) => "scanned every minute".into(),
+        (None, Some(m)) => format!("scanned every {m} minutes"),
+        (None, None) => "at the next scan".into(),
+    };
+    format!("Assessed once settled · {next}")
 }
 
 /// The status the item shows, or none for an item no longer in the folder that no plan moved.
@@ -708,5 +722,32 @@ mod tests {
         );
         plan.finished_at = Some("t".into());
         assert_eq!(outcome(&plan, None), Outcome::Left, "never reached");
+    }
+
+    #[test]
+    fn arriving_items_say_when_they_are_next_checked() {
+        let folder = |next: Option<&str>, every: Option<u64>| -> IngestFolder {
+            serde_json::from_value(serde_json::json!({
+                "root": "drop", "path": "/drop", "settle_secs": 60,
+                "scan_every_minutes": every, "next_check_at": next,
+            }))
+            .unwrap()
+        };
+        assert_eq!(
+            arriving_note(&folder(Some("2026-11-12T04:13:05.25Z"), Some(5))),
+            "Assessed once settled · next check 2026-11-12 04:13:05 UTC"
+        );
+        assert_eq!(
+            arriving_note(&folder(None, Some(1))),
+            "Assessed once settled · scanned every minute"
+        );
+        assert_eq!(
+            arriving_note(&folder(None, Some(5))),
+            "Assessed once settled · scanned every 5 minutes"
+        );
+        assert_eq!(
+            arriving_note(&folder(None, None)),
+            "Assessed once settled · at the next scan"
+        );
     }
 }
