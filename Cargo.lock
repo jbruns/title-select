@@ -2750,6 +2750,7 @@ dependencies = [
  "flate2",
  "jiff",
  "libz-sys",
+ "lzma-rust2",
  "md-5",
  "quick-xml",
  "serde",
@@ -2762,6 +2763,7 @@ dependencies = [
  "title-select-api",
  "walkdir",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -2817,6 +2819,7 @@ dependencies = [
  "crc32fast",
  "ipnet",
  "jiff",
+ "lzma-rust2",
  "md-5",
  "rusqlite",
  "rustix",
@@ -2834,6 +2837,7 @@ dependencies = [
  "ureq",
  "walkdir",
  "zip",
+ "zstd",
 ]
 
 [[package]]

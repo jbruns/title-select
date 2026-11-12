@@ -932,13 +932,16 @@ compressed with LZMA, LZMA2 or zstd, with or without the usual executable filter
 limits as a game's ZIP. Before any member is decoded, Title Select reads from its header the dictionary it needs. One
 that needs more than `[ingest] max_dictionary_mib` is unsupported, with "this 7z needs a <N> MiB dictionary, more than
 max_dictionary_mib (<M>); unpack it yourself or raise the limit"; it is read again on the next scan, so raising the
-limit takes effect without touching the file. A zstd 7z is read only with a window of 128 MiB or less, whatever the
-limit. At most `[ingest] archive_workers` 7z archives are decoded at once, across every scan and plan; others wait
-their turn. Members are decoded in order and hashed as they stream, never kept, so a solid archive is decoded once
-per scan. An encrypted 7z, a damaged one, or one compressed another way (PPMd, BZip2, Deflate) is unreadable, with
+limit takes effect without touching the file. Every zstd frame in a 7z is held to the same limit, and to 128 MiB
+whatever the limit, as it streams. A header larger than 8 MiB, or one that lists more than 4096 entries, is
+unsupported without being read further; a compressed header is decoded within the same dictionary limit. At most
+`[ingest] archive_workers` 7z archives are read at once, from their header to their last member, across every scan
+and plan; others wait their turn. Members are decoded in order and hashed as they stream, never kept, so a solid
+archive is decoded once per scan. An encrypted 7z, a damaged one, or one compressed another way (PPMd, BZip2, Deflate) is unreadable, with
 the reason. When a plan moves a 7z's members into a source set or an additions set, they are decoded again and
 written as a TorrentZip, or a loose file, and each is checked against its hashes before it is put in place; the 7z
-itself is kept, as a ZIP is.
+itself is kept, as a ZIP is. Each solid block is decoded once: a member needed later in the new ZIP waits in the
+store's `tmp` folder, which needs room for at most the members being moved, and is removed when the move ends.
 
 Each item is one of:
 
@@ -1304,13 +1307,13 @@ each `v<version>` tag.
 ### Memory
 
 Title Select's memory grows with the DATs you select against and the files in a job, not with the size of the files:
-[docs/memory.md](docs/memory.md) has the measurements and how to take them. Decoding a 7z adds its dictionary, up to
-`max_dictionary_mib`, for each of the `archive_workers` archives decoded at once. Size the service's memory limit at
-about:
+[docs/memory.md](docs/memory.md) has the measurements and how to take them. Reading a 7z adds its dictionary, up to
+`max_dictionary_mib`, and up to 24 MiB for its header, for each of the `archive_workers` archives read at once. Size
+the service's memory limit at about:
 
-> 2 × the peak you measure without 7z + `archive_workers` × `max_dictionary_mib`
+> 2 × the peak you measure without 7z + `archive_workers` × (`max_dictionary_mib` + 24 MiB)
 
-With the defaults, 2 workers and 128 MiB, 7z adds 256 MiB. If you unpack many 7z archives, or ones made with large
+With the defaults, 2 workers and 128 MiB, 7z adds about 304 MiB. If you unpack many 7z archives, or ones made with large
 dictionaries, raise both settings and the memory limit with them. If you never drop 7z archives into an ingest folder,
 or rarely scan more than one at once, lower them and the limit. A change to `archive_workers` takes effect when the
 service restarts; a change to `max_dictionary_mib` takes effect on the next scan.

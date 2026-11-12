@@ -48,6 +48,9 @@ const UNSUPPORTED_ARCHIVES: [&str; 1] = ["rar"];
 /// How a 7z refused for its dictionary is refused: raising the limit lets it be read, so it is read again.
 const DICTIONARY_REFUSAL: &str = "this 7z needs a ";
 
+/// How a 7z was refused on sight before 7z archives were read: it is read now.
+const SEVENZ_UNREAD: &str = "7z archives are not opened";
+
 /// The largest file read as a possible DAT.
 const DAT_LIMIT: u64 = 512 << 20;
 
@@ -1346,14 +1349,13 @@ impl Store {
             match existing.item.state {
                 ItemState::Dismissed => continue,
                 // Refused unread, as an archive within the archive or past the limits: reading it again would only
-                // refuse it again. A 7z refused for its dictionary is read again, as the limit may have been raised.
+                // refuse it again. A 7z refused for its dictionary is read again, as the limit may have been raised,
+                // and so is one refused on sight before 7z archives were read.
                 ItemState::Unsupported
                     if existing.read.is_none()
-                        && !existing
-                            .item
-                            .reason
-                            .as_deref()
-                            .is_some_and(|r| r.starts_with(DICTIONARY_REFUSAL)) =>
+                        && !existing.item.reason.as_deref().is_some_and(|r| {
+                            r.starts_with(DICTIONARY_REFUSAL) || r.starts_with(SEVENZ_UNREAD)
+                        }) =>
                 {
                     continue;
                 }

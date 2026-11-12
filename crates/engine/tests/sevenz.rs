@@ -350,8 +350,16 @@ fn members_of_a_7z_are_repacked_as_verified_torrentzip_and_the_source_hashed_as_
             };
             let dest = created(&dir.path().join(format!("{method:?}-{solid}.zip")));
 
-            let read =
-                sevenz::repack(&dest, &named, &File::open(&source).unwrap(), &decoding).unwrap();
+            let scratch = tempfile::tempdir_in(dir.path()).unwrap();
+
+            let read = sevenz::repack(
+                &dest,
+                &named,
+                &File::open(&source).unwrap(),
+                &decoding,
+                scratch.path(),
+            )
+            .unwrap();
 
             verify(&dest, &roms).unwrap();
             let bytes = std::fs::read(&source).unwrap();
@@ -388,6 +396,192 @@ fn a_member_of_a_7z_is_written_as_a_verified_loose_file() {
     assert_eq!(&std::fs::read(&path).unwrap(), bytes);
     let whole = std::fs::read(&source).unwrap();
     assert_eq!(read, (sha256_hex(&whole), whole.len() as u64));
+}
+
+/// Each block an archive's requested members are in is decoded once, solid or not, whatever order TorrentZip writes
+/// them in: members that come before their turn wait in scratch, no more of them than their declared sizes, and are
+/// gone once written.
+#[test]
+fn each_block_is_decoded_once_however_many_of_its_members_are_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut members = disc();
+    members.push(("Game (USA)/Disc 1/Track 03.bin", noise(3, 9_000)));
+    members.push(("Game (USA)/Unwanted.txt", noise(4, 100)));
+    let wanted = &members[..4];
+    let roms: Vec<ExpectedRom> = wanted
+        .iter()
+        .map(|(name, b)| expected(name.rsplit('/').next().unwrap(), b))
+        .collect();
+    let named: Vec<(&ExpectedRom, &str)> =
+        roms.iter().zip(wanted).map(|(r, (m, _))| (r, *m)).collect();
+    for solid in [true, false] {
+        let source = dir.path().join(format!("{solid}.7z"));
+        write_7z(&source, &borrowed(&members), Method::Lzma2, solid);
+        let gate = Gate::new(1);
+        let decoding = Decoding {
+            gate: &gate,
+            max_dictionary_mib: 128,
+        };
+        let dest = created(&dir.path().join(format!("{solid}.zip")));
+        let scratch = tempfile::tempdir_in(dir.path()).unwrap();
+
+        sevenz::repack(
+            &dest,
+            &named,
+            &File::open(&source).unwrap(),
+            &decoding,
+            scratch.path(),
+        )
+        .unwrap();
+
+        verify(&dest, &roms).unwrap();
+        let blocks = if solid { 1 } else { wanted.len() };
+        assert_eq!(gate.blocks_decoded(), blocks, "solid: {solid}");
+        assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 0);
+    }
+}
+
+/// Every operation on a 7z, the scan's probe and both writes, waits for a permit before it reads its header: an
+/// encoded header is not decoded while the only permit is held elsewhere.
+#[test]
+fn a_header_is_decoded_only_once_the_gate_has_a_free_permit() {
+    let dir = tempfile::tempdir().unwrap();
+    let members: Vec<(String, Vec<u8>)> = (0..40)
+        .map(|i| (format!("Game (USA)/Track {i:02}.bin"), noise(i, 64)))
+        .collect();
+    let listed: Vec<(&str, &[u8])> = members
+        .iter()
+        .map(|(n, b)| (n.as_str(), b.as_slice()))
+        .collect();
+    let source = dir.path().join("Game.7z");
+    write_7z(&source, &listed, Method::Lzma2, true);
+    assert!(has_encoded_header(&source));
+    let rom = expected("Track 00.bin", &members[0].1);
+
+    for op in ["probe", "repack", "write_loose"] {
+        let gate = Arc::new(Gate::new(1));
+        let held = gate.enter();
+        let running = {
+            let (gate, source, rom, dir) = (
+                gate.clone(),
+                source.clone(),
+                rom.clone(),
+                dir.path().to_owned(),
+            );
+            let member = members[0].0.clone();
+            std::thread::spawn(move || {
+                let decoding = Decoding {
+                    gate: &gate,
+                    max_dictionary_mib: 128,
+                };
+                let file = File::open(&source).unwrap();
+                match op {
+                    "probe" => matches!(
+                        sevenz::probe(&file, &ZipLimits::default(), &decoding).unwrap(),
+                        Probed::Read(p) if p.error.is_none()
+                    ),
+                    "repack" => {
+                        let scratch = tempfile::tempdir_in(&dir).unwrap();
+                        let dest = created(&dir.join("Game.zip"));
+                        sevenz::repack(&dest, &[(&rom, &member)], &file, &decoding, scratch.path())
+                            .is_ok()
+                    }
+                    _ => {
+                        let dest = created(&dir.join("Track 00.bin"));
+                        sevenz::write_loose(&dest, &rom, &member, &file, &decoding).is_ok()
+                    }
+                }
+            })
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            gate.headers_decoded(),
+            0,
+            "{op} decoded a header while the only permit was held"
+        );
+        assert!(
+            !running.is_finished(),
+            "{op} ran while the only permit was held"
+        );
+        drop(held);
+
+        assert!(running.join().unwrap(), "{op}");
+        assert_eq!(gate.headers_decoded(), 1, "{op}");
+    }
+}
+
+/// Each zstd frame is held to the limit as it streams, not only the first: a later frame needing a larger window is
+/// refused before the decoder reads its header, by its exact window, whether or not the limit is a power of two.
+#[test]
+fn every_zstd_frame_is_held_to_the_limit_as_it_streams() {
+    let dir = tempfile::tempdir().unwrap();
+    let frames = |log| {
+        let mut packed = zstd_frame(b"first ", 10);
+        packed.extend(zstd_frame(b"second", log));
+        packed
+    };
+    let path = dir.path().join("Game.7z");
+    crafted_7z(&path, &[4, 0xF7, 0x11, 1], &[], "Game.bin", &frames(24), 12);
+    let rom = expected("Game.bin", b"first second");
+
+    let probe = read(&path);
+    assert_eq!(probe.error, None);
+    assert_eq!(probe.payloads[0].sha256, rom.sha256.clone().unwrap());
+    assert_eq!(
+        refusal(&path, 1),
+        "this 7z needs a 16 MiB dictionary, more than max_dictionary_mib (1); unpack it yourself or raise the limit"
+    );
+    let gate = Gate::new(1);
+    let tight = Decoding {
+        gate: &gate,
+        max_dictionary_mib: 1,
+    };
+    let scratch = tempfile::tempdir_in(dir.path()).unwrap();
+    let written = sevenz::repack(
+        &created(&dir.path().join("Game.zip")),
+        &[(&rom, "Game.bin")],
+        &File::open(&path).unwrap(),
+        &tight,
+        scratch.path(),
+    );
+    assert!(
+        matches!(&written, Err(why) if why.contains("this 7z needs a 16 MiB dictionary")),
+        "{written:?}"
+    );
+
+    // A limit of 3 MiB lets a 2 MiB window through and refuses a 4 MiB one.
+    for (log, refused) in [(21, false), (22, true)] {
+        let path = dir.path().join(format!("{log}.7z"));
+        crafted_7z(
+            &path,
+            &[4, 0xF7, 0x11, 1],
+            &[],
+            "Game.bin",
+            &frames(log),
+            12,
+        );
+        match probed(&path, 3) {
+            Probed::Refused(why) => {
+                assert!(refused && why.starts_with("this 7z needs a 4 MiB"), "{why}")
+            }
+            Probed::Read(probe) => assert!(!refused && probe.error.is_none(), "{probe:?}"),
+        }
+    }
+
+    // Past the largest window a zstd 7z is read with, a later frame is unreadable whatever the limit.
+    let path = dir.path().join("28.7z");
+    crafted_7z(&path, &[4, 0xF7, 0x11, 1], &[], "Game.bin", &frames(28), 12);
+    let probe = match probed(&path, 1024) {
+        Probed::Read(probe) => probe,
+        Probed::Refused(why) => panic!("refused: {why}"),
+    };
+    assert!(
+        probe
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("256 MiB zstd window")),
+        "{probe:?}"
+    );
 }
 
 /// Outside an Ingest Folder a 7z is read as a library or source set file is: one opaque payload, the whole file.

@@ -38,8 +38,9 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-/// The most bytes held at once, above those held before, while `path` is refused under a 1 MiB limit.
-fn peak_while_refused(path: &Path) -> usize {
+/// The most bytes held at once, above those held before, while `path` is refused under a 1 MiB limit, for a reason
+/// starting `why`.
+fn peak_while_refused_for(path: &Path, why: &str) -> usize {
     let file = File::open(path).unwrap();
     let gate = Gate::new(1);
     let decoding = Decoding {
@@ -51,10 +52,14 @@ fn peak_while_refused(path: &Path) -> usize {
     let probed = sevenz::probe(&file, &ZipLimits::default(), &decoding).unwrap();
     let peak = PEAK.load(Ordering::SeqCst) - before;
     assert!(
-        matches!(&probed, Probed::Refused(why) if why.starts_with("this 7z needs a ")),
+        matches!(&probed, Probed::Refused(refused) if refused.starts_with(why)),
         "{probed:?}"
     );
     peak
+}
+
+fn peak_while_refused(path: &Path) -> usize {
+    peak_while_refused_for(path, "this 7z needs a ")
 }
 
 #[test]
@@ -73,4 +78,47 @@ fn peak_memory_does_not_grow_with_a_refused_archives_dictionary() {
         assert!(*peak < 1 << 20, "{peak} bytes held while refusing");
     }
     assert!(peaks[1] <= peaks[0] + (64 << 10), "{peaks:?}");
+}
+
+/// A header may list no more entries than a game's archive is read with: one listing millions, plain or encoded, is
+/// refused once its count is read, before any entry is allocated. Without that, a few MiB of header would allocate
+/// hundreds of MiB of entries.
+#[test]
+fn a_header_listing_millions_of_entries_is_refused_before_they_are_allocated() {
+    let dir = tempfile::tempdir().unwrap();
+    let header = header_of_many_files(3_000_000);
+    let plain = dir.path().join("plain.7z");
+    assemble(&plain, &[], &header);
+    let encoded = dir.path().join("encoded.7z");
+    encoded_7z(&encoded, &[], &header);
+    assert!(has_encoded_header(&encoded));
+    let why = "it lists 3000000 entries, more than the 4096 a game's archive is read with";
+
+    let plain_peak = peak_while_refused_for(&plain, why);
+    let encoded_peak = peak_while_refused_for(&encoded, why);
+
+    // The header itself, and for the encoded one the 1 MiB dictionary it is decoded with.
+    assert!(
+        plain_peak < header.len() + (1 << 20),
+        "{plain_peak} bytes held"
+    );
+    assert!(
+        encoded_peak < header.len() + (4 << 20),
+        "{encoded_peak} bytes held"
+    );
+}
+
+/// A header larger than any game's archive needs is refused from the size the archive's start declares, unread.
+#[test]
+fn a_header_too_large_to_be_a_games_is_refused_unread() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("large.7z");
+    assemble(&path, &[], &header_of_many_files(9 << 20));
+
+    let peak = peak_while_refused_for(
+        &path,
+        "its header is 10 MiB, more than the 8 MiB a 7z's header is read to",
+    );
+
+    assert!(peak < 64 << 10, "{peak} bytes held");
 }

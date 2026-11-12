@@ -4159,6 +4159,14 @@ fn missing_games_are_filled_from_7z_ingest_items_of_every_method_solid_or_not_in
     }
     let done = env.approve(&plan);
 
+    // Members that waited in scratch for their turn in a repack leave nothing behind.
+    let scratch: Vec<_> = std::fs::read_dir(env.store.dir().join("tmp"))
+        .into_iter()
+        .flatten()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with("7z-"))
+        .collect();
+    assert!(scratch.is_empty(), "{scratch:?}");
     let mut want: Vec<String> = discs
         .iter()
         .map(|(_, _, game, _)| format!("{game}.zip"))

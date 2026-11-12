@@ -1207,7 +1207,13 @@ impl Store {
                             "a loose file holds one ROM, not {}; a game with more stays a ZIP",
                             named.len()
                         )),
-                        (false, _) => sevenz::repack(&file, &named, &source, &decoding),
+                        (false, _) => {
+                            let scratch = Scratch::new(
+                                self.dir().join(crate::TMP).join(format!("7z-{}", m.id)),
+                            )
+                            .map_err(|e| format!("{}: {e}", m.name))?;
+                            sevenz::repack(&file, &named, &source, &decoding, &scratch.0)
+                        }
                     })
                     .map(|(sha, _)| sha)
             }
@@ -1835,6 +1841,27 @@ pub(crate) fn insert_move(tx: &Transaction, mv: &Move, kind: &str) -> Result<i64
             ],
         )?;
     Ok(tx.last_insert_rowid())
+}
+
+/// A directory a 7z's members wait in for their turn in a repack: made empty, and removed with whatever is left in it
+/// once the repack is done, or failed.
+struct Scratch(std::path::PathBuf);
+
+impl Scratch {
+    fn new(path: std::path::PathBuf) -> std::io::Result<Scratch> {
+        match std::fs::remove_dir_all(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+        std::fs::create_dir_all(&path)?;
+        Ok(Scratch(path))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 #[cfg(test)]

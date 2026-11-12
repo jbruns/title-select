@@ -1372,3 +1372,36 @@ fn a_7z_over_the_dictionary_limit_is_refused_with_why_and_read_once_the_limit_is
 
     assert_eq!(env.state("yars.7z"), ItemState::Assessed);
 }
+
+/// A 7z refused on sight before 7z archives were read, recorded with the old reason, is read on the next scan rather
+/// than left refused.
+#[test]
+fn a_7z_refused_before_7z_archives_were_read_is_read_on_the_next_scan() {
+    let env = Env::new();
+    sevenz_fixtures::write_7z(
+        &env.dir("in").join("yars.7z"),
+        &[("Yars (USA).a26", b"yars")],
+        sevenz_fixtures::Method::Lzma2,
+        true,
+    );
+    env.scan();
+    env.scan();
+    assert_eq!(env.state("yars.7z"), ItemState::Assessed);
+    let db = rusqlite::Connection::open(env.store.dir().join("title-select.sqlite")).unwrap();
+    let refused = db
+        .execute(
+            "UPDATE ingest_items SET state = 'unsupported', probe = NULL, assessment = NULL, \
+             hashed_dev = NULL, hashed_ino = NULL, hashed_size = NULL, hashed_mtime_ns = NULL, \
+             hashed_ctime_ns = NULL, reason = '7z archives are not opened; only loose files and \
+             per-game ZIP archives are read' WHERE name = 'yars.7z'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(refused, 1);
+    drop(db);
+    assert_eq!(env.state("yars.7z"), ItemState::Unsupported);
+
+    env.scan();
+
+    assert_eq!(env.state("yars.7z"), ItemState::Assessed);
+}
