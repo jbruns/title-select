@@ -522,6 +522,7 @@ fn check_folder(
                 selected: &inputs.selected,
                 dat,
                 storage: inputs.storage,
+                sbi: inputs.sbi.as_ref(),
                 cached: &inputs.cached,
                 acks: &inputs.acks,
             },
@@ -1206,21 +1207,10 @@ fn plan_items(
     // Each selected Multi-disc Game's release, listed by its `.m3u`, with its discs in disc order; and each disc's
     // SBI file, where the system opts in.
     let playlists = playlists(&laid, winners.iter().map(|(_, title)| *title));
-    let mut sbis: Vec<(&str, &str, String, &crate::sbi_packs::SbiMember)> = Vec::new();
+    let mut sbis: Vec<(&str, &str, String, GeneratedFile)> = Vec::new();
     for (group, title) in &winners {
-        let Some(entry) = laid.get(*title).and_then(|l| l.entry.as_ref()) else {
-            continue;
-        };
-        if let (Some(pack), Some(target)) = (&inputs.sbi, sbi_beside(entry)) {
-            let stem = entry
-                .rsplit('/')
-                .next()
-                .and_then(|leaf| leaf.rsplit_once('.'))
-                .map(|(stem, _)| stem.to_lowercase())
-                .unwrap_or_default();
-            if let Some(member) = pack.members.get(&stem) {
-                sbis.push((group, title, target, member));
-            }
+        if let Some((target, file)) = sbi_of(&laid, title, inputs.sbi.as_ref()) {
+            sbis.push((group, title, target, file));
         }
     }
     // Every file and every disc layout folder the plan lays out, by the key names collide by on a share.
@@ -1583,15 +1573,7 @@ fn plan_items(
             ),
         ));
     }
-    for (group, game, target, member) in sbis {
-        let file = GeneratedFile {
-            kind: GeneratedKind::Sbi,
-            sha256: member.sha256.clone(),
-            size: member.size,
-            text: None,
-            pack: inputs.sbi.as_ref().map(|p| p.sha256.clone()),
-            member: Some(member.name.clone()),
-        };
+    for (group, game, target, file) in sbis {
         let parts = parts_of(&items, &[game]);
         generated.push((
             vec![game],
@@ -2053,8 +2035,45 @@ fn m3u(laid: &BTreeMap<String, Laid>, discs: &[(u32, &str)]) -> GeneratedFile {
     }
 }
 
+/// What a generated file of `kind` is called, for what you read.
+pub(crate) fn generated_what(kind: GeneratedKind) -> &'static str {
+    match kind {
+        GeneratedKind::M3u => ".m3u",
+        GeneratedKind::Sbi => "SBI file",
+    }
+}
+
+/// The SBI file a build places beside `title`'s disc from `pack`, the system's latest SBI pack when the storage policy
+/// puts SBI files beside discs: its target, and the file.
+fn sbi_of(
+    laid: &BTreeMap<String, Laid>,
+    title: &str,
+    pack: Option<&crate::sbi_packs::SbiPack>,
+) -> Option<(String, GeneratedFile)> {
+    let entry = laid.get(title)?.entry.as_ref()?;
+    let (pack, target) = (pack?, sbi_beside(entry)?);
+    let stem = entry
+        .rsplit('/')
+        .next()
+        .and_then(|leaf| leaf.rsplit_once('.'))
+        .map(|(stem, _)| stem.to_lowercase())
+        .unwrap_or_default();
+    let member = pack.members.get(&stem)?;
+    Some((
+        target,
+        GeneratedFile {
+            kind: GeneratedKind::Sbi,
+            sha256: member.sha256.clone(),
+            size: member.size,
+            text: None,
+            pack: Some(pack.sha256.clone()),
+            member: Some(member.name.clone()),
+        },
+    ))
+}
+
 /// A file a disc layout lays out for a selected game that its ROMs alone do not name a game by, and that a cleanup
-/// may adopt where it is: a file of a disc in a layout folder, a CHD, or a release's `.m3u`.
+/// may adopt where it is: a file of a disc in a layout folder, a CHD, a release's `.m3u`, or a disc's SBI file.
 #[derive(Debug, Clone)]
 pub(crate) enum LaidFile {
     /// One file of a disc laid out in a disc layout folder: the disc's game, and the one ROM it holds.
@@ -2064,11 +2083,8 @@ pub(crate) enum LaidFile {
         game: String,
         roms: Vec<ExpectedRom>,
     },
-    /// A Multi-disc Game's `.m3u`: its release, and the file a build writes.
-    Playlist {
-        release: String,
-        file: GeneratedFile,
-    },
+    /// A file a build generates: a Multi-disc Game's `.m3u`, for its release, or a disc's SBI file, for its game.
+    Generated { owner: String, file: GeneratedFile },
 }
 
 impl LaidFile {
@@ -2076,17 +2092,17 @@ impl LaidFile {
     pub fn game(&self) -> &str {
         match self {
             LaidFile::Part { game, .. } | LaidFile::Chd { game, .. } => game,
-            LaidFile::Playlist { release, .. } => release,
+            LaidFile::Generated { owner, .. } => owner,
         }
     }
 
-    /// Whether the check's `probe` of the file shows it is the one laid out: a part holding its ROM, or an `.m3u`
-    /// holding exactly the text a build writes. A CHD is shown so only by its extraction, once you adopt it.
+    /// Whether the check's `probe` of the file shows it is the one laid out: a part holding its ROM, or a generated
+    /// file holding exactly what a build writes. A CHD is shown so only by its extraction, once you adopt it.
     pub fn holds(&self, probe: &Probe) -> bool {
         match self {
             LaidFile::Part { rom, .. } => holds_as(probe, std::slice::from_ref(rom), true),
             LaidFile::Chd { .. } => false,
-            LaidFile::Playlist { file, .. } => probe.sha256 == file.sha256,
+            LaidFile::Generated { file, .. } => probe.sha256 == file.sha256,
         }
     }
 }
@@ -2095,6 +2111,7 @@ impl LaidFile {
 pub(crate) fn laid_files<'a>(
     storage: Storage,
     dat: &Dat,
+    sbi: Option<&crate::sbi_packs::SbiPack>,
     titles: impl IntoIterator<Item = &'a str>,
 ) -> HashMap<String, LaidFile> {
     let laid = laid_out(storage, dat);
@@ -2129,12 +2146,18 @@ pub(crate) fn laid_files<'a>(
             _ => {}
         }
     }
+    for title in &titles {
+        if let Some((target, file)) = sbi_of(&laid, title, sbi) {
+            let owner = (*title).to_owned();
+            out.insert(target, LaidFile::Generated { owner, file });
+        }
+    }
     for (release, discs) in playlists(&laid, titles) {
         out.insert(
             playlist_name(&release),
-            LaidFile::Playlist {
+            LaidFile::Generated {
                 file: m3u(&laid, &discs),
-                release,
+                owner: release,
             },
         );
     }

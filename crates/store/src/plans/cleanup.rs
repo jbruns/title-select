@@ -90,7 +90,7 @@ struct Adopted {
 }
 
 /// Adopting `name`, the file `laid` lays out there for a selected game, as the check's `probe` found it: a file of a
-/// disc in a layout folder holding its ROM, or an `.m3u` holding exactly the text a build writes. A CHD is adopted
+/// disc in a layout folder holding its ROM, or an `.m3u` or SBI file holding exactly what a build writes. A CHD is adopted
 /// only once its extraction, when the cleanup runs, gives back the DAT's ROMs.
 fn adopt_laid(laid: &LaidFile, probe: &Probe, name: &str) -> std::result::Result<Adopted, String> {
     if let Some(why) = super::invalid_path(name) {
@@ -102,10 +102,11 @@ fn adopt_laid(laid: &LaidFile, probe: &Probe, name: &str) -> std::result::Result
                 "it is where {game}'s {} goes, but it doesn't hold the ROM the DAT expects there",
                 rom.name
             ),
-            _ => format!(
-                "it isn't exactly the .m3u a build writes for {}, so it stays as it is",
-                laid.game()
+            LaidFile::Generated { owner, file } => format!(
+                "it isn't exactly the {} a build writes for {owner}, so it stays as it is",
+                super::generated_what(file.kind)
             ),
+            LaidFile::Chd { .. } => unreachable!("a CHD is checked when the cleanup runs"),
         });
     }
     Ok(match laid {
@@ -121,8 +122,8 @@ fn adopt_laid(laid: &LaidFile, probe: &Probe, name: &str) -> std::result::Result
             chd: true,
             generated: None,
         },
-        LaidFile::Playlist { release, file } => Adopted {
-            game: release.clone(),
+        LaidFile::Generated { owner, file } => Adopted {
+            game: owner.clone(),
             roms: Vec::new(),
             chd: false,
             generated: Some(file.clone()),
@@ -234,7 +235,7 @@ impl Store {
     ) -> Result<Planned> {
         type Kept = Vec<(i64, Option<KeptFile>, KeptProbe)>;
         type Sources = HashMap<String, Vec<PlanSource>>;
-        let (inputs, build, audit, kept, sources): (_, i64, i64, Kept, Sources) = self.read(|c| {
+        let (mut inputs, build, audit, kept, sources): (_, i64, i64, Kept, Sources) = self.read(|c| {
             let tx = c.unchecked_transaction()?;
             let row = folder_by_id(&tx, folder)?;
             row.check_registered()?;
@@ -287,6 +288,9 @@ impl Store {
             }
             Ok((inputs, build, audit, kept, sources))
         })?;
+        if inputs.storage.sbi {
+            inputs.sbi = self.latest_sbi_pack(&inputs.folder.system)?;
+        }
         let dat = if inputs.revision.blob_present {
             Some(Dat::read(&self.blob_path(&inputs.revision.sha256))?)
         } else {
@@ -328,6 +332,7 @@ impl Store {
                 laid_files(
                     inputs.storage,
                     dat,
+                    inputs.sbi.as_ref(),
                     inputs.selected.values().map(String::as_str),
                 )
             })

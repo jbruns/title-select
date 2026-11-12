@@ -22,7 +22,7 @@ use super::dats::revision_by_id;
 use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use super::folders::{folder_by_id, is_own, marker_problem, open_folder, store_id};
 use super::jobs::{finish_running, job_by_id};
-use super::plans::{Built, LaidFile, json, laid_files, read_built, to_json};
+use super::plans::{Built, LaidFile, generated_what, json, laid_files, read_built, to_json};
 use super::sets::set_by_id;
 use super::{Error, Result, Store, now};
 use crate::config::Config;
@@ -104,6 +104,8 @@ pub(super) struct ScanInput<'a> {
     pub dat: Option<&'a Dat>,
     /// What the storage policy says for the folder's system.
     pub storage: Storage,
+    /// The system's latest SBI pack, when the storage policy puts each disc's SBI file beside it.
+    pub sbi: Option<&'a crate::sbi_packs::SbiPack>,
     /// What earlier checks read, by name.
     pub cached: &'a HashMap<String, (Seen, Probe)>,
     /// The entries you acknowledged, by name.
@@ -303,6 +305,7 @@ pub(super) fn scan(
             laid_files(
                 input.storage,
                 dat,
+                input.sbi,
                 input.selected.values().map(String::as_str),
             )
         })
@@ -549,9 +552,10 @@ pub(super) fn scan(
                                             "it doesn't hold {}, the ROM the DAT expects there",
                                             rom.name
                                         )),
-                                        LaidFile::Playlist { .. } => {
-                                            Err("it isn't exactly the .m3u a build writes".to_owned())
-                                        }
+                                        LaidFile::Generated { file, .. } => Err(format!(
+                                            "it isn't exactly the {} a build writes",
+                                            generated_what(file.kind)
+                                        )),
                                     };
                                     match adoptable {
                                         Ok(detail) => {
@@ -889,6 +893,10 @@ impl Store {
             true => Some(Dat::read(&self.blob_path(&inputs.revision.0))?),
             false => None,
         };
+        let sbi = match inputs.storage.sbi {
+            true => self.latest_sbi_pack(&inputs.folder.system)?,
+            false => None,
+        };
         let mut check = FolderCheck {
             folder,
             summary: CheckSummary::default(),
@@ -920,6 +928,7 @@ impl Store {
                         selected: &inputs.selected,
                         dat: dat.as_ref(),
                         storage: inputs.storage,
+                        sbi: sbi.as_ref(),
                         cached: &inputs.cached,
                         acks: &inputs.acks,
                     },

@@ -1685,3 +1685,77 @@ fn a_plan_adopts_a_loose_es_de_tree_you_laid_out_with_its_m3u_and_its_folders() 
     assert!(!env.dir().join(".multidisc").exists());
     assert!(!env.dir().join("Orbit (USA).cue").exists());
 }
+
+/// Opts the system into SBI files, from [`sbi_pack`], and lays out the loose tree a build would by hand.
+fn laid_out_with_sbi_by_hand(env: &Env) -> (LibraryFolder, i64, Vec<&'static str>) {
+    env.store.keep_sbi_pack(&sbi_pack(), SYSTEM).unwrap();
+    env.set(SystemStorage {
+        format: Some(StorageFormat::LooseFolder),
+        sbi: Some(true),
+        ..Default::default()
+    });
+    let (folder, selection) = laid_out_by_hand(env);
+    let mut expected: Vec<&str> = ES_DE_LOOSE.to_vec();
+    expected.extend([
+        ".multidisc/Saga (USA) (Disc 1).sbi",
+        "Orbit (USA).cue/Orbit (USA).sbi",
+    ]);
+    expected.sort();
+    assert_eq!(env.files(), expected);
+    (folder, selection, expected)
+}
+
+#[test]
+fn a_cleanup_adopts_the_sbi_files_a_build_would_place_beside_their_discs() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let (folder, selection, expected) = laid_out_with_sbi_by_hand(&env);
+    adopts_all(&env, &folder, selection, &expected);
+    assert_eq!(env.files(), ["Atlas (USA).iso"]);
+}
+
+#[test]
+fn an_sbi_file_other_than_the_one_a_build_places_is_never_adopted_and_never_overwritten() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let (folder, selection, expected) = laid_out_with_sbi_by_hand(&env);
+    let sbi = "Orbit (USA).cue/Orbit (USA).sbi";
+    std::fs::write(env.dir().join(sbi), b"SBI\0yours").unwrap();
+
+    let check = env.check(&folder);
+    let found = check.drift.iter().find(|d| d.name == sbi).unwrap();
+    assert_ne!(found.kind, DriftKind::Selected, "{found:?}");
+    let refused = env
+        .store
+        .plan_cleanup(
+            &env.config,
+            folder.id,
+            &PlanCleanup {
+                entries: [(sbi.to_owned(), CleanupAction::Adopt)].into(),
+                ..PlanCleanup::default()
+            },
+        )
+        .unwrap();
+    assert!(!refused.approvable());
+
+    let others: Vec<String> = expected
+        .iter()
+        .filter(|f| **f != sbi)
+        .map(|f| f.to_string())
+        .collect();
+    let ended = adopt(&env, &folder, &others);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    let plan = env.plan(&folder, selection);
+    for item in &plan.content.items {
+        match item.target == sbi {
+            true => assert!(
+                item.kind == ItemKind::Conflict && !item.adoptable,
+                "{item:?}"
+            ),
+            false => assert_eq!(item.kind, ItemKind::Unchanged, "{item:?}"),
+        }
+    }
+    env.build(&plan);
+    assert_eq!(read(&env, sbi), "SBI\0yours");
+    let check = env.check(&folder);
+    let names: Vec<&str> = check.drift.iter().map(|d| d.name.as_str()).collect();
+    assert_eq!(names, [sbi]);
+}
