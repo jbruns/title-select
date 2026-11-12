@@ -862,8 +862,9 @@ A scan reads the folder and changes nothing in it. It is a job you start, or tha
 folder is not watched. When a scan leaves items arriving, the service scans that folder again once the earliest of them
 could have settled, `settle_secs` after it last changed, so you don't have to start another scan. An item that changed
 again by then gets a further follow-up scan. A folder has at most one follow-up scan pending, and the ingest folder
-screen says when it is due. Follow-up scans are ordinary jobs, started by `follow-up`. When the service restarts, it
-works out again which follow-ups your arriving items need. Dotfiles and partial downloads (`.part`, `.!qB`, `.crdownload`, `.tmp`) are ignored. A new or
+screen says when it is due. If a scan of the folder fails, the service tries again while items are arriving, waiting
+`settle_secs` at first and twice as long after each failure, up to 15 minutes. Follow-up scans are ordinary jobs,
+started by `follow-up`. When the service restarts, it works out again which follow-ups your arriving items need. Dotfiles and partial downloads (`.part`, `.!qB`, `.crdownload`, `.tmp`) are ignored. A new or
 changed item is arriving until its size, modification time and change time stay the same for `settle_secs`; then it
 is assessed: hashed once, and matched against the current DAT revision of every source set. Its hashes are reused
 while its device, inode, size, modification time and change time are unchanged, as an incremental audit reuses an
@@ -1263,12 +1264,15 @@ it. `events` lists the events to send, all six by default; an event you don't li
 
 | Event | When | `subject` | `link` |
 |---|---|---|---|
-| `job.finished` | a job succeeds, except a follow-up scan of an ingest folder | `job <id>` | the audit it recorded, else the activity screen |
+| `job.finished` | a job succeeds | `job <id>` | the audit it recorded, else the activity screen |
 | `job.failed` | a job fails, or is interrupted | `job <id>` | the failed jobs on the activity screen |
 | `source_set.stale` | a source set becomes stale: files changed since its latest audit, or a newer DAT revision of a DAT it follows arrived | the source set's name | the source set |
 | `dat_revision.new` | a DAT revision is imported, by upload, drop-in or fetch | `<provider>/<DAT name>` | DATs |
 | `fetch.failed` | a request to Redump or MAME fails | `<provider>/<system>` | DATs |
 | `drift.found` | a check of a library folder finds more entries Title Select did not build than the check before | `<root>/<path>` | the library folder |
+
+Follow-up scans of ingest folders are jobs too, so each sends `job.finished` or `job.failed`. If that's too many events
+for you, leave `job.finished` out of `events`.
 
 Each event is sent once, as it happens: a source set that stays stale isn't reported again until it has been audited
 and goes stale anew. Events from before the Service started are never sent.

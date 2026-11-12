@@ -33,7 +33,8 @@ pub struct IngestFolder {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_scan_at: Option<String>,
     /// When the Service scans it again on its own because items are arriving: once the earliest of them could have
-    /// settled. None when nothing is waiting to settle, a scan is queued or running, or no Service is running.
+    /// settled, or, after a scan that failed, when it retries. None when nothing is waiting to settle, or no Service
+    /// is running.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_check_at: Option<String>,
     /// How many items are in each state.

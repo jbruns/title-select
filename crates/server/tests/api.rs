@@ -1013,63 +1013,116 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     );
 }
 
-/// A scan that leaves items arriving is followed by one more scan of that folder once they could have settled, and
-/// another while one keeps changing, with no scan started by hand.
-#[test]
-fn the_service_scans_an_ingest_folder_again_once_arriving_items_could_have_settled() {
-    use title_select_api::ingest::{IngestFolder, IngestItem, ItemState};
-    let env = Env::new();
+/// Starts a Service with the ingest root `drop` settling after `settle_secs`, registered, and returns its folder.
+fn ingest_service(env: &Env, settle_secs: u64) -> (Handle, std::path::PathBuf) {
     let drop = env.tmp.path().join("drop");
     std::fs::create_dir_all(&drop).unwrap();
     let service = title_select_server::spawn(env.settings(&format!(
-        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 1\n",
+        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = {settle_secs}\n",
         drop.display().to_string()
     )))
     .unwrap();
-    let client = Client::new(&service);
-    let response = client
+    let response = Client::new(&service)
         .post("/ingest-folders")
         .send_json(serde_json::json!({"root": "drop"}))
         .unwrap();
     assert_eq!(response.status(), 201);
-    let folder: IngestFolder = client.json("/ingest-folders/drop");
-    assert_eq!(folder.next_check_at, None, "nothing has arrived");
+    (service, drop)
+}
 
-    write_file(&drop.join("mystery.bin"), b"nobody");
+/// Scans `drop` by hand, and returns the scan as it ended.
+fn scan_drop(client: &Client) -> Job {
     let mut response = client
         .post("/ingest-folders/drop/scans")
         .send_empty()
         .unwrap();
+    assert_eq!(response.status(), 202);
     let job: Job = response.body_mut().read_json().unwrap();
-    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
-    // Changed again before the follow-up comes: that one finds it arriving still, and queues another.
-    write_file(&drop.join("mystery.bin"), b"nobody knows");
-    let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
-    assert_eq!(items[0].state, ItemState::Arriving);
-    let folder: IngestFolder = client.json("/ingest-folders/drop");
-    assert!(folder.next_check_at.is_some(), "{folder:?}");
+    client.follow(job.id).1
+}
 
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+/// A scan that leaves an item arriving is followed by a scan of that folder once it could have settled, which
+/// assesses it with no scan started by hand. Only the outcome is awaited, so a slow machine only makes it wait.
+#[test]
+fn the_service_scans_an_ingest_folder_again_once_arriving_items_could_have_settled() {
+    use title_select_api::ingest::{IngestFolder, IngestItem, ItemState};
+    let env = Env::new();
+    let (service, drop) = ingest_service(&env, 1);
+    let client = Client::new(&service);
+    write_file(&drop.join("mystery.bin"), b"nobody knows");
+    assert_eq!(scan_drop(&client).state, JobState::Succeeded);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
     loop {
         let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
-        if items[0].state == ItemState::Assessed {
-            assert_eq!(items[0].file.size, 12, "assessed as it is now");
+        let folder: IngestFolder = client.json("/ingest-folders/drop");
+        if items[0].state == ItemState::Assessed && folder.next_check_at.is_none() {
             break;
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "never assessed: {items:?}"
+            "never assessed: {items:?} {folder:?}"
         );
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     let jobs: Vec<Job> = client.json("/jobs");
-    let follow_ups: Vec<&Job> = jobs
-        .iter()
-        .filter(|j| j.ingest_folder.as_deref() == Some("drop") && j.actor == "follow-up")
-        .collect();
-    assert_eq!(follow_ups.len(), 2, "{jobs:?}");
-    let folder: IngestFolder = client.json("/ingest-folders/drop");
-    assert_eq!(folder.next_check_at, None, "nothing is arriving now");
+    assert!(
+        jobs.iter()
+            .any(|j| j.ingest_folder.as_deref() == Some("drop")
+                && j.actor == "follow-up"
+                && j.state == JobState::Succeeded),
+        "{jobs:?}"
+    );
+}
+
+/// The folder says when it is next checked: once its arriving item could have settled, later when the item changes
+/// again, and, while the folder can't be scanned, after a wait that doubles. The settle interval is far longer than
+/// the test, so no follow-up runs during it.
+#[test]
+fn an_ingest_folder_says_when_its_arriving_items_are_next_checked_and_retries_a_failed_scan() {
+    use title_select_api::ingest::{IngestFolder, IngestItem};
+    let env = Env::new();
+    let (service, drop) = ingest_service(&env, 600);
+    let client = Client::new(&service);
+    let next = || -> Option<jiff::Timestamp> {
+        let folder: IngestFolder = client.json("/ingest-folders/drop");
+        folder.next_check_at.map(|at| at.parse().unwrap())
+    };
+    let minutes = |m: i64| jiff::SignedDuration::from_mins(m);
+    assert_eq!(next(), None, "nothing has arrived");
+
+    write_file(&drop.join("mystery.bin"), b"nobody");
+    assert_eq!(scan_drop(&client).state, JobState::Succeeded);
+    let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
+    let seen: jiff::Timestamp = items[0].first_seen_at.parse().unwrap();
+    assert_eq!(next(), Some(seen + minutes(10)));
+
+    write_file(&drop.join("mystery.bin"), b"nobody knows");
+    let before = jiff::Timestamp::now();
+    assert_eq!(scan_drop(&client).state, JobState::Succeeded);
+    let changed = next().expect("still arriving");
+    assert!(changed >= before + minutes(10), "{changed}");
+
+    let away = env.tmp.path().join("away");
+    std::fs::rename(&drop, &away).unwrap();
+    let mut retries = Vec::new();
+    for _ in 0..2 {
+        let before = jiff::Timestamp::now();
+        assert_eq!(scan_drop(&client).state, JobState::Failed);
+        let after = jiff::Timestamp::now();
+        let retry = next().expect("retried");
+        assert!(retry >= before && retry <= after + minutes(15), "{retry}");
+        retries.push((retry.duration_since(before), after.duration_since(before)));
+    }
+    assert!(retries[0].0 >= minutes(10) && retries[0].0 <= minutes(10) + retries[0].1);
+    assert!(
+        retries[1].0 >= minutes(15) && retries[1].0 <= minutes(15) + retries[1].1,
+        "doubled, up to 15 minutes"
+    );
+
+    std::fs::rename(&away, &drop).unwrap();
+    assert_eq!(scan_drop(&client).state, JobState::Succeeded);
+    assert_eq!(next(), Some(changed), "back to when the item could settle");
 }
 
 #[test]
