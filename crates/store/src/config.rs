@@ -437,6 +437,32 @@ impl Default for Config {
 #[error("invalid configuration: {0}")]
 pub struct Error(String);
 
+/// Where `text` fails to parse, and why, never quoting it: any line may hold a secret, such as a webhook's token.
+fn parse_error(text: &str, e: &toml::de::Error) -> Error {
+    let reason = e.message().trim();
+    let Some(span) = e.span() else {
+        return Error(reason.to_owned());
+    };
+    let before = &text[..span.start.min(text.len())];
+    let line = before.matches('\n').count() + 1;
+    let column = before.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+    // The key the line sets, if it is a plain one, but never its value.
+    let start = before.rfind('\n').map_or(0, |i| i + 1);
+    let key = text[start..]
+        .split_once('=')
+        .map(|(key, _)| key.trim())
+        .filter(|key| {
+            !key.is_empty()
+                && key
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        });
+    match key {
+        Some(key) => Error(format!("line {line}, column {column}, `{key}`: {reason}")),
+        None => Error(format!("line {line}, column {column}: {reason}")),
+    }
+}
+
 impl Config {
     /// What to tell you at startup about this configuration: keys it sets that are ignored.
     pub fn warnings(&self) -> Vec<String> {
@@ -459,7 +485,7 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Config, Error> {
-        let config: Config = toml::from_str(text).map_err(|e| Error(e.to_string()))?;
+        let config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
         if config.audits.keep == 0 {
             return Err(Error("audits.keep must be at least 1".into()));
         }
@@ -646,6 +672,25 @@ mod tests {
         ] {
             assert!(Config::parse(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_config_that_does_not_parse_is_named_by_line_and_reason_never_quoted() {
+        let err = Config::parse(
+            "[jobs]\nconcurrent = 2\n\n[notify]\nurl = \"https://hooks.example/secret-token\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("line 5, column 42, `url`: "), "{err}");
+        assert!(err.contains("string"), "{err}");
+        assert!(!err.contains("secret-token"), "{err}");
+        assert!(!err.contains("hooks.example"), "{err}");
+        let err = Config::parse("[notify]\nurl = \"https://hooks.example/secret-token\"\nx = 1")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("line 3, column 1"), "{err}");
+        assert!(err.contains("unknown field `x`"), "{err}");
+        assert!(!err.contains("secret-token"), "{err}");
     }
 
     #[test]
