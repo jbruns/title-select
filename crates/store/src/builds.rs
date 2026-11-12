@@ -299,8 +299,9 @@ fn hex(bytes: &[u8]) -> String {
 /// `roms`, as a build checks a CHD it made: copied into a scratch directory, and extracted there once by chdman, every
 /// track it gives back matched against the DAT's. A CD's cue sheet is not in its CHD, so the DAT's is read from the
 /// Source Set, from `cue`, the source the cleanup's plan found, and checked against the DAT; the CHD's tracks are
-/// matched by it, and the layout chdman gives back must be its layout. Before anything is copied, its header must not
-/// say it expands to more than the disc can, and nothing past its size when first seen is copied. `found` must hold
+/// matched by it, and the layout chdman gives back must be its layout. Before anything is copied, its header and a
+/// CD's track metadata must not say it holds more than the disc does, and nothing past its size when first seen is
+/// copied; while chdman extracts it, it is stopped once it writes more than the DAT's files. `found` must hold
 /// still, by `fstat`, from before it is copied until after. Returns the SHA-256 of what was copied, and its header, to
 /// check it by from then on; nothing is written to the folder.
 fn verify_found_chd(
@@ -319,14 +320,6 @@ fn verify_found_chd(
             .map_err(|e| Failure::Item(e.to_string()))
     };
     let before = seen(found)?;
-    let bound = chd::logical_bound(kind, roms);
-    let logical = chd::header(found).map_err(Failure::Item)?.logical_bytes;
-    if logical > bound {
-        return Err(Failure::Item(format!(
-            "its header says it expands to {logical} bytes, more than the {bound} the DAT's disc can; it was not \
-             copied or extracted"
-        )));
-    }
     let chdman = Chdman {
         deadline: work.limits.for_bytes(roms.iter().map(|r| r.size).sum()),
         ..work.chdman.clone().map_err(Failure::Item)?
@@ -363,9 +356,21 @@ fn verify_found_chd(
             Some(chd::read_cue(&dest).map_err(Failure::Item)?)
         }
     };
+    let bins = match &cue {
+        None => roms.iter().collect(),
+        Some(cue) => chd::cue_tracks(cue)
+            .and_then(|names| chd::cue_matches(&names, roms))
+            .map_err(|why| Failure::Item(format!("its cue sheet in the source set: {why}")))?,
+    };
+    let unfit = |why| Failure::Item(format!("{why}; it was not copied or extracted"));
+    chd::fits(found, kind, &bins).map_err(unfit)?;
     let out = dir.join("out.chd");
-    let mut copy =
-        File::create_new(&out).map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
+    let mut copy = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&out)
+        .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
     let mut reader = found;
     reader
         .seek(SeekFrom::Start(0))
@@ -387,10 +392,11 @@ fn verify_found_chd(
         io::Write::write_all(&mut copy, &buf[..n])
             .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
     }
-    drop(copy);
     if seen(found)? != before {
         return Err(Failure::Item("it changed while it was read".into()));
     }
+    chd::fits(&copy, kind, &bins).map_err(unfit)?;
+    drop(copy);
     let header = chdman
         .verify_adopted(&dir, kind, cue.as_deref(), roms, work.cancelled)
         .map_err(|s| match s {

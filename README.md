@@ -816,8 +816,9 @@ build records the CHDs it writes; each `.m3u`, only when its text is exactly wha
 each SBI file, only when it is exactly the one a build places beside that disc from the system's latest SBI pack. A
 CD's CHD must also give back the layout of the DAT's cue sheet: each track's mode, its INDEX 00 and 01, and any PREGAP
 or POSTGAP, compared with the cue sheet your source set holds for that disc, which must match the DAT. With no such cue
-sheet in the latest audit, the CHD isn't adopted. A CHD whose header says it holds more than the disc is refused before
-it is copied. An `.m3u` you edited, or any other SBI file, stays drift and is never overwritten: plans leave it as a
+sheet in the latest audit, the CHD isn't adopted. A CHD whose header, or a CD's track list, says it holds more than
+the disc is refused before it is copied; a GD-ROM's padding up to its high-density area is allowed for. While a CHD is
+extracted, it is stopped as soon as it writes more than the DAT's files take. An `.m3u` you edited, or any other SBI file, stays drift and is never overwritten: plans leave it as a
 conflict. The `.multidisc/` and `<game>.cue/` folders a cleanup adopts files in are recorded as made by a build, so
 they are removed once empty. Once
 you adopt the whole layout, the next plan has nothing to change. Every entry the cleanup found is part of its digest, chosen or

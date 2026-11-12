@@ -30,6 +30,17 @@ const LOG_TAIL: u64 = 2048;
 /// How often a running chdman is checked for cancellation.
 const POLL: Duration = Duration::from_millis(100);
 
+/// How often what a running chdman has written is measured against its budget.
+const BUDGET_POLL: Duration = Duration::from_millis(10);
+
+/// Why chdman was stopped for writing more than `budget` allows.
+fn over_budget<T>(verb: &str, budget: Option<(&Path, u64)>) -> Result<T, Stop> {
+    Err(Stop::Failed(format!(
+        "chdman {verb} wrote more than the {} bytes the disc's files take, and was stopped",
+        budget.map_or(0, |(_, most)| most)
+    )))
+}
+
 /// What a CHD v5 header says of its data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
@@ -295,21 +306,172 @@ pub fn layout_difference(dat: &[TrackLayout], given: &[TrackLayout]) -> Option<S
     None
 }
 
-/// The most bytes a CHD of the disc whose ROMs are `roms` can expand to, as its header's logical size says: a CD's
-/// tracks each in whole 2352-byte sectors, rounded up to chdman's 4-sector track padding, at 2448 bytes a sector,
-/// its sector and subcode; a DVD's image in whole 2048-byte sectors. A CHD whose header says more holds more than
-/// the disc, and is never copied or extracted.
-pub fn logical_bound(kind: ChdKind, roms: &[ExpectedRom]) -> u64 {
-    match kind {
-        ChdKind::Cd => {
-            roms.iter()
-                .filter(|r| !r.name.to_ascii_lowercase().ends_with(".cue"))
-                .map(|r| r.size.div_ceil(2352).next_multiple_of(CD_TRACK_PADDING))
-                .sum::<u64>()
-                * CD_FRAME
+/// One track of a CD's CHD, as its metadata says.
+#[derive(Debug)]
+struct ChdTrack {
+    number: u64,
+    kind: String,
+    /// The sectors it takes in the CHD, its padding included.
+    frames: u64,
+    /// For a GD-ROM, the sectors of padding in `frames` that are never given back.
+    pad: u64,
+}
+
+/// The most metadata entries read from a CHD: a CD has at most 99 tracks.
+const META_MAX: usize = 256;
+
+/// The sector a GD-ROM's high-density area starts at: chdman pads the single-density area up to it.
+const GD_HIGH_DENSITY: u64 = 45_000;
+
+/// The tracks a CD's CHD lists in its metadata, by number, and whether it is a GD-ROM; only the metadata is read,
+/// never its hunks.
+fn chd_tracks(file: &File) -> Result<(bool, Vec<ChdTrack>), String> {
+    let mut raw = [0u8; 8];
+    file.read_exact_at(&mut raw, 48)
+        .map_err(|e| format!("its CHD header can't be read: {e}"))?;
+    let mut at = u64::from_be_bytes(raw);
+    let (mut cd, mut gd) = (Vec::new(), Vec::new());
+    for _ in 0..META_MAX {
+        if at == 0 {
+            break;
         }
-        ChdKind::Dvd => roms.iter().map(|r| r.size.div_ceil(2048) * 2048).sum(),
+        let mut entry = [0u8; 16];
+        file.read_exact_at(&mut entry, at)
+            .map_err(|e| format!("its metadata can't be read: {e}"))?;
+        let tag: [u8; 4] = entry[0..4].try_into().expect("4 bytes");
+        let length = u32::from_be_bytes([0, entry[5], entry[6], entry[7]]) as usize;
+        let next = u64::from_be_bytes(entry[8..16].try_into().expect("8 bytes"));
+        match &tag {
+            b"CHT2" | b"CHTR" | b"CHGD" => {
+                let mut data = vec![0u8; length];
+                file.read_exact_at(&mut data, at + 16)
+                    .map_err(|e| format!("its metadata can't be read: {e}"))?;
+                let text = String::from_utf8_lossy(&data);
+                let field = |key: &str| {
+                    text.split(|c: char| c.is_whitespace() || c == '\0')
+                        .find_map(|word| word.strip_prefix(key)?.strip_prefix(':'))
+                        .map(str::to_owned)
+                };
+                let number = |key: &str| -> Result<u64, String> {
+                    field(key).and_then(|v| v.parse().ok()).ok_or_else(|| {
+                        format!("its track metadata has no {key} it can read: {text}")
+                    })
+                };
+                let track = ChdTrack {
+                    number: number("TRACK")?,
+                    kind: field("TYPE").unwrap_or_default(),
+                    frames: number("FRAMES")?,
+                    pad: if &tag == b"CHGD" { number("PAD")? } else { 0 },
+                };
+                match &tag {
+                    b"CHGD" => gd.push(track),
+                    _ => cd.push(track),
+                }
+            }
+            b"CHCD" | b"CHGT" => {
+                return Err("its track list is in an older form, which isn't read; convert it with a newer chdman".into());
+            }
+            _ => {}
+        }
+        at = next;
     }
+    if at != 0 {
+        return Err(format!("it has more than {META_MAX} metadata entries"));
+    }
+    let is_gd = !gd.is_empty();
+    if is_gd && !cd.is_empty() {
+        return Err("it lists both CD and GD-ROM tracks".into());
+    }
+    let mut tracks = if is_gd { gd } else { cd };
+    tracks.sort_by_key(|t| t.number);
+    if tracks
+        .iter()
+        .enumerate()
+        .any(|(i, t)| t.number != i as u64 + 1)
+    {
+        return Err("its tracks aren't numbered 1 onwards, each once".into());
+    }
+    Ok((is_gd, tracks))
+}
+
+/// Whether the CHD `file` can hold no more than the disc whose files are `bins`, before it is copied or extracted:
+/// a CD's `.bin` tracks in its cue sheet's order, or a DVD's image. A CD's track metadata, which chdman sizes what it
+/// gives back by, must list those tracks, each in raw 2352-byte sectors, and as many sectors as the DAT's track; a
+/// GD-ROM's tracks shift sectors between them, so their sectors together, less the padding up to its high-density
+/// area, must be the DAT's. Its header's logical size must then be no more than those sectors, each track rounded up
+/// to chdman's 4-sector padding, at 2448 bytes a sector, its data and subcode; a DVD's no more than its image in whole
+/// 2048-byte sectors.
+pub fn fits(file: &File, kind: ChdKind, bins: &[&ExpectedRom]) -> Result<(), String> {
+    let logical = header(file)?.logical_bytes;
+    let (bound, what) = match kind {
+        ChdKind::Dvd => (
+            bins.iter()
+                .map(|r| r.size.div_ceil(2048) * 2048)
+                .sum::<u64>(),
+            "the DAT's image takes",
+        ),
+        ChdKind::Cd => {
+            let (gd, tracks) = chd_tracks(file)?;
+            if tracks.len() != bins.len() {
+                return Err(format!(
+                    "it has {} tracks, and the DAT's cue sheet lists {}",
+                    tracks.len(),
+                    bins.len()
+                ));
+            }
+            let mut wanted = 0u64;
+            for (track, rom) in tracks.iter().zip(bins) {
+                let n = track.number;
+                if !matches!(track.kind.as_str(), "MODE1_RAW" | "MODE2_RAW" | "AUDIO") {
+                    return Err(format!(
+                        "track {n} is {}, which doesn't give back the 2352-byte sectors the DAT's tracks hold",
+                        track.kind
+                    ));
+                }
+                if rom.size % 2352 != 0 {
+                    return Err(format!("{} is not whole 2352-byte sectors", rom.name));
+                }
+                let sectors = rom.size / 2352;
+                if track.pad > track.frames {
+                    return Err(format!("track {n} pads more sectors than it has"));
+                }
+                if !gd && track.frames != sectors {
+                    return Err(format!(
+                        "track {n} has {} frames, and the DAT's {} has {sectors}",
+                        track.frames, rom.name
+                    ));
+                }
+                wanted += sectors;
+            }
+            let given: u64 = tracks
+                .iter()
+                .map(|t| t.frames - t.pad)
+                .fold(0, u64::saturating_add);
+            let pad: u64 = tracks.iter().map(|t| t.pad).fold(0, u64::saturating_add);
+            if gd && (given != wanted || pad > GD_HIGH_DENSITY) {
+                return Err(format!(
+                    "its tracks give back {given} sectors after {pad} of padding, and the DAT's hold {wanted}"
+                ));
+            }
+            (
+                tracks
+                    .iter()
+                    .map(|t| {
+                        t.frames
+                            .next_multiple_of(CD_TRACK_PADDING)
+                            .saturating_mul(CD_FRAME)
+                    })
+                    .fold(0, u64::saturating_add),
+                "its tracks take",
+            )
+        }
+    };
+    if logical > bound {
+        return Err(format!(
+            "its header says it expands to {logical} bytes, more than the {bound} {what}"
+        ));
+    }
+    Ok(())
 }
 
 /// The bytes a CD's CHD keeps for each sector: 2352 of data and 96 of subcode.
@@ -408,6 +570,30 @@ impl Chdman {
         args: &[S],
         cancelled: &dyn Fn() -> bool,
     ) -> Result<(), Stop> {
+        self.run_within(dir, args, cancelled, None)
+    }
+
+    /// As [`Chdman::run`], and, given a `budget`, stops chdman once the files it writes in the folder named there take
+    /// more than its bytes: what it writes is checked as it runs, not once it is done.
+    pub fn run_within<S: AsRef<OsStr>>(
+        &self,
+        dir: &Path,
+        args: &[S],
+        cancelled: &dyn Fn() -> bool,
+        budget: Option<(&Path, u64)>,
+    ) -> Result<(), Stop> {
+        let over = || {
+            budget.and_then(|(out, most)| {
+                let written: u64 = std::fs::read_dir(out)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter_map(|e| e.metadata().ok())
+                    .map(|m| m.len())
+                    .fold(0, u64::saturating_add);
+                (written > most).then_some(most)
+            })
+        };
         let log_path = dir.join("chdman.log");
         let log = File::options()
             .create(true)
@@ -448,7 +634,15 @@ impl Chdman {
                         }
                     )));
                 }
-                Ok(None) => std::thread::sleep(POLL),
+                Ok(None) if over().is_some() => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break over_budget(&verb, budget)?;
+                }
+                Ok(None) => std::thread::sleep(match budget {
+                    Some(_) => BUDGET_POLL,
+                    None => POLL,
+                }),
                 Err(e) => {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -456,6 +650,9 @@ impl Chdman {
                 }
             }
         };
+        if over().is_some() {
+            return over_budget(&verb, budget);
+        }
         if status.success() {
             return Ok(());
         }
@@ -568,7 +765,12 @@ impl Chdman {
             ],
             ChdKind::Dvd => &["extractdvd", "-i", "out.chd", "-o", "x/x.iso"],
         };
-        self.run(dir, args, cancelled)?;
+        // What it gives back is the DAT's files, and a cue sheet: never more.
+        let budget = expected
+            .iter()
+            .map(|r| r.size)
+            .fold(CUE_MAX, u64::saturating_add);
+        self.run_within(dir, args, cancelled, Some((&out, budget)))?;
         let given: Vec<PathBuf> = match kind {
             ChdKind::Cd => (1..=tracks)
                 .map(|n| out.join(format!("t{n}.bin")))
@@ -744,19 +946,201 @@ mod tests {
         assert!(layout_difference(&dat, &given[..1]).is_some());
     }
 
+    /// A v5 CHD's header saying it expands to `logical` bytes, and its metadata `entries`, each a tag and its text, as
+    /// chdman writes them; no hunks.
+    fn chd_of_metadata(logical: u64, entries: &[(&[u8; 4], String)]) -> File {
+        let mut out = vec![0u8; V5_HEADER];
+        out[0..8].copy_from_slice(b"MComprHD");
+        out[8..12].copy_from_slice(&(V5_HEADER as u32).to_be_bytes());
+        out[12..16].copy_from_slice(&5u32.to_be_bytes());
+        out[32..40].copy_from_slice(&logical.to_be_bytes());
+        out[48..56].copy_from_slice(&(V5_HEADER as u64).to_be_bytes());
+        for (i, (tag, text)) in entries.iter().enumerate() {
+            let mut data = text.clone().into_bytes();
+            data.push(0);
+            let next = match i + 1 == entries.len() {
+                true => 0,
+                false => (out.len() + 16 + data.len()) as u64,
+            };
+            out.extend_from_slice(*tag);
+            out.push(0x01);
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes()[1..]);
+            out.extend_from_slice(&next.to_be_bytes());
+            out.extend_from_slice(&data);
+        }
+        file_of(&out)
+    }
+
+    fn cd_track(n: u32, kind: &str, frames: u64) -> (&'static [u8; 4], String) {
+        (
+            b"CHT2",
+            format!(
+                "TRACK:{n} TYPE:{kind} SUBTYPE:NONE FRAMES:{frames} PREGAP:0 PGTYPE:MODE1 PGSUB:NONE POSTGAP:0"
+            ),
+        )
+    }
+
+    fn gd_track(n: u32, frames: u64, pad: u64) -> (&'static [u8; 4], String) {
+        (
+            b"CHGD",
+            format!(
+                "TRACK:{n} TYPE:MODE1_RAW SUBTYPE:NONE FRAMES:{frames} PAD:{pad} PREGAP:0 PGTYPE:MODE1 PGSUB:NONE \
+                 POSTGAP:0"
+            ),
+        )
+    }
+
     #[test]
-    fn a_cds_logical_bound_pads_each_track_to_four_sectors() {
-        let roms = [
-            rom("a.cue"),
+    fn a_cds_track_metadata_must_fit_the_dats_tracks_before_it_is_extracted() {
+        let bins = [
             sized("a (Track 1).bin", 2352 * 301),
             sized("a (Track 2).bin", 2352 * 200),
         ];
-        // As chdman made it for these tracks: 304 and 200 sectors.
-        assert_eq!(logical_bound(ChdKind::Cd, &roms), 1_233_792);
+        let bins: Vec<&ExpectedRom> = bins.iter().collect();
+        // As chdman 0.289 made it from these tracks: 304 and 200 sectors, at 2448 bytes each.
+        let made = [cd_track(1, "MODE1_RAW", 301), cd_track(2, "AUDIO", 200)];
         assert_eq!(
-            logical_bound(ChdKind::Dvd, &[sized("a.iso", 2048 * 400)]),
-            819_200
+            fits(&chd_of_metadata(1_233_792, &made), ChdKind::Cd, &bins),
+            Ok(())
         );
+
+        let inflated = [cd_track(1, "MODE1_RAW", 90_000), cd_track(2, "AUDIO", 200)];
+        let why = fits(&chd_of_metadata(1_233_792, &inflated), ChdKind::Cd, &bins).unwrap_err();
+        assert!(why.contains("track 1 has 90000 frames"), "{why}");
+        let fewer = [cd_track(1, "MODE1_RAW", 301)];
+        let why = fits(&chd_of_metadata(1_233_792, &fewer), ChdKind::Cd, &bins).unwrap_err();
+        assert!(why.contains("it has 1 tracks"), "{why}");
+        let cooked = [cd_track(1, "MODE1", 301), cd_track(2, "AUDIO", 200)];
+        assert!(fits(&chd_of_metadata(1_233_792, &cooked), ChdKind::Cd, &bins).is_err());
+        let why = fits(&chd_of_metadata(1_233_793, &made), ChdKind::Cd, &bins).unwrap_err();
+        assert!(
+            why.contains("its header says it expands to 1233793 bytes"),
+            "{why}"
+        );
+    }
+
+    #[test]
+    fn a_gd_roms_padding_to_its_high_density_area_fits() {
+        // As chdman 0.289 made a GD-ROM of tracks of 300, 225 and 500 sectors: the high-density area starts at
+        // sector 45000, padded to by track 2.
+        let bins = [
+            sized("t1.bin", 2352 * 300),
+            sized("t2.bin", 2352 * 225),
+            sized("t3.bin", 2352 * 500),
+        ];
+        let bins: Vec<&ExpectedRom> = bins.iter().collect();
+        let made = [
+            gd_track(1, 450, 0),
+            gd_track(2, 44_550, 44_475),
+            gd_track(3, 500, 0),
+        ];
+        assert_eq!(
+            fits(&chd_of_metadata(111_393_792, &made), ChdKind::Cd, &bins),
+            Ok(())
+        );
+        let padded = [
+            gd_track(1, 450, 0),
+            gd_track(2, 90_550, 90_475),
+            gd_track(3, 500, 0),
+        ];
+        assert!(fits(&chd_of_metadata(225_000_000, &padded), ChdKind::Cd, &bins).is_err());
+    }
+
+    #[test]
+    fn a_dvds_header_must_fit_its_image() {
+        let iso = [sized("a.iso", 2048 * 400)];
+        let iso: Vec<&ExpectedRom> = iso.iter().collect();
+        assert_eq!(
+            fits(&chd_of_metadata(819_200, &[]), ChdKind::Dvd, &iso),
+            Ok(())
+        );
+        assert!(fits(&chd_of_metadata(819_201, &[]), ChdKind::Dvd, &iso).is_err());
+    }
+
+    #[test]
+    fn chdman_writing_past_its_budget_is_stopped() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("endless");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nmkdir -p x\nwhile :; do head -c 65536 /dev/zero >> x/t1.bin; done\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let chdman = Chdman {
+            program,
+            threads: 1,
+            deadline: Duration::from_secs(60),
+        };
+        let started = std::time::Instant::now();
+        let stop = chdman
+            .run_within(
+                dir.path(),
+                &["extractcd"],
+                &|| false,
+                Some((&dir.path().join("x"), 1 << 20)),
+            )
+            .unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(30));
+        let Stop::Failed(why) = stop else {
+            panic!("{stop:?}")
+        };
+        assert!(why.contains("more than the 1048576 bytes"), "{why}");
+    }
+
+    /// A synthetic GD-ROM, made and extracted by the chdman here, when there is one.
+    #[test]
+    fn a_gd_rom_chdman_makes_fits_and_gives_back_its_cue_sheets_layout() {
+        let Ok(program) = locate(None).map_err(|e| eprintln!("skipped: {e}")) else {
+            if std::env::var_os("CI").is_some() {
+                panic!("CI runs this test with chdman");
+            }
+            return;
+        };
+        if !program.is_file() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("in");
+        std::fs::create_dir(&input).unwrap();
+        let mut roms = Vec::new();
+        for (n, frames) in [(1u8, 300u64), (2, 225), (3, 500)] {
+            let bytes: Vec<u8> = (0..2352 * frames)
+                .map(|i| (i * 31 + u64::from(n)) as u8)
+                .collect();
+            let name = format!("t{n}.bin");
+            std::fs::write(input.join(&name), &bytes).unwrap();
+            roms.push(ExpectedRom {
+                sha1: Some(hex(&<sha1::Sha1 as sha1::Digest>::digest(&bytes))),
+                ..sized(&name, bytes.len() as u64)
+            });
+        }
+        let cue = "REM SINGLE-DENSITY AREA\nFILE \"t1.bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n\
+                   FILE \"t2.bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:00:00\n    INDEX 01 00:02:00\n\
+                   REM HIGH-DENSITY AREA\nFILE \"t3.bin\" BINARY\n  TRACK 03 MODE1/2352\n    INDEX 01 00:00:00\n";
+        std::fs::write(input.join("g.cue"), cue).unwrap();
+        roms.push(sized("g.cue", cue.len() as u64));
+        let chdman = Chdman {
+            program,
+            threads: 1,
+            deadline: Duration::from_secs(120),
+        };
+        chdman
+            .create(dir.path(), ChdKind::Cd, "g.cue", &|| false)
+            .unwrap();
+        let bins: Vec<&ExpectedRom> = roms[..3].iter().collect();
+        let made = File::open(dir.path().join("out.chd")).unwrap();
+        assert_eq!(fits(&made, ChdKind::Cd, &bins), Ok(()));
+        chdman
+            .verify_adopted(
+                dir.path(),
+                ChdKind::Cd,
+                Some(cue.as_bytes()),
+                &roms,
+                &|| false,
+            )
+            .unwrap();
     }
 
     #[test]

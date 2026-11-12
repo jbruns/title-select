@@ -1558,7 +1558,25 @@ fn a_chd_that_does_not_hold_its_disc_is_not_adopted_and_stays_drift() {
     let env = Env::new(StorageFormat::Chd);
     let (folder, selection) = laid_out_by_hand(&env);
     let orbit = env.dir().join("Orbit (USA).chd");
-    std::fs::copy(env.dir().join(".multidisc/Saga (USA) (Disc 1).chd"), &orbit).unwrap();
+    // Orbit's tracks, as many sectors each, with one byte of track 1 changed.
+    let work = env.tmp.path().join("other-chd");
+    std::fs::create_dir_all(&work).unwrap();
+    let set = env.tmp.path().join("roots/sets").join(SET).join(CD);
+    for track in ["Orbit (USA) (Track 1).bin", "Orbit (USA) (Track 2).bin"] {
+        std::fs::copy(set.join(track), work.join(track)).unwrap();
+    }
+    let track = work.join("Orbit (USA) (Track 1).bin");
+    let mut changed = std::fs::read(&track).unwrap();
+    changed[1000] ^= 0xff;
+    std::fs::write(&track, changed).unwrap();
+    std::fs::copy(set.join("Orbit (USA).cue"), work.join("Orbit (USA).cue")).unwrap();
+    let made = std::process::Command::new(chdman().unwrap())
+        .current_dir(&work)
+        .args(["createcd", "-i", "Orbit (USA).cue", "-o", "out.chd"])
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{made:?}");
+    std::fs::copy(work.join("out.chd"), &orbit).unwrap();
     let bytes = std::fs::read(&orbit).unwrap();
 
     let ended = adopt(&env, &folder, &["Orbit (USA).chd".to_owned()]);
@@ -1916,4 +1934,21 @@ fn a_chd_whose_header_says_it_holds_more_than_its_disc_is_refused_before_it_is_c
         selection,
         "its header says it expands to 1099511627776 bytes",
     );
+}
+
+#[test]
+fn a_chd_whose_track_metadata_says_it_holds_more_than_its_disc_is_refused_before_it_is_extracted() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, selection) = laid_out_by_hand(&env);
+    let orbit = env.dir().join("Orbit (USA).chd");
+    let mut bytes = std::fs::read(&orbit).unwrap();
+    // Track 1's FRAMES, inflated in place: the header's logical size is left as it was.
+    let at = bytes
+        .windows(11)
+        .position(|w| w == b"FRAMES:300 ")
+        .expect("track 1's metadata");
+    bytes[at..at + 11].copy_from_slice(b"FRAMES:900 ");
+    std::fs::write(&orbit, &bytes).unwrap();
+    orbit_chd_is_refused(&env, &folder, selection, "track 1 has 900 frames");
 }
