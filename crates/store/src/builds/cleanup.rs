@@ -29,8 +29,8 @@ use title_select_engine::Progress;
 use title_select_engine::build::{Probe, holds_as, repack_from, verify};
 
 use super::{
-    Publishing, cited_by, clear_staging, is_file, record_applied, record_temp, remove_staged,
-    set_item, sha256_of, staged_temp,
+    Publishing, adopted_parent, cited_by, clear_staging, is_file, record_adopted_parent,
+    record_applied, record_temp, remove_staged, set_item, sha256_of, staged_temp,
 };
 use crate::checks::Seen;
 use crate::config::Config;
@@ -137,6 +137,28 @@ fn built_item(
     }
 }
 
+/// The plan item a cleanup records adopted entry `e` with, at `target`: a disc's CHD as a CHD, and a generated file,
+/// such as an `.m3u`, as the build that writes it records it.
+fn adopted_item(e: &CleanupEntry, target: &str) -> PlanItem {
+    let mut item = built_item(
+        target,
+        &e.group,
+        e.game.as_deref().unwrap_or_default(),
+        ItemKind::Adopt,
+        &e.roms,
+        &[],
+    );
+    if e.chd {
+        item.chd = true;
+        item.loose = false;
+    }
+    if e.generated.is_some() {
+        item.loose = true;
+        item.generated = e.generated.clone();
+    }
+    item
+}
+
 /// The items of a cleanup that write a file, as plan items, for recovery to settle as a Build's.
 pub(super) fn written_items(cleanup: &Cleanup) -> Vec<PlanItem> {
     cleanup
@@ -167,19 +189,7 @@ fn recorded_as(
             .entries
             .iter()
             .find(|e| e.action == Some(CleanupAction::Adopt) && e.target.as_deref() == Some(target))
-            .map(|e| {
-                (
-                    built_item(
-                        target,
-                        &e.group,
-                        e.game.as_deref().unwrap_or_default(),
-                        ItemKind::Adopt,
-                        &e.roms,
-                        &[],
-                    ),
-                    e.torrentzip,
-                )
-            }),
+            .map(|e| (adopted_item(e, target), e.torrentzip)),
         "restore" => cleanup
             .restores
             .iter()
@@ -228,6 +238,8 @@ type Outcome = std::result::Result<(), String>;
 /// The folder a cleanup changes, opened and checked, and what it creates in it as it goes.
 struct Run<'a> {
     store: &'a Store,
+    config: &'a Config,
+    job: i64,
     dir: FolderDir,
     expected: Marker,
     build: i64,
@@ -296,14 +308,20 @@ impl Run<'_> {
         let Some((seen, probe)) = seen else {
             return left("the check could not read it");
         };
-        if seen.identity != Identity::from(e.identity)
-            || seen.file != e.file
-            || e.sha256.as_ref() != Some(&probe.sha256)
-            || !holds_as(
+        let holds = match &e.generated {
+            Some(generated) => probe.sha256 == generated.sha256,
+            // A CHD's ROMs are only seen once it is extracted, below.
+            None if e.chd => true,
+            None => holds_as(
                 probe,
                 &e.roms,
                 stored_loose(target, e.game.as_deref().unwrap_or_default(), &e.roms),
-            )
+            ),
+        };
+        if seen.identity != Identity::from(e.identity)
+            || seen.file != e.file
+            || e.sha256.as_ref() != Some(&probe.sha256)
+            || !holds
         {
             return left("it changed since you approved the plan");
         }
@@ -313,21 +331,22 @@ impl Run<'_> {
                 .stat(name)?
                 .filter(|st| kind_is(st, false) && Seen::of(st) == *seen))
         };
+        let header = match e.chd {
+            true => match self.verify_chd(seq, e, probe)? {
+                Ok(header) => Some(header),
+                Err(why) => return left(&why),
+            },
+            false => None,
+        };
         let Some(st) = same(&e.name).map_err(|e| Error::Io(e.to_string()))? else {
             return left("it changed since you approved the plan");
         };
-        let item = built_item(
-            target,
-            &e.group,
-            e.game.as_deref().unwrap_or_default(),
-            ItemKind::Adopt,
-            &e.roms,
-            &[],
-        );
+        let item = adopted_item(e, target);
         let (dev, ino) = seen.identity.to_sql();
         let intent = |tx: &Transaction, origin: Option<&str>| {
             tx.execute(
-                "UPDATE build_items SET state = ?3, origin = ?4, sha256 = ?5, size = ?6, dev = ?7, ino = ?8
+                "UPDATE build_items SET state = ?3, origin = ?4, sha256 = ?5, size = ?6, dev = ?7, ino = ?8,
+                     chd_sha1 = ?9, chd_raw_sha1 = ?10
                  WHERE build_id = ?1 AND seq = ?2",
                 params![
                     self.build,
@@ -337,15 +356,24 @@ impl Run<'_> {
                     probe.sha256,
                     seen.file.size as i64,
                     dev,
-                    ino
+                    ino,
+                    header.as_ref().map(|h| &h.sha1),
+                    header.as_ref().map(|h| &h.raw_sha1)
                 ],
             )
         };
         if target == e.name {
-            // Already at its game's file name: only recorded.
+            // Already at its game's file name: only recorded, with the disc layout folder it is in, if any, as one a
+            // build made, to be removed once empty.
+            let parent = adopted_parent(dir, target).map_err(|e| Error::Io(e.to_string()))?;
             let applied = self.store.write(|tx| {
                 intent(tx, None)?;
-                record_applied(tx, self.build, self.folder, seq, &item, &st, e.torrentzip)
+                let applied =
+                    record_applied(tx, self.build, self.folder, seq, &item, &st, e.torrentzip)?;
+                if applied {
+                    record_adopted_parent(tx, self.folder, parent.as_ref())?;
+                }
+                Ok(applied)
             })?;
             if !applied {
                 return Err(Error::Refused(format!(
@@ -392,6 +420,60 @@ impl Run<'_> {
             )));
         }
         Ok(Ok(()))
+    }
+
+    /// Checks that entry `e`, a CHD the plan's check read as `probe`, holds its disc, by extracting it once, as a build
+    /// checks the CHDs it makes. Returns its header, or why it was not adopted.
+    fn verify_chd(
+        &self,
+        seq: i64,
+        e: &CleanupEntry,
+        probe: &Probe,
+    ) -> Result<std::result::Result<title_select_engine::chd::Header, String>> {
+        let file = match self.dir.open_file(&e.name) {
+            Ok(file) => file,
+            Err(err) => return Ok(Err(err.to_string())),
+        };
+        let cancelled = || self.store.cancel_requested(self.job).unwrap_or(false);
+        let config = self.config;
+        let work = super::ChdWork {
+            store: self.store,
+            chdman: title_select_engine::chd::locate(config.chd.chdman.as_deref()).map(|program| {
+                title_select_engine::chd::Chdman {
+                    program,
+                    threads: config.jobs.workers().hashers,
+                    deadline: config.chd.limits().base,
+                }
+            }),
+            limits: config.chd.limits(),
+            tmp: self.store.dir().join(crate::TMP),
+            build: self.build,
+            cancelled: &cancelled,
+        };
+        let game = e.game.as_deref().unwrap_or_default();
+        let set_fd = match e.sources.is_empty() {
+            true => Err(String::new()),
+            false => {
+                let set = self
+                    .store
+                    .read(|c| folder_by_id(c, self.folder))?
+                    .source_set_id;
+                self.store.set_folder_dir(config, set)?
+            }
+        };
+        let cue = e.sources.first().map(|source| (source, &set_fd));
+        Ok(
+            match super::verify_found_chd(&file, game, &e.roms, cue, seq, &work) {
+                Ok((sha256, _)) if sha256 != probe.sha256 => {
+                    Err("it changed since you approved the plan".to_owned())
+                }
+                Ok((_, header)) => Ok(header),
+                Err(super::Failure::Cancelled) => {
+                    Err("you cancelled the cleanup while its CHD was checked".to_owned())
+                }
+                Err(super::Failure::Item(why) | super::Failure::Folder(why)) => Err(why),
+            },
+        )
     }
 
     /// Puts kept file `r.kept` back into the folder, under `r.target`, by one rename out of the retention area that
@@ -871,6 +953,8 @@ impl Store {
         *build_id = Some(id);
         let mut run = Run {
             store: self,
+            config,
+            job,
             dir,
             expected: expected.clone(),
             build: id,

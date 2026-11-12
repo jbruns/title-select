@@ -685,8 +685,9 @@ put in place for them, the rest follow, even if you cancel or the service stops.
 checked file and anything kept aside are held, the folder takes no new build, and the build says why; it finishes the
 game when the service next starts, once that disc can go in place. When the new CHDs replace a game's earlier files, an
 earlier file is deleted, if you chose that, only while its CHD is still the file that was checked: the same size and
-modification time, and, read whole again just before, the same SHA-256. Otherwise it stays in your kept files. A CHD not
-written by a build, or put back from kept files, isn't adopted: the next plan keeps it aside and builds the disc again.
+modification time, and, read whole again just before, the same SHA-256. Otherwise it stays in your kept files. A plan
+never adopts a CHD a build didn't write, or one put back from kept files: it keeps it aside and builds the disc again,
+unless a cleanup adopts it first (see below).
 
 A game's ROMs are never split between formats, and every disc of a game released on several discs, named alike but
 for its `(Disc …)` tag, is stored the same way: if one disc has to stay TorrentZip, so do the others, and the plan
@@ -745,7 +746,9 @@ against the selection's DAT revision:
 - **blocked**: the game's name is not a valid file name on every filesystem, two names differ only in case, or the
   game is not in the DAT;
 - **adopt**: you chose to adopt a conflict whose file, at exactly the game's name, holds exactly the ROMs the DAT
-  expects. Nothing is written; the build checks the file again and records it as built;
+  expects, or, for an `.m3u` or an SBI file, is exactly the file a build writes there. Nothing is written; the build checks the file
+  again and records it as built. A disc file adopted inside `.multidisc/` or a `<game>.cue/` folder records that
+  folder as made by a build, so it is removed once empty;
 - **unresolved**: you chose to build resolved groups only, and the game's group is unresolved. Whatever is at its
   target is left untouched.
 
@@ -805,7 +808,20 @@ another name is adopted under that game's file name instead, and one whose name 
 built file flagged not TorrentZip from its own contents, in one read, keeping the file as it was aside; if the
 service stops after the old file is kept aside and before the new one is in place, a selected game is reported failed, so
 the folder shows as incomplete until you put the kept copy back or build again. A kept folder is put back
-as it was, never adopted or deleted by Title Select. Every entry the cleanup found is part of its digest, chosen or
+as it was, never adopted or deleted by Title Select. A disc layout you laid out yourself, the way a build lays out
+the play library, can be adopted file by file where it is, with nothing rebuilt: each disc's `.cue` and tracks in
+`.multidisc/` or a `<game>.cue/` folder, checked by size and hash against the DAT's ROM for that exact name; each CHD,
+extracted once to check every track, or the image, against the DAT, then recorded by the SHA-1 its header holds, as a
+build records the CHDs it writes; each `.m3u`, only when its text is exactly what a build writes for that release; and
+each SBI file, only when it is exactly the one a build places beside that disc from the system's latest SBI pack. A
+CD's CHD must also give back the layout of the DAT's cue sheet: each track's mode, its INDEX 00 and 01, and any PREGAP
+or POSTGAP, compared with the cue sheet your source set holds for that disc, which must match the DAT. With no such cue
+sheet in the latest audit, the CHD isn't adopted. A CHD whose header, or a CD's track list, says it holds more than
+the disc is refused before it is copied; a GD-ROM's padding up to its high-density area is allowed for. While a CHD is
+extracted, it is stopped as soon as it writes more than the DAT's files take. An `.m3u` you edited, or any other SBI file, stays drift and is never overwritten: plans leave it as a
+conflict. The `.multidisc/` and `<game>.cue/` folders a cleanup adopts files in are recorded as made by a build, so
+they are removed once empty. Once
+you adopt the whole layout, the next plan has nothing to change. Every entry the cleanup found is part of its digest, chosen or
 not, along with the built files, acknowledged entries and kept files as they were: if anything in the folder changes
 before you approve, or before the cleanup starts, it is refused and you review the new plan.
 Every move is one rename that never replaces anything, made only while the entry is still the one the plan found,

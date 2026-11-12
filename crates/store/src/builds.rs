@@ -25,7 +25,7 @@ use title_select_api::build::{
     PlanSource, RemovalKind, STAGING,
 };
 use title_select_api::lifecycle::RegistrationKind;
-use title_select_api::storage::chd_of;
+use title_select_api::storage::{ChdKind, chd_of};
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{
@@ -293,6 +293,119 @@ fn stage_chd(
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Checks that `found`, a CHD you put in the folder at item `seq`'s target, holds the disc of `game` whose ROMs are
+/// `roms`, as a build checks a CHD it made: copied into a scratch directory, and extracted there once by chdman, every
+/// track it gives back matched against the DAT's. A CD's cue sheet is not in its CHD, so the DAT's is read from the
+/// Source Set, from `cue`, the source the cleanup's plan found, and checked against the DAT; the CHD's tracks are
+/// matched by it, and the layout chdman gives back must be its layout. Before anything is copied, its header and a
+/// CD's track metadata must not say it holds more than the disc does, and nothing past its size when first seen is
+/// copied; while chdman extracts it, it is stopped once it writes more than the DAT's files. `found` must hold
+/// still, by `fstat`, from before it is copied until after. Returns the SHA-256 of what was copied, and its header, to
+/// check it by from then on; nothing is written to the folder.
+fn verify_found_chd(
+    found: &File,
+    game: &str,
+    roms: &[ExpectedRom],
+    cue: Option<(&PlanSource, &std::result::Result<FolderDir, String>)>,
+    seq: i64,
+    work: &ChdWork,
+) -> std::result::Result<(String, chd::Header), Failure> {
+    let sized: Vec<(&str, u64)> = roms.iter().map(|r| (r.name.as_str(), r.size)).collect();
+    let kind = chd_of(game, &sized).map_err(|why| Failure::Item(why.into()))?;
+    let seen = |file: &File| {
+        rustix::fs::fstat(file)
+            .map(|st| crate::checks::Seen::of(&st))
+            .map_err(|e| Failure::Item(e.to_string()))
+    };
+    let before = seen(found)?;
+    let chdman = Chdman {
+        deadline: work.limits.for_bytes(roms.iter().map(|r| r.size).sum()),
+        ..work.chdman.clone().map_err(Failure::Item)?
+    };
+    let dir = chd_dir(&work.tmp, work.build, seq);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| Failure::Item(format!("{}: {e}", dir.display())))?;
+    let _scratch = Scratch(dir.clone());
+    let cue = match (kind, cue) {
+        (ChdKind::Dvd, _) => None,
+        (ChdKind::Cd, None) => {
+            return Err(Failure::Item(
+                "no source was found for its cue sheet, which its layout is checked against".into(),
+            ));
+        }
+        (ChdKind::Cd, Some((source, set_fd))) => {
+            let rom = roms
+                .iter()
+                .find(|r| r.name == source.rom)
+                .ok_or_else(|| Failure::Item(format!("the DAT lists no {}", source.rom)))?;
+            let opened = open_source(set_fd, source).map_err(Failure::Item)?;
+            let path = dir.join("dat.cue");
+            let dest = File::create_new(&path)
+                .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))?;
+            match source.member.as_deref() {
+                Some(member) => {
+                    build::write_loose_members(&[&dest], &[(rom, member)], &opened).map(|_| ())
+                }
+                None => write_loose(&dest, &[(rom, 0, None)], &[&opened]).map(|_| ()),
+            }
+            .map_err(Failure::Item)?;
+            verify_loose(&dest, rom)
+                .map_err(|why| Failure::Item(format!("its cue sheet in the source set: {why}")))?;
+            Some(chd::read_cue(&dest).map_err(Failure::Item)?)
+        }
+    };
+    let bins = match &cue {
+        None => roms.iter().collect(),
+        Some(cue) => chd::cue_tracks(cue)
+            .and_then(|names| chd::cue_matches(&names, roms))
+            .map_err(|why| Failure::Item(format!("its cue sheet in the source set: {why}")))?,
+    };
+    let unfit = |why| Failure::Item(format!("{why}; it was not copied or extracted"));
+    chd::fits(found, kind, &bins).map_err(unfit)?;
+    let out = dir.join("out.chd");
+    let mut copy = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&out)
+        .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
+    let mut reader = found;
+    reader
+        .seek(SeekFrom::Start(0))
+        .map_err(|e| Failure::Item(e.to_string()))?;
+    let mut reader = reader.take(before.file.size);
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0; 1 << 16];
+    loop {
+        if (work.cancelled)() {
+            return Err(Failure::Cancelled);
+        }
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| Failure::Item(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        io::Write::write_all(&mut copy, &buf[..n])
+            .map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
+    }
+    if seen(found)? != before {
+        return Err(Failure::Item("it changed while it was read".into()));
+    }
+    chd::fits(&copy, kind, &bins).map_err(unfit)?;
+    drop(copy);
+    let header = chdman
+        .verify_adopted(&dir, kind, cue.as_deref(), roms, work.cancelled)
+        .map_err(|s| match s {
+            chd::Stop::Cancelled => Failure::Cancelled,
+            chd::Stop::Failed(why) => Failure::Item(format!(
+                "extracting it did not give back the DAT's files: {why}"
+            )),
+        })?;
+    Ok((hex(&hasher.finalize()), header))
 }
 
 /// The SHA-256 and size of `file`, read from its start.
@@ -694,6 +807,35 @@ fn record_layout_dir(store: &Store, folder: i64, made: Option<(String, Identity)
         )?;
         Ok(())
     })
+}
+
+/// The disc layout folder `target`, a file adopted where it is, is in, by name and identity: adopted with it, as one
+/// a build made, it is removed once empty.
+fn adopted_parent(dir: &FolderDir, target: &str) -> io::Result<Option<(String, Identity)>> {
+    let Some((parent, _)) = target.rsplit_once('/') else {
+        return Ok(None);
+    };
+    Ok(dir
+        .stat(parent)?
+        .filter(|st| FolderDir::kind(st) == rustix::fs::FileType::Directory)
+        .map(|st| (parent.to_owned(), Identity::of(&st))))
+}
+
+/// Records `parent`, the disc layout folder of a file adopted into Library Folder `folder`, as [`adopted_parent`]
+/// found it, unless a build's folder is recorded there already.
+fn record_adopted_parent(
+    tx: &Transaction,
+    folder: i64,
+    parent: Option<&(String, Identity)>,
+) -> Result<()> {
+    if let Some((name, id)) = parent {
+        let (dev, ino) = id.to_sql();
+        tx.execute(
+            "INSERT OR IGNORE INTO folder_dirs (folder_id, name, dev, ino) VALUES (?1, ?2, ?3, ?4)",
+            params![folder, name, dev, ino],
+        )?;
+    }
+    Ok(())
 }
 
 /// Removes the disc layout folder `target` was in once it is empty, but only one a Build made, recorded by
@@ -1104,13 +1246,24 @@ fn adopt(dir: &FolderDir, item: &PlanItem) -> std::result::Result<(String, Stat,
             "only a CHD this store built is recorded as one, once its extraction matched the DAT",
         ));
     }
-    let rule = item.roms.iter().find_map(|rom| rom.header);
+    // A generated file is known by its whole SHA-256; a ROM, by its payload under the DAT's Header Rule.
+    let rule = match item.generated {
+        Some(_) => None,
+        None => item.roms.iter().find_map(|rom| rom.header),
+    };
     let probe =
         title_select_engine::build::probe_under(&file, rule).map_err(|e| left(&e.to_string()))?;
-    if !title_select_engine::build::holds_as(&probe, &item.roms, item.loose) {
-        return Err(left(
-            "it does not hold exactly the ROMs the DAT expects there",
-        ));
+    match &item.generated {
+        Some(generated) if probe.sha256 != generated.sha256 => {
+            return Err(left("it is not exactly the file a build writes there"));
+        }
+        Some(_) => {}
+        None if !title_select_engine::build::holds_as(&probe, &item.roms, item.loose) => {
+            return Err(left(
+                "it does not hold exactly the ROMs the DAT expects there",
+            ));
+        }
+        None => {}
     }
     let after = rustix::fs::fstat(&file).map_err(|e| left(&e.to_string()))?;
     match dir.stat(&item.target) {
@@ -2085,13 +2238,17 @@ impl Store {
             match adopt(&dir, w.item) {
                 Ok((sha256, st, torrentzip)) => {
                     let (dev, ino) = Identity::of(&st).to_sql();
+                    let parent = adopted_parent(&dir, &w.item.target).map_err(folder_io)?;
                     self.write(|tx| {
                         tx.execute(
                             "UPDATE build_items SET sha256 = ?3, size = ?4, dev = ?5, ino = ?6
                              WHERE build_id = ?1 AND seq = ?2",
                             params![id, w.seq, sha256, st.st_size, dev, ino],
                         )?;
-                        record_applied(tx, id, folder, w.seq, w.item, &st, torrentzip).map(|_| ())
+                        if record_applied(tx, id, folder, w.seq, w.item, &st, torrentzip)? {
+                            record_adopted_parent(tx, folder, parent.as_ref())?;
+                        }
+                        Ok(())
                     })?;
                 }
                 Err(error) => {
