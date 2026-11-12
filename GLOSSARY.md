@@ -19,6 +19,11 @@ _Avoid_: Source (alone), group
 One particular edition of a DAT, identified by the SHA-256 of its unmodified file. A newer revision does not replace
 the reference used by an earlier Audit or Selection.
 
+**Fixdat**:
+A DAT that Title Select writes listing what a Source Set lacks against a DAT Revision: its Missing Games, and the
+missing ROMs of its Incomplete Games, optionally only those a Selection chose. Title Select never acquires them.
+_Avoid_: Missing list, wanted list
+
 **Game**:
 An entry in a DAT Revision: one release, made of one or more ROMs. The product says Game; Title is an accepted
 synonym in conversation.
@@ -109,11 +114,19 @@ evidence actually obtained.
 One file an Audit finds in a Source Set: a loose file, or a member of a ZIP archive.
 
 **Evidence**:
-What an Audit actually checked for an Entry: the Evidence Level and the checksum algorithms compared.
+What an Audit actually checked for an Entry: the Evidence Level, the checksum algorithms compared, and the size of any
+Header it left out.
 
 **Evidence Level**:
 How an Audit knows an Entry's checksums. _Claim_: taken from an archive's directory without reading the payload.
 _Payload_: computed by reading every byte.
+
+**Header**:
+Bytes a dump carries before the ROM data, such as an iNES header, that the DAT's checksums leave out. A Header is never
+stripped.
+
+**Header Rule**:
+How a DAT Revision's DAT says to recognise a Header for its system. A DAT Revision with no Header Rule has no Headers.
 
 **Incremental Audit**:
 An Audit that reuses an earlier read of a file's payloads when the file looks unchanged since that read; the
@@ -146,8 +159,12 @@ remains unresolved.
 
 **Game Status**:
 An Audit's verdict on one Game: _Complete_ (every ROM present), _Incomplete_ (some), or _Missing_ (none). A
-Misnamed or Conflicting Entry counts towards the Game its payload matches. A ROM present only on Claim Evidence still
-counts, but the status names it as resting on claims, and a Build never sources it.
+Misnamed or Conflicting Entry counts towards the Game its payload matches, unless it is Available Elsewhere. A ROM
+present only on Claim Evidence still counts, but the status names it as resting on claims, and a Build never sources it.
+
+**Available Elsewhere**:
+A Game's ROM whose bytes are present only inside another Game's ZIP or folder. It doesn't count towards the Game's
+Game Status, but a Repair may fill the Game from it.
 
 ## Selection and change
 
