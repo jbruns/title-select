@@ -35,6 +35,20 @@ const SET_QUERY: &str =
                                            WHERE dat_id = s.dat_id ORDER BY header_order DESC LIMIT 1)
                                AND n.header_order > r.header_order";
 
+/// Each registered Source Set that is Stale, by name, with why.
+pub(crate) fn stale_sets(c: &Connection) -> Result<Vec<(String, Vec<SourceSetStale>)>> {
+    let mut stmt = c.prepare(&format!("{SET_QUERY} WHERE s.unregistered_at IS NULL"))?;
+    let rows = stmt.query_map([], |r| set_from_row(r).map(|s| s.record))?;
+    let mut stale = Vec::new();
+    for set in rows {
+        let set = set?;
+        if !set.stale.is_empty() {
+            stale.push((set.name, set.stale));
+        }
+    }
+    Ok(stale)
+}
+
 fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
     let sha256: Option<String> = row.get(7)?;
     let last_verified_against = match sha256 {
@@ -255,12 +269,14 @@ impl Store {
     /// only makes it Stale.
     pub fn set_follow(&self, name: &str, follow: bool) -> Result<SourceSetRecord> {
         self.write(|tx| {
+            let watch = crate::observe::StaleWatch::start(tx)?;
             let set = set_by_name(tx, name)?;
             tx.execute(
                 "UPDATE source_sets SET follow = ?2 WHERE id = ?1",
                 params![set.id, follow],
             )?;
             crate::stale::note_followed_revisions(tx)?;
+            watch.finish(tx)?;
             Ok(set_by_name(tx, name)?.record)
         })
     }

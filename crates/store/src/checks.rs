@@ -632,6 +632,20 @@ pub(super) fn store_check(
             )?;
         }
     }
+    let before = latest_summary(tx, folder)?.map_or(0, |s| s.drift);
+    if check.summary.drift > before {
+        let (root, path) = tx.query_row(
+            "SELECT root, path FROM library_folders WHERE id = ?1",
+            [folder],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        crate::observe::note(crate::observe::Observed::Drift {
+            folder,
+            root,
+            path,
+            drift: check.summary.drift,
+        });
+    }
     check.summary.job = job;
     check.summary.at = now();
     tx.execute(

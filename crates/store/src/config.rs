@@ -40,6 +40,74 @@ pub struct Config {
     pub fetch: Fetch,
     #[serde(default)]
     pub chd: Chd,
+    #[serde(default)]
+    pub notify: Notify,
+}
+
+/// Where the Service posts a webhook for each event, signed with the secret read from the file named by
+/// `TITLE_SELECT_WEBHOOK_SECRET_FILE`. Off while `url` is absent.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Notify {
+    pub url: Option<String>,
+    /// The events to send; all of them by default.
+    #[serde(default = "all_notify_events")]
+    pub events: Vec<NotifyEvent>,
+    /// The workbench's base URL, such as `https://<domain>`: each event then links to the screen it concerns.
+    pub workbench_url: Option<String>,
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Notify {
+            url: None,
+            events: all_notify_events(),
+            workbench_url: None,
+        }
+    }
+}
+
+fn all_notify_events() -> Vec<NotifyEvent> {
+    NotifyEvent::ALL.to_vec()
+}
+
+/// An event the Service can post to the webhook.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+pub enum NotifyEvent {
+    #[serde(rename = "job.finished")]
+    JobFinished,
+    #[serde(rename = "job.failed")]
+    JobFailed,
+    #[serde(rename = "source_set.stale")]
+    SourceSetStale,
+    #[serde(rename = "dat_revision.new")]
+    DatRevisionNew,
+    #[serde(rename = "fetch.failed")]
+    FetchFailed,
+    #[serde(rename = "drift.found")]
+    DriftFound,
+}
+
+impl NotifyEvent {
+    pub const ALL: [NotifyEvent; 6] = [
+        NotifyEvent::JobFinished,
+        NotifyEvent::JobFailed,
+        NotifyEvent::SourceSetStale,
+        NotifyEvent::DatRevisionNew,
+        NotifyEvent::FetchFailed,
+        NotifyEvent::DriftFound,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NotifyEvent::JobFinished => "job.finished",
+            NotifyEvent::JobFailed => "job.failed",
+            NotifyEvent::SourceSetStale => "source_set.stale",
+            NotifyEvent::DatRevisionNew => "dat_revision.new",
+            NotifyEvent::FetchFailed => "fetch.failed",
+            NotifyEvent::DriftFound => "drift.found",
+        }
+    }
 }
 
 /// How a Build makes a CHD.
@@ -348,7 +416,7 @@ impl Pace {
 }
 
 impl Default for Config {
-    /// No Roots, the default Audit history, Job limits and Path Templates, no auth, and no fetching.
+    /// No Roots, the default Audit history, Job limits and Path Templates, no auth, no fetching and no webhook.
     fn default() -> Self {
         Config {
             roots: BTreeMap::new(),
@@ -360,6 +428,7 @@ impl Default for Config {
             source_sets: SourceSets::default(),
             fetch: Fetch::default(),
             chd: Chd::default(),
+            notify: Notify::default(),
         }
     }
 }
@@ -367,6 +436,32 @@ impl Default for Config {
 #[derive(Debug, thiserror::Error)]
 #[error("invalid configuration: {0}")]
 pub struct Error(String);
+
+/// Where `text` fails to parse, and why, never quoting it: any line may hold a secret, such as a webhook's token.
+fn parse_error(text: &str, e: &toml::de::Error) -> Error {
+    let reason = e.message().trim();
+    let Some(span) = e.span() else {
+        return Error(reason.to_owned());
+    };
+    let before = &text[..span.start.min(text.len())];
+    let line = before.matches('\n').count() + 1;
+    let column = before.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+    // The key the line sets, if it is a plain one, but never its value.
+    let start = before.rfind('\n').map_or(0, |i| i + 1);
+    let key = text[start..]
+        .split_once('=')
+        .map(|(key, _)| key.trim())
+        .filter(|key| {
+            !key.is_empty()
+                && key
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        });
+    match key {
+        Some(key) => Error(format!("line {line}, column {column}, `{key}`: {reason}")),
+        None => Error(format!("line {line}, column {column}: {reason}")),
+    }
+}
 
 impl Config {
     /// What to tell you at startup about this configuration: keys it sets that are ignored.
@@ -390,7 +485,7 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Config, Error> {
-        let config: Config = toml::from_str(text).map_err(|e| Error(e.to_string()))?;
+        let config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
         if config.audits.keep == 0 {
             return Err(Error("audits.keep must be at least 1".into()));
         }
@@ -431,6 +526,30 @@ impl Config {
             .is_some_and(|i| i.trim().is_empty())
         {
             return Err(Error("auth.dev_identity is empty".into()));
+        }
+        let mut config = config;
+        let notify = &mut config.notify;
+        match &notify.url {
+            Some(url) => {
+                // The URL may carry a token, so the error never names it.
+                if let Some(why) = crate::fetch::refusal_unnamed(url) {
+                    return Err(Error(format!("notify.url: {why}")));
+                }
+            }
+            None if notify.workbench_url.is_some() || notify.events != NotifyEvent::ALL => {
+                return Err(Error(
+                    "notify.events and notify.workbench_url need notify.url".into(),
+                ));
+            }
+            None => {}
+        }
+        if let Some(base) = &mut notify.workbench_url {
+            if !(base.starts_with("http://") || base.starts_with("https://")) {
+                return Err(Error(format!(
+                    "notify.workbench_url {base:?} is not an http or https URL"
+                )));
+            }
+            base.truncate(base.trim_end_matches('/').len());
         }
         for (name, root) in &config.roots {
             if name.is_empty() {
@@ -524,6 +643,71 @@ mod tests {
         let off = Config::parse("[source_sets]\ncheck_every_minutes = 0").unwrap();
         assert_eq!(off.source_sets.check_every_minutes, 0);
         assert!(Config::parse("[source_sets]\ncheck_every = 5").is_err());
+    }
+
+    #[test]
+    fn notify_sends_every_event_unless_you_list_some_and_refuses_unknown_ones() {
+        assert!(Config::default().notify.url.is_none());
+        let all = Config::parse("[notify]\nurl = \"https://hooks.example/x\"").unwrap();
+        assert_eq!(all.notify.events, NotifyEvent::ALL);
+        let some = Config::parse(
+            "[notify]\nurl = \"http://127.0.0.1:9/x\"\nevents = [\"job.failed\", \"drift.found\"]\n\
+             workbench_url = \"https://ts.example/\"",
+        )
+        .unwrap();
+        assert_eq!(
+            some.notify.events,
+            [NotifyEvent::JobFailed, NotifyEvent::DriftFound]
+        );
+        assert_eq!(
+            some.notify.workbench_url.as_deref(),
+            Some("https://ts.example")
+        );
+        for bad in [
+            "[notify]\nurl = \"https://hooks.example/x\"\nevents = [\"job.started\"]",
+            "[notify]\nurl = \"ftp://hooks.example/x\"",
+            "[notify]\nurl = \"https://user:pw@hooks.example/x\"",
+            "[notify]\nevents = [\"job.failed\"]",
+            "[notify]\nurl = \"https://hooks.example/x\"\nworkbench_url = \"ts.example\"",
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_config_that_does_not_parse_is_named_by_line_and_reason_never_quoted() {
+        let err = Config::parse(
+            "[jobs]\nconcurrent = 2\n\n[notify]\nurl = \"https://hooks.example/secret-token\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("line 5, column 42, `url`: "), "{err}");
+        assert!(err.contains("string"), "{err}");
+        assert!(!err.contains("secret-token"), "{err}");
+        assert!(!err.contains("hooks.example"), "{err}");
+        let err = Config::parse("[notify]\nurl = \"https://hooks.example/secret-token\"\nx = 1")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("line 3, column 1"), "{err}");
+        assert!(err.contains("unknown field `x`"), "{err}");
+        assert!(!err.contains("secret-token"), "{err}");
+    }
+
+    #[test]
+    fn a_refused_notify_url_is_never_echoed() {
+        for url in [
+            "ftp://hooks.example/secret-token",
+            "https://user:secret-token@hooks.example/x",
+            "not a url secret-token",
+            "https://hooks.no-intro.org/secret-token",
+        ] {
+            let err = Config::parse(&format!("[notify]\nurl = {url:?}"))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("notify.url: it "), "{err}");
+            assert!(!err.contains("secret-token"), "{err}");
+            assert!(!err.contains("hooks."), "{err}");
+        }
     }
 
     #[test]

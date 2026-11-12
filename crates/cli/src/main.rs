@@ -146,6 +146,10 @@ enum Command {
         /// `/opt/clone-lists`. Without them the service still runs audits.
         #[arg(long, env = title_select_selection::CLONE_LISTS_ENV)]
         clone_lists: Option<PathBuf>,
+        /// The file holding the secret your webhook notifications are signed with. Needed when your configuration
+        /// sets `[notify] url`.
+        #[arg(long, env = title_select_server::SECRET_FILE_ENV)]
+        webhook_secret_file: Option<PathBuf>,
     },
     /// Select from a DAT with a selection profile, using the pinned clone lists, and print the explained selection
     /// as JSON: every group's winner, alternatives and exclusions with the rule responsible for each.
@@ -540,6 +544,7 @@ fn run(cli: Cli) -> Result<(), String> {
             listen,
             ui,
             clone_lists,
+            webhook_secret_file,
         } => {
             let store = store.ok_or("no store: pass --store <dir> or set TITLE_SELECT_STORE")?;
             title_select_server::run(Settings {
@@ -547,9 +552,11 @@ fn run(cli: Cli) -> Result<(), String> {
                 config: load_config(config)?,
                 listen,
                 token_file: cli.token_file,
+                webhook_secret_file,
                 ui,
                 clone_lists,
                 hold_jobs: false,
+                fetch_endpoints: None,
             })
             .map_err(|e| e.to_string())
         }

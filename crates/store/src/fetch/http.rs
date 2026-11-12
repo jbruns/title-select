@@ -1,6 +1,7 @@
-//! The only HTTP client in Title Select. Every request, and every redirect it would follow, is checked first: it must
-//! address one of its provider's own hosts ([`Allowed`]), and never a No-Intro host, whatever any allowlist says
-//! (ADR 0012).
+//! The only HTTP client in Title Select. Every request, and every redirect it would follow, is checked first: a fetch
+//! must address one of its provider's own hosts ([`Allowed`]), and no request ever addresses a No-Intro host,
+//! whatever any allowlist says (ADR 0012). The one other request is a webhook notification's POST ([`Http::post`]),
+//! to the URL the Operator configured, which follows no redirect.
 
 use std::time::Duration;
 
@@ -42,30 +43,60 @@ pub struct Fetched {
     pub file_name: Option<String>,
 }
 
-/// Why Title Select refuses to request `url`, if it does: it is not plain `http` or `https` to a named host, carries
-/// credentials, or addresses a No-Intro host.
-pub fn refusal(url: &str) -> Option<String> {
+/// Why Title Select refuses to request a URL.
+enum Refused {
+    NotUrl,
+    NotHttp,
+    NoHost,
+    Credentials,
+    NoIntro(String),
+}
+
+fn refused(url: &str) -> Option<Refused> {
     let Ok(uri) = url.parse::<Uri>() else {
-        return Some(format!("{url} is not a URL Title Select can request"));
+        return Some(Refused::NotUrl);
     };
     if !matches!(uri.scheme_str(), Some("http" | "https")) {
-        return Some(format!("{url} is not an http or https URL"));
+        return Some(Refused::NotHttp);
     }
     let Some(authority) = uri.authority() else {
-        return Some(format!("{url} names no host"));
+        return Some(Refused::NoHost);
     };
     if authority.as_str().contains('@') {
-        return Some(format!("{url} carries credentials"));
+        return Some(Refused::Credentials);
     }
     let host = authority.host().trim_end_matches('.').to_ascii_lowercase();
     let forbidden = FORBIDDEN_DOMAINS
         .iter()
         .any(|d| host == *d || host.ends_with(&format!(".{d}")));
-    forbidden.then(|| {
-        format!(
+    forbidden.then_some(Refused::NoIntro(host))
+}
+
+/// Why Title Select refuses to request `url`, if it does: it is not plain `http` or `https` to a named host, carries
+/// credentials, or addresses a No-Intro host.
+pub fn refusal(url: &str) -> Option<String> {
+    Some(match refused(url)? {
+        Refused::NotUrl => format!("{url} is not a URL Title Select can request"),
+        Refused::NotHttp => format!("{url} is not an http or https URL"),
+        Refused::NoHost => format!("{url} names no host"),
+        Refused::Credentials => format!("{url} carries credentials"),
+        Refused::NoIntro(host) => format!(
             "{host} is a No-Intro host, and Title Select never sends it any request. Drop No-Intro DATs into an \
              ingest folder instead"
-        )
+        ),
+    })
+}
+
+/// As [`refusal`], but naming nothing of `url`, which may carry a secret such as a webhook's token.
+pub fn refusal_unnamed(url: &str) -> Option<&'static str> {
+    Some(match refused(url)? {
+        Refused::NotUrl => "it is not a URL Title Select can request",
+        Refused::NotHttp => "it is not an http or https URL",
+        Refused::NoHost => "it names no host",
+        Refused::Credentials => "it carries credentials",
+        Refused::NoIntro(_) => {
+            "it addresses a No-Intro host, and Title Select never sends it any request"
+        }
     })
 }
 
@@ -246,6 +277,37 @@ impl Http {
             url,
             message: format!("more than {MAX_REDIRECTS} redirects"),
         })
+    }
+
+    /// Posts `body` to `url` with `headers`, taking at most `timeout`, and returns the status it answered. It follows
+    /// no redirect, and reads no response body. The error never names `url`, which may carry a token.
+    pub fn post(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+        timeout: Duration,
+    ) -> Result<u16, String> {
+        if let Some(why) = refusal_unnamed(url) {
+            return Err(why.into());
+        }
+        let mut request = self
+            .agent
+            .post(url)
+            .config()
+            .timeout_global(Some(timeout))
+            .build();
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send(body).map_err(|e| match e {
+            ureq::Error::Timeout(_) => format!("no answer within {} seconds", timeout.as_secs()),
+            ureq::Error::Io(e) => e.kind().to_string(),
+            ureq::Error::HostNotFound => "its host was not found".into(),
+            ureq::Error::ConnectionFailed => "the connection failed".into(),
+            _ => "the request failed".into(),
+        })?;
+        Ok(response.status().as_u16())
     }
 }
 

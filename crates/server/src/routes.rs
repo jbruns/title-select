@@ -230,6 +230,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .nest(title_select_api::PREFIX, api)
         .route("/api", any(not_found))
         .route("/api/{*rest}", any(not_found))
+        .route("/metrics", get(metrics))
         .with_state(state);
     match ui {
         Some(dir) => app.merge(workbench(dir)),
@@ -357,6 +358,16 @@ async fn blocking<T: Send + 'static>(
 
 async fn not_found() -> ApiError {
     ApiError(StatusCode::NOT_FOUND, "no such API path".into(), None)
+}
+
+/// Prometheus metrics, read from the store now. Outside the API, and unauthenticated: they name no path or Game.
+async fn metrics(State(state): State<AppState>) -> ApiResult<Response> {
+    let metrics = blocking(&state, Store::metrics).await?;
+    Ok((
+        [(header::CONTENT_TYPE, crate::metrics::CONTENT_TYPE)],
+        crate::metrics::render(&metrics),
+    )
+        .into_response())
 }
 
 async fn health() -> Json<Health> {
@@ -2028,7 +2039,7 @@ mod tests {
         AppState {
             store: Arc::new(Store::open(&dir.join("store")).unwrap()),
             config: Arc::new(Config::parse("").unwrap()),
-            jobs: Arc::new(Jobs::new()),
+            jobs: Arc::new(Jobs::new(Arc::new(crate::notify::Notifier::off()))),
             workers: Workers {
                 readers: 1,
                 hashers: 1,

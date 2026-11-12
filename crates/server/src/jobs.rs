@@ -14,6 +14,8 @@ use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
 use tokio::sync::{Notify, Semaphore, broadcast};
 
+use crate::notify::Notifier;
+
 /// The least time between two progress events of one Job.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 /// How long the runner waits after the store fails to hand it a Job.
@@ -23,13 +25,16 @@ const RETRY: Duration = Duration::from_secs(1);
 pub struct Jobs {
     wake: Notify,
     events: broadcast::Sender<JobEvent>,
+    /// Told of each Job's end.
+    pub notifier: Arc<Notifier>,
 }
 
 impl Jobs {
-    pub fn new() -> Jobs {
+    pub fn new(notifier: Arc<Notifier>) -> Jobs {
         Jobs {
             wake: Notify::new(),
             events: broadcast::channel(1024).0,
+            notifier,
         }
     }
 
@@ -37,6 +42,7 @@ impl Jobs {
     /// that waited for this one to end, as a stat walk waits for a Repair or Build of its Source Set.
     pub fn changed(&self, job: Job) {
         let wake = job.state == title_select_api::JobState::Queued || job.state.is_final();
+        self.notifier.job_changed(&job);
         self.publish(JobEvent::State(Box::new(job)));
         if wake {
             self.wake.notify_one();

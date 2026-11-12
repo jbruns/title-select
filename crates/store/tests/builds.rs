@@ -6127,3 +6127,32 @@ fn a_stat_walk_stops_for_a_build_that_waits_and_never_delays_its_approval() {
     assert_eq!(ended.state, JobState::Interrupted, "{ended:?}");
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
 }
+
+#[test]
+fn drift_found_and_cleared_before_anyone_looks_is_reported_once() {
+    use title_select_store::observe::Observed;
+    let env = Env::new();
+    let seen: std::sync::Arc<std::sync::Mutex<Vec<Observed>>> = Default::default();
+    let kept = seen.clone();
+    env.store
+        .set_observer(move |o| kept.lock().unwrap().push(o));
+    let folder = env.folder("atari2600");
+    let stray = env.play().join("atari2600/notes.txt");
+    write_file(&stray, b"mine");
+    assert_eq!(check(&env, &folder).drift.len(), 1);
+    assert_eq!(check(&env, &folder).drift.len(), 1);
+    std::fs::remove_file(&stray).unwrap();
+    assert!(check(&env, &folder).drift.is_empty());
+
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(
+        seen,
+        [Observed::Drift {
+            folder: folder.id,
+            root: "play".into(),
+            path: "atari2600".into(),
+            drift: 1
+        }],
+        "once as it was found, not again while it stayed"
+    );
+}
