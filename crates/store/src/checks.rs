@@ -302,15 +302,10 @@ pub(super) fn scan(
             });
         }
     };
-    // Reads `name`, or reuses what an earlier check read of it while it is unchanged since.
-    let probe_of = |name: &str, st: &Stat, out: &mut Scan| {
-        let (probe, hashed) = reuse(
-            dir,
-            name,
-            st,
-            input.cached.get(name),
-            input.dat.and_then(Dat::header),
-        );
+    // Reads `name` under the Header Rule `rule`, or reuses what an earlier check read of it under that rule while it
+    // is unchanged since.
+    let probe_of = |name: &str, st: &Stat, rule: Option<HeaderRule>, out: &mut Scan| {
+        let (probe, hashed) = reuse(dir, name, st, input.cached.get(name), rule);
         if let Ok(p) = &probe {
             out.probes
                 .insert(name.to_owned(), (Seen::of(st), p.clone()));
@@ -387,7 +382,9 @@ pub(super) fn scan(
                 }
             },
             Some(st) => {
-                let (probe, hashed) = probe_of(target, &st, &mut out);
+                // A built file is known by what it was built from: an addition is hashed whole, whatever the DAT's rule.
+                let rule = built.roms.iter().find_map(|r| r.header);
+                let (probe, hashed) = probe_of(target, &st, rule, &mut out);
                 file.hashed = hashed;
                 let now = file_stat(&st);
                 match probe {
@@ -479,7 +476,8 @@ pub(super) fn scan(
             Ok(Some(st)) => match FolderDir::kind(&st) {
                 FileType::Directory => entry.kind = DriftKind::Directory,
                 FileType::RegularFile => {
-                    let (probe, hashed) = probe_of(name, &st, &mut out);
+                    let (probe, hashed) =
+                        probe_of(name, &st, input.dat.and_then(Dat::header), &mut out);
                     entry.hashed = hashed;
                     match probe {
                         Err(e) => entry.detail = Some(format!("it cannot be read: {e}")),

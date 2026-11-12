@@ -317,11 +317,13 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         Some(_) => dat.roms.iter().map(|r| r.size).collect(),
         None => HashSet::new(),
     };
+    // Only a ROM whose CRC32 the member's recorded one equals can claim it unread: a ROM listed without a CRC32 is
+    // a candidate by size alone, which says nothing of whether the member is a headered dump of another ROM.
     let might_be_headered = |size: u64, crc: &str| {
         header.is_some_and(|h| {
             size > h.size()
                 && sizes.contains(&(size - h.size()))
-                && dat.candidates(size, crc).next().is_none()
+                && !dat.candidates(size, crc).any(|i| dat.roms[i].crc.is_some())
         })
     };
     let how = read::How {

@@ -304,6 +304,38 @@ fn a_quick_inventory_reads_a_member_that_might_be_headered_and_claims_the_rest()
     );
 }
 
+#[test]
+fn a_quick_inventory_reads_a_member_whose_raw_size_only_a_rom_without_a_crc_shares() {
+    let f = Fixture::new();
+    let prg = noise(8, 64);
+    let unrelated = noise(9, 80);
+    let dat = write_dat_with_header(
+        f.dat_dir.path(),
+        NES,
+        &[
+            ("Zelda (USA)", vec![rom("Zelda (USA).nes", &prg)]),
+            (
+                "Other (USA)",
+                vec![rom_without_crc("Other (USA).nes", &unrelated)],
+            ),
+        ],
+    );
+    write_zip(
+        &f.set_path("Zelda (USA).zip"),
+        &[("Zelda (USA).nes", &with_header(&ines(), &prg))],
+    );
+
+    let report = run(&dat, f.set.path(), AuditEvidence::Quick, None);
+
+    let zelda = entry(&report, "Zelda (USA).zip");
+    assert_eq!(zelda.finding, Finding::Matched);
+    assert_eq!(
+        zelda.evidence.as_ref().unwrap().level,
+        EvidenceLevel::Payload
+    );
+    assert_eq!(header_bytes(&report, "Zelda (USA).zip"), Some(16));
+}
+
 /// Offers one earlier read of every file and records the reads the Audit makes.
 #[derive(Default)]
 struct Reads {

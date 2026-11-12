@@ -5,11 +5,15 @@ mod common;
 use std::path::PathBuf;
 
 use common::*;
-use title_select_api::build::{AddLibraryFolder, FolderCheck};
+use std::collections::BTreeMap;
+
+use title_select_api::additions::NewAddition;
+use title_select_api::build::{AddLibraryFolder, FileOutcome, FolderCheck};
+use title_select_api::ingest::{IngestAction, PlanIngest};
 use title_select_api::repair::{PlanRepair, RepairKind};
 use title_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary, Winner,
+    SelectionSummary, SystemSettings, Winner,
 };
 use title_select_api::storage::{StorageFormat, SystemStorage};
 use title_select_api::{JobKind, JobState};
@@ -35,16 +39,83 @@ impl Env {
         let root = tmp.path().join("roots/sets");
         std::fs::create_dir_all(root.join(SET)).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
-        std::fs::create_dir_all(tmp.path().join("roots/play")).unwrap();
+        for dir in ["roots/play", "roots/ingest", "roots/additions"] {
+            std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
+        }
         let config = Config::parse(&format!(
             "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n\
-             [roots.play]\npath = {:?}\nwritable = true\n",
+             [roots.play]\npath = {:?}\nwritable = true\n\n\
+             [roots.ingest]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 0\n\n\
+             [roots.additions]\npath = {:?}\nwritable = true\n",
             root.display().to_string(),
             tmp.path().join("roots/play").display().to_string(),
+            tmp.path().join("roots/ingest").display().to_string(),
+            tmp.path().join("roots/additions").display().to_string(),
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
         Env { tmp, store, config }
+    }
+
+    /// Adds `payload`, put in the Ingest Folder as `name`, as the addition `addition` of the system.
+    fn add_addition(&self, name: &str, payload: &[u8], addition: &str) {
+        self.store
+            .register_ingest_folder(&self.config, "ingest")
+            .unwrap();
+        write_file(&self.tmp.path().join("roots/ingest").join(name), payload);
+        for _ in 0..2 {
+            let job = self
+                .store
+                .enqueue_ingest_scan("ingest", "Operator")
+                .unwrap();
+            self.store.claim_job().unwrap().unwrap();
+            let ended = self
+                .store
+                .run_ingest_scan_job(&self.config, job.id)
+                .unwrap();
+            assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        }
+        let id = self
+            .store
+            .ingest_items("ingest")
+            .unwrap()
+            .into_iter()
+            .find(|i| i.name == name)
+            .unwrap()
+            .id;
+        let plan = self
+            .store
+            .plan_ingest(
+                &self.config,
+                "ingest",
+                &PlanIngest {
+                    action: IngestAction::Addition,
+                    items: vec![id],
+                    provider: None,
+                    additions: BTreeMap::from([(
+                        id,
+                        NewAddition {
+                            system: SET.into(),
+                            name: addition.into(),
+                            parent: None,
+                        },
+                    )]),
+                },
+            )
+            .unwrap();
+        self.store
+            .approve_ingest_plan(&self.config, plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        self.settle();
+    }
+
+    /// Claims and runs each queued Additions Job until none is left.
+    fn settle(&self) {
+        while let Some(job) = self.store.claim_job().unwrap() {
+            assert_eq!(job.kind, JobKind::Additions, "{job:?}");
+            let job = self.store.run_additions_job(&self.config, job.id).unwrap();
+            assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+        }
     }
 
     fn set_dir(&self) -> PathBuf {
@@ -287,8 +358,15 @@ fn selection(sha256: &str, titles: &[&str]) -> Selection {
     }
 }
 
-/// Builds `titles` of the audited Source Set into the new Library Folder `path` as `format`. Returns the folder's id.
-fn build(env: &Env, titles: &[&str], path: &str, format: StorageFormat) -> i64 {
+/// Builds `titles` of the audited Source Set into the new Library Folder `path` as `format`, with `profile`. Returns
+/// the folder's id.
+fn build_with(
+    env: &Env,
+    profile: &SelectionProfile,
+    titles: &[&str],
+    path: &str,
+    format: StorageFormat,
+) -> i64 {
     let mut policy = env.store.storage_policy().unwrap();
     policy.play_libraries.systems.insert(
         SET.into(),
@@ -299,14 +377,7 @@ fn build(env: &Env, titles: &[&str], path: &str, format: StorageFormat) -> i64 {
     );
     env.store.set_storage_policy(&policy, "Operator").unwrap();
     env.store
-        .save_profile(
-            "Mine",
-            &SelectionProfile::default(),
-            None,
-            "Operator",
-            &[],
-            WORKERS,
-        )
+        .save_profile("Mine", profile, None, "Operator", &[], WORKERS)
         .unwrap();
     env.store
         .enqueue_selection("Test - System", None, "Mine", None, "Operator", WORKERS)
@@ -344,7 +415,12 @@ fn build(env: &Env, titles: &[&str], path: &str, format: StorageFormat) -> i64 {
     env.store.claim_job().unwrap().unwrap();
     let ended = env.store.run_build_job(&env.config, job.id, None).unwrap();
     assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    env.settle();
     folder.id
+}
+
+fn build(env: &Env, titles: &[&str], path: &str, format: StorageFormat) -> i64 {
+    build_with(env, &SelectionProfile::default(), titles, path, format)
 }
 
 fn check(env: &Env, folder: i64) -> FolderCheck {
@@ -406,4 +482,48 @@ fn a_build_writes_headered_dumps_with_their_headers_and_a_check_knows_them_by_th
             "{format:?}: {drift:#?}"
         );
     }
+}
+
+#[test]
+fn a_check_knows_a_recompressed_headered_addition_by_the_whole_payload_it_was_added_with() {
+    let env = Env::new();
+    let zelda = noise(1, 64);
+    env.add(
+        "No-Intro_NES.xml",
+        &[("Zelda (USA)", vec![rom("Zelda (USA).nes", &zelda)])],
+    );
+    write_file(&env.set_dir().join("Zelda (USA).nes"), &zelda);
+    env.audit(AuditEvidence::Full);
+    let hack = [ines(), noise(3, 64)].concat();
+    env.add_addition("My Hack.nes", &hack, "My Hack");
+    let mut profile = SelectionProfile::default();
+    profile.systems.insert(
+        "Test - System".into(),
+        SystemSettings {
+            additions: true,
+            ..SystemSettings::default()
+        },
+    );
+    let folder = build_with(
+        &env,
+        &profile,
+        &["Zelda (USA)"],
+        "nes",
+        StorageFormat::TorrentZip,
+    );
+    let built = env.tmp.path().join("roots/play/nes/My Hack.zip");
+    assert_eq!(sole_member(&built), hack);
+    assert!(check(&env, folder).drift.is_empty());
+
+    std::fs::remove_file(&built).unwrap();
+    write_zip(&built, &[("My Hack.nes", &hack)]);
+    let check = check(&env, folder);
+
+    let file = check
+        .files
+        .iter()
+        .find(|f| f.target == "My Hack.zip")
+        .unwrap();
+    assert_eq!(file.outcome, FileOutcome::Repacked, "{check:#?}");
+    assert!(check.drift.is_empty(), "{check:#?}");
 }
