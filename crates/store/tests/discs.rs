@@ -153,6 +153,15 @@ impl Env {
     /// As [`Env::new`], with `more` games in the DAT and the source set besides; a game whose name no folder could
     /// have is in the DAT only.
     fn with(format: StorageFormat, more: fn() -> Vec<(&'static str, Vec<RomSpec>)>) -> Env {
+        Env::under(format, more, None)
+    }
+
+    /// As [`Env::with`], with a DAT whose header names the Header Rule `rule`, if any.
+    fn under(
+        format: StorageFormat,
+        more: fn() -> Vec<(&'static str, Vec<RomSpec>)>,
+        rule: Option<&str>,
+    ) -> Env {
         let all = || games().into_iter().chain(more()).collect::<Vec<_>>();
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("roots/sets");
@@ -166,7 +175,10 @@ impl Env {
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
-        let dat = write_dat_version(&tmp.path().join("in"), "test.dat", "1", &all());
+        let dat = match rule {
+            Some(rule) => write_dat_with_header(&tmp.path().join("in"), rule, &all()),
+            None => write_dat_version(&tmp.path().join("in"), "test.dat", "1", &all()),
+        };
         let (revision, _) = store.import_dat(&dat, "Redump", None).unwrap();
         store.add_source_set(&config, "sets", SET, SYSTEM).unwrap();
         store
@@ -1533,6 +1545,27 @@ fn a_cleanup_adopts_a_loose_es_de_tree_you_laid_out_and_a_later_plan_changes_not
     let (folder, selection) = laid_out_by_hand(&env);
     adopts_all(&env, &folder, selection, &ES_DE_LOOSE);
     assert_eq!(env.files(), ["Atlas (USA).iso"]);
+}
+
+#[test]
+fn a_disc_file_adopted_under_the_dats_header_rule_is_recorded_under_it() {
+    let env = Env::under(
+        StorageFormat::LooseFolder,
+        Vec::new,
+        Some("No-Intro_NES.xml"),
+    );
+    let (folder, selection) = laid_out_by_hand(&env);
+    // A track with a header the rule leaves out: only its payload is the DAT's, so a later check knows it only
+    // under the rule it was adopted under.
+    let mut headered = b"NES\x1a".to_vec();
+    headered.resize(16, 0x01);
+    headered.extend(noise(1, 2352 * 300));
+    std::fs::write(
+        env.dir().join("Orbit (USA).cue/Orbit (USA) (Track 1).bin"),
+        headered,
+    )
+    .unwrap();
+    adopts_all(&env, &folder, selection, &ES_DE_LOOSE);
 }
 
 const ES_DE_CHD: [&str; 5] = [
