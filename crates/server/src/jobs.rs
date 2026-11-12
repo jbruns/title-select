@@ -14,6 +14,7 @@ use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
 use tokio::sync::{Notify, Semaphore, broadcast};
 
+use crate::follow_ups::{self, FollowUps};
 use crate::notify::Notifier;
 
 /// The least time between two progress events of one Job.
@@ -27,6 +28,8 @@ pub struct Jobs {
     events: broadcast::Sender<JobEvent>,
     /// Told of each Job's end.
     pub notifier: Arc<Notifier>,
+    /// The follow-up scan pending for each Ingest Folder.
+    pub follow_ups: FollowUps,
 }
 
 impl Jobs {
@@ -35,6 +38,7 @@ impl Jobs {
             wake: Notify::new(),
             events: broadcast::channel(1024).0,
             notifier,
+            follow_ups: FollowUps::default(),
         }
     }
 
@@ -104,7 +108,7 @@ pub async fn run(
         tokio::spawn(async move {
             let (id, version, kind) = (job.id, job.version, job.kind);
             let ended = {
-                let (store, jobs) = (store.clone(), jobs.clone());
+                let (store, config, jobs) = (store.clone(), config.clone(), jobs.clone());
                 tokio::task::spawn_blocking(move || match kind {
                     JobKind::Audit | JobKind::Build | JobKind::Check | JobKind::Repair => {
                         run_one(&store, &config, &jobs, kind, id, version)
@@ -129,6 +133,15 @@ pub async fn run(
             };
             if let Some(job) = job {
                 eprintln!("title-select: job {} {}", job.id, job.state.as_str());
+                // Set before the scan's end is announced, so that whoever sees it end sees its follow-up too.
+                if job.kind == JobKind::IngestScan {
+                    let (store, config, jobs, job) =
+                        (store.clone(), config.clone(), jobs.clone(), job.clone());
+                    let _ = tokio::task::spawn_blocking(move || {
+                        follow_ups::scan_ended(&store, &config, &jobs.follow_ups, &job)
+                    })
+                    .await;
+                }
                 jobs.changed(job);
             }
             // An Audit a DAT imported from an Ingest Folder owes waits for the Job it met to end.

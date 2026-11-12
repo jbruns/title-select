@@ -1013,6 +1013,65 @@ fn the_api_scans_an_ingest_folder_and_discards_an_item_only_through_an_approved_
     );
 }
 
+/// A scan that leaves items arriving is followed by one more scan of that folder once they could have settled, and
+/// another while one keeps changing, with no scan started by hand.
+#[test]
+fn the_service_scans_an_ingest_folder_again_once_arriving_items_could_have_settled() {
+    use title_select_api::ingest::{IngestFolder, IngestItem, ItemState};
+    let env = Env::new();
+    let drop = env.tmp.path().join("drop");
+    std::fs::create_dir_all(&drop).unwrap();
+    let service = title_select_server::spawn(env.settings(&format!(
+        "[roots.drop]\npath = {:?}\nwritable = true\nkind = \"ingest\"\nsettle_secs = 1\n",
+        drop.display().to_string()
+    )))
+    .unwrap();
+    let client = Client::new(&service);
+    let response = client
+        .post("/ingest-folders")
+        .send_json(serde_json::json!({"root": "drop"}))
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let folder: IngestFolder = client.json("/ingest-folders/drop");
+    assert_eq!(folder.next_check_at, None, "nothing has arrived");
+
+    write_file(&drop.join("mystery.bin"), b"nobody");
+    let mut response = client
+        .post("/ingest-folders/drop/scans")
+        .send_empty()
+        .unwrap();
+    let job: Job = response.body_mut().read_json().unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    // Changed again before the follow-up comes: that one finds it arriving still, and queues another.
+    write_file(&drop.join("mystery.bin"), b"nobody knows");
+    let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
+    assert_eq!(items[0].state, ItemState::Arriving);
+    let folder: IngestFolder = client.json("/ingest-folders/drop");
+    assert!(folder.next_check_at.is_some(), "{folder:?}");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
+        if items[0].state == ItemState::Assessed {
+            assert_eq!(items[0].file.size, 12, "assessed as it is now");
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "never assessed: {items:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let jobs: Vec<Job> = client.json("/jobs");
+    let follow_ups: Vec<&Job> = jobs
+        .iter()
+        .filter(|j| j.ingest_folder.as_deref() == Some("drop") && j.actor == "follow-up")
+        .collect();
+    assert_eq!(follow_ups.len(), 2, "{jobs:?}");
+    let folder: IngestFolder = client.json("/ingest-folders/drop");
+    assert_eq!(folder.next_check_at, None, "nothing is arriving now");
+}
+
 #[test]
 fn the_api_adds_an_ingest_item_as_an_addition_lists_edits_checks_and_retires_it() {
     use title_select_api::JobKind;

@@ -1457,6 +1457,38 @@ impl Store {
         })
     }
 
+    /// When the earliest item still arriving in the Ingest Folder of Root `root`, or changed since it was assessed,
+    /// could have settled: the folder's settle interval after its stat last changed. A scan then assesses it if it
+    /// has not changed since. None when no item is waiting to settle, or the folder is not registered.
+    pub fn ingest_follow_up_at(
+        &self,
+        config: &Config,
+        root: &str,
+    ) -> Result<Option<jiff::Timestamp>> {
+        let settle = ingest_root(config, root)
+            .map_err(Error::NotFound)?
+            .settle_secs();
+        let earliest: Option<String> = self.read(|c| {
+            let Some(row) = ingest_by_root(c, root)? else {
+                return Ok(None);
+            };
+            Ok(c.query_row(
+                "SELECT min(stable_since) FROM ingest_items
+                 WHERE folder_id = ?1 AND state IN ('arriving', 'stale')",
+                [row.id],
+                |r| r.get(0),
+            )?)
+        })?;
+        earliest
+            .map(|since| {
+                let since: jiff::Timestamp = since
+                    .parse()
+                    .map_err(|e: jiff::Error| Error::Io(e.to_string()))?;
+                Ok(since + jiff::SignedDuration::from_secs(settle as i64))
+            })
+            .transpose()
+    }
+
     pub fn ingest_item(&self, id: i64) -> Result<IngestItem> {
         self.read(|c| item_with_move(c, id))
     }
@@ -2361,6 +2393,7 @@ fn ingest_record(c: &Connection, name: &str, root: &Root) -> Result<IngestFolder
         settle_secs: root.settle_secs(),
         scan_every_minutes: root.scan_every_minutes,
         last_scan_at: row.and_then(|r| r.last_scan_at),
+        next_check_at: None,
         counts,
     })
 }

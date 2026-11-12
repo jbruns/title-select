@@ -262,6 +262,57 @@ fn an_item_still_changing_stays_arriving_and_partial_downloads_and_dotfiles_are_
 }
 
 #[test]
+fn a_follow_up_is_due_once_the_earliest_arriving_item_could_have_settled() {
+    let env = Env::new();
+    let slow = env.dir("slow");
+    assert_eq!(
+        env.store.ingest_follow_up_at(&env.config, "slow").unwrap(),
+        None
+    );
+
+    let before = jiff::Timestamp::now();
+    write_file(&slow.join("pong.a26"), b"pong");
+    env.scan_root("slow");
+    let after = jiff::Timestamp::now();
+    let due = env
+        .store
+        .ingest_follow_up_at(&env.config, "slow")
+        .unwrap()
+        .expect("an item is arriving");
+    let settle = jiff::SignedDuration::from_secs(60);
+    assert!(due >= before + settle && due <= after + settle, "{due}");
+
+    // A later arrival, or the same one changing again, doesn't bring the earliest forward.
+    write_file(&slow.join("combat.a26"), b"combat");
+    env.scan_root("slow");
+    assert_eq!(
+        env.store.ingest_follow_up_at(&env.config, "slow").unwrap(),
+        Some(due)
+    );
+    write_file(&slow.join("pong.a26"), b"pong, again");
+    env.scan_root("slow");
+    let later = env
+        .store
+        .ingest_follow_up_at(&env.config, "slow")
+        .unwrap()
+        .unwrap();
+    assert!(
+        later > due,
+        "pong restarted, combat is the earliest now: {later}"
+    );
+
+    // Nothing arriving, nothing due: every item in `in` settles at once.
+    env.put("pong.a26", b"pong");
+    env.scan();
+    env.scan();
+    assert_eq!(env.state("pong.a26"), ItemState::Assessed);
+    assert_eq!(
+        env.store.ingest_follow_up_at(&env.config, "in").unwrap(),
+        None
+    );
+}
+
+#[test]
 fn an_item_is_matched_against_every_source_set_and_proposed_for_the_one_that_needs_it() {
     let env = Env::new();
     env.put("pong.a26", b"pong");

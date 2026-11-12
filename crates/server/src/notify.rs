@@ -104,10 +104,17 @@ impl Notifier {
         self.inner.is_some()
     }
 
-    /// Notifies a Job's end, once.
+    /// Notifies a Job's end, once. A follow-up scan of an Ingest Folder is notified only if it fails: you didn't start
+    /// it, and one runs after each scan that finds items still arriving.
     pub fn job_changed(&self, job: &Job) {
         let Some(inner) = &self.inner else { return };
         if !job.state.is_final() {
+            return;
+        }
+        if job.kind == JobKind::IngestScan
+            && job.actor == crate::follow_ups::ACTOR
+            && job.state == JobState::Succeeded
+        {
             return;
         }
         {
@@ -391,6 +398,41 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_follow_up_scan_is_notified_only_if_it_fails() {
+        let (queue, mut sent) = mpsc::channel(8);
+        let notifier = Notifier {
+            inner: Some(Inner {
+                events: NotifyEvent::ALL.into_iter().collect(),
+                workbench: None,
+                queue,
+                jobs: Mutex::default(),
+            }),
+        };
+        let job = |id: i64, actor: &str, state: &str| -> Job {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "kind": "ingest_scan", "state": state, "source_set": "", "dat_revision": "",
+                "actor": actor, "attempt": 1, "workers": {"readers": 1, "hashers": 1},
+                "created_at": "2026-11-11T00:00:00Z", "version": 3, "ingest_folder": "drop"
+            }))
+            .unwrap()
+        };
+        notifier.job_changed(&job(1, crate::follow_ups::ACTOR, "succeeded"));
+        notifier.job_changed(&job(2, crate::follow_ups::ACTOR, "failed"));
+        notifier.job_changed(&job(3, "Operator", "succeeded"));
+        let mut subjects = Vec::new();
+        while let Ok(payload) = sent.try_recv() {
+            subjects.push((payload.event, payload.subject));
+        }
+        assert_eq!(
+            subjects,
+            [
+                ("job.failed", "job 2".to_owned()),
+                ("job.finished", "job 3".to_owned())
+            ]
+        );
+    }
 
     #[test]
     fn hmac_matches_rfc_4231() {

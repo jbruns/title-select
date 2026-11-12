@@ -185,6 +185,7 @@ mod tests {
             settle_secs: 0,
             scan_every_minutes: None,
             last_scan_at: None,
+            next_check_at: None,
             counts,
         }
     }

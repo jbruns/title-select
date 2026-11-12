@@ -769,9 +769,11 @@ async fn approve_kept_deletion(
 
 async fn ingest_folders(State(state): State<AppState>) -> ApiResult<Json<Vec<IngestFolder>>> {
     let config = state.config.clone();
-    Ok(Json(
-        blocking(&state, move |store| store.ingest_folders(&config)).await?,
-    ))
+    let mut folders = blocking(&state, move |store| store.ingest_folders(&config)).await?;
+    for folder in &mut folders {
+        next_check(&state, folder);
+    }
+    Ok(Json(folders))
 }
 
 /// Registers an ingest root as an Ingest Folder of this store, writing its marker.
@@ -794,9 +796,18 @@ async fn ingest_folder(
 ) -> ApiResult<Json<IngestFolder>> {
     let Path(root) = root?;
     let config = state.config.clone();
-    Ok(Json(
-        blocking(&state, move |store| store.ingest_folder(&config, &root)).await?,
-    ))
+    let mut folder = blocking(&state, move |store| store.ingest_folder(&config, &root)).await?;
+    next_check(&state, &mut folder);
+    Ok(Json(folder))
+}
+
+/// Says when the Service scans `folder` again on its own, if a follow-up scan is pending.
+fn next_check(state: &AppState, folder: &mut IngestFolder) {
+    folder.next_check_at = state
+        .jobs
+        .follow_ups
+        .due_at(&folder.root)
+        .map(|at| at.to_string());
 }
 
 /// Queues a scan of the Ingest Folder. It runs whether or not the client stays connected.
