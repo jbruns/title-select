@@ -1,6 +1,7 @@
-//! The only HTTP client in Title Select. Every request, and every redirect it would follow, is checked first: it must
-//! address one of its provider's own hosts ([`Allowed`]), and never a No-Intro host, whatever any allowlist says
-//! (ADR 0012).
+//! The only HTTP client in Title Select. Every request, and every redirect it would follow, is checked first: a fetch
+//! must address one of its provider's own hosts ([`Allowed`]), and no request ever addresses a No-Intro host,
+//! whatever any allowlist says (ADR 0012). The one other request is a webhook notification's POST ([`Http::post`]),
+//! to the URL the Operator configured, which follows no redirect.
 
 use std::time::Duration;
 
@@ -246,6 +247,37 @@ impl Http {
             url,
             message: format!("more than {MAX_REDIRECTS} redirects"),
         })
+    }
+
+    /// Posts `body` to `url` with `headers`, taking at most `timeout`, and returns the status it answered. It follows
+    /// no redirect, and reads no response body. The error never names `url`, which may carry a token.
+    pub fn post(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+        timeout: Duration,
+    ) -> Result<u16, String> {
+        if refusal(url).is_some() {
+            return Err("the URL is not one Title Select can request".into());
+        }
+        let mut request = self
+            .agent
+            .post(url)
+            .config()
+            .timeout_global(Some(timeout))
+            .build();
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send(body).map_err(|e| match e {
+            ureq::Error::Timeout(_) => format!("no answer within {} seconds", timeout.as_secs()),
+            ureq::Error::Io(e) => e.kind().to_string(),
+            ureq::Error::HostNotFound => "its host was not found".into(),
+            ureq::Error::ConnectionFailed => "the connection failed".into(),
+            _ => "the request failed".into(),
+        })?;
+        Ok(response.status().as_u16())
     }
 }
 

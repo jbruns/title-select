@@ -17,6 +17,7 @@ mod jobs;
 mod kept;
 mod lifecycle;
 mod migrations;
+pub mod observe;
 mod plans;
 mod profiles;
 mod repairs;
