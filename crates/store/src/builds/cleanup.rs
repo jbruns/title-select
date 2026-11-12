@@ -451,8 +451,19 @@ impl Run<'_> {
             cancelled: &cancelled,
         };
         let game = e.game.as_deref().unwrap_or_default();
+        let set_fd = match e.sources.is_empty() {
+            true => Err(String::new()),
+            false => {
+                let set = self
+                    .store
+                    .read(|c| folder_by_id(c, self.folder))?
+                    .source_set_id;
+                self.store.set_folder_dir(config, set)?
+            }
+        };
+        let cue = e.sources.first().map(|source| (source, &set_fd));
         Ok(
-            match super::verify_found_chd(&file, game, &e.roms, seq, &work) {
+            match super::verify_found_chd(&file, game, &e.roms, cue, seq, &work) {
                 Ok((sha256, _)) if sha256 != probe.sha256 => {
                     Err("it changed since you approved the plan".to_owned())
                 }

@@ -25,7 +25,7 @@ use title_select_api::build::{
     PlanSource, RemovalKind, STAGING,
 };
 use title_select_api::lifecycle::RegistrationKind;
-use title_select_api::storage::chd_of;
+use title_select_api::storage::{ChdKind, chd_of};
 use title_select_api::{Job, JobKind, JobState};
 use title_select_engine::Progress;
 use title_select_engine::build::{
@@ -297,32 +297,72 @@ fn hex(bytes: &[u8]) -> String {
 
 /// Checks that `found`, a CHD you put in the folder at item `seq`'s target, holds the disc of `game` whose ROMs are
 /// `roms`, as a build checks a CHD it made: copied into a scratch directory, and extracted there once by chdman, every
-/// track it gives back matched against the DAT's. Its cue sheet is not in it, so its tracks are matched in the DAT's
-/// order. `found` must hold still, by `fstat`, from before it is copied until after. Returns the SHA-256 of what was
-/// copied, and its header, to check it by from then on; nothing is written to the folder.
+/// track it gives back matched against the DAT's. A CD's cue sheet is not in its CHD, so the DAT's is read from the
+/// Source Set, from `cue`, the source the cleanup's plan found, and checked against the DAT; the CHD's tracks are
+/// matched by it, and the layout chdman gives back must be its layout. Before anything is copied, its header must not
+/// say it expands to more than the disc can, and nothing past its size when first seen is copied. `found` must hold
+/// still, by `fstat`, from before it is copied until after. Returns the SHA-256 of what was copied, and its header, to
+/// check it by from then on; nothing is written to the folder.
 fn verify_found_chd(
     found: &File,
     game: &str,
     roms: &[ExpectedRom],
+    cue: Option<(&PlanSource, &std::result::Result<FolderDir, String>)>,
     seq: i64,
     work: &ChdWork,
 ) -> std::result::Result<(String, chd::Header), Failure> {
     let sized: Vec<(&str, u64)> = roms.iter().map(|r| (r.name.as_str(), r.size)).collect();
     let kind = chd_of(game, &sized).map_err(|why| Failure::Item(why.into()))?;
-    let chdman = Chdman {
-        deadline: work.limits.for_bytes(roms.iter().map(|r| r.size).sum()),
-        ..work.chdman.clone().map_err(Failure::Item)?
-    };
     let seen = |file: &File| {
         rustix::fs::fstat(file)
             .map(|st| crate::checks::Seen::of(&st))
             .map_err(|e| Failure::Item(e.to_string()))
     };
     let before = seen(found)?;
+    let bound = chd::logical_bound(kind, roms);
+    let logical = chd::header(found).map_err(Failure::Item)?.logical_bytes;
+    if logical > bound {
+        return Err(Failure::Item(format!(
+            "its header says it expands to {logical} bytes, more than the {bound} the DAT's disc can; it was not \
+             copied or extracted"
+        )));
+    }
+    let chdman = Chdman {
+        deadline: work.limits.for_bytes(roms.iter().map(|r| r.size).sum()),
+        ..work.chdman.clone().map_err(Failure::Item)?
+    };
     let dir = chd_dir(&work.tmp, work.build, seq);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| Failure::Item(format!("{}: {e}", dir.display())))?;
     let _scratch = Scratch(dir.clone());
+    let cue = match (kind, cue) {
+        (ChdKind::Dvd, _) => None,
+        (ChdKind::Cd, None) => {
+            return Err(Failure::Item(
+                "no source was found for its cue sheet, which its layout is checked against".into(),
+            ));
+        }
+        (ChdKind::Cd, Some((source, set_fd))) => {
+            let rom = roms
+                .iter()
+                .find(|r| r.name == source.rom)
+                .ok_or_else(|| Failure::Item(format!("the DAT lists no {}", source.rom)))?;
+            let opened = open_source(set_fd, source).map_err(Failure::Item)?;
+            let path = dir.join("dat.cue");
+            let dest = File::create_new(&path)
+                .map_err(|e| Failure::Item(format!("{}: {e}", path.display())))?;
+            match source.member.as_deref() {
+                Some(member) => {
+                    build::write_loose_members(&[&dest], &[(rom, member)], &opened).map(|_| ())
+                }
+                None => write_loose(&dest, &[(rom, 0, None)], &[&opened]).map(|_| ()),
+            }
+            .map_err(Failure::Item)?;
+            verify_loose(&dest, rom)
+                .map_err(|why| Failure::Item(format!("its cue sheet in the source set: {why}")))?;
+            Some(chd::read_cue(&dest).map_err(Failure::Item)?)
+        }
+    };
     let out = dir.join("out.chd");
     let mut copy =
         File::create_new(&out).map_err(|e| Failure::Item(format!("{}: {e}", out.display())))?;
@@ -330,9 +370,13 @@ fn verify_found_chd(
     reader
         .seek(SeekFrom::Start(0))
         .map_err(|e| Failure::Item(e.to_string()))?;
+    let mut reader = reader.take(before.file.size);
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 16];
     loop {
+        if (work.cancelled)() {
+            return Err(Failure::Cancelled);
+        }
         let n = reader
             .read(&mut buf)
             .map_err(|e| Failure::Item(e.to_string()))?;
@@ -348,7 +392,7 @@ fn verify_found_chd(
         return Err(Failure::Item("it changed while it was read".into()));
     }
     let header = chdman
-        .verify_in_dat_order(&dir, kind, roms, work.cancelled)
+        .verify_adopted(&dir, kind, cue.as_deref(), roms, work.cancelled)
         .map_err(|s| match s {
             chd::Stop::Cancelled => Failure::Cancelled,
             chd::Stop::Failed(why) => Failure::Item(format!(

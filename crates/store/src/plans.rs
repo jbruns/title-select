@@ -932,6 +932,23 @@ impl<'a> Sources<'a> {
         copyable
     }
 
+    /// Where the best Entry holding `game`'s ROM `rom` is, to read it by descriptor: only while it is still the file
+    /// found there.
+    fn source_of(&mut self, game: &str, rom: &ExpectedRom) -> Option<PlanSource> {
+        let chosen = self.choose(game, std::slice::from_ref(rom)).ok()?;
+        let c = chosen.first()?;
+        Some(PlanSource {
+            rom: rom.name.clone(),
+            path: c.entry.path.clone(),
+            member: c.entry.member.clone(),
+            finding: Some(c.entry.finding),
+            evidence: c.entry.evidence.as_ref().map(|e| e.level),
+            file: c.file.clone(),
+            identity: Some(c.identity),
+            ctime_ns: Some(c.ctime_ns),
+        })
+    }
+
     /// The best Entry for each ROM, in ROM order, or the ROMs no Entry holds.
     fn choose(
         &mut self,

@@ -1759,3 +1759,161 @@ fn an_sbi_file_other_than_the_one_a_build_places_is_never_adopted_and_never_over
     let names: Vec<&str> = check.drift.iter().map(|d| d.name.as_str()).collect();
     assert_eq!(names, [sbi]);
 }
+
+/// Puts in place of Orbit's CHD one chdman makes from Orbit's own tracks, as the source set holds them, laid out by
+/// `cue` in place of the DAT's cue sheet.
+fn orbit_chd_laid_out_as(env: &Env, cue: &str) {
+    let work = env.tmp.path().join("orbit-chd");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).unwrap();
+    let set = env.tmp.path().join("roots/sets").join(SET).join(CD);
+    for track in ["Orbit (USA) (Track 1).bin", "Orbit (USA) (Track 2).bin"] {
+        std::fs::copy(set.join(track), work.join(track)).unwrap();
+    }
+    std::fs::write(work.join("Orbit (USA).cue"), cue).unwrap();
+    let made = std::process::Command::new(chdman().unwrap())
+        .current_dir(&work)
+        .args(["createcd", "-i", "Orbit (USA).cue", "-o", "out.chd"])
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{made:?}");
+    std::fs::copy(work.join("out.chd"), env.dir().join("Orbit (USA).chd")).unwrap();
+}
+
+/// Adopting Orbit's CHD fails, saying `why`, and leaves it as it was: drift, and a conflict in a plan.
+fn orbit_chd_is_refused(env: &Env, folder: &LibraryFolder, selection: i64, why: &str) {
+    let orbit = env.dir().join("Orbit (USA).chd");
+    let bytes = std::fs::read(&orbit).unwrap();
+    let ended = adopt(env, folder, &["Orbit (USA).chd".to_owned()]);
+    let item = env
+        .items(&ended)
+        .into_iter()
+        .find(|i| i.target == "Orbit (USA).chd")
+        .unwrap();
+    assert!(
+        item.error.as_deref().is_some_and(|e| e.contains(why)),
+        "{item:?}"
+    );
+    assert_eq!(std::fs::read(&orbit).unwrap(), bytes);
+    let check = env.check(folder);
+    assert!(
+        check.drift.iter().any(|d| d.name == "Orbit (USA).chd"),
+        "{:?}",
+        check.drift
+    );
+    let plan = env.plan(folder, selection);
+    let item = plan
+        .content
+        .items
+        .iter()
+        .find(|i| i.target == "Orbit (USA).chd")
+        .unwrap();
+    assert_eq!(item.kind, ItemKind::Conflict, "{item:?}");
+}
+
+#[test]
+fn a_chd_of_the_right_tracks_in_another_track_mode_is_not_adopted() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, selection) = laid_out_by_hand(&env);
+    orbit_chd_laid_out_as(
+        &env,
+        &format!(
+            "FILE \"{CD} (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n\
+             FILE \"{CD} (Track 2).bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:00:00\n    INDEX 01 00:02:00\n"
+        ),
+    );
+    orbit_chd_is_refused(&env, &folder, selection, "track 1 is MODE2/2352");
+}
+
+#[test]
+fn a_chd_of_the_right_tracks_with_another_index_is_not_adopted() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, selection) = laid_out_by_hand(&env);
+    orbit_chd_laid_out_as(
+        &env,
+        &format!(
+            "FILE \"{CD} (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n\
+             FILE \"{CD} (Track 2).bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 00 00:00:00\n    INDEX 01 00:01:00\n"
+        ),
+    );
+    orbit_chd_is_refused(&env, &folder, selection, "track 2 starts INDEX 01 at");
+}
+
+#[test]
+fn a_chd_laid_out_as_the_dats_cue_sheet_in_other_words_is_adopted() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, _) = laid_out_by_hand(&env);
+    orbit_chd_laid_out_as(
+        &env,
+        &format!(
+            "FILE \"{CD} (Track 1).bin\" BINARY\r\nTRACK 01 MODE1/2352\r\nINDEX 01 00:00:00\r\n\
+             FILE   \"{CD} (Track 2).bin\"   BINARY\n\tTRACK 02 AUDIO\n\tINDEX 00 00:00:00\n\tINDEX 01 00:02:00\n"
+        ),
+    );
+    let ended = adopt(&env, &folder, &["Orbit (USA).chd".to_owned()]);
+    for item in env.items(&ended) {
+        assert!(item.error.is_none(), "{item:?}");
+    }
+    let check = env.check(&folder);
+    assert!(
+        !check.drift.iter().any(|d| d.name == "Orbit (USA).chd"),
+        "{:?}",
+        check.drift
+    );
+}
+
+#[test]
+fn a_chd_whose_cue_sheet_the_source_set_no_longer_holds_is_not_adopted() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, _) = laid_out_by_hand(&env);
+    std::fs::remove_file(
+        env.tmp
+            .path()
+            .join("roots/sets")
+            .join(SET)
+            .join(CD)
+            .join("Orbit (USA).cue"),
+    )
+    .unwrap();
+    let refused = env
+        .store
+        .plan_cleanup(
+            &env.config,
+            folder.id,
+            &PlanCleanup {
+                entries: [("Orbit (USA).chd".to_owned(), CleanupAction::Adopt)].into(),
+                ..PlanCleanup::default()
+            },
+        )
+        .unwrap();
+    assert!(
+        refused
+            .content
+            .blockers
+            .iter()
+            .any(|b| b.message.contains("no source for its cue sheet")),
+        "{:?}",
+        refused.content.blockers
+    );
+}
+
+#[test]
+fn a_chd_whose_header_says_it_holds_more_than_its_disc_is_refused_before_it_is_copied() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, selection) = laid_out_by_hand(&env);
+    let orbit = env.dir().join("Orbit (USA).chd");
+    let mut bytes = std::fs::read(&orbit).unwrap();
+    bytes[32..40].copy_from_slice(&(1u64 << 40).to_be_bytes());
+    std::fs::write(&orbit, &bytes).unwrap();
+    orbit_chd_is_refused(
+        &env,
+        &folder,
+        selection,
+        "its header says it expands to 1099511627776 bytes",
+    );
+}

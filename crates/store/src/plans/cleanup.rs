@@ -17,8 +17,8 @@ use title_select_engine::build::{GameIndex, Probe, holds_as};
 use title_select_engine::dat::Dat;
 
 use super::{
-    Blocker, Folder, Found, Inputs, LaidFile, Planned, blocker, check_folder, insert_plan,
-    laid_files, load, roms_of, short, to_json,
+    Blocker, Folder, Found, Inputs, LaidFile, Planned, Sources as SetSources, blocker,
+    check_folder, insert_plan, laid_files, load, roms_of, short, to_json,
 };
 use crate::checks::{Seen, loose_names, reuse, storage_targets, store_check};
 use crate::config::Config;
@@ -128,6 +128,27 @@ fn adopt_laid(laid: &LaidFile, probe: &Probe, name: &str) -> std::result::Result
             chd: false,
             generated: Some(file.clone()),
         },
+    })
+}
+
+/// Where the source set holds the DAT's cue sheet of `game`, a CD whose ROMs are `roms`, for adopting its CHD: a CD's
+/// layout is checked against it, as a build makes its CHD from it. None for a DVD, which has none.
+fn cue_source(
+    sources: &mut SetSources,
+    game: &str,
+    roms: &[ExpectedRom],
+) -> std::result::Result<Vec<PlanSource>, String> {
+    let Some(cue) = roms
+        .iter()
+        .find(|r| r.name.to_ascii_lowercase().ends_with(".cue"))
+    else {
+        return Ok(Vec::new());
+    };
+    sources.source_of(game, cue).map(|s| vec![s]).ok_or_else(|| {
+        format!(
+            "the latest audit of the source set has no source for its cue sheet, {}, which its layout is checked              against; audit the source set, holding that cue sheet, against this DAT revision first",
+            cue.name
+        )
     })
 }
 
@@ -338,6 +359,7 @@ impl Store {
             })
             .unwrap_or_default();
 
+        let mut set_sources = SetSources::new(config, &inputs);
         let mut entries = Vec::new();
         let mut restores = Vec::new();
         let mut repacks = Vec::new();
@@ -412,6 +434,7 @@ impl Store {
                         torrentzip: probe.is_none_or(|p| p.torrentzip),
                         chd: false,
                         generated: None,
+                        sources: Vec::new(),
                         addition: None,
                         addition_target: None,
                     };
@@ -491,10 +514,13 @@ impl Store {
                                 (true, None, ..) => Err("the check could not read it".to_owned()),
                                 (true, Some(p), Some(index), Some(dat)) => {
                                     match laid.get(&d.name) {
-                                        Some(file) => adopt_laid(file, p, &d.name).map(|adopted| {
+                                        Some(file) => adopt_laid(file, p, &d.name).and_then(|adopted| {
+                                            if adopted.chd {
+                                                entry.sources = cue_source(&mut set_sources, &adopted.game, &adopted.roms)?;
+                                            }
                                             entry.chd = adopted.chd;
                                             entry.generated = adopted.generated;
-                                            (adopted.game, adopted.roms, d.name.clone())
+                                            Ok((adopted.game, adopted.roms, d.name.clone()))
                                         }),
                                         None => selected_game(p, index, dat, &selected, &loose),
                                     }

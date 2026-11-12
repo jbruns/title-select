@@ -813,9 +813,13 @@ the play library, can be adopted file by file where it is, with nothing rebuilt:
 `.multidisc/` or a `<game>.cue/` folder, checked by size and hash against the DAT's ROM for that exact name; each CHD,
 extracted once to check every track, or the image, against the DAT, then recorded by the SHA-1 its header holds, as a
 build records the CHDs it writes; each `.m3u`, only when its text is exactly what a build writes for that release; and
-each SBI file, only when it is exactly the one a build places beside that disc from the system's latest SBI pack. An
-`.m3u` you edited, or any other SBI file, stays drift and is never overwritten: plans leave it as a conflict. The `.multidisc/` and
-`<game>.cue/` folders a cleanup adopts files in are recorded as made by a build, so they are removed once empty. Once
+each SBI file, only when it is exactly the one a build places beside that disc from the system's latest SBI pack. A
+CD's CHD must also give back the layout of the DAT's cue sheet: each track's mode, its INDEX 00 and 01, and any PREGAP
+or POSTGAP, compared with the cue sheet your source set holds for that disc, which must match the DAT. With no such cue
+sheet in the latest audit, the CHD isn't adopted. A CHD whose header says it holds more than the disc is refused before
+it is copied. An `.m3u` you edited, or any other SBI file, stays drift and is never overwritten: plans leave it as a
+conflict. The `.multidisc/` and `<game>.cue/` folders a cleanup adopts files in are recorded as made by a build, so
+they are removed once empty. Once
 you adopt the whole layout, the next plan has nothing to change. Every entry the cleanup found is part of its digest, chosen or
 not, along with the built files, acknowledged entries and kept files as they were: if anything in the folder changes
 before you approve, or before the cleanup starts, it is refused and you review the new plan.
