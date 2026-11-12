@@ -412,6 +412,8 @@ mod tests {
         let how = crate::read::How {
             evidence: AuditEvidence::Incremental,
             reads: None,
+            header: None,
+            might_be_headered: &|_, _| false,
         };
         let workers = Workers {
             readers: 1,
@@ -615,6 +617,8 @@ mod tests {
         let how = crate::read::How {
             evidence: AuditEvidence::Incremental,
             reads: None,
+            header: None,
+            might_be_headered: &|_, _| false,
         };
         let workers = Workers {
             readers: 1,

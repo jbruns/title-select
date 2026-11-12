@@ -75,13 +75,32 @@ pub fn write_dat_version(
     version: &str,
     games: &[(&str, Vec<RomSpec>)],
 ) -> PathBuf {
+    write_dat_full(dir, file, version, None, games)
+}
+
+/// Writes a DAT whose header names the Header Rule `rule` (`<clrmamepro header="…"/>`), as No-Intro's headerless
+/// DATs do.
+pub fn write_dat_with_header(dir: &Path, rule: &str, games: &[(&str, Vec<RomSpec>)]) -> PathBuf {
+    write_dat_full(dir, "test.dat", "20260101-000000", Some(rule), games)
+}
+
+fn write_dat_full(
+    dir: &Path,
+    file: &str,
+    version: &str,
+    rule: Option<&str>,
+    games: &[(&str, Vec<RomSpec>)],
+) -> PathBuf {
+    let clrmamepro = rule
+        .map(|r| format!("    <clrmamepro header=\"{r}\"/>\n"))
+        .unwrap_or_default();
     let mut xml = format!(
         r#"<?xml version="1.0"?>
 <datafile>
   <header>
     <name>Test - System</name>
     <version>{version}</version>
-  </header>
+{clrmamepro}  </header>
 "#
     );
     for (game, roms) in games {

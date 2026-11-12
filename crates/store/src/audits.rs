@@ -18,8 +18,8 @@ use title_select_api::{AuditSummary, EntryRow, GameRow, SourceSetSummary};
 use title_select_engine::payload::Checksums;
 use title_select_engine::{
     ALGORITHMS, AuditEvidence, DatRevision, Entry, Evidence, EvidenceLevel, FileStamp, Finding,
-    Game, GameStatus, ONE_WORKER_EACH, Options, PayloadRead, PayloadReads, Progress, Report, Reuse,
-    RomRef, SCHEMA, Summary, Workers,
+    Game, GameStatus, GameWarning, Header, HeaderRule, NamedHeaderRule, ONE_WORKER_EACH, Options,
+    PayloadRead, PayloadReads, Progress, Report, Reuse, RomRef, SCHEMA, Summary, Workers,
 };
 
 /// An Audit the store has recorded, with the report generated from its rows.
@@ -127,7 +127,7 @@ impl PayloadReads for StoredReads<'_> {
         let found = self.store.read(|c| {
             let row = c
                 .query_row(
-                    "SELECT dev, ino, size, mtime_ns, ctime_ns, read_at, members FROM payload_reads
+                    "SELECT dev, ino, size, mtime_ns, ctime_ns, read_at, members, header_rule FROM payload_reads
                      WHERE source_set_id = ?1 AND path = ?2 AND (?3 IS NULL OR job_id = ?3)",
                     params![self.set_id, path, only_job],
                     |r| {
@@ -141,11 +141,12 @@ impl PayloadReads for StoredReads<'_> {
                             },
                             r.get::<_, String>(5)?,
                             r.get::<_, String>(6)?,
+                            r.get::<_, Option<String>>(7)?,
                         ))
                     },
                 )
                 .optional()?;
-            let Some((stamp, read_at, members)) = row else {
+            let Some((stamp, read_at, members, header_rule)) = row else {
                 return Ok(None);
             };
             let members: Vec<(Option<String>, Checksums)> =
@@ -154,6 +155,9 @@ impl PayloadReads for StoredReads<'_> {
                 stamp,
                 read_at: timestamp(&read_at)?,
                 members,
+                header_rule: header_rule
+                    .map(|r| HeaderRule::parse(&r).ok_or_else(|| corrupt(&r)))
+                    .transpose()?,
             }))
         });
         found.unwrap_or_else(|err| {
@@ -169,8 +173,9 @@ impl PayloadReads for StoredReads<'_> {
                 self.store.write(|tx| {
                     tx.execute(
                         "INSERT OR REPLACE INTO payload_reads
-                             (source_set_id, path, dev, ino, size, mtime_ns, ctime_ns, read_at, job_id, members)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                             (source_set_id, path, dev, ino, size, mtime_ns, ctime_ns, read_at, job_id, members,
+                              header_rule)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                         params![
                             self.set_id,
                             path,
@@ -181,7 +186,8 @@ impl PayloadReads for StoredReads<'_> {
                             read.stamp.ctime_ns as i64,
                             read.read_at.to_string(),
                             self.job,
-                            members
+                            members,
+                            read.header_rule.map(HeaderRule::as_str)
                         ],
                     )?;
                     self.stamp(tx, path, false, &read.stamp)
@@ -232,7 +238,8 @@ const SUMMARY_QUERY: &str = "SELECT a.id, s.name, a.started_at, a.finished_at, r
             a.complete, a.incomplete, a.missing, a.evidence,
             CASE WHEN a.pruned_at IS NULL THEN
                 (SELECT COUNT(*) FROM audit_entries e WHERE e.audit_id = a.id AND e.evidence_level = 'claim')
-            END
+            END,
+            a.header_missing
      FROM audits a
      JOIN dat_revisions r ON r.id = a.dat_revision_id
      JOIN source_sets s ON s.id = a.source_set_id";
@@ -251,13 +258,41 @@ fn summary_from_row(r: &Row) -> rusqlite::Result<AuditSummary> {
         claimed: r.get::<_, Option<i64>>(17)?.map(|n| n as usize),
         findings,
         games,
+        warnings: warnings_from(r, 18)?,
     })
 }
 
-pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game, named_rom, evidence_level, algorithms, reason, read_at, reused";
+/// The Game Warning counts of `audits`, from the column `first` on, in [`GameWarning::ALL`] order; those of none
+/// are left out.
+fn warnings_from(row: &Row, first: usize) -> rusqlite::Result<BTreeMap<GameWarning, usize>> {
+    let mut warnings = BTreeMap::new();
+    for (i, w) in GameWarning::ALL.iter().enumerate() {
+        let n = row.get::<_, i64>(first + i)? as usize;
+        if n > 0 {
+            warnings.insert(*w, n);
+        }
+    }
+    Ok(warnings)
+}
+
+/// The Game Warning count columns of `audits`, each named as the report names its warning.
+fn warning_columns(prefix: &str) -> String {
+    GameWarning::ALL
+        .iter()
+        .map(|w| format!("{prefix}{}", w.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game, named_rom, evidence_level, algorithms, reason, read_at, reused, header_bytes";
 
 /// The `seq` column's index, when selected after [`ENTRY_COLUMNS`].
-const ENTRY_SEQ: usize = 11;
+const ENTRY_SEQ: usize = 12;
+
+const GAME_COLUMNS: &str = "name, status, missing_roms, claimed_roms, warnings";
+
+/// The `seq` column's index, when selected after [`GAME_COLUMNS`].
+const GAME_SEQ: usize = 5;
 
 pub(super) fn evidence_from(row: &Row, i: usize) -> rusqlite::Result<AuditEvidence> {
     let text: String = row.get(i)?;
@@ -377,10 +412,20 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
     for g in GameStatus::ALL {
         values.push(Value::Integer(report.summary.games[&g] as i64));
     }
+    for w in GameWarning::ALL {
+        let n = report.summary.warnings.get(&w).copied().unwrap_or(0);
+        values.push(Value::Integer(n as i64));
+    }
+    values.push(match &report.dat_revision.header_rule {
+        Some(rule) => Value::Text(rule.name.clone()),
+        None => Value::Null,
+    });
     let counts: Vec<String> = Finding::ALL
         .iter()
         .map(|f| f.as_str())
         .chain(GameStatus::ALL.iter().map(|g| g.as_str()))
+        .chain(GameWarning::ALL.iter().map(|w| w.as_str()))
+        .chain(["header_rule"])
         .map(|c| format!("{c} = ?"))
         .collect();
     values.push(Value::Integer(id));
@@ -425,8 +470,8 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
 
     let mut entry = tx.prepare(
         "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
-                                    evidence_level, algorithms, reason, read_at, reused)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                                    evidence_level, algorithms, reason, read_at, reused, header_bytes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )?;
     for (seq, e) in report.entries.iter().enumerate() {
         let roms = serde_json::to_string(&e.roms).map_err(corrupt)?;
@@ -447,22 +492,28 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
                 .and_then(|ev| ev.read_at)
                 .map(|at| at.to_string()),
             e.evidence.as_ref().is_some_and(|ev| ev.reused.is_some()),
+            e.evidence
+                .as_ref()
+                .and_then(|ev| ev.header)
+                .map(|h| h.bytes as i64),
         ])?;
     }
     let mut game = tx.prepare(
-        "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms, warnings)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
     for (seq, g) in report.games.iter().enumerate() {
         let missing = serde_json::to_string(&g.missing_roms).map_err(corrupt)?;
         let claimed = serde_json::to_string(&g.claimed_roms).map_err(corrupt)?;
+        let warnings = serde_json::to_string(&g.warnings).map_err(corrupt)?;
         game.execute(params![
             id,
             seq as i64,
             g.name,
             g.status.as_str(),
             missing,
-            claimed
+            claimed,
+            warnings
         ])?;
     }
     drop((entry, game));
@@ -476,7 +527,8 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
 
 /// What the Audit `id` found, as a SHA-256 over its DAT Revision, its Entries and its Game Statuses in a fixed order:
 /// equal for two Audits that found the same. How an Entry was verified (its evidence, and when it was read) is left
-/// out: a re-read of an unchanged file finds the same.
+/// out: a re-read of an unchanged file finds the same. A Header and Game Warnings count only where there are any, so
+/// an Audit that found none hashes as Audits did before there were any.
 pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut field = |value: Option<String>| {
@@ -495,7 +547,7 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
     )?;
     field(Some(revision.to_string()));
     let mut entries = c.prepare(
-        "SELECT path, member, finding, roms, named_game, named_rom, reason FROM audit_entries
+        "SELECT path, member, finding, roms, named_game, named_rom, reason, header_bytes FROM audit_entries
          WHERE audit_id = ?1 ORDER BY path, member, seq",
     )?;
     let mut rows = entries.query([id])?;
@@ -503,15 +555,23 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
         for i in 0..7 {
             field(row.get(i)?);
         }
+        if let Some(bytes) = row.get::<_, Option<i64>>(7)? {
+            field(Some(format!("header {bytes}")));
+        }
     }
     field(None);
     let mut games = c.prepare(
-        "SELECT name, status, missing_roms, claimed_roms FROM audit_games WHERE audit_id = ?1 ORDER BY name, seq",
+        "SELECT name, status, missing_roms, claimed_roms, warnings FROM audit_games WHERE audit_id = ?1
+         ORDER BY name, seq",
     )?;
     let mut rows = games.query([id])?;
     while let Some(row) = rows.next()? {
         for i in 0..4 {
             field(row.get(i)?);
+        }
+        let warnings: String = row.get(4)?;
+        if warnings != "[]" {
+            field(Some(format!("warnings {warnings}")));
         }
     }
     Ok(hasher
@@ -561,6 +621,7 @@ pub(super) fn entry_from_row(row: &Row) -> Result<Entry> {
     let algorithms: Option<String> = row.get(7)?;
     let read_at: Option<String> = row.get(9)?;
     let reused: bool = row.get(10)?;
+    let header: Option<i64> = row.get(11)?;
     let evidence = match (level, algorithms) {
         (Some(level), Some(algorithms)) => Some(Evidence {
             level: EvidenceLevel::parse(&level).ok_or_else(|| corrupt(&level))?,
@@ -576,6 +637,9 @@ pub(super) fn entry_from_row(row: &Row) -> Result<Entry> {
                 .collect::<Result<_>>()?,
             read_at: read_at.as_deref().map(timestamp).transpose()?,
             reused: reused.then_some(Reuse::UnchangedFileHeuristic),
+            header: header.map(|bytes| Header {
+                bytes: bytes as u64,
+            }),
         }),
         _ => None,
     };
@@ -597,11 +661,13 @@ fn game_from_row(row: &Row) -> Result<Game> {
     let status: String = row.get(1)?;
     let missing: String = row.get(2)?;
     let claimed: String = row.get(3)?;
+    let warnings: String = row.get(4)?;
     Ok(Game {
         name: row.get(0)?,
         status: GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
         missing_roms: serde_json::from_str(&missing).map_err(corrupt)?,
         claimed_roms: serde_json::from_str(&claimed).map_err(corrupt)?,
+        warnings: serde_json::from_str(&warnings).map_err(corrupt)?,
     })
 }
 
@@ -611,12 +677,13 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
         .query_row(
             &format!(
                 "SELECT a.source_set_path, a.started_at, a.finished_at, a.pruned_at IS NOT NULL,
-                        r.sha256, d.name, r.version, r.file_name, a.evidence, {}
+                        r.sha256, d.name, r.version, r.file_name, a.evidence, a.header_rule, {}, {}
                  FROM audits a
                  JOIN dat_revisions r ON r.id = a.dat_revision_id
                  JOIN dats d ON d.id = r.dat_id
                  WHERE a.id = ?1 AND a.status = 'finished'",
-                count_columns("a.")
+                count_columns("a."),
+                warning_columns("a.")
             ),
             [audit_id],
             |r| {
@@ -632,16 +699,26 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
                         name: r.get(5)?,
                         version: r.get(6)?,
                         file: r.get(7)?,
+                        header_rule: r
+                            .get::<_, Option<String>>(9)?
+                            .as_deref()
+                            .map(NamedHeaderRule::new),
                     },
                     evidence_from(r, 8)?,
-                    counts_from(r, 9)?,
+                    counts_from(r, 10)?,
+                    warnings_from(r, 10 + Finding::ALL.len() + GameStatus::ALL.len())?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("no finished audit {audit_id}")))?;
-    let ((source_set, started_at, finished_at, pruned), dat_revision, evidence, (findings, games)) =
-        head;
+    let (
+        (source_set, started_at, finished_at, pruned),
+        dat_revision,
+        evidence,
+        (findings, games),
+        warnings,
+    ) = head;
     if pruned {
         return Err(Error::Refused(format!(
             "audit {audit_id} was pruned; only its summary is kept"
@@ -655,9 +732,9 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
     while let Some(row) = rows.next()? {
         entries.push(entry_from_row(row)?);
     }
-    let mut stmt = c.prepare(
-        "SELECT name, status, missing_roms, claimed_roms FROM audit_games WHERE audit_id = ?1 ORDER BY seq",
-    )?;
+    let mut stmt = c.prepare(&format!(
+        "SELECT {GAME_COLUMNS} FROM audit_games WHERE audit_id = ?1 ORDER BY seq"
+    ))?;
     let mut rows = stmt.query([audit_id])?;
     let mut game_rows = Vec::new();
     while let Some(row) = rows.next()? {
@@ -670,7 +747,11 @@ fn read_report(c: &Connection, audit_id: i64) -> Result<Report> {
         evidence,
         started_at: timestamp(&started_at)?,
         finished_at: timestamp(&finished_at)?,
-        summary: Summary { findings, games },
+        summary: Summary {
+            findings,
+            games,
+            warnings,
+        },
         entries,
         games: game_rows,
     })
@@ -858,7 +939,7 @@ impl Store {
         self.write(|tx| delete_audits(tx, "status = 'running'", []))
     }
 
-    /// The `schema: 2` report of a stored Audit, generated from its rows.
+    /// The `schema: 4` report of a stored Audit, generated from its rows.
     pub fn report(&self, audit_id: i64) -> Result<Report> {
         self.read(|conn| {
             // One read transaction, so a concurrent prune cannot leave the counts without their rows. It only
@@ -990,11 +1071,11 @@ impl Store {
         self.read(|conn| {
             let tx = conn.unchecked_transaction()?;
             check_full(&tx, audit_id)?;
-            let mut stmt = tx.prepare(
-                "SELECT name, status, missing_roms, claimed_roms, seq FROM audit_games
+            let mut stmt = tx.prepare(&format!(
+                "SELECT {GAME_COLUMNS}, seq FROM audit_games
                  WHERE audit_id = ?1 AND seq > ?2 AND (?3 IS NULL OR status = ?3)
-                 ORDER BY seq LIMIT ?4",
-            )?;
+                 ORDER BY seq LIMIT ?4"
+            ))?;
             let mut rows = stmt.query(params![
                 audit_id,
                 after.map_or(-1, |a| a as i64),
@@ -1004,7 +1085,7 @@ impl Store {
             let mut items = Vec::new();
             while let Some(row) = rows.next()? {
                 items.push(GameRow {
-                    seq: row.get::<_, i64>(4)? as u64,
+                    seq: row.get::<_, i64>(GAME_SEQ)? as u64,
                     game: game_from_row(row)?,
                 });
             }

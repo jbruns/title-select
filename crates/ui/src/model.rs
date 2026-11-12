@@ -540,6 +540,7 @@ mod tests {
                 algorithms: algorithms.iter().map(|a| Cow::Borrowed(*a)).collect(),
                 read_at: None,
                 reused: None,
+                header: None,
             }),
             reason: (finding == Finding::Unreadable).then(|| "permission denied".into()),
         }
@@ -568,6 +569,7 @@ mod tests {
                     vec![format!("{name}.a26")]
                 },
                 claimed_roms: vec![],
+                warnings: vec![],
             },
         }
     }
@@ -892,6 +894,7 @@ mod tests {
             pruned: false,
             evidence: AuditEvidence::Incremental,
             claimed: Some(0),
+            warnings: BTreeMap::new(),
         }
     }
 

@@ -583,6 +583,10 @@ pub struct Payload {
     pub md5: String,
     pub sha1: String,
     pub sha256: String,
+    /// The size of the Header left out of these checksums, if the payload was read under a Header Rule that found
+    /// one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<u64>,
 }
 
 impl Payload {
@@ -594,6 +598,7 @@ impl Payload {
             md5: sums.md5,
             sha1: sums.sha1,
             sha256: sums.sha256,
+            header: sums.header,
         }
     }
 
@@ -604,6 +609,7 @@ impl Payload {
             md5: self.md5.clone(),
             sha1: self.sha1.clone(),
             sha256: self.sha256.clone(),
+            header: self.header,
         }
     }
 }

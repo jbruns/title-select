@@ -292,6 +292,7 @@ impl Store {
                         md5: r.get(5)?,
                         sha1: r.get(6)?,
                         sha256: r.get(7)?,
+                        header: None,
                     },
                 })
             })?;
