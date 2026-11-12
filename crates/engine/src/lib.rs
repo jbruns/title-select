@@ -9,7 +9,7 @@ mod read;
 pub mod torrentzip;
 pub mod zipdir;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 pub use title_select_api::Workers;
@@ -107,6 +107,8 @@ pub struct PayloadRead {
     pub read_at: jiff::Timestamp,
     /// Each payload's member name in a ZIP archive, or none for a loose file, in archive order.
     pub members: Vec<(Option<String>, Checksums)>,
+    /// The Header Rule the payloads were hashed under. A read is reused only under the same rule.
+    pub header_rule: Option<HeaderRule>,
 }
 
 /// Earlier payload reads an Audit may reuse, and where it records its own. Both are called from the reader
@@ -310,13 +312,25 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
     let Walked { items, files } =
         walk(root, options.confine, &|| true)?.expect("an audit's walk is never stopped");
 
+    let header = dat.header();
+    let sizes: HashSet<u64> = match header {
+        Some(_) => dat.roms.iter().map(|r| r.size).collect(),
+        None => HashSet::new(),
+    };
+    // A member whose size less the Header is a ROM's size is read, even when a ROM's size and CRC32 equal its raw
+    // ones: a CRC32 match proves nothing of whether it holds a Header.
+    let might_be_headered =
+        |size: u64| header.is_some_and(|h| size > h.size() && sizes.contains(&(size - h.size())));
     let how = read::How {
         evidence: options.evidence,
         reads: options.reads,
+        header,
+        might_be_headered: &might_be_headered,
     };
     let mut reads = read::read_files(&files, how, options.workers, options.progress).into_iter();
     let mut scan = Scan {
         covered: vec![None; dat.roms.len()],
+        header_missing: vec![false; dat.games.len()],
         entries: Vec::new(),
         dat: &dat,
     };
@@ -347,8 +361,12 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         *findings.entry(e.finding).or_default() += 1;
     }
     let mut statuses: BTreeMap<_, _> = GameStatus::ALL.iter().map(|g| (*g, 0)).collect();
+    let mut warnings = BTreeMap::new();
     for g in &games {
         *statuses.entry(g.status).or_default() += 1;
+        for w in &g.warnings {
+            *warnings.entry(*w).or_default() += 1;
+        }
     }
     Ok(Report {
         schema: SCHEMA,
@@ -357,6 +375,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
             name: dat.name.clone(),
             version: dat.version.clone(),
             file: options.file.clone(),
+            header_rule: dat.header_rule.as_deref().map(NamedHeaderRule::new),
         },
         source_set: root.display().to_string(),
         evidence: options.evidence,
@@ -365,6 +384,7 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         summary: Summary {
             findings,
             games: statuses,
+            warnings,
         },
         entries: scan.entries,
         games,
@@ -376,6 +396,8 @@ struct Scan<'d> {
     dat: &'d Dat,
     /// The strongest Evidence Level any Entry holding each ROM has.
     covered: Vec<Option<EvidenceLevel>>,
+    /// Each Game a Matched Entry without the Header its emulators need counts towards.
+    header_missing: Vec<bool>,
     entries: Vec<Entry>,
 }
 
@@ -396,10 +418,18 @@ impl Scan<'_> {
         let full = member.as_deref().unwrap_or(&path);
         let name = full.rsplit(['/', '\\']).next().unwrap_or(full);
         let (finding, payload, named) = classify(self.dat, name, known);
-        let level = match known {
-            Known::Payload(_) => EvidenceLevel::Payload,
-            Known::Claim { .. } => EvidenceLevel::Claim,
+        let (level, header) = match known {
+            Known::Payload(sums) => (EvidenceLevel::Payload, sums.header),
+            Known::Claim { .. } => (EvidenceLevel::Claim, None),
         };
+        if finding == Finding::Matched
+            && header.is_none()
+            && self.dat.header().is_some_and(HeaderRule::needed_to_play)
+        {
+            for r in &payload {
+                self.header_missing[self.dat.roms[*r].game] = true;
+            }
+        }
         for r in &payload {
             if self.covered[*r] != Some(EvidenceLevel::Payload) {
                 self.covered[*r] = Some(level);
@@ -409,7 +439,10 @@ impl Scan<'_> {
             path,
             member,
             finding,
-            evidence: Some(evidence(self.dat, &payload, origin)),
+            evidence: Some(Evidence {
+                header: header.map(|bytes| Header { bytes }),
+                ..evidence(self.dat, &payload, origin)
+            }),
             roms: payload.iter().map(|r| rom_ref(self.dat, *r)).collect(),
             named_rom: named.map(|r| rom_ref(self.dat, r)),
             reason: None,
@@ -425,7 +458,8 @@ impl Scan<'_> {
             .games
             .iter()
             .zip(roms_of)
-            .map(|(name, roms)| {
+            .zip(&self.header_missing)
+            .map(|((name, roms), header_missing)| {
                 let missing_roms: Vec<String> = roms
                     .iter()
                     .filter(|r| self.covered[**r].is_none())
@@ -446,6 +480,10 @@ impl Scan<'_> {
                     status,
                     missing_roms,
                     claimed_roms,
+                    warnings: header_missing
+                        .then_some(GameWarning::HeaderMissing)
+                        .into_iter()
+                        .collect(),
                 }
             })
             .collect()
@@ -487,6 +525,7 @@ fn evidence(dat: &Dat, roms: &[usize], origin: Origin) -> Evidence {
         algorithms,
         read_at,
         reused,
+        header: None,
     }
 }
 

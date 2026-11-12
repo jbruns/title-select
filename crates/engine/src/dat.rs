@@ -6,6 +6,7 @@ use std::path::Path;
 
 use quick_xml::events::{BytesStart, Event};
 use sha2::Digest;
+use title_select_api::HeaderRule;
 
 use crate::Error;
 
@@ -33,6 +34,8 @@ pub struct Dat {
     pub version: String,
     /// The header's date, as the provider writes it; empty if it gives none.
     pub date: String,
+    /// The Header Rule the header names (`<clrmamepro header="…"/>`), as it names it; none if it names none.
+    pub header_rule: Option<String>,
     pub games: Vec<String>,
     /// Each Game's description, by the Game's index; empty if the DAT gives none.
     pub descriptions: Vec<String>,
@@ -84,6 +87,7 @@ impl Dat {
             name: String::new(),
             version: String::new(),
             date: String::new(),
+            header_rule: None,
             games: Vec::new(),
             descriptions: Vec::new(),
             roms: Vec::new(),
@@ -238,6 +242,11 @@ impl Dat {
                 }
             }
             (Some(_), "rom") => self.add_rom(e)?,
+            (Some(Root::Logiqx), "clrmamepro") if self.games.is_empty() => {
+                if let Some(rule) = attrs(e)?.remove("header") {
+                    self.header_rule = Some(rule);
+                }
+            }
             _ => {}
         }
         Ok(tag)
@@ -324,6 +333,25 @@ impl Dat {
                 .entry(rom.size)
                 .or_default()
                 .push(idx),
+        }
+    }
+
+    /// The built-in Header Rule the header names; none if it names none, or one Title Select does not know.
+    pub fn header(&self) -> Option<HeaderRule> {
+        self.header_rule.as_deref().and_then(HeaderRule::named)
+    }
+
+    /// What a Build expects of `rom`, one of this DAT's ROMs: its size and checksums, and the Header Rule they leave
+    /// a Header out under.
+    pub fn expected(&self, rom: &Rom) -> title_select_api::build::ExpectedRom {
+        title_select_api::build::ExpectedRom {
+            name: rom.name.clone(),
+            size: rom.size,
+            crc: rom.crc.clone(),
+            md5: rom.md5.clone(),
+            sha1: rom.sha1.clone(),
+            sha256: rom.sha256.clone(),
+            header: self.header(),
         }
     }
 

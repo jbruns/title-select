@@ -10,7 +10,7 @@ use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Mutex, PoisonError};
 
 use crate::payload::{Checksums, Hasher};
-use crate::{AuditEvidence, FileStamp, PayloadRead, PayloadReads, Progress, Workers};
+use crate::{AuditEvidence, FileStamp, HeaderRule, PayloadRead, PayloadReads, Progress, Workers};
 
 const CHUNK: usize = 1 << 16;
 /// Chunks a reader may get ahead of its hash worker.
@@ -55,11 +55,17 @@ pub struct ToRead {
 pub struct How<'a> {
     pub evidence: AuditEvidence,
     pub reads: Option<&'a dyn PayloadReads>,
+    /// The DAT Revision's Header Rule: each payload is hashed without the Header it finds.
+    pub header: Option<HeaderRule>,
+    /// Whether a ZIP member of this claimed size might hold a Header the DAT leaves out. Its claim covers any
+    /// Header, so it cannot say which ROM the member is; an archive holding one is read rather than claimed.
+    pub might_be_headered: &'a (dyn Fn(u64) -> bool + Sync),
 }
 
-/// One payload for a hash worker: its chunks, and where to send its checksums.
+/// One payload for a hash worker: its chunks, the Header Rule to hash them under, and where to send its checksums.
 struct HashJob {
     chunks: Receiver<Vec<u8>>,
+    header: Option<HeaderRule>,
     done: SyncSender<Checksums>,
 }
 
@@ -83,7 +89,7 @@ pub fn read_files(
                 loop {
                     let job = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
                     let Ok(job) = job else { break };
-                    let mut hasher = Hasher::new();
+                    let mut hasher = Hasher::with_header(job.header);
                     for chunk in job.chunks {
                         hasher.update(&chunk);
                     }
@@ -132,6 +138,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
             .and_then(|m| FileStamp::from_metadata(&m));
         if let (Some(now), Some(prior)) = (now, reads.prior(&file.rel))
             && prior.stamp == now
+            && prior.header_rule == how.header
         {
             reads.reused(&file.rel, &now);
             return FileRead {
@@ -148,13 +155,19 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
     if how.evidence == AuditEvidence::Quick && file.is_zip {
         let stamp = FileStamp::of(&file.path);
         let claimed = claim_file(&file.path);
-        if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
-            reads.claimed(&file.rel, &stamp);
+        let headered = how.header.is_some()
+            && claimed.members.iter().any(|(_, known)| {
+                matches!(known, Ok(Known::Claim { size, .. }) if (how.might_be_headered)(*size))
+            });
+        if !headered {
+            if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
+                reads.claimed(&file.rel, &stamp);
+            }
+            return claimed;
         }
-        return claimed;
     }
     let read_at = jiff::Timestamp::now();
-    let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at);
+    let (read, stamp) = read_file(&file.path, file.is_zip, jobs, read_at, how.header);
     if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
         let members: Option<Vec<_>> = read
             .members
@@ -171,6 +184,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
                     stamp,
                     read_at,
                     members,
+                    header_rule: how.header,
                 },
             ),
             _ => reads.record_unreadable(&file.rel, &stamp),
@@ -241,6 +255,7 @@ fn read_file(
     is_zip: bool,
     jobs: &SyncSender<HashJob>,
     read_at: jiff::Timestamp,
+    header: Option<HeaderRule>,
 ) -> (FileRead, Option<FileStamp>) {
     let mut read = FileRead {
         members: Vec::new(),
@@ -259,7 +274,7 @@ fn read_file(
         .ok()
         .and_then(|m| FileStamp::from_metadata(&m));
     if !is_zip {
-        match checksum(file, jobs) {
+        match checksum(file, jobs, header) {
             Ok(sums) => read.members.push((None, Ok(Known::Payload(sums)))),
             Err(e) => read.error = Some(e),
         }
@@ -290,19 +305,27 @@ fn read_file(
                 return (read, stamp);
             }
         };
-        read.members
-            .push((Some(name), checksum(member, jobs).map(Known::Payload)));
+        read.members.push((
+            Some(name),
+            checksum(member, jobs, header).map(Known::Payload),
+        ));
     }
     (read, stamp)
 }
 
-/// Reads `r` to its end, handing its bytes to a hash worker, and returns their checksums.
-fn checksum(mut r: impl Read, jobs: &SyncSender<HashJob>) -> Result<Checksums, String> {
+/// Reads `r` to its end, once, handing its bytes to a hash worker, and returns their checksums without the Header
+/// `header` finds.
+fn checksum(
+    mut r: impl Read,
+    jobs: &SyncSender<HashJob>,
+    header: Option<HeaderRule>,
+) -> Result<Checksums, String> {
     let (chunks, chunks_rx) = sync_channel(CHUNKS_IN_FLIGHT);
     let (done_tx, done) = sync_channel(1);
     // Waits for a free hash worker.
     jobs.send(HashJob {
         chunks: chunks_rx,
+        header,
         done: done_tx,
     })
     .map_err(|_| "no hash worker is running".to_owned())?;
@@ -320,4 +343,57 @@ fn checksum(mut r: impl Read, jobs: &SyncSender<HashJob>) -> Result<Checksums, S
     drop(chunks);
     done.recv()
         .map_err(|_| "the hash worker stopped".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A reader that counts the bytes it hands out.
+    struct Counting<'a> {
+        bytes: &'a [u8],
+        read: &'a AtomicUsize,
+    }
+
+    impl Read for Counting<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.bytes.read(buf)?;
+            self.read.fetch_add(n, Ordering::Relaxed);
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn a_headered_payload_is_read_and_hashed_once_without_its_header() {
+        let mut header = b"NES\x1a".to_vec();
+        header.resize(16, 0);
+        let rom: Vec<u8> = (0..(3 * CHUNK as u32)).map(|i| (i * 7) as u8).collect();
+        let dump = [header.as_slice(), &rom].concat();
+        let read = AtomicUsize::new(0);
+        let (jobs, queue) = sync_channel::<HashJob>(0);
+        let fed = AtomicUsize::new(0);
+        let fed_ref = &fed;
+        let sums = std::thread::scope(|s| {
+            s.spawn(move || {
+                let job = queue.recv().unwrap();
+                let mut hasher = Hasher::with_header(job.header);
+                for chunk in job.chunks {
+                    fed_ref.fetch_add(chunk.len(), Ordering::Relaxed);
+                    hasher.update(&chunk);
+                }
+                job.done.send(hasher.finish()).unwrap();
+            });
+            let counting = Counting {
+                bytes: &dump,
+                read: &read,
+            };
+            checksum(counting, &jobs, Some(HeaderRule::Nes)).unwrap()
+        });
+
+        assert_eq!(read.load(Ordering::Relaxed), dump.len(), "read once");
+        assert_eq!(fed.load(Ordering::Relaxed), dump.len(), "hashed once");
+        assert_eq!(sums.header, Some(16));
+        assert_eq!(sums.size, rom.len() as u64);
+        assert_eq!(sums.crc, format!("{:08x}", crc32fast::hash(&rom)));
+    }
 }

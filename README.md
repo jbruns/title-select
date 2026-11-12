@@ -29,6 +29,16 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   request says so on stderr and reports `full`.
 - A finding is decided by payload before name: a file whose name is wrong but whose payload matches a ROM is
   misnamed, not unmatched. A payload matches a ROM when every checksum the DAT supplies for it agrees.
+- Some dumps start with a header: NES (iNES, 16 bytes), Famicom Disk System (16 bytes), Atari 7800 (128 bytes) and
+  Atari Lynx (64 bytes). When the DAT names a header rule in its `<clrmamepro header="…"/>` line, as No-Intro's DATs
+  for these systems do, an entry that starts with that header is matched by what follows it, so headered and
+  headerless dumps both match. Each entry is still read once. A ZIP member that might start with the header is always
+  read, even in a quick inventory, because the CRC32 its archive records includes the header. A DAT that names no rule
+  never has a header left out, and a rule Title Select doesn't know is reported and has no effect. The header is never
+  stripped: repairs and builds copy the file as it is, header and all, and check what they wrote against the DAT
+  without the header.
+- Most NES and Atari 7800 emulators need the header. A game matched by a dump without it gets the warning
+  `header_missing`: it may not play. A warning is not a game status and never stops a build.
 - A disc set is audited the same way. A game with many ROMs, such as a `.cue` sheet and its `.bin` tracks, a `.gdi`
   and its tracks, or an `.iso`, may be stored as a ZIP or as a loose folder, `<game>/` holding its ROMs, and both may
   sit side by side in one source set. Every file is streamed while it is hashed, so a file of several gigabytes is
@@ -42,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 3,                       // version of this report's shape
+  "schema": 4,                       // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -78,6 +88,23 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 }
 ```
 
+An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds these:
+
+```jsonc
+{
+  "dat_revision": { "header_rule": { "name": "No-Intro_A7800.xml", "rule": "atari7800" }, … },
+  "summary": { "warnings": { "header_missing": 1 }, … },  // games with each warning
+  "entries": [
+    { "path": "Asteroids (USA).a78", "finding": "matched", "evidence": { "header": { "bytes": 128 }, … }, … },
+    { "path": "Centipede (USA).a78", "finding": "matched", "evidence": { … }, … }
+  ],
+  "games": [
+    { "name": "Asteroids (USA)", "status": "complete" },
+    { "name": "Centipede (USA)", "status": "complete", "warnings": ["header_missing"] }
+  ]
+}
+```
+
 - `finding` is one of `matched`, `misnamed`, `conflicting`, `mismatched`, `unmatched` or `unreadable` (see the
   glossary).
 - `roms` lists the ROMs the entry counts towards. For a matched entry that is every ROM with its name and payload,
@@ -91,6 +118,11 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   inventory took them from a ZIP archive's directory; a claim's `algorithms` are always size and CRC32, and it has
   no `read_at`. `read_at` is when the payload was read. `reused` is `unchanged_file_heuristic` when the audit reused
   an earlier read because the file looked unchanged; see `audit --set`.
+- `dat_revision.header_rule` names the header rule the DAT gives: `name` as the DAT spells it, and `rule` one of `nes`,
+  `fds`, `atari7800` or `lynx`, or `null` when the name isn't one Title Select knows, so no header was left out.
+  `evidence.header.bytes` is the size of the header an entry starts with, which matching left out.
+- `warnings` on a game lists its warnings, and `summary.warnings` counts the games with each. The only warning is
+  `header_missing`: an NES or Atari 7800 game matched by a dump without its header, which may not play.
 - A game is `complete`, `incomplete` or `missing`; `missing_roms` lists its ROMs no entry matched. `claimed_roms`,
   present only after a quick inventory, lists its ROMs that only a claim matched: its status rests on claims for
   them, and a build never uses a claim as a source.
@@ -365,7 +397,8 @@ DAT. The source set is named by its folder (`Atari - 2600`). Without a path, it 
 proposes for the DAT: `--template`, else `path_templates.source_set`, by default `{provider}/{dat}` (see "Path
 templates"). An absolute path, `..`, or a symlink that resolves outside the root is refused. `set list` prints each source set with the DAT revision it was last verified against:
 its latest audit's, the latest being the last to finish. `set history` lists a source set's audits, latest first, with
-the time, DAT revision, counts, evidence, and whether the full audit is kept or only its summary.
+the time, DAT revision, counts (with the games carrying each warning, such as `header_missing=2`, when any do),
+evidence, and whether the full audit is kept or only its summary.
 
 ```sh
 title-select audit --set <source set> [--revision <sha256 prefix>] [--evidence <quick|incremental|full>]
@@ -398,7 +431,8 @@ Both export what a source set lacks by its latest audit, against that audit's DA
 they never fetch or acquire a game. `fixdat` writes a fixdat, a Logiqx XML DAT another tool can use to find what you
 lack. It lists each missing game with all its ROMs, and each incomplete game with only its missing ROMs, in the DAT's
 order, with each ROM's size and exactly the hashes the DAT gives. Its header is named `fixdat_<DAT name>`, and its
-description names the source set, the DAT, the DAT revision's SHA-256 and the audit with the date it finished.
+description names the source set, the DAT, the DAT revision's SHA-256 and the audit with the date it finished. When
+the DAT names a header rule, so does the fixdat, since its ROM sizes and hashes leave out the header as the DAT's do.
 `have-miss` writes a CSV with one row per game:
 
 | Column                     | What it holds                                                              |
@@ -1043,7 +1077,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 3` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 4` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
@@ -1340,8 +1374,9 @@ Its screens:
 - **A source set** (`/source-sets/<name>`) is one page in tabs, each linkable as `?tab=`. **Overview** shows the
   latest audit's game statuses and how many entries need review, a badge per finding that opens the entries with
   that finding, its facts with its evidence coverage (how many entries rest on payloads read and how many on
-  claims), and why it is stale, downloads a fixdat or have/miss CSV of what the latest audit found missing, for the
-  whole DAT or one selection's winners, and starts an audit against the default DAT revision or a newer one, as a quick inventory
+  claims) and how many games may not play without their header, and why it is stale, downloads a fixdat or have/miss
+  CSV of what the latest audit found missing, for the whole DAT or one selection's winners, and starts an audit
+  against the default DAT revision or a newer one, as a quick inventory
   or an incremental (the default) or full audit. Its header checks it for changes and follows its DAT. **Games** and **Entries** show the latest audit's game statuses and
   entries, as the audit screen does. **Libraries** lists its library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and
@@ -1352,13 +1387,15 @@ Its screens:
   file as a new DAT revision, and a cue pack for a DAT. **Fetching** shows, for each provider, whether it is on, its latest release, and each
   system you follow: when its DAT and packs were last fetched, when they may be fetched next, and why a fetch failed.
   **Fetch from Redump now** and **Fetch from MAME now** fetch what is due.
-- **Audit** shows the audit's source set, DAT revision, times and evidence, exports its JSON report and re-audits. Its summary
+- **Audit** shows the audit's source set, DAT revision, times and evidence, the DAT's header rule and how many games
+  may not play without their header, exports its JSON report and re-audits. Its summary
   counts each finding and game status, and two derived states: an entry is verified when it is matched with payload
   evidence, and needs review when it is misnamed, conflicting, mismatched, unmatched or unreadable. Its entries load in
   one request from the bulk NDJSON endpoint, then filter by name, finding, state, game status and evidence algorithm,
   and sort by any column, in the browser as each key is typed. Selecting an entry shows its evidence level and algorithms,
   when its payload was last read and whether this audit reused that read because the file looked unchanged (a
-  heuristic), and the ROMs it matches. A pruned audit shows only its summary.
+  heuristic), the size of the header matching left out, and the ROMs it matches. Selecting a game shows its warnings,
+  such as "may not play: most NES emulators need the iNES header". A pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has your settings on the left
   and a live what-if preview against a source set you choose on the right; on a narrow screen the preview comes

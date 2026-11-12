@@ -135,6 +135,7 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                     },
                     name,
                     status,
+                    warnings: vec![],
                 },
             }
         })
@@ -182,6 +183,7 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                         read_at: None,
                         reused: None,
                         algorithms: algorithms.iter().map(|a| Cow::Borrowed(*a)).collect(),
+                        header: None,
                     }),
                     reason: (finding == Finding::Unreadable)
                         .then(|| "synthetic read error".to_string()),

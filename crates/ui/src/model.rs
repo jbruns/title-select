@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use title_select_api::{
     ALGORITHMS, AuditEvidence, AuditSummary, DatRevisionRecord, Entry, EntryRow, EvidenceLevel,
-    Finding, Game, GameRow, GameStatus, Reuse,
+    Finding, Game, GameRow, GameStatus, GameWarning, HeaderRule, NamedHeaderRule, Reuse,
 };
 
 /// The glossary's name for a Finding.
@@ -137,6 +137,62 @@ pub fn payload_read_text(entry: &Entry) -> Option<String> {
         }
         None => format!("{read_at}, by this audit"),
     })
+}
+
+/// The Header an Entry's payload starts with, which matching left out; nothing when it has none.
+pub fn header_text(entry: &Entry) -> Option<String> {
+    let header = entry.evidence.as_ref()?.header?;
+    Some(format!(
+        "{} bytes, left out when matching and kept in the file",
+        header.bytes
+    ))
+}
+
+/// What `warning` says of a Game, for a DAT Revision naming the Header Rule `rule`.
+pub fn warning_text(warning: GameWarning, rule: Option<HeaderRule>) -> String {
+    match warning {
+        GameWarning::HeaderMissing => match rule {
+            Some(HeaderRule::Nes) => "may not play: most NES emulators need the iNES header".into(),
+            Some(HeaderRule::Atari7800) => {
+                "may not play: most Atari 7800 emulators need its header".into()
+            }
+            _ => "may not play: most emulators need its header".into(),
+        },
+    }
+}
+
+/// How many of `audit`'s Games carry each Game Warning, and what it says of them; `None` when none do.
+pub fn warning_counts(audit: &AuditSummary) -> Option<String> {
+    let rule = audit.header_rule.as_ref().and_then(|r| r.rule);
+    let said: Vec<String> = audit
+        .warnings
+        .iter()
+        .map(|(warning, n)| {
+            let games = if *n == 1 { "game" } else { "games" };
+            format!("{n} {games} {}", warning_text(*warning, rule))
+        })
+        .collect();
+    (!said.is_empty()).then(|| said.join("; "))
+}
+
+/// What a DAT Revision's Header Rule does to matching, in words.
+pub fn header_rule_text(named: &NamedHeaderRule) -> String {
+    match named.rule {
+        Some(rule) => format!(
+            "{} ({} bytes): left out when matching, never stripped",
+            match rule {
+                HeaderRule::Nes => "iNES header",
+                HeaderRule::Fds => "FDS header",
+                HeaderRule::Atari7800 => "Atari 7800 header",
+                HeaderRule::Lynx => "Lynx header",
+            },
+            rule.size()
+        ),
+        None => format!(
+            "{}: an unknown header rule, so no header is left out when matching",
+            named.name
+        ),
+    }
 }
 
 /// How an Audit got its Entries' checksums, in words.
@@ -522,6 +578,49 @@ mod tests {
     use std::borrow::Cow;
     use title_select_api::{Evidence, RomRef};
 
+    #[test]
+    fn a_missing_header_warning_names_the_system_whose_emulators_need_it() {
+        let warning = GameWarning::HeaderMissing;
+        assert_eq!(
+            warning_text(warning, Some(HeaderRule::Nes)),
+            "may not play: most NES emulators need the iNES header"
+        );
+        assert_eq!(
+            warning_text(warning, Some(HeaderRule::Atari7800)),
+            "may not play: most Atari 7800 emulators need its header"
+        );
+        assert_eq!(
+            warning_text(warning, None),
+            "may not play: most emulators need its header"
+        );
+    }
+
+    #[test]
+    fn an_audit_counts_its_games_that_may_not_play_and_says_so_of_an_unknown_rule() {
+        let mut summary = audit("a");
+        assert_eq!(warning_counts(&summary), None);
+        summary.header_rule = Some(NamedHeaderRule::new("No-Intro_NES.xml"));
+        summary.warnings = BTreeMap::from([(GameWarning::HeaderMissing, 2)]);
+        assert_eq!(
+            warning_counts(&summary).as_deref(),
+            Some("2 games may not play: most NES emulators need the iNES header")
+        );
+        summary.warnings = BTreeMap::from([(GameWarning::HeaderMissing, 1)]);
+        assert_eq!(
+            warning_counts(&summary).as_deref(),
+            Some("1 game may not play: most NES emulators need the iNES header")
+        );
+
+        assert_eq!(
+            header_rule_text(&NamedHeaderRule::new("No-Intro_NES.xml")),
+            "iNES header (16 bytes): left out when matching, never stripped"
+        );
+        assert_eq!(
+            header_rule_text(&NamedHeaderRule::new("No-Intro_SNES.xml")),
+            "No-Intro_SNES.xml: an unknown header rule, so no header is left out when matching"
+        );
+    }
+
     fn entry(path: &str, finding: Finding, games: &[&str], algorithms: &[&'static str]) -> Entry {
         Entry {
             path: path.into(),
@@ -540,6 +639,7 @@ mod tests {
                 algorithms: algorithms.iter().map(|a| Cow::Borrowed(*a)).collect(),
                 read_at: None,
                 reused: None,
+                header: None,
             }),
             reason: (finding == Finding::Unreadable).then(|| "permission denied".into()),
         }
@@ -568,6 +668,7 @@ mod tests {
                     vec![format!("{name}.a26")]
                 },
                 claimed_roms: vec![],
+                warnings: vec![],
             },
         }
     }
@@ -892,7 +993,20 @@ mod tests {
             pruned: false,
             evidence: AuditEvidence::Incremental,
             claimed: Some(0),
+            warnings: BTreeMap::new(),
+            header_rule: None,
         }
+    }
+
+    #[test]
+    fn a_headered_entry_says_how_big_its_header_is() {
+        let mut headered = entry("a.nes", Finding::Matched, &["Zelda"], &["sha1"]);
+        assert_eq!(header_text(&headered), None);
+        headered.evidence.as_mut().unwrap().header = Some(title_select_api::Header { bytes: 16 });
+        assert_eq!(
+            header_text(&headered).as_deref(),
+            Some("16 bytes, left out when matching and kept in the file")
+        );
     }
 
     #[test]

@@ -144,6 +144,7 @@ fn set_with_a_stale_read(
                 stamp,
                 read_at: earlier(),
                 members: vec![(None, sums_of(b"combat"))],
+                header_rule: None,
             },
         )],
         ..Reads::default()
@@ -217,6 +218,7 @@ fn a_quick_audit_reuses_an_unchanged_zips_payload_read_rather_than_claiming_it()
                 stamp: FileStamp::of(&path).unwrap(),
                 read_at: earlier(),
                 members: vec![(Some("Pong (USA).a26".into()), sums_of(b"pong"))],
+                header_rule: None,
             },
         )],
         ..Reads::default()

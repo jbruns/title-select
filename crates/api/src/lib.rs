@@ -1,5 +1,5 @@
 //! The types of Title Select's versioned JSON API (`/api/v1`), shared by the Service, the headless client and the UI
-//! (ADR 0005). Every response body is one of these, or the `schema: 2` [`Report`].
+//! (ADR 0005). Every response body is one of these, or the `schema: 4` [`Report`].
 
 pub mod additions;
 pub mod build;
@@ -282,6 +282,12 @@ pub struct AuditSummary {
     /// How many of its Entries rest on Claim Evidence rather than Payload Evidence; unknown once it is pruned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claimed: Option<usize>,
+    /// How many of its Games carry each Game Warning; those of none are left out.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub warnings: BTreeMap<GameWarning, usize>,
+    /// The Header Rule its DAT Revision names, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_rule: Option<NamedHeaderRule>,
 }
 
 /// A Source Set with what the list of Source Sets shows of it: its latest finished Audit and its open Repair.

@@ -2,9 +2,13 @@
 
 use sha1::Digest;
 
+use title_select_api::HeaderRule;
+
 use crate::dat::Rom;
 use crate::hex;
 
+/// A payload's checksums. When a Header Rule found a Header at its start, they are of the bytes after it, and
+/// `header` is its size.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Checksums {
     pub size: u64,
@@ -12,9 +16,12 @@ pub struct Checksums {
     pub md5: String,
     pub sha1: String,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<u64>,
 }
 
-/// Computes every checksum in one pass over a payload, fed in chunks.
+/// Computes every checksum in one pass over a payload, fed in chunks. Under a Header Rule it holds back the first
+/// bytes until it can tell whether they are a Header, then leaves a Header out: each byte is still hashed at most once.
 #[derive(Default)]
 pub struct Hasher {
     crc: crc32fast::Hasher,
@@ -22,6 +29,9 @@ pub struct Hasher {
     sha1: sha1::Sha1,
     sha256: sha2::Sha256,
     size: u64,
+    /// The rule, and the bytes held back while it is undecided whether they start with its Header.
+    undecided: Option<(HeaderRule, Vec<u8>)>,
+    header: Option<u64>,
 }
 
 impl Hasher {
@@ -29,7 +39,40 @@ impl Hasher {
         Hasher::default()
     }
 
+    /// A hasher that leaves out the Header `rule` finds at the payload's start, if any.
+    pub fn with_header(rule: Option<HeaderRule>) -> Hasher {
+        Hasher {
+            undecided: rule.map(|r| (r, Vec::new())),
+            ..Hasher::default()
+        }
+    }
+
     pub fn update(&mut self, chunk: &[u8]) {
+        let Some((rule, held)) = &mut self.undecided else {
+            self.hash(chunk);
+            return;
+        };
+        held.extend_from_slice(chunk);
+        // A payload with more bytes than the Header is long enough to tell.
+        if held.len() as u64 > rule.size() {
+            self.decide();
+        }
+    }
+
+    /// Hashes the bytes held back, leaving out the Header if they start with one.
+    fn decide(&mut self) {
+        let Some((rule, held)) = self.undecided.take() else {
+            return;
+        };
+        if rule.starts(&held, held.len() as u64) {
+            self.header = Some(rule.size());
+            self.hash(&held[rule.size() as usize..]);
+        } else {
+            self.hash(&held);
+        }
+    }
+
+    fn hash(&mut self, chunk: &[u8]) {
         self.crc.update(chunk);
         self.md5.update(chunk);
         self.sha1.update(chunk);
@@ -37,13 +80,15 @@ impl Hasher {
         self.size += chunk.len() as u64;
     }
 
-    pub fn finish(self) -> Checksums {
+    pub fn finish(mut self) -> Checksums {
+        self.decide();
         Checksums {
             size: self.size,
             crc: format!("{:08x}", self.crc.finalize()),
             md5: hex(&self.md5.finalize()),
             sha1: hex(&self.sha1.finalize()),
             sha256: hex(&self.sha256.finalize()),
+            header: self.header,
         }
     }
 }

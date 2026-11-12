@@ -371,6 +371,7 @@ fn add_from_ingest(
         md5: Some(payload.md5.clone()),
         sha1: Some(payload.sha1.clone()),
         sha256: Some(payload.sha256.clone()),
+        header: None,
     };
     let target = crate::additions::check_new(tx, new, &rom.name)?;
     target.check_reviewed(new, item.addition_target.as_ref())?;

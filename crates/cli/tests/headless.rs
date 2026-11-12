@@ -86,7 +86,7 @@ fn the_headless_client_runs_an_audit_job_and_prints_the_report() {
 
     assert!(out.status.success(), "{}", stderr(&out));
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(report["schema"], 3);
+    assert_eq!(report["schema"], 4);
     assert!(report["source_set"].as_str().unwrap().ends_with(SET));
     assert_eq!(report["summary"]["findings"]["matched"], 1);
     assert_eq!(report["summary"]["findings"]["unmatched"], 1);

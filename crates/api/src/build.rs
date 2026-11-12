@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::report::{EvidenceLevel, Finding};
+use crate::report::{EvidenceLevel, Finding, HeaderRule};
 use crate::selection::Role;
 
 /// The marker file every Library Folder holds: its [`Marker`] as JSON.
@@ -272,6 +272,10 @@ pub struct ExpectedRom {
     pub sha1: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// The Header Rule the DAT Revision names, when it names one it knows: a payload that starts with its Header is
+    /// written with it, and verified without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<HeaderRule>,
 }
 
 /// What a file is, as opposed to the name it is found at: its device and inode.

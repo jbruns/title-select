@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use title_select_api::HeaderRule;
 use title_select_api::build::ExpectedRom;
 
 use crate::dat::Dat;
@@ -35,6 +36,59 @@ pub fn matches(checksums: &Checksums, rom: &ExpectedRom) -> bool {
         && same(&rom.md5, &checksums.md5)
         && same(&rom.sha1, &checksums.sha1)
         && same(&rom.sha256, &checksums.sha256)
+}
+
+/// A reader whose first bytes were looked at, then put back before the rest.
+type Peeked<R> = io::Chain<io::Cursor<Vec<u8>>, R>;
+
+/// How many bytes of `rom`'s payload a written file holds, read from `payload`, which is `len` bytes long: the DAT's
+/// size, plus its Header's when the DAT names a Header Rule and the payload starts with that Header. A Header is
+/// copied, never stripped. The bytes looked at are read again from the reader returned.
+fn sized<R: Read>(rom: &ExpectedRom, len: u64, mut payload: R) -> io::Result<(u64, Peeked<R>)> {
+    let mut head = Vec::new();
+    let mut size = rom.size;
+    if let Some(rule) = rom.header {
+        (&mut payload)
+            .take(HeaderRule::MAX_SIGNATURE_END as u64)
+            .read_to_end(&mut head)?;
+        if rule.starts(&head, len) {
+            size += rule.size();
+        }
+    }
+    Ok((size, io::Cursor::new(head).chain(payload)))
+}
+
+/// Why a payload `copied` bytes long is not `rom`'s, which is `size` bytes written.
+fn wrong_size(rom: &ExpectedRom, copied: u64, size: u64) -> String {
+    match size - rom.size {
+        0 => format!(
+            "{}: its payload is {copied} bytes, not the DAT's {}",
+            rom.name, rom.size
+        ),
+        header => format!(
+            "{}: its payload is {copied} bytes, not the {size} of its {header}-byte header and the DAT's {}",
+            rom.name, rom.size
+        ),
+    }
+}
+
+/// Copies `rom`'s payload from `payload`, `len` bytes long, into `out`, reading no further than one byte past the
+/// size to write. Returns how many bytes it copied, and the size it should have.
+fn copy_sized(
+    rom: &ExpectedRom,
+    len: u64,
+    payload: impl Read,
+    out: &mut impl io::Write,
+) -> Result<(u64, u64), String> {
+    let failed = |e: io::Error| format!("{}: {e}", rom.name);
+    let (size, payload) = sized(rom, len, payload).map_err(failed)?;
+    let copied = io::copy(&mut payload.take(size + 1), out).map_err(failed)?;
+    Ok((copied, size))
+}
+
+/// The checksums of what `payload` reads to, leaving out the Header of `rom`'s Header Rule, if it has one.
+fn hash_as(rom: &ExpectedRom, payload: &mut impl Read) -> io::Result<Checksums> {
+    hash_under(rom.header, payload)
 }
 
 /// Opens `file` as a ZIP archive through what `reader` makes, only once it is judged one within the default bounds.
@@ -146,15 +200,22 @@ pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)]) -> Result<(), String
         let opened =
             File::open(source.path).map_err(|e| format!("{}: {e}", source.path.display()))?;
         let mut reader = BufReader::new(&opened);
+        let failed = |e: io::Error| format!("{} ({}): {e}", source.path.display(), rom.name);
         let added = match source.member {
-            None => writer.add(&rom.name, rom.size, &mut reader),
+            None => {
+                let len = opened.metadata().map_err(failed)?.len();
+                let (size, mut payload) = sized(rom, len, &mut reader).map_err(failed)?;
+                writer.add(&rom.name, size, &mut payload)
+            }
             Some(member) => {
                 let mut archive = archive(&opened, || Ok(reader))
                     .map_err(|e| format!("{}: {e}", source.path.display()))?;
-                let mut payload = archive
+                let payload = archive
                     .by_name(member)
                     .map_err(|e| format!("{} ({member}): {e}", source.path.display()))?;
-                writer.add(&rom.name, rom.size, &mut payload)
+                let len = payload.size();
+                let (size, mut payload) = sized(rom, len, payload).map_err(failed)?;
+                writer.add(&rom.name, size, &mut payload)
             }
         };
         added.map_err(|e| format!("{} ({}): {e}", source.path.display(), rom.name))?;
@@ -241,11 +302,14 @@ pub fn repack_members(
     let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
     let mut writer = Writer::new(BufWriter::new(dest)).map_err(|e| e.to_string())?;
     for (rom, member) in order {
-        let mut payload = archive
+        let payload = archive
             .by_name(member)
             .map_err(|e| format!("{member}: {e}"))?;
+        let len = payload.size();
+        let (size, mut payload) =
+            sized(rom, len, payload).map_err(|e| format!("{}: {e}", rom.name))?;
         writer
-            .add(&rom.name, rom.size, &mut payload)
+            .add(&rom.name, size, &mut payload)
             .map_err(|e| format!("{}: {e}", rom.name))?;
     }
     let out = writer.finish().map_err(|e| e.to_string())?;
@@ -297,15 +361,21 @@ pub fn repack_sources(
                 let payload = archive
                     .by_name(member)
                     .map_err(|e| format!("{member}: {e}"))?;
-                // Read no further than one byte past the DAT's size, which the writer then refuses, however far
+                let len = payload.size();
+                let (size, payload) =
+                    sized(rom, len, payload).map_err(|e| format!("{}: {e}", rom.name))?;
+                // Read no further than one byte past the size to write, which the writer then refuses, however far
                 // the member expands.
-                writer.add(&rom.name, rom.size, &mut payload.take(rom.size + 1))
+                writer.add(&rom.name, size, &mut payload.take(size + 1))
             }
             (None, Reading::Unread) => {
                 let mut hashing = Hashing::new(source).map_err(|e| e.to_string())?;
-                let added = writer.add(&rom.name, rom.size, &mut hashing);
+                let len = source.metadata().map_err(|e| e.to_string())?.len();
+                let added = sized(rom, len, &mut hashing)
+                    .map_err(|e| format!("{}: {e}", rom.name))
+                    .map(|(size, mut payload)| writer.add(&rom.name, size, &mut payload));
                 *slot = Reading::Loose(hashing);
-                added
+                added?
             }
             _ => {
                 return Err(format!(
@@ -355,18 +425,8 @@ pub fn verify(file: &File, roms: &[ExpectedRom]) -> Result<(), String> {
         let mut member = archive
             .by_name(&rom.name)
             .map_err(|e| format!("{}: {e}", rom.name))?;
-        let mut hasher = Hasher::new();
-        let mut buf = vec![0; CHUNK];
-        loop {
-            let n = member
-                .read(&mut buf)
-                .map_err(|e| format!("{}: {e}", rom.name))?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
-        if !matches(&hasher.finish(), rom) {
+        let sums = hash_as(rom, &mut member).map_err(|e| format!("{}: {e}", rom.name))?;
+        if !matches(&sums, rom) {
             return Err(format!(
                 "{}: its payload does not hash to the DAT's",
                 rom.name
@@ -404,18 +464,14 @@ pub fn write_loose_members(
     order.sort_by_key(|(index, ..)| *index);
     for (index, dest, rom) in order {
         let mut out = BufWriter::new(dest);
-        let copied = {
-            let mut payload = archive
+        let (copied, size) = {
+            let payload = archive
                 .by_index(index)
                 .map_err(|e| format!("{}: {e}", rom.name))?;
-            io::copy(&mut (&mut payload).take(rom.size + 1), &mut out)
-                .map_err(|e| format!("{}: {e}", rom.name))?
+            copy_sized(rom, payload.size(), payload, &mut out)?
         };
-        if copied != rom.size {
-            return Err(format!(
-                "{}: its payload is {copied} bytes, not the DAT's {}",
-                rom.name, rom.size
-            ));
+        if copied != size {
+            return Err(wrong_size(rom, copied, size));
         }
         let file = out.into_inner().map_err(|e| e.error().to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
@@ -439,18 +495,14 @@ pub fn write_loose_member(
 ) -> Result<(), String> {
     let mut archive = archive(source, || Ok(BufReader::new(source)))?;
     let mut out = BufWriter::new(dest);
-    let copied = {
-        let mut payload = archive
+    let (copied, size) = {
+        let payload = archive
             .by_name(member)
             .map_err(|e| format!("{member}: {e}"))?;
-        io::copy(&mut (&mut payload).take(rom.size + 1), &mut out)
-            .map_err(|e| format!("{}: {e}", rom.name))?
+        copy_sized(rom, payload.size(), payload, &mut out)?
     };
-    if copied != rom.size {
-        return Err(format!(
-            "{}: its payload is {copied} bytes, not the DAT's {}",
-            rom.name, rom.size
-        ));
+    if copied != size {
+        return Err(wrong_size(rom, copied, size));
     }
     let file = out.into_inner().map_err(|e| e.error().to_string())?;
     file.sync_all().map_err(|e| e.to_string())
@@ -475,15 +527,14 @@ pub fn write_loose(
         .get(*at)
         .ok_or_else(|| format!("{}: no source {at}", rom.name))?;
     let mut out = BufWriter::new(dest);
-    let copied = match member {
+    let ((copied, size), whole) = match member {
         Some(member) => {
             let mut archive = archive(source, || Ok(BufReader::new(Hashing::new(source)?)))?;
             let copied = {
-                let mut payload = archive
+                let payload = archive
                     .by_name(member)
                     .map_err(|e| format!("{member}: {e}"))?;
-                io::copy(&mut (&mut payload).take(rom.size + 1), &mut out)
-                    .map_err(|e| format!("{}: {e}", rom.name))?
+                copy_sized(rom, payload.size(), payload, &mut out)?
             };
             let read = archive
                 .into_inner()
@@ -494,23 +545,20 @@ pub fn write_loose(
         }
         None => {
             let mut hashing = Hashing::new(source).map_err(|e| e.to_string())?;
-            let copied = io::copy(&mut (&mut hashing).take(rom.size + 1), &mut out)
-                .map_err(|e| format!("{}: {e}", rom.name))?;
+            let len = source.metadata().map_err(|e| e.to_string())?.len();
+            let copied = copy_sized(rom, len, &mut hashing, &mut out)?;
             (copied, hashing.finish().map_err(|e| e.to_string())?)
         }
     };
-    if copied.0 != rom.size {
-        return Err(format!(
-            "{}: its payload is {} bytes, not the DAT's {}",
-            rom.name, copied.0, rom.size
-        ));
+    if copied != size {
+        return Err(wrong_size(rom, copied, size));
     }
     let file = out.into_inner().map_err(|e| e.error().to_string())?;
     file.sync_all().map_err(|e| e.to_string())?;
     let mut read: Vec<(String, u64)> = Vec::with_capacity(sources.len());
     for (i, other) in sources.iter().enumerate() {
         if i == *at {
-            read.push(copied.1.clone());
+            read.push(whole.clone());
         } else {
             read.push(
                 Hashing::new(other)
@@ -527,16 +575,8 @@ pub fn write_loose(
 pub fn verify_loose(file: &File, rom: &ExpectedRom) -> Result<(), String> {
     let mut reader = file;
     reader.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-    let mut hasher = Hasher::new();
-    let mut buf = vec![0; CHUNK];
-    loop {
-        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    if !matches(&hasher.finish(), rom) {
+    let sums = hash_as(rom, &mut reader).map_err(|e| e.to_string())?;
+    if !matches(&sums, rom) {
         return Err(format!("{}: it does not hash to the DAT's ROM", rom.name));
     }
     Ok(())
@@ -583,6 +623,10 @@ pub struct Payload {
     pub md5: String,
     pub sha1: String,
     pub sha256: String,
+    /// The size of the Header left out of these checksums, if the payload was read under a Header Rule that found
+    /// one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<u64>,
 }
 
 impl Payload {
@@ -594,6 +638,7 @@ impl Payload {
             md5: sums.md5,
             sha1: sums.sha1,
             sha256: sums.sha256,
+            header: sums.header,
         }
     }
 
@@ -604,6 +649,7 @@ impl Payload {
             md5: self.md5.clone(),
             sha1: self.sha1.clone(),
             sha256: self.sha256.clone(),
+            header: self.header,
         }
     }
 }
@@ -621,10 +667,18 @@ pub struct Probe {
     /// Why a member could not be read; its payloads are then incomplete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The Header Rule its payloads' checksums leave a Header out under, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_rule: Option<HeaderRule>,
 }
 
 fn hash_all(file: &mut impl Read) -> io::Result<Checksums> {
-    let mut hasher = Hasher::new();
+    hash_under(None, file)
+}
+
+/// The checksums of what `file` reads to, leaving out the Header `rule` finds at its start, if any.
+fn hash_under(rule: Option<HeaderRule>, file: &mut impl Read) -> io::Result<Checksums> {
+    let mut hasher = Hasher::with_header(rule);
     let mut buf = vec![0; CHUNK];
     loop {
         let n = file.read(&mut buf)?;
@@ -636,14 +690,58 @@ fn hash_all(file: &mut impl Read) -> io::Result<Checksums> {
     Ok(hasher.finish())
 }
 
+/// The SHA-256 and size of all of `file`, and its checksums as a loose payload under `rule`, read once.
+fn hash_whole(
+    file: &mut impl Read,
+    rule: Option<HeaderRule>,
+) -> io::Result<(WholeFile, Checksums)> {
+    let Some(rule) = rule else {
+        let sums = hash_all(file)?;
+        let whole = WholeFile {
+            sha256: sums.sha256.clone(),
+            size: sums.size,
+        };
+        return Ok((whole, sums));
+    };
+    let mut sha256 = Sha256::new();
+    let mut size = 0u64;
+    let mut hasher = Hasher::with_header(Some(rule));
+    let mut buf = vec![0; CHUNK];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        sha256.update(&buf[..n]);
+        size += n as u64;
+        hasher.update(&buf[..n]);
+    }
+    let whole = WholeFile {
+        sha256: crate::hex(&sha256.finalize()),
+        size,
+    };
+    Ok((whole, hasher.finish()))
+}
+
+struct WholeFile {
+    sha256: String,
+    size: u64,
+}
+
 /// Reads `file` from its start: hashes it whole, and, when it is a ZIP archive, each member. An error reading the
 /// file itself is returned; one reading a member is recorded in the probe.
 /// A ZIP archive is opened only through [`zipdir::open`]: one that begins as a ZIP but is not in canonical layout is
 /// refused unread, and any other file is a loose file, never opened as an archive.
 pub fn probe(file: &File) -> io::Result<Probe> {
+    probe_under(file, None)
+}
+
+/// As [`probe`], but each payload's checksums leave out the Header `rule` finds at its start, as an Audit under a DAT
+/// naming that rule does. The file's own SHA-256 and size are still of all of it.
+pub fn probe_under(file: &File, rule: Option<HeaderRule>) -> io::Result<Probe> {
     let mut reader = BufReader::new(file);
     reader.seek(SeekFrom::Start(0))?;
-    let whole = hash_all(&mut reader)?;
+    let (whole, loose) = hash_whole(&mut reader, rule)?;
     reader.seek(SeekFrom::Start(0))?;
     let torrentzip = torrentzip::validate(&mut reader).is_ok();
     reader.seek(SeekFrom::Start(0))?;
@@ -654,6 +752,7 @@ pub fn probe(file: &File) -> io::Result<Probe> {
         torrentzip,
         payloads: Vec::new(),
         error: None,
+        header_rule: rule,
     };
     let mut archive = match zipdir::open(file, &DirectoryLimits::default(), || {
         reader.seek(SeekFrom::Start(0)).map(|_| reader)
@@ -667,7 +766,7 @@ pub fn probe(file: &File) -> io::Result<Probe> {
         }
         Gated::NotZip | Gated::Archive(Err(_)) => {
             probe.torrentzip = false;
-            probe.payloads.push(Payload::new(None, whole));
+            probe.payloads.push(Payload::new(None, loose));
             return Ok(probe);
         }
     };
@@ -690,7 +789,7 @@ pub fn probe(file: &File) -> io::Result<Probe> {
                 break;
             }
         };
-        match hash_all(&mut member) {
+        match hash_under(rule, &mut member) {
             Ok(sums) => probe.payloads.push(Payload::new(Some(name), sums)),
             Err(e) => {
                 probe.error = Some(format!("{name}: {e}"));
@@ -769,6 +868,7 @@ pub fn probe_within(file: &File, limits: &ZipLimits) -> io::Result<Probed> {
         torrentzip,
         payloads: Vec::new(),
         error: None,
+        header_rule: None,
     };
     let directory = DirectoryLimits {
         entries: limits.members as u64,
@@ -1011,6 +1111,7 @@ mod tests {
             md5: None,
             sha1: None,
             sha256: None,
+            header: None,
         };
         let zipped = zip_of(&[("x.bin", b"aaaa"), ("extra.bin", b"zz")]);
         let zip = file_of(&zipped);

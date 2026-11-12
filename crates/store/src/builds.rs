@@ -1104,7 +1104,9 @@ fn adopt(dir: &FolderDir, item: &PlanItem) -> std::result::Result<(String, Stat,
             "only a CHD this store built is recorded as one, once its extraction matched the DAT",
         ));
     }
-    let probe = title_select_engine::build::probe(&file).map_err(|e| left(&e.to_string()))?;
+    let rule = item.roms.iter().find_map(|rom| rom.header);
+    let probe =
+        title_select_engine::build::probe_under(&file, rule).map_err(|e| left(&e.to_string()))?;
     if !title_select_engine::build::holds_as(&probe, &item.roms, item.loose) {
         return Err(left(
             "it does not hold exactly the ROMs the DAT expects there",

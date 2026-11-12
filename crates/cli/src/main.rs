@@ -986,7 +986,11 @@ fn run(cli: Cli) -> Result<(), String> {
                 let games = GameStatus::ALL
                     .iter()
                     .map(|g| format!("{}={}", g.as_str(), audit.games[g]));
-                let counts: Vec<String> = findings.chain(games).collect();
+                let warnings = audit
+                    .warnings
+                    .iter()
+                    .map(|(w, n)| format!("{}={n}", w.as_str()));
+                let counts: Vec<String> = findings.chain(games).chain(warnings).collect();
                 println!(
                     "{}\t{}\t{} ({})\t{}\tevidence={}\t{}",
                     audit.id,

@@ -12,9 +12,9 @@ use title_select_api::build::{
     CheckSummary, CheckedFile, DriftEntry, DriftKind, FileOutcome, FileStat, FolderCheck,
 };
 use title_select_api::storage::{MULTIDISC, Storage, StorageFormat, playlist_name, release_of};
-use title_select_api::{Job, JobKind, JobState};
+use title_select_api::{HeaderRule, Job, JobKind, JobState};
 use title_select_engine::Progress;
-use title_select_engine::build::{GameIndex, Probe, holds_as, probe};
+use title_select_engine::build::{GameIndex, Probe, holds_as, probe_under};
 use title_select_engine::dat::Dat;
 
 use super::audits::choose_revision;
@@ -155,15 +155,21 @@ pub(super) fn deepen(dir: &FolderDir, names: Vec<String>) -> Vec<String> {
 }
 
 /// Reads the regular file `name`, found by `lstat` as `seen`, through `dir`: opened without following a symlink, and
-/// only trusted when it is the same file, the same size and modification time, before and after it is read.
-fn read(dir: &FolderDir, name: &str, seen: &Stat) -> std::result::Result<Probe, String> {
+/// only trusted when it is the same file, the same size and modification time, before and after it is read. Its
+/// payloads' checksums leave out the Header `rule` finds, if any.
+fn read(
+    dir: &FolderDir,
+    name: &str,
+    seen: &Stat,
+    rule: Option<HeaderRule>,
+) -> std::result::Result<Probe, String> {
     let changed = || "it changed while it was read".to_owned();
     let file: File = dir.open_file(name).map_err(|e| e.to_string())?;
     let before = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
     if Seen::of(&before) != Seen::of(seen) {
         return Err(changed());
     }
-    let probe = probe(&file).map_err(|e| e.to_string())?;
+    let probe = probe_under(&file, rule).map_err(|e| e.to_string())?;
     still(dir, name, &file, seen)?;
     Ok(probe)
 }
@@ -200,23 +206,42 @@ fn still(dir: &FolderDir, name: &str, file: &File, seen: &Stat) -> std::result::
     }
 }
 
+/// Reads the regular file `name` whole, with no Header left out, while it is the file a plan found as `identity` and
+/// `file`: what an addition made from it records.
+pub(super) fn read_whole(
+    dir: &FolderDir,
+    name: &str,
+    identity: Identity,
+    file: &FileStat,
+) -> std::result::Result<Probe, String> {
+    match dir.stat(name) {
+        Ok(Some(st)) if Identity::of(&st) == identity && file_stat(&st) == *file => {
+            read(dir, name, &st, None)
+        }
+        Ok(_) => Err("it changed since the folder was checked".to_owned()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Reuses `cached`, what an earlier check read of `name`, only when the file found by `lstat` as `seen` is the one
 /// it was read from: the same identity, size, modification time and status change time, through the folder's handle
-/// as well as by name. Otherwise reads it again.
+/// as well as by name, and it was read under the Header Rule `rule`. Otherwise reads it again, under `rule`.
 pub(super) fn reuse(
     dir: &FolderDir,
     name: &str,
     seen: &Stat,
     cached: Option<&(Seen, Probe)>,
+    rule: Option<HeaderRule>,
 ) -> (std::result::Result<Probe, String>, bool) {
     if let Some((was, probe)) = cached
         && *was == Seen::of(seen)
+        && probe.header_rule == rule
         && let Ok(file) = dir.open_file(name)
         && still(dir, name, &file, seen).is_ok()
     {
         return (Ok(probe.clone()), false);
     }
-    (read(dir, name, seen), true)
+    (read(dir, name, seen, rule), true)
 }
 
 /// The files the storage policy stores games of `dat` as other than `<game>.zip`, by game: loose, as CHD, or laid out
@@ -294,9 +319,10 @@ pub(super) fn scan(
             });
         }
     };
-    // Reads `name`, or reuses what an earlier check read of it while it is unchanged since.
-    let probe_of = |name: &str, st: &Stat, out: &mut Scan| {
-        let (probe, hashed) = reuse(dir, name, st, input.cached.get(name));
+    // Reads `name` under the Header Rule `rule`, or reuses what an earlier check read of it under that rule while it
+    // is unchanged since.
+    let probe_of = |name: &str, st: &Stat, rule: Option<HeaderRule>, out: &mut Scan| {
+        let (probe, hashed) = reuse(dir, name, st, input.cached.get(name), rule);
         if let Ok(p) = &probe {
             out.probes
                 .insert(name.to_owned(), (Seen::of(st), p.clone()));
@@ -373,7 +399,9 @@ pub(super) fn scan(
                 }
             },
             Some(st) => {
-                let (probe, hashed) = probe_of(target, &st, &mut out);
+                // A built file is known by what it was built from: an addition is hashed whole, whatever the DAT's rule.
+                let rule = built.roms.iter().find_map(|r| r.header);
+                let (probe, hashed) = probe_of(target, &st, rule, &mut out);
                 file.hashed = hashed;
                 let now = file_stat(&st);
                 match probe {
@@ -465,7 +493,8 @@ pub(super) fn scan(
             Ok(Some(st)) => match FolderDir::kind(&st) {
                 FileType::Directory => entry.kind = DriftKind::Directory,
                 FileType::RegularFile => {
-                    let (probe, hashed) = probe_of(name, &st, &mut out);
+                    let (probe, hashed) =
+                        probe_of(name, &st, input.dat.and_then(Dat::header), &mut out);
                     entry.hashed = hashed;
                     match probe {
                         Err(e) => entry.detail = Some(format!("it cannot be read: {e}")),

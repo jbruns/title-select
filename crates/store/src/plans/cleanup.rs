@@ -35,14 +35,7 @@ fn roms_of(dat: &Dat, game: &str) -> Vec<ExpectedRom> {
     dat.roms
         .iter()
         .filter(|r| r.game == i)
-        .map(|rom| ExpectedRom {
-            name: rom.name.clone(),
-            size: rom.size,
-            crc: rom.crc.clone(),
-            md5: rom.md5.clone(),
-            sha1: rom.sha1.clone(),
-            sha256: rom.sha256.clone(),
-        })
+        .map(|rom| dat.expected(rom))
         .collect()
 }
 
@@ -382,9 +375,23 @@ impl Store {
                             let rom = match (f.regular, probe) {
                                 (false, _) => Err("only a file can be added".to_owned()),
                                 (true, None) => Err("the check could not read it".to_owned()),
-                                (true, Some(p)) => crate::additions::sole_rom(p, &d.name)
-                                    .map(|(rom, _)| rom)
-                                    .ok_or_else(|| "it does not hold exactly one ROM".to_owned()),
+                                // An addition is hashed whole, so one checked under the DAT's Header Rule is
+                                // read again without it.
+                                (true, Some(p)) => match p.header_rule {
+                                    None => Ok(p.clone()),
+                                    Some(_) => crate::checks::read_whole(
+                                        &folder_found.dir,
+                                        &d.name,
+                                        f.identity,
+                                        &f.file,
+                                    )
+                                    .map_err(|e| format!("it cannot be read: {e}")),
+                                }
+                                .and_then(|p| {
+                                    crate::additions::sole_rom(&p, &d.name)
+                                        .map(|(rom, _)| rom)
+                                        .ok_or_else(|| "it does not hold exactly one ROM".to_owned())
+                                }),
                             };
                             let new = choices.additions.get(&d.name).ok_or_else(|| {
                                 "choose the system and name to add it under".to_owned()
@@ -733,7 +740,14 @@ impl Store {
                 probe.clone(),
             )
         });
-        let (probe, hashed) = reuse(&retention.generation, &kept.kept_name, &st, cached.as_ref());
+        let rule = dat.and_then(|(dat, _)| dat.header());
+        let (probe, hashed) = reuse(
+            &retention.generation,
+            &kept.kept_name,
+            &st,
+            cached.as_ref(),
+            rule,
+        );
         let probe = match probe {
             Ok(probe) => probe,
             Err(why) => return Ok(Err(format!("the kept file cannot be read: {why}"))),

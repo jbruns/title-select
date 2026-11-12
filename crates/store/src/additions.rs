@@ -833,6 +833,7 @@ pub(crate) fn sole_rom(
                     md5: Some(only.md5.clone()),
                     sha1: Some(only.sha1.clone()),
                     sha256: Some(only.sha256.clone()),
+                    header: None,
                 },
                 only.name.clone(),
             ))

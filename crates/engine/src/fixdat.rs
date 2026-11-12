@@ -78,6 +78,12 @@ impl Lacking<'_> {
             put(Event::Text(BytesText::new(text)));
             put(Event::End(BytesEnd::new(tag)));
         }
+        // Its ROMs leave out the Header as the DAT's do, so it names the same Header Rule.
+        if let Some(rule) = &self.dat.header_rule {
+            put(Event::Empty(
+                BytesStart::new("clrmamepro").with_attributes([("header", rule.as_str())]),
+            ));
+        }
         put(Event::End(BytesEnd::new("header")));
         let roms_of = self.roms_by_game();
         for (index, game, status) in self.games() {
