@@ -1,5 +1,6 @@
 //! Exporting what a Source Set lacks, from an Audit against a DAT Revision: the Fixdat, a Logiqx XML DAT of its
-//! Missing Games and of its Incomplete Games' missing ROMs, and the have/miss CSV, one row per Game.
+//! Missing Games and of its Incomplete Games' missing ROMs, and the have/miss CSV, one row per Game. A missing ROM
+//! that is Available Elsewhere is still missing: the CSV names it in its own column too.
 //!
 //! Both are deterministic: Games come in DAT order, and every value is taken from the Audit and its DAT Revision,
 //! never from the time of the export.
@@ -146,15 +147,17 @@ impl Lacking<'_> {
                 .map(|r| self.dat.roms[*r].name.as_str())
                 .filter(|name| !missing.contains(name))
                 .collect();
-            // Available Elsewhere ROMs are not reported until #125 makes a Game's status count only its own files;
-            // until then the column is empty.
-            let available_elsewhere = String::new();
+            let available_elsewhere: Vec<&str> = game
+                .available_elsewhere
+                .iter()
+                .map(|a| a.rom.as_str())
+                .collect();
             let row = [
                 game.name.clone(),
                 status.as_str().to_string(),
                 present.join(ROM_SEPARATOR),
                 game.missing_roms.join(ROM_SEPARATOR),
-                available_elsewhere,
+                available_elsewhere.join(ROM_SEPARATOR),
             ];
             let row: Vec<String> = row.iter().map(|cell| csv_cell(cell)).collect();
             csv.push_str(&row.join(","));

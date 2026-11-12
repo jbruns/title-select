@@ -17,7 +17,7 @@ use crate::api;
 use crate::app::{Loading, Problem};
 use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
-    StatusFilter, audit_evidence_label, entry_name, evidence_text, finding_label,
+    StatusFilter, absent_roms, audit_evidence_label, entry_name, evidence_text, finding_label,
     game_status_label, game_status_text, header_rule_text, header_text, needs_review_from_counts,
     parse_ndjson, payload_read_text, short_sha, warning_counts, warning_text, when,
 };
@@ -837,9 +837,15 @@ pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl Into
         let i = *shown.get().get(selected.get()?)? as usize;
         let game = games.rows[i].game.clone();
         let absent = (!game.missing_roms.is_empty()).then(|| {
+            let elsewhere = (!game.available_elsewhere.is_empty()).then(|| {
+                view! {
+                    <p class="note">"A ROM available in another game is inside that game's ZIP or folder, so it doesn't count towards this game. A repair can fill this game from it."</p>
+                }
+            });
             view! {
                 <h4>"Absent ROMs"</h4>
-                <ul class="data">{game.missing_roms.iter().map(|r| view! { <li>{r.clone()}</li> }).collect_view()}</ul>
+                {elsewhere}
+                <ul class="data">{absent_roms(&game).into_iter().map(|r| view! { <li>{r}</li> }).collect_view()}</ul>
             }
         });
         let claimed = (!game.claimed_roms.is_empty()).then(|| {

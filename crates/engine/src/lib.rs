@@ -9,7 +9,7 @@ mod read;
 pub mod torrentzip;
 pub mod zipdir;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 pub use title_select_api::Workers;
@@ -329,7 +329,14 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
     };
     let mut reads = read::read_files(&files, how, options.workers, options.progress).into_iter();
     let mut scan = Scan {
+        game_index: dat
+            .games
+            .iter()
+            .enumerate()
+            .map(|(i, g)| (g.as_str(), i))
+            .collect(),
         covered: vec![None; dat.roms.len()],
+        elsewhere: vec![BTreeSet::new(); dat.roms.len()],
         header_missing: vec![false; dat.games.len()],
         entries: Vec::new(),
         dat: &dat,
@@ -394,8 +401,12 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
 /// What an Audit has found so far.
 struct Scan<'d> {
     dat: &'d Dat,
-    /// The strongest Evidence Level any Entry holding each ROM has.
+    /// Each Game's index, by its name.
+    game_index: HashMap<&'d str, usize>,
+    /// The strongest Evidence Level any Entry holding each ROM for its own Game has.
     covered: Vec<Option<EvidenceLevel>>,
+    /// For each ROM, the other Games whose ZIP or folder holds an Entry that counts towards it (ADR 0017).
+    elsewhere: Vec<BTreeSet<usize>>,
     /// Each Game a Matched Entry without the Header its emulators need counts towards.
     header_missing: Vec<bool>,
     entries: Vec<Entry>,
@@ -418,6 +429,21 @@ impl Scan<'_> {
         let full = member.as_deref().unwrap_or(&path);
         let name = full.rsplit(['/', '\\']).next().unwrap_or(full);
         let (finding, payload, named) = classify(self.dat, name, known);
+        let container = self.container(&path, member.as_deref());
+        // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017).
+        let elsewhere = |r: usize| container.filter(|g| *g != self.dat.roms[r].game);
+        let own: Vec<usize> = payload
+            .iter()
+            .copied()
+            .filter(|r| elsewhere(*r).is_none())
+            .collect();
+        let others: Vec<(usize, usize)> = payload
+            .iter()
+            .filter_map(|r| elsewhere(*r).map(|g| (*r, g)))
+            .collect();
+        for (r, g) in others {
+            self.elsewhere[r].insert(g);
+        }
         let (level, header) = match known {
             Known::Payload(sums) => (EvidenceLevel::Payload, sums.header),
             Known::Claim { .. } => (EvidenceLevel::Claim, None),
@@ -426,11 +452,11 @@ impl Scan<'_> {
             && header.is_none()
             && self.dat.header().is_some_and(HeaderRule::needed_to_play)
         {
-            for r in &payload {
+            for r in &own {
                 self.header_missing[self.dat.roms[*r].game] = true;
             }
         }
-        for r in &payload {
+        for r in &own {
             if self.covered[*r] != Some(EvidenceLevel::Payload) {
                 self.covered[*r] = Some(level);
             }
@@ -449,6 +475,24 @@ impl Scan<'_> {
         });
     }
 
+    /// The Game whose ZIP or folder holds the Entry at `path`, `member` of it in a ZIP: the ZIP's name less `.zip`,
+    /// or the name of the folder a loose file is in. None when that names no Game, or a loose file is at the root.
+    fn container(&self, path: &str, member: Option<&str>) -> Option<usize> {
+        let name = match member {
+            Some(_) => {
+                let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
+                let (stem, ext) = file.rsplit_once('.')?;
+                ext.eq_ignore_ascii_case("zip").then_some(stem)?
+            }
+            None => path
+                .rsplit_once(['/', '\\'])?
+                .0
+                .rsplit(['/', '\\'])
+                .next()?,
+        };
+        self.game_index.get(name).copied()
+    }
+
     fn games(&self) -> Vec<Game> {
         let mut roms_of: Vec<Vec<usize>> = vec![Vec::new(); self.dat.games.len()];
         for (r, rom) in self.dat.roms.iter().enumerate() {
@@ -464,6 +508,17 @@ impl Scan<'_> {
                     .iter()
                     .filter(|r| self.covered[**r].is_none())
                     .map(|r| self.dat.roms[*r].name.clone())
+                    .collect();
+                let available_elsewhere: Vec<AvailableElsewhere> = roms
+                    .iter()
+                    .filter(|r| self.covered[**r].is_none() && !self.elsewhere[**r].is_empty())
+                    .map(|r| AvailableElsewhere {
+                        rom: self.dat.roms[*r].name.clone(),
+                        games: self.elsewhere[*r]
+                            .iter()
+                            .map(|g| self.dat.games[*g].clone())
+                            .collect(),
+                    })
                     .collect();
                 let claimed_roms: Vec<String> = roms
                     .iter()
@@ -484,6 +539,7 @@ impl Scan<'_> {
                         .then_some(GameWarning::HeaderMissing)
                         .into_iter()
                         .collect(),
+                    available_elsewhere,
                 }
             })
             .collect()

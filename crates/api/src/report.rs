@@ -363,6 +363,18 @@ pub struct Game {
     pub claimed_roms: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<GameWarning>,
+    /// Its missing ROMs that are Available Elsewhere (ADR 0017), in DAT order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub available_elsewhere: Vec<AvailableElsewhere>,
+}
+
+/// A Game's ROM present only inside other Games' ZIPs or folders: it doesn't count towards the Game's status, but a
+/// Repair may fill the Game from it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AvailableElsewhere {
+    pub rom: String,
+    /// The Games whose ZIP or folder holds it, in DAT order.
+    pub games: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

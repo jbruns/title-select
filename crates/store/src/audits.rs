@@ -293,10 +293,11 @@ pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game,
 /// The `seq` column's index, when selected after [`ENTRY_COLUMNS`].
 const ENTRY_SEQ: usize = 12;
 
-const GAME_COLUMNS: &str = "name, status, missing_roms, claimed_roms, warnings";
+const GAME_COLUMNS: &str =
+    "name, status, missing_roms, claimed_roms, warnings, available_elsewhere";
 
 /// The `seq` column's index, when selected after [`GAME_COLUMNS`].
-const GAME_SEQ: usize = 5;
+const GAME_SEQ: usize = 6;
 
 pub(super) fn evidence_from(row: &Row, i: usize) -> rusqlite::Result<AuditEvidence> {
     let text: String = row.get(i)?;
@@ -503,13 +504,15 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         ])?;
     }
     let mut game = tx.prepare(
-        "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms, warnings)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO audit_games (audit_id, seq, name, status, missing_roms, claimed_roms, warnings,
+                                  available_elsewhere)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )?;
     for (seq, g) in report.games.iter().enumerate() {
         let missing = serde_json::to_string(&g.missing_roms).map_err(corrupt)?;
         let claimed = serde_json::to_string(&g.claimed_roms).map_err(corrupt)?;
         let warnings = serde_json::to_string(&g.warnings).map_err(corrupt)?;
+        let elsewhere = serde_json::to_string(&g.available_elsewhere).map_err(corrupt)?;
         game.execute(params![
             id,
             seq as i64,
@@ -517,7 +520,8 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
             g.status.as_str(),
             missing,
             claimed,
-            warnings
+            warnings,
+            elsewhere
         ])?;
     }
     drop((entry, game));
@@ -531,8 +535,8 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
 
 /// What the Audit `id` found, as a SHA-256 over its DAT Revision, its Entries and its Game Statuses in a fixed order:
 /// equal for two Audits that found the same. How an Entry was verified (its evidence, and when it was read) is left
-/// out: a re-read of an unchanged file finds the same. A Header and Game Warnings count only where there are any, so
-/// an Audit that found none hashes as Audits did before there were any.
+/// out: a re-read of an unchanged file finds the same. A Header, Game Warnings and Available Elsewhere ROMs count only
+/// where there are any, so an Audit that found none hashes as Audits did before there were any.
 pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut field = |value: Option<String>| {
@@ -565,8 +569,8 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
     }
     field(None);
     let mut games = c.prepare(
-        "SELECT name, status, missing_roms, claimed_roms, warnings FROM audit_games WHERE audit_id = ?1
-         ORDER BY name, seq",
+        "SELECT name, status, missing_roms, claimed_roms, warnings, available_elsewhere FROM audit_games
+         WHERE audit_id = ?1 ORDER BY name, seq",
     )?;
     let mut rows = games.query([id])?;
     while let Some(row) = rows.next()? {
@@ -576,6 +580,10 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
         let warnings: String = row.get(4)?;
         if warnings != "[]" {
             field(Some(format!("warnings {warnings}")));
+        }
+        let elsewhere: String = row.get(5)?;
+        if elsewhere != "[]" {
+            field(Some(format!("available elsewhere {elsewhere}")));
         }
     }
     Ok(hasher
@@ -666,12 +674,14 @@ fn game_from_row(row: &Row) -> Result<Game> {
     let missing: String = row.get(2)?;
     let claimed: String = row.get(3)?;
     let warnings: String = row.get(4)?;
+    let elsewhere: String = row.get(5)?;
     Ok(Game {
         name: row.get(0)?,
         status: GameStatus::parse(&status).ok_or_else(|| corrupt(&status))?,
         missing_roms: serde_json::from_str(&missing).map_err(corrupt)?,
         claimed_roms: serde_json::from_str(&claimed).map_err(corrupt)?,
         warnings: serde_json::from_str(&warnings).map_err(corrupt)?,
+        available_elsewhere: serde_json::from_str(&elsewhere).map_err(corrupt)?,
     })
 }
 

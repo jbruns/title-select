@@ -283,3 +283,47 @@ fn a_fixdat_names_the_dats_header_rule_and_keeps_its_headerless_roms() {
         )]
     );
 }
+
+#[test]
+fn have_miss_lists_the_missing_roms_available_in_another_games_zip() {
+    let f = Fixture::new();
+    let dat_path = f.dat(&[
+        (
+            "Game A (USA)",
+            vec![
+                rom("Game A (USA) (Track 1).bin", b"a data"),
+                rom("Game A (USA) (Track 2).bin", b"shared audio"),
+            ],
+        ),
+        (
+            "Game B (Europe)",
+            vec![
+                rom("Game B (Europe) (Track 1).bin", b"b data"),
+                rom("Game B (Europe) (Track 2).bin", b"shared audio"),
+            ],
+        ),
+    ]);
+    write_zip(
+        &f.set_path("Game A (USA).zip"),
+        &[
+            ("Old Title (USA) (Track 1).bin", b"a data"),
+            ("Old Title (USA) (Track 2).bin", b"shared audio"),
+        ],
+    );
+    let report = audit(&dat_path, f.set.path()).unwrap();
+    let dat = Dat::read(&dat_path).unwrap();
+    let lacking = Lacking {
+        dat: &dat,
+        report: &report,
+        audit: 7,
+        scope: None,
+    };
+
+    assert_eq!(
+        lacking.have_miss(),
+        "game,status,present_roms,missing_roms,available_elsewhere_roms\r\n\
+         Game A (USA),complete,Game A (USA) (Track 1).bin|Game A (USA) (Track 2).bin,,\r\n\
+         Game B (Europe),missing,,Game B (Europe) (Track 1).bin|Game B (Europe) (Track 2).bin,\
+         Game B (Europe) (Track 2).bin\r\n"
+    );
+}

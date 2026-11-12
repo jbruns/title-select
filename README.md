@@ -88,6 +88,21 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 }
 ```
 
+A game whose ROM is inside another game's ZIP, here a track two discs share, adds this:
+
+```jsonc
+{
+  "games": [
+    {
+      "name": "Game B (Europe)",
+      "status": "missing",
+      "missing_roms": ["Game B (Europe) (Track 1).bin", "Game B (Europe) (Track 2).bin"],
+      "available_elsewhere": [{ "rom": "Game B (Europe) (Track 2).bin", "games": ["Game A (USA)"] }]
+    }
+  ]
+}
+```
+
 An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds these:
 
 ```jsonc
@@ -123,9 +138,18 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   `evidence.header.bytes` is the size of the header an entry starts with, which matching left out.
 - `warnings` on a game lists its warnings, and `summary.warnings` counts the games with each. The only warning is
   `header_missing`: an NES or Atari 7800 game matched by a dump without its header, which may not play.
-- A game is `complete`, `incomplete` or `missing`; `missing_roms` lists its ROMs no entry matched. `claimed_roms`,
-  present only after a quick inventory, lists its ROMs that only a claim matched: its status rests on claims for
-  them, and a build never uses a claim as a source.
+- A game is `complete`, `incomplete` or `missing`, counting only its own files; `missing_roms` lists its ROMs no
+  entry of its own matched. `claimed_roms`, present only after a quick inventory, lists its ROMs that only a claim
+  matched: its status rests on claims for them, and a build never uses a claim as a source.
+- A game's own files are every entry except those inside another game's ZIP or folder. An entry in
+  `<other game>.zip` or `<other game>/` doesn't count towards this game, even when its `roms` name one of this game's
+  ROMs, as a track two discs share often does when it is stored under an old title. A loose file, or a member of a
+  ZIP not named for another game, still counts, misnamed or not. `available_elsewhere` lists the missing ROMs such
+  entries hold, with the games whose ZIP or folder holds each; they are still in `missing_roms`, and a repair can
+  still fill the game from them. The entries themselves don't change: such an entry's `roms` still names each ROM it
+  holds.
+- An audit made before Title Select counted only a game's own files keeps the statuses it found, and has no
+  `available_elsewhere`, until you audit the source set again.
 
 ## Selection
 
@@ -435,13 +459,13 @@ description names the source set, the DAT, the DAT revision's SHA-256 and the au
 the DAT names a header rule, so does the fixdat, since its ROM sizes and hashes leave out the header as the DAT's do.
 `have-miss` writes a CSV with one row per game:
 
-| Column                     | What it holds                                                              |
-|----------------------------|----------------------------------------------------------------------------|
-| `game`                     | the game's name in the DAT                                                 |
-| `status`                   | `complete`, `incomplete` or `missing`                                      |
-| `present_roms`             | the ROMs you have                                                          |
-| `missing_roms`             | the ROMs you lack                                                          |
-| `available_elsewhere_roms` | empty for now; it will list missing ROMs another source set or play library holds |
+| Column                     | What it holds                                                                    |
+|----------------------------|----------------------------------------------------------------------------------|
+| `game`                     | the game's name in the DAT                                                       |
+| `status`                   | `complete`, `incomplete` or `missing`                                            |
+| `present_roms`             | the ROMs you have                                                                |
+| `missing_roms`             | the ROMs you lack                                                                |
+| `available_elsewhere_roms` | the ROMs you lack that are inside another game's ZIP or folder in the source set |
 
 ROM names in a cell are separated by `|`, which no file name holds. With `--selection`, either export covers only
 the winners of that selection, which must be a selection of the same source set against the latest audit's DAT
@@ -1395,7 +1419,8 @@ Its screens:
   and sort by any column, in the browser as each key is typed. Selecting an entry shows its evidence level and algorithms,
   when its payload was last read and whether this audit reused that read because the file looked unchanged (a
   heuristic), the size of the header matching left out, and the ROMs it matches. Selecting a game shows its warnings,
-  such as "may not play: most NES emulators need the iNES header". A pruned audit shows only its summary.
+  such as "may not play: most NES emulators need the iNES header", and its absent ROMs, each one inside another
+  game's ZIP or folder marked "available in <other game>". A pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has your settings on the left
   and a live what-if preview against a source set you choose on the right; on a narrow screen the preview comes
