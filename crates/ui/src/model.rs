@@ -44,6 +44,19 @@ pub fn game_status_text(game: &Game) -> String {
     status_text(game.status, !game.claimed_roms.is_empty())
 }
 
+/// A Game's absent ROMs, each Available Elsewhere one naming the Games whose ZIP or folder holds it.
+pub fn absent_roms(game: &Game) -> Vec<String> {
+    game.missing_roms
+        .iter()
+        .map(
+            |rom| match game.available_elsewhere.iter().find(|a| &a.rom == rom) {
+                Some(a) => format!("{rom}: available in {}", a.games.join(" or ")),
+                None => rom.clone(),
+            },
+        )
+        .collect()
+}
+
 /// The states the glossary derives from an Entry's Finding and Evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Derived {
@@ -576,7 +589,7 @@ pub fn is_plain_text(content_type: Option<&str>) -> bool {
 mod tests {
     use super::*;
     use std::borrow::Cow;
-    use title_select_api::{Evidence, RomRef};
+    use title_select_api::{AvailableElsewhere, Evidence, RomRef};
 
     #[test]
     fn a_missing_header_warning_names_the_system_whose_emulators_need_it() {
@@ -669,6 +682,7 @@ mod tests {
                 },
                 claimed_roms: vec![],
                 warnings: vec![],
+                available_elsewhere: vec![],
             },
         }
     }
@@ -682,6 +696,24 @@ mod tests {
         assert_eq!(
             game_status_text(&game("Combat (USA)", GameStatus::Complete).game),
             "Complete"
+        );
+    }
+
+    #[test]
+    fn an_absent_rom_available_elsewhere_names_the_games_holding_it() {
+        let mut b = game("Game B (Europe)", GameStatus::Missing).game;
+        b.missing_roms = vec!["Track 1.bin".into(), "Track 2.bin".into()];
+        b.available_elsewhere = vec![AvailableElsewhere {
+            rom: "Track 2.bin".into(),
+            games: vec!["Game A (USA)".into(), "Game A (Japan)".into()],
+        }];
+
+        assert_eq!(
+            absent_roms(&b),
+            [
+                "Track 1.bin",
+                "Track 2.bin: available in Game A (USA) or Game A (Japan)"
+            ]
         );
     }
 

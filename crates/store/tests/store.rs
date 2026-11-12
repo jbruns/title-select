@@ -356,13 +356,20 @@ fn a_stored_audits_report_equals_the_stateless_audits_apart_from_times() {
     write_file(&set.join("Combat (Anthology).a26"), b"combat");
     write_file(&set.join("Breakout (USA).a26"), b"pong");
     write_file(&set.join("notes.txt"), b"unmatched");
+    // Inside another Game's ZIP, so Breakout is Available Elsewhere.
     write_zip(
-        &set.join("Breakout.zip"),
+        &set.join("Pong (USA).zip"),
         &[("Breakout (USA).a26", b"break")],
     );
     write_file(&set.join("Broken.zip"), b"not a zip");
 
     let stored = env.audit_with(None, AuditEvidence::Full).report;
+    let breakout = stored
+        .games
+        .iter()
+        .find(|g| g.name == "Breakout (USA)")
+        .unwrap();
+    assert_eq!(breakout.available_elsewhere[0].games, ["Pong (USA)"]);
     let stateless = title_select_engine::audit(&env.dat(2), &set).unwrap();
 
     let without_times = |report: &title_select_engine::Report| {

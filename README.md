@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 4,                       // version of this report's shape
+  "schema": 5,                       // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -84,6 +84,21 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   ],
   "games": [
     { "name": "Breakout (Europe)", "status": "missing", "missing_roms": ["Breakout (Europe).a26"] }
+  ]
+}
+```
+
+A game whose ROM is inside another game's ZIP, here a track two discs share, adds this:
+
+```jsonc
+{
+  "games": [
+    {
+      "name": "Game B (Europe)",
+      "status": "missing",
+      "missing_roms": ["Game B (Europe) (Track 1).bin", "Game B (Europe) (Track 2).bin"],
+      "available_elsewhere": [{ "rom": "Game B (Europe) (Track 2).bin", "games": ["Game A (USA)"] }]
+    }
   ]
 }
 ```
@@ -123,9 +138,23 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   `evidence.header.bytes` is the size of the header an entry starts with, which matching left out.
 - `warnings` on a game lists its warnings, and `summary.warnings` counts the games with each. The only warning is
   `header_missing`: an NES or Atari 7800 game matched by a dump without its header, which may not play.
-- A game is `complete`, `incomplete` or `missing`; `missing_roms` lists its ROMs no entry matched. `claimed_roms`,
-  present only after a quick inventory, lists its ROMs that only a claim matched: its status rests on claims for
-  them, and a build never uses a claim as a source.
+- A game is `complete`, `incomplete` or `missing`, counting only its own files; `missing_roms` lists its ROMs no
+  entry of its own matched. `claimed_roms`, present only after a quick inventory, lists its ROMs that only a claim
+  matched: its status rests on claims for them, and a build never uses a claim as a source.
+- A game's own files are every entry except those inside another game's ZIP or folder. An entry's ZIP or folder is
+  the nearest of its ZIP and the folders above it that is named for a game, so `<game>/tracks/Track 02.bin` is in
+  `<game>/`. An entry in `<other game>.zip` or `<other game>/` doesn't count towards this game, even when its `roms`
+  name one of this game's ROMs, as a track two discs share often does when it is stored under an old title. A loose
+  file, or a member of a ZIP, in nothing named for a game still counts, misnamed or not. A clone's parent's ZIP or
+  folder counts as the clone's own, because merged and split sets keep a clone's files there.
+- `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
+  the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
+  fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
+  game. The entries themselves don't change: such an entry's `roms` still names each
+  ROM it holds.
+- Schema 5 counts a game's status only from its own files and adds `available_elsewhere`; schema 4 counted every
+  entry wherever it was. An audit stored before this keeps the statuses it found, and has no `available_elsewhere`,
+  until you audit the source set again.
 
 ## Selection
 
@@ -435,13 +464,13 @@ description names the source set, the DAT, the DAT revision's SHA-256 and the au
 the DAT names a header rule, so does the fixdat, since its ROM sizes and hashes leave out the header as the DAT's do.
 `have-miss` writes a CSV with one row per game:
 
-| Column                     | What it holds                                                              |
-|----------------------------|----------------------------------------------------------------------------|
-| `game`                     | the game's name in the DAT                                                 |
-| `status`                   | `complete`, `incomplete` or `missing`                                      |
-| `present_roms`             | the ROMs you have                                                          |
-| `missing_roms`             | the ROMs you lack                                                          |
-| `available_elsewhere_roms` | empty for now; it will list missing ROMs another source set or play library holds |
+| Column                     | What it holds                                                                    |
+|----------------------------|----------------------------------------------------------------------------------|
+| `game`                     | the game's name in the DAT                                                       |
+| `status`                   | `complete`, `incomplete` or `missing`                                            |
+| `present_roms`             | the ROMs you have                                                                |
+| `missing_roms`             | the ROMs you lack                                                                |
+| `available_elsewhere_roms` | the ROMs you lack that are inside another game's ZIP or folder in the source set |
 
 ROM names in a cell are separated by `|`, which no file name holds. With `--selection`, either export covers only
 the winners of that selection, which must be a selection of the same source set against the latest audit's DAT
@@ -1098,7 +1127,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 4` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 5` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
@@ -1419,7 +1448,8 @@ Its screens:
   and sort by any column, in the browser as each key is typed. Selecting an entry shows its evidence level and algorithms,
   when its payload was last read and whether this audit reused that read because the file looked unchanged (a
   heuristic), the size of the header matching left out, and the ROMs it matches. Selecting a game shows its warnings,
-  such as "may not play: most NES emulators need the iNES header". A pruned audit shows only its summary.
+  such as "may not play: most NES emulators need the iNES header", and its absent ROMs, each one inside another
+  game's ZIP or folder marked "available in <other game>". A pruned audit shows only its summary.
 - **Selection profiles** lists your selection profiles. A new one starts as an unsaved draft with the defaults:
   preview what it selects, change anything, and confirm to save version 1. The editor has your settings on the left
   and a live what-if preview against a source set you choose on the right; on a narrow screen the preview comes

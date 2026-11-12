@@ -2,7 +2,7 @@ mod common;
 
 use common::*;
 use sha2::Digest;
-use title_select_engine::{EvidenceLevel, Finding, GameStatus, audit};
+use title_select_engine::{AvailableElsewhere, EvidenceLevel, Finding, GameStatus, audit};
 
 #[test]
 fn loose_file_whose_payload_matches_its_named_rom_is_matched() {
@@ -487,4 +487,244 @@ fn a_disc_set_of_loose_folders_beside_zips_audits_every_track_verified() {
     for game in ["Alpha (USA)", "Beta (Europe)", "Gamma (Japan)"] {
         assert_eq!(status_of(&report, game), GameStatus::Complete, "{game}");
     }
+}
+
+/// A Redump-style DAT where Game B's second track is byte-identical to Game A's.
+fn shared_track_dat(f: &Fixture) -> std::path::PathBuf {
+    f.dat(&[
+        (
+            "Game A (USA)",
+            vec![
+                rom("Game A (USA) (Track 1).bin", b"a data"),
+                rom("Game A (USA) (Track 2).bin", b"shared audio"),
+            ],
+        ),
+        (
+            "Game B (Europe)",
+            vec![
+                rom("Game B (Europe) (Track 1).bin", b"b data"),
+                rom("Game B (Europe) (Track 2).bin", b"shared audio"),
+            ],
+        ),
+    ])
+}
+
+fn game_of<'r>(
+    report: &'r title_select_engine::Report,
+    name: &str,
+) -> &'r title_select_engine::Game {
+    report.games.iter().find(|g| g.name == name).unwrap()
+}
+
+#[test]
+fn a_track_inside_another_games_zip_leaves_the_game_missing_with_that_rom_available_elsewhere() {
+    let f = Fixture::new();
+    let dat = shared_track_dat(&f);
+    // Game A's ZIP from before a rename: its members match by payload only, so each counts towards every Game its
+    // payload matches.
+    write_zip(
+        &f.set_path("Game A (USA).zip"),
+        &[
+            ("Old Title (USA) (Track 1).bin", b"a data"),
+            ("Old Title (USA) (Track 2).bin", b"shared audio"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let a = game_of(&report, "Game A (USA)");
+    assert_eq!(a.status, GameStatus::Complete);
+    assert!(a.available_elsewhere.is_empty());
+    let b = game_of(&report, "Game B (Europe)");
+    assert_eq!(b.status, GameStatus::Missing);
+    assert_eq!(
+        b.missing_roms,
+        [
+            "Game B (Europe) (Track 1).bin",
+            "Game B (Europe) (Track 2).bin"
+        ]
+    );
+    assert_eq!(
+        b.available_elsewhere,
+        [AvailableElsewhere {
+            rom: "Game B (Europe) (Track 2).bin".into(),
+            games: vec!["Game A (USA)".into()],
+        }]
+    );
+    assert_eq!(report.summary.games[&GameStatus::Missing], 1);
+    // Per-Entry Findings are unchanged: the shared member still matches both ROMs.
+    let shared = report
+        .entries
+        .iter()
+        .find(|e| e.member.as_deref() == Some("Old Title (USA) (Track 2).bin"))
+        .unwrap();
+    assert_eq!(shared.finding, Finding::Misnamed);
+    assert_eq!(shared.roms.len(), 2);
+}
+
+#[test]
+fn a_misnamed_track_in_another_games_folder_is_available_elsewhere() {
+    let f = Fixture::new();
+    let dat = shared_track_dat(&f);
+    write_file(
+        &f.set_path("Game A (USA)/Game A (USA) (Track 1).bin"),
+        b"a data",
+    );
+    write_file(&f.set_path("Game A (USA)/Track 02.bin"), b"shared audio");
+    write_file(
+        &f.set_path("Game B (Europe)/Game B (Europe) (Track 1).bin"),
+        b"b data",
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Game A (USA)"), GameStatus::Complete);
+    let b = game_of(&report, "Game B (Europe)");
+    assert_eq!(b.status, GameStatus::Incomplete);
+    assert_eq!(b.missing_roms, ["Game B (Europe) (Track 2).bin"]);
+    assert_eq!(
+        b.available_elsewhere,
+        [AvailableElsewhere {
+            rom: "Game B (Europe) (Track 2).bin".into(),
+            games: vec!["Game A (USA)".into()],
+        }]
+    );
+}
+
+#[test]
+fn a_misnamed_loose_file_or_a_member_of_the_games_own_zip_still_counts_towards_it() {
+    let f = Fixture::new();
+    let dat = shared_track_dat(&f);
+    write_zip(
+        &f.set_path("Game B (Europe).zip"),
+        &[("Track 01.bin", b"b data")],
+    );
+    write_file(&f.set_path("shared.bin"), b"shared audio");
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let b = game_of(&report, "Game B (Europe)");
+    assert_eq!(b.status, GameStatus::Complete);
+    assert!(b.available_elsewhere.is_empty());
+    assert_eq!(status_of(&report, "Game A (USA)"), GameStatus::Incomplete);
+}
+
+#[test]
+fn a_track_named_for_its_own_game_inside_another_games_zip_is_available_elsewhere_too() {
+    let f = Fixture::new();
+    let dat = shared_track_dat(&f);
+    write_zip(
+        &f.set_path("Game A (USA).zip"),
+        &[
+            ("Game A (USA) (Track 1).bin", b"a data"),
+            ("Game A (USA) (Track 2).bin", b"shared audio"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Game A (USA)"), GameStatus::Complete);
+    let b = game_of(&report, "Game B (Europe)");
+    assert_eq!(b.status, GameStatus::Missing);
+    assert_eq!(
+        b.available_elsewhere,
+        [AvailableElsewhere {
+            rom: "Game B (Europe) (Track 2).bin".into(),
+            games: vec!["Game A (USA)".into()],
+        }]
+    );
+}
+
+#[test]
+fn a_file_nested_deeper_in_another_games_folder_is_available_elsewhere() {
+    let f = Fixture::new();
+    let dat = shared_track_dat(&f);
+    write_file(&f.set_path("Game A (USA)/tracks/Track 01.bin"), b"a data");
+    write_file(
+        &f.set_path("Game A (USA)/tracks/Track 02.bin"),
+        b"shared audio",
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Game A (USA)"), GameStatus::Complete);
+    let b = game_of(&report, "Game B (Europe)");
+    assert_eq!(b.status, GameStatus::Missing);
+    assert_eq!(b.available_elsewhere[0].games, ["Game A (USA)"]);
+}
+
+/// A parent, its clone sharing one ROM with it and having one of its own, and an unrelated Game sharing the parent's
+/// other ROM.
+fn parent_and_clone_dat(f: &Fixture) -> std::path::PathBuf {
+    f.dat_with_clones(&[
+        (
+            "Fighter (World)",
+            None,
+            vec![rom("program.bin", b"program"), rom("gfx.bin", b"graphics")],
+        ),
+        (
+            "Fighter (Japan)",
+            Some("Fighter (World)"),
+            vec![
+                rom("program.bin", b"program"),
+                rom("text-jp.bin", b"japanese"),
+            ],
+        ),
+        (
+            "Other Fighter (USA)",
+            None,
+            vec![rom("gfx.bin", b"graphics")],
+        ),
+    ])
+}
+
+#[test]
+fn a_clone_in_a_merged_set_is_complete_from_its_parents_zip_and_an_unrelated_game_is_not() {
+    let f = Fixture::new();
+    let dat = parent_and_clone_dat(&f);
+    write_zip(
+        &f.set_path("Fighter (World).zip"),
+        &[
+            ("program.bin", b"program"),
+            ("gfx.bin", b"graphics"),
+            ("text-jp.bin", b"japanese"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Fighter (World)"), GameStatus::Complete);
+    let clone = game_of(&report, "Fighter (Japan)");
+    assert_eq!(clone.status, GameStatus::Complete);
+    assert!(clone.available_elsewhere.is_empty());
+    let other = game_of(&report, "Other Fighter (USA)");
+    assert_eq!(other.status, GameStatus::Missing);
+    assert_eq!(
+        other.available_elsewhere,
+        [AvailableElsewhere {
+            rom: "gfx.bin".into(),
+            games: vec!["Fighter (World)".into()],
+        }]
+    );
+}
+
+#[test]
+fn a_clone_in_a_split_set_counts_the_roms_it_shares_from_its_parents_zip() {
+    let f = Fixture::new();
+    let dat = parent_and_clone_dat(&f);
+    write_zip(
+        &f.set_path("Fighter (World).zip"),
+        &[("program.bin", b"program"), ("gfx.bin", b"graphics")],
+    );
+    write_zip(
+        &f.set_path("Fighter (Japan).zip"),
+        &[("text-jp.bin", b"japanese")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let clone = game_of(&report, "Fighter (Japan)");
+    assert_eq!(clone.status, GameStatus::Complete);
+    assert!(clone.available_elsewhere.is_empty());
+    assert_eq!(status_of(&report, "Fighter (World)"), GameStatus::Complete);
 }

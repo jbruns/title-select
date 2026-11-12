@@ -1,4 +1,4 @@
-//! The `schema: 4` Audit report (see GLOSSARY.md and ADR 0002).
+//! The `schema: 5` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 /// The report shape this version writes.
-pub const SCHEMA: u32 = 4;
+pub const SCHEMA: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -363,6 +363,18 @@ pub struct Game {
     pub claimed_roms: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<GameWarning>,
+    /// Its missing ROMs that are Available Elsewhere (ADR 0017), in DAT order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub available_elsewhere: Vec<AvailableElsewhere>,
+}
+
+/// A Game's ROM present only inside other Games' ZIPs or folders: it doesn't count towards the Game's status, but a
+/// Repair may fill the Game from it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AvailableElsewhere {
+    pub rom: String,
+    /// The Games whose ZIP or folder holds it, in DAT order.
+    pub games: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

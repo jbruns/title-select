@@ -33,6 +33,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0022_selection_shadows.sql"),
     include_str!("migrations/0023_drop_selection_shadows.sql"),
     include_str!("migrations/0024_headers.sql"),
+    include_str!("migrations/0025_available_elsewhere.sql"),
 ];
 
 pub(super) fn migrate(conn: &mut Connection, dir: &Path, migrations: &[&str]) -> Result<()> {

@@ -136,6 +136,7 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                     name,
                     status,
                     warnings: vec![],
+                    available_elsewhere: vec![],
                 },
             }
         })

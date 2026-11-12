@@ -164,7 +164,8 @@ present only on Claim Evidence still counts, but the status names it as resting 
 
 **Available Elsewhere**:
 A Game's ROM whose bytes are present only inside another Game's ZIP or folder. It doesn't count towards the Game's
-Game Status, but a Repair may fill the Game from it.
+Game Status, but a Repair may fill the Game from it. A clone's parent's ZIP or folder is the clone's own, not another
+Game's: merged and split sets keep a clone's files there.
 
 ## Selection and change
 

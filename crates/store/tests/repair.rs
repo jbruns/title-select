@@ -4050,3 +4050,47 @@ fn a_renamed_game_is_left_when_its_track_is_the_last_copy_of_one_the_dat_pins_mo
     env.approve(&plan);
     assert_eq!(env.listing()[1..], before[..], "only the marker is new");
 }
+
+#[test]
+fn a_game_whose_track_is_only_inside_another_games_zip_is_filled_from_it() {
+    let ball = disc("Ball (USA)", 2, 9_000, 40);
+    let mut wrestle = disc("Wrestle (Europe)", 2, 9_000, 50);
+    wrestle[2].payload = ball[2].payload.clone();
+    // Ball's ZIP holds its tracks under an old title, so each counts towards every Game its payload matches.
+    let members: Vec<(String, Vec<u8>)> = ball
+        .iter()
+        .map(|r| (r.name.replace("Ball", "Old Ball"), r.payload.clone()))
+        .collect();
+    let (cue, track_1) = (wrestle[0].payload.clone(), wrestle[1].payload.clone());
+    let env = Env::with(
+        "Redump",
+        &[("Ball (USA)", ball), ("Wrestle (Europe)", wrestle)],
+    );
+    set_disc_policy(&env, StorageFormat::TorrentZip, false);
+    let members: Vec<(&str, &[u8])> = members
+        .iter()
+        .map(|(n, p)| (n.as_str(), p.as_slice()))
+        .collect();
+    write_zip(&env.set().join("Ball (USA).zip"), &members);
+    env.put("Wrestle (Europe).cue", &cue);
+    env.put("Wrestle (Europe) (Track 1).bin", &track_1);
+    env.audit(AuditEvidence::Full);
+    let report = env.latest_report();
+    let before = report
+        .games
+        .iter()
+        .find(|g| g.name == "Wrestle (Europe)")
+        .unwrap();
+    assert_eq!(before.status, GameStatus::Incomplete);
+    assert_eq!(before.available_elsewhere[0].games, ["Ball (USA)"]);
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Wrestle (Europe)");
+    assert_eq!(fill.chosen, RepairChoice::Apply, "{fill:?}");
+    let done = env.approve(&plan);
+
+    assert!(is_torrentzip(&env.set().join("Wrestle (Europe).zip")));
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Wrestle (Europe)"), GameStatus::Complete);
+    assert_eq!(status_of(&env, "Ball (USA)"), GameStatus::Complete);
+}
