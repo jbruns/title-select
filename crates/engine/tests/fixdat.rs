@@ -232,3 +232,54 @@ fn each_fixdat_game_keeps_the_description_the_dat_gives_it() {
         "a game the DAT doesn't describe is described by its name"
     );
 }
+
+/// A Fixdat of a DAT that names a Header Rule names it too, and lists its ROMs as the DAT does, without the Header: a
+/// headered dump the Audit matched is not in it.
+#[test]
+fn a_fixdat_names_the_dats_header_rule_and_keeps_its_headerless_roms() {
+    let f = Fixture::new();
+    let zelda = noise(1, 64);
+    let mario = noise(2, 64);
+    let dat_path = write_dat_with_header(
+        f.dat_dir.path(),
+        "No-Intro_NES.xml",
+        &[
+            ("Zelda (USA)", vec![rom("Zelda (USA).nes", &zelda)]),
+            ("Mario (USA)", vec![rom("Mario (USA).nes", &mario)]),
+        ],
+    );
+    let mut ines = b"NES\x1a".to_vec();
+    ines.resize(16, 0);
+    write_file(&f.set_path("Zelda (USA).nes"), &[ines, zelda].concat());
+    let report = audit(&dat_path, f.set.path()).unwrap();
+    let dat = Dat::read(&dat_path).unwrap();
+
+    let fixdat = parse(
+        &Lacking {
+            dat: &dat,
+            report: &report,
+            audit: 1,
+            scope: None,
+        }
+        .fixdat(),
+    );
+
+    assert_eq!(fixdat.header_rule.as_deref(), Some("No-Intro_NES.xml"));
+    let mario = dat
+        .roms
+        .iter()
+        .find(|r| r.name == "Mario (USA).nes")
+        .unwrap();
+    assert_eq!(
+        roms(&fixdat),
+        vec![(
+            "Mario (USA)".to_owned(),
+            mario.name.clone(),
+            64,
+            mario.crc.clone(),
+            mario.md5.clone(),
+            mario.sha1.clone(),
+            mario.sha256.clone(),
+        )]
+    );
+}
