@@ -14,7 +14,7 @@ use title_select_api::storage::{
 };
 use title_select_api::{Entry, EvidenceLevel, Finding, Report};
 use title_select_engine::FileStamp;
-use title_select_engine::dat::Dat;
+use title_select_engine::dat::{Dat, Rom};
 use title_select_engine::payload::Checksums;
 
 use super::{as_read, seen_file};
@@ -78,8 +78,8 @@ struct Usable<'a> {
 }
 
 impl Usable<'_> {
-    /// The ROMs its payloads are.
-    fn holds(&self) -> BTreeSet<RomKey> {
+    /// The ROMs each of its payloads is.
+    fn payloads(&self) -> impl Iterator<Item = Vec<RomKey>> {
         self.entries
             .iter()
             .filter(|e| {
@@ -88,9 +88,90 @@ impl Usable<'_> {
                     Finding::Matched | Finding::Misnamed | Finding::Conflicting
                 )
             })
-            .flat_map(|e| e.roms.iter().map(|r| (r.game.clone(), r.name.clone())))
-            .collect()
+            .map(|e| {
+                e.roms
+                    .iter()
+                    .map(|r| (r.game.clone(), r.name.clone()))
+                    .collect()
+            })
     }
+}
+
+/// What the plan keeps of the ROMs the files it keeps aside hold.
+struct Preserved<'a> {
+    /// Every ROM of the DAT, by its Game and name.
+    dat: &'a HashMap<RomKey, &'a Rom>,
+    /// Every file the Audit found holding each ROM.
+    held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
+    /// The Games an applied item makes whole.
+    produced: BTreeSet<&'a str>,
+    /// The files an applied item keeps aside.
+    displaced: BTreeSet<&'a str>,
+}
+
+impl<'a> Preserved<'a> {
+    /// What `proposed`, as chosen now, keeps.
+    fn of(
+        proposed: &'a [Proposed],
+        dat: &'a HashMap<RomKey, &'a Rom>,
+        held_by: &'a HashMap<RomKey, BTreeSet<&'a str>>,
+    ) -> Self {
+        let applied = |p: &&Proposed| p.item.chosen != RepairChoice::Leave;
+        Preserved {
+            dat,
+            held_by,
+            produced: proposed
+                .iter()
+                .filter(applied)
+                .filter_map(|p| p.produces.as_deref())
+                .collect(),
+            displaced: proposed
+                .iter()
+                .filter(applied)
+                .flat_map(|p| p.displaces.iter().map(|(path, _)| path.as_str()))
+                .collect(),
+        }
+    }
+
+    /// The ROMs `file` holds that would have no copy left once it is kept aside: no file that stays holds one, and no
+    /// applied item writes its payload, as a ROM of whichever Game, that the DAT pins at least as closely as it.
+    fn lost(&self, file: &Usable) -> BTreeSet<RomKey> {
+        let mut lost = BTreeSet::new();
+        for roms in file.payloads() {
+            for rom in &roms {
+                let held = self
+                    .held_by
+                    .get(rom)
+                    .is_some_and(|by| by.iter().any(|p| !self.displaced.contains(p)));
+                let pinned = |w: &RomKey| {
+                    w == rom
+                        || (self.dat.get(w).zip(self.dat.get(rom))).is_some_and(|(w, r)| pins(w, r))
+                };
+                let written = roms
+                    .iter()
+                    .any(|w| self.produced.contains(w.0.as_str()) && pinned(w));
+                if !held && !written {
+                    lost.insert(rom.clone());
+                }
+            }
+        }
+        lost
+    }
+}
+
+/// Whether bytes that are `w`, as the DAT gives it, are also `r`: the same size, with every checksum `r` gives also
+/// given for `w`, and alike.
+fn pins(w: &Rom, r: &Rom) -> bool {
+    let covered = |w: &Option<String>, r: &Option<String>| match (w, r) {
+        (_, None) => true,
+        (Some(w), Some(r)) => w.eq_ignore_ascii_case(r),
+        (None, Some(_)) => false,
+    };
+    w.size == r.size
+        && covered(&w.crc, &r.crc)
+        && covered(&w.md5, &r.md5)
+        && covered(&w.sha1, &r.sha1)
+        && covered(&w.sha256, &r.sha256)
 }
 
 /// How a Game is repaired.
@@ -1249,30 +1330,21 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
     // An item that would keep aside the last copy of a ROM no repair writes is left, as is, in turn, any item that
     // relied on it.
+    let dat_roms: HashMap<RomKey, &Rom> = i
+        .dat
+        .roms
+        .iter()
+        .map(|r| ((i.dat.games[r.game].clone(), r.name.clone()), r))
+        .collect();
     loop {
-        let applied = |p: &&Proposed| p.item.chosen != RepairChoice::Leave;
-        let produced: BTreeSet<&str> = proposed
-            .iter()
-            .filter(applied)
-            .filter_map(|p| p.produces.as_deref())
-            .collect();
-        let displaced: BTreeSet<&str> = proposed
-            .iter()
-            .filter(applied)
-            .flat_map(|p| p.displaces.iter().map(|(path, _)| path.as_str()))
-            .collect();
+        let preserved = Preserved::of(&proposed, &dat_roms, &held_by);
         let lost = proposed.iter().position(|p| {
             p.checked
                 && p.item.chosen != RepairChoice::Leave
                 && p.displaces.iter().any(|(path, _)| {
-                    usable.get(path.as_str()).is_some_and(|file| {
-                        file.holds().iter().any(|rom| {
-                            !produced.contains(rom.0.as_str())
-                                && !held_by
-                                    .get(rom)
-                                    .is_some_and(|by| by.iter().any(|p| !displaced.contains(p)))
-                        })
-                    })
+                    usable
+                        .get(path.as_str())
+                        .is_some_and(|file| !preserved.lost(file).is_empty())
                 })
         });
         let Some(lost) = lost else {
@@ -1400,17 +1472,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
     // What you chose to keep aside is kept aside even when it is the last copy of a ROM, which the item then says:
     // it can be restored from the kept files.
-    let applied = |p: &&Proposed| p.item.chosen != RepairChoice::Leave;
-    let produced: BTreeSet<&str> = proposed
-        .iter()
-        .filter(applied)
-        .filter_map(|p| p.produces.as_deref())
-        .collect();
-    let displaced: BTreeSet<&str> = proposed
-        .iter()
-        .filter(applied)
-        .flat_map(|p| p.displaces.iter().map(|(path, _)| path.as_str()))
-        .collect();
+    let preserved = Preserved::of(&proposed, &dat_roms, &held_by);
     let last: Vec<(usize, Vec<String>)> = proposed
         .iter()
         .enumerate()
@@ -1426,13 +1488,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 .displaces
                 .iter()
                 .filter_map(|(path, _)| usable.get(path.as_str()))
-                .flat_map(|file| file.holds())
-                .filter(|rom| {
-                    !produced.contains(rom.0.as_str())
-                        && !held_by
-                            .get(rom)
-                            .is_some_and(|by| by.iter().any(|p| !displaced.contains(p)))
-                })
+                .flat_map(|file| preserved.lost(file))
                 .map(|(game, name)| format!("{name} of {game}"))
                 .collect();
             (!lost.is_empty()).then(|| (n, lost.into_iter().collect()))
