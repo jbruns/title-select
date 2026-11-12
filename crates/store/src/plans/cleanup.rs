@@ -375,9 +375,23 @@ impl Store {
                             let rom = match (f.regular, probe) {
                                 (false, _) => Err("only a file can be added".to_owned()),
                                 (true, None) => Err("the check could not read it".to_owned()),
-                                (true, Some(p)) => crate::additions::sole_rom(p, &d.name)
-                                    .map(|(rom, _)| rom)
-                                    .ok_or_else(|| "it does not hold exactly one ROM".to_owned()),
+                                // An addition is hashed whole, so one checked under the DAT's Header Rule is
+                                // read again without it.
+                                (true, Some(p)) => match p.header_rule {
+                                    None => Ok(p.clone()),
+                                    Some(_) => crate::checks::read_whole(
+                                        &folder_found.dir,
+                                        &d.name,
+                                        f.identity,
+                                        &f.file,
+                                    )
+                                    .map_err(|e| format!("it cannot be read: {e}")),
+                                }
+                                .and_then(|p| {
+                                    crate::additions::sole_rom(&p, &d.name)
+                                        .map(|(rom, _)| rom)
+                                        .ok_or_else(|| "it does not hold exactly one ROM".to_owned())
+                                }),
                             };
                             let new = choices.additions.get(&d.name).ok_or_else(|| {
                                 "choose the system and name to add it under".to_owned()

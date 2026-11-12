@@ -206,6 +206,23 @@ fn still(dir: &FolderDir, name: &str, file: &File, seen: &Stat) -> std::result::
     }
 }
 
+/// Reads the regular file `name` whole, with no Header left out, while it is the file a plan found as `identity` and
+/// `file`: what an addition made from it records.
+pub(super) fn read_whole(
+    dir: &FolderDir,
+    name: &str,
+    identity: Identity,
+    file: &FileStat,
+) -> std::result::Result<Probe, String> {
+    match dir.stat(name) {
+        Ok(Some(st)) if Identity::of(&st) == identity && file_stat(&st) == *file => {
+            read(dir, name, &st, None)
+        }
+        Ok(_) => Err("it changed since the folder was checked".to_owned()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Reuses `cached`, what an earlier check read of `name`, only when the file found by `lstat` as `seen` is the one
 /// it was read from: the same identity, size, modification time and status change time, through the folder's handle
 /// as well as by name, and it was read under the Header Rule `rule`. Otherwise reads it again, under `rule`.

@@ -336,6 +336,43 @@ fn a_quick_inventory_reads_a_member_whose_raw_size_only_a_rom_without_a_crc_shar
     assert_eq!(header_bytes(&report, "Zelda (USA).zip"), Some(16));
 }
 
+/// A raw size and CRC32 a ROM shares proves nothing of a Header: a member that also is a headered dump of another
+/// ROM is read. Here the DAT lists the headered bytes themselves, which stands in for a CRC32 collision.
+#[test]
+fn a_quick_inventory_reads_a_member_whose_raw_size_and_crc_match_one_rom_and_headerless_size_another()
+ {
+    let f = Fixture::new();
+    let prg = noise(8, 64);
+    let headered = with_header(&ines(), &prg);
+    let dat = write_dat_with_header(
+        f.dat_dir.path(),
+        NES,
+        &[
+            ("Zelda (USA)", vec![rom("Zelda (USA).nes", &prg)]),
+            (
+                "Collision (USA)",
+                vec![rom("Collision (USA).nes", &headered)],
+            ),
+        ],
+    );
+    write_zip(
+        &f.set_path("Zelda (USA).zip"),
+        &[("Zelda (USA).nes", &headered)],
+    );
+
+    let report = run(&dat, f.set.path(), AuditEvidence::Quick, None);
+
+    assert_eq!(
+        entry(&report, "Zelda (USA).zip")
+            .evidence
+            .as_ref()
+            .unwrap()
+            .level,
+        EvidenceLevel::Payload,
+        "{report:#?}"
+    );
+}
+
 /// Offers one earlier read of every file and records the reads the Audit makes.
 #[derive(Default)]
 struct Reads {

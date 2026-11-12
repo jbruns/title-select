@@ -418,6 +418,7 @@ type Files = HashMap<String, Found>;
 
 /// The folder as a plan found it.
 struct Folder {
+    dir: FolderDir,
     files: Files,
     /// The check of its entries, made when its marker shows it is this store's folder.
     scan: Option<Scan>,
@@ -528,6 +529,7 @@ fn check_folder(
         )),
     };
     Some(Folder {
+        dir,
         files,
         scan,
         marker: problem,

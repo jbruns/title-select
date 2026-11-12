@@ -413,7 +413,7 @@ mod tests {
             evidence: AuditEvidence::Incremental,
             reads: None,
             header: None,
-            might_be_headered: &|_, _| false,
+            might_be_headered: &|_| false,
         };
         let workers = Workers {
             readers: 1,
@@ -618,7 +618,7 @@ mod tests {
             evidence: AuditEvidence::Incremental,
             reads: None,
             header: None,
-            might_be_headered: &|_, _| false,
+            might_be_headered: &|_| false,
         };
         let workers = Workers {
             readers: 1,

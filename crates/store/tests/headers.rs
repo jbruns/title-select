@@ -7,8 +7,11 @@ use std::path::PathBuf;
 use common::*;
 use std::collections::BTreeMap;
 
+use title_select_api::additions::AdditionState;
 use title_select_api::additions::NewAddition;
-use title_select_api::build::{AddLibraryFolder, FileOutcome, FolderCheck};
+use title_select_api::build::{
+    AddLibraryFolder, CleanupAction, FileOutcome, FolderCheck, PlanCleanup,
+};
 use title_select_api::ingest::{IngestAction, PlanIngest};
 use title_select_api::repair::{PlanRepair, RepairKind};
 use title_select_api::selection::{
@@ -526,4 +529,68 @@ fn a_check_knows_a_recompressed_headered_addition_by_the_whole_payload_it_was_ad
         .unwrap();
     assert_eq!(file.outcome, FileOutcome::Repacked, "{check:#?}");
     assert!(check.drift.is_empty(), "{check:#?}");
+}
+
+#[test]
+fn headered_drift_added_as_an_addition_by_a_cleanup_is_added_whole() {
+    let env = Env::new();
+    let zelda = noise(1, 64);
+    env.add(
+        "No-Intro_NES.xml",
+        &[("Zelda (USA)", vec![rom("Zelda (USA).nes", &zelda)])],
+    );
+    write_file(&env.set_dir().join("Zelda (USA).nes"), &zelda);
+    env.audit(AuditEvidence::Full);
+    let folder = build(&env, &["Zelda (USA)"], "nes", StorageFormat::TorrentZip);
+    let hack = [ines(), noise(3, 64)].concat();
+    write_file(&env.tmp.path().join("roots/play/nes/My Hack.nes"), &hack);
+    assert!(
+        check(&env, folder)
+            .drift
+            .iter()
+            .any(|d| d.name == "My Hack.nes")
+    );
+
+    let plan = env
+        .store
+        .plan_cleanup(
+            &env.config,
+            folder,
+            &PlanCleanup {
+                entries: BTreeMap::from([("My Hack.nes".to_owned(), CleanupAction::AddAddition)]),
+                additions: BTreeMap::from([(
+                    "My Hack.nes".to_owned(),
+                    NewAddition {
+                        system: SET.into(),
+                        name: "My Hack".into(),
+                        parent: None,
+                    },
+                )]),
+                ..PlanCleanup::default()
+            },
+        )
+        .unwrap();
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let ended = env.store.run_build_job(&env.config, job.id, None).unwrap();
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    env.settle();
+
+    let sets = env.store.additions_sets().unwrap();
+    let addition = &sets[0].additions[0];
+    assert_eq!(addition.state, AdditionState::Active, "{addition:#?}");
+    assert_eq!(addition.rom.as_ref().unwrap().size, hack.len() as u64);
+    assert_eq!(
+        sole_member(
+            &env.tmp
+                .path()
+                .join("roots/additions/Test - System")
+                .join(&addition.file_name)
+        ),
+        hack
+    );
 }

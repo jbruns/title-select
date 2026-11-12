@@ -57,9 +57,9 @@ pub struct How<'a> {
     pub reads: Option<&'a dyn PayloadReads>,
     /// The DAT Revision's Header Rule: each payload is hashed without the Header it finds.
     pub header: Option<HeaderRule>,
-    /// Whether a ZIP member with this claimed size and CRC32 might hold a Header the DAT leaves out. Its claim covers
-    /// the Header and so can never match; an archive holding one is read rather than claimed.
-    pub might_be_headered: &'a (dyn Fn(u64, &str) -> bool + Sync),
+    /// Whether a ZIP member of this claimed size might hold a Header the DAT leaves out. Its claim covers any
+    /// Header, so it cannot say which ROM the member is; an archive holding one is read rather than claimed.
+    pub might_be_headered: &'a (dyn Fn(u64) -> bool + Sync),
 }
 
 /// One payload for a hash worker: its chunks, the Header Rule to hash them under, and where to send its checksums.
@@ -157,7 +157,7 @@ fn read_or_reuse(file: &ToRead, how: How, jobs: &SyncSender<HashJob>) -> FileRea
         let claimed = claim_file(&file.path);
         let headered = how.header.is_some()
             && claimed.members.iter().any(|(_, known)| {
-                matches!(known, Ok(Known::Claim { size, crc }) if (how.might_be_headered)(*size, crc))
+                matches!(known, Ok(Known::Claim { size, .. }) if (how.might_be_headered)(*size))
             });
         if !headered {
             if let (Some(reads), Some(stamp)) = (how.reads, stamp) {
