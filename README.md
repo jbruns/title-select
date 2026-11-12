@@ -281,6 +281,11 @@ pace = "default"            # gentle | default | unthrottled
 redump = false              # the default
 mame = false                # the default
 
+[notify]                    # post an event to your webhook; see "Notifications and metrics"
+# url = "https://<domain>/hooks/title-select"
+# events = ["job.failed", "source_set.stale"]   # all six by default
+# workbench_url = "https://<domain>"            # each event then links to its workbench screen
+
 [chd]                       # see "Storage policy"
 # chdman = "/usr/local/bin/chdman"   # by default TITLE_SELECT_CHDMAN, then chdman on the PATH
 # timeout_seconds = 600             # the longest chdman may run for a disc: this much,
@@ -415,7 +420,7 @@ history (its audits, selections, builds and jobs) by the id `list` prints, and `
 ## Service
 
 ```sh
-title-select serve [--listen <address:port>] [--ui <dir>] [--clone-lists <dir>]
+title-select serve [--listen <address:port>] [--ui <dir>] [--clone-lists <dir>] [--webhook-secret-file <file>]
 ```
 
 Runs the Service: the `/api/v1` JSON API, and the jobs that run audits and selections. It listens on `--listen` or
@@ -428,7 +433,8 @@ them the Service still starts and runs audits, and refuses selections and previe
 
 ### Auth
 
-Every API path but `/api/v1/health` needs you to authenticate. The Service refuses to start without a way to
+Every API path but `/api/v1/health` needs you to authenticate. Outside the API, the workbench's assets and `/metrics`
+(see "Notifications and metrics") need no authentication. The Service refuses to start without a way to
 authenticate you:
 
 - `[auth] identity_header` with `[auth] trusted_proxies`: your authenticating reverse proxy sets the header to your
@@ -1176,6 +1182,105 @@ answered another body. In Compose:
 
 ```yaml
 healthcheck: { test: ["CMD", "/title-select", "health"] }
+```
+
+### Notifications and metrics
+
+So that you don't have to watch the workbench, the Service can post each event to a webhook, and serves metrics for
+Prometheus.
+
+**Webhook.** Set `[notify] url` to an `http` or `https` URL, and name a file holding a secret with
+`TITLE_SELECT_WEBHOOK_SECRET_FILE` (or `--webhook-secret-file`). Like the operator token, the secret is trimmed of
+surrounding whitespace, and the Service refuses to start if the file is missing or empty, or if you set a URL without
+it. `events` lists the events to send, all six by default; an event you don't list is never sent. With
+`workbench_url` set to your workbench's address, each event links to the screen it concerns.
+
+| Event | When | `subject` | `link` |
+|---|---|---|---|
+| `job.finished` | a job succeeds | `job <id>` | the audit it recorded, else the activity screen |
+| `job.failed` | a job fails, or is interrupted | `job <id>` | the failed jobs on the activity screen |
+| `source_set.stale` | a source set becomes stale: files changed since its latest audit, or a newer DAT revision of a DAT it follows arrived | the source set's name | the source set |
+| `dat_revision.new` | a DAT revision is imported, by upload, drop-in or fetch | `<provider>/<DAT name>` | DATs |
+| `fetch.failed` | a request to Redump or MAME fails | `<provider>/<system>` | DATs |
+| `drift.found` | a check of a library folder finds more entries Title Select did not build than the check before | `<root>/<path>` | the library folder |
+
+Each event is sent once, as it happens: a source set that stays stale isn't reported again until it has been audited
+and goes stale anew. Events from before the Service started are never sent.
+
+Each event is one `POST` of a JSON object:
+
+```json
+{
+  "event": "source_set.stale",
+  "at": "2026-02-01T09:30:00Z",
+  "subject": "Nintendo - Game Boy",
+  "summary": "Source set Nintendo - Game Boy is stale: DAT revision 20260201-000000 is newer than its latest audit's. Audit it again.",
+  "link": "https://<domain>/source-sets/Nintendo%20-%20Game%20Boy"
+}
+```
+
+`at` is when it happened, in RFC 3339. `summary` is a sentence for you to read; don't parse it. `link` is `null`
+without `workbench_url`. The request carries `Content-Type: application/json`, `X-Title-Select-Event: <event>`, and
+`X-Title-Select-Signature: sha256=<hex>`: the HMAC-SHA256 of the exact body under your secret. Check it before you trust
+the body, comparing in constant time, as in this Python:
+
+```python
+import hashlib, hmac
+
+def verified(secret: bytes, body: bytes, header: str) -> bool:
+    expected = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, header)
+```
+
+The Service sends each event up to three times, waiting 1 then 4 seconds between attempts, and gives each attempt 10
+seconds. Any `2xx` answer delivers it. After the third failure it logs the failure and drops the event: nothing is
+kept to send later. Delivery never holds up a job: events wait in a queue of 256, and one that arrives while it is full
+is dropped and logged. Redirects aren't followed, and proxy settings are ignored.
+
+**Metrics.** `GET /metrics` serves the Prometheus text format without authentication: its labels name job kinds,
+outcomes, source sets, providers, systems, roots and library folder ids, never a path or a game. Each scrape reads the
+store.
+
+| Metric | Type | Labels | Value |
+|---|---|---|---|
+| `title_select_build_info` | gauge | `version` | 1 |
+| `title_select_jobs_total` | counter | `kind`, `outcome` (`succeeded`, `failed`, `interrupted`) | jobs that ended so |
+| `title_select_jobs_running` | gauge | | jobs running now |
+| `title_select_source_sets_stale` | gauge | | stale source sets |
+| `title_select_source_set_stale` | gauge | `source_set` | 1 if it is stale, else 0 |
+| `title_select_source_set_last_audit_timestamp_seconds` | gauge | `source_set` | when its latest audit finished |
+| `title_select_fetch_last_timestamp_seconds` | gauge | `provider`, `system` | when its latest fetch finished |
+| `title_select_fetch_last_result` | gauge | `provider`, `system`, `outcome` (`added`, `unchanged`, `failed`) | 1, for its latest fetch's outcome |
+| `title_select_library_folder_drift` | gauge | `library_folder` (its id), `root`, `source_set` | entries its latest check found that Title Select did not build |
+
+A scrape job for Prometheus:
+
+```yaml
+scrape_configs:
+  - job_name: title-select
+    static_configs:
+      - targets: ["<domain>:8080"]
+```
+
+And alerts on failed jobs, on a source set left stale for a day, and on drift:
+
+```yaml
+groups:
+  - name: title-select
+    rules:
+      - alert: TitleSelectJobFailed
+        expr: increase(title_select_jobs_total{outcome="failed"}[1h]) > 0
+        annotations:
+          summary: "A {{ $labels.kind }} job failed"
+      - alert: TitleSelectSourceSetStale
+        expr: title_select_source_set_stale == 1
+        for: 1d
+        annotations:
+          summary: "{{ $labels.source_set }} has been stale for a day: audit it again"
+      - alert: TitleSelectDrift
+        expr: title_select_library_folder_drift > 0
+        annotations:
+          summary: "Library folder {{ $labels.library_folder }} holds files Title Select did not build"
 ```
 
 ## Workbench
