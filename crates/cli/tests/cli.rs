@@ -212,6 +212,85 @@ fn a_registered_source_set_is_audited_into_the_store_and_listed_in_its_history()
 }
 
 #[test]
+fn fixdat_and_have_miss_export_what_the_latest_audit_found_missing() {
+    let f = Fixture::new();
+    let dat = f.dat(&[
+        ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+        ("Breakout (USA)", vec![rom("Breakout (USA).a26", b"break")]),
+    ]);
+    write_file(&f.set_path("Pong (USA).a26"), b"pong");
+    let config = f.dat_dir.path().join("title-select.toml");
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    std::fs::write(
+        &config,
+        format!("[roots.sets]\npath = {:?}\n", root.display().to_string()),
+    )
+    .unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = title_select();
+        cmd.env("TITLE_SELECT_STORE", &store)
+            .env("TITLE_SELECT_CONFIG", &config);
+        cmd
+    };
+    run_ok(
+        ts().args(["dat", "import"])
+            .arg(&dat)
+            .args(["--provider", "Test"]),
+    );
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "Test/Test - System"]));
+    let unaudited = ts().args(["fixdat", rel]).output().unwrap();
+    assert!(!unaudited.status.success());
+    assert!(
+        String::from_utf8_lossy(&unaudited.stderr).contains("audit it"),
+        "{}",
+        String::from_utf8_lossy(&unaudited.stderr)
+    );
+    run_ok(ts().args(["audit", "--set", rel]));
+
+    let xml = run_ok(ts().args(["fixdat", rel]));
+    let fixdat =
+        title_select_engine::dat::Dat::parse(xml.as_bytes(), std::path::Path::new("x")).unwrap();
+    assert_eq!(fixdat.games, ["Breakout (USA)"]);
+
+    let out = f.dat_dir.path().join("exports");
+    std::fs::create_dir(&out).unwrap();
+    let said = ts()
+        .args(["have-miss", rel, "--output"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(said.status.success());
+    let written: Vec<_> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    let [csv] = written.as_slice() else {
+        panic!("one file is written into the folder: {written:?}");
+    };
+    let name = csv.file_name().unwrap().to_str().unwrap();
+    assert!(
+        name.starts_with("have-miss_Test - System (") && name.ends_with(").csv"),
+        "{name}"
+    );
+    assert!(
+        String::from_utf8_lossy(&said.stderr).contains(name),
+        "it says where it wrote"
+    );
+    assert_eq!(
+        std::fs::read_to_string(csv).unwrap().lines().nth(2),
+        Some("Breakout (USA),missing,,Breakout (USA).a26,")
+    );
+
+    let unknown = ts()
+        .args(["fixdat", rel, "--selection", "999"])
+        .output()
+        .unwrap();
+    assert!(!unknown.status.success());
+}
+
+#[test]
 fn a_source_set_is_unregistered_listed_as_unregistered_and_forgotten() {
     let (f, dat) = pong_fixture();
     let config = f.dat_dir.path().join("title-select.toml");

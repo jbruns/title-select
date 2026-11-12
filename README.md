@@ -385,6 +385,32 @@ them with the new ROMs. The read, reused and claimed counts go to stderr, and `s
 evidence.
 
 ```sh
+title-select fixdat <source set> [--selection <id>] [--output <file or folder>]
+title-select have-miss <source set> [--selection <id>] [--output <file or folder>]
+```
+
+Both export what a source set lacks by its latest audit, against that audit's DAT revision, and read nothing else:
+they never fetch or acquire a game. `fixdat` writes a fixdat, a Logiqx XML DAT another tool can use to find what you
+lack. It lists each missing game with all its ROMs, and each incomplete game with only its missing ROMs, in the DAT's
+order, with each ROM's size and exactly the hashes the DAT gives. Its header is named `fixdat_<DAT name>`, and its
+description names the source set, the DAT, the DAT revision's SHA-256 and the audit with the date it finished.
+`have-miss` writes a CSV with one row per game:
+
+| Column                     | What it holds                                                              |
+|----------------------------|----------------------------------------------------------------------------|
+| `game`                     | the game's name in the DAT                                                 |
+| `status`                   | `complete`, `incomplete` or `missing`                                      |
+| `present_roms`             | the ROMs you have                                                          |
+| `missing_roms`             | the ROMs you lack                                                          |
+| `available_elsewhere_roms` | empty for now; it will list missing ROMs another source set or play library holds |
+
+ROM names in a cell are separated by `|`, which no file name holds. With `--selection`, either export covers only
+the winners of that selection, which must be a selection of the same source set against the latest audit's DAT
+revision. Both write to stdout; `--output` writes to a file, or into a folder under the export's own name, such as
+`fixdat_<DAT name> (<date>).dat` or `have-miss_<DAT name> (<date>).csv`, the date being the audit's. A source set with
+no audit yet is refused: audit it first.
+
+```sh
 title-select ingest register <ingest root>
 title-select ingest scan <ingest root>
 title-select ingest items <ingest root>
@@ -1002,6 +1028,8 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows |
 | `GET /api/v1/source-sets/{name}`                   | one source set                                               |
 | `GET /api/v1/source-sets/{name}/history`           | its audits, latest first                                     |
+| `GET /api/v1/source-sets/{name}/fixdat`            | a fixdat of what its latest audit found missing; `?selection=<id>` limits it to that selection's winners |
+| `GET /api/v1/source-sets/{name}/have-miss.csv`     | a have/miss CSV of its latest audit; `?selection=<id>` as for the fixdat |
 | `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `PUT /api/v1/source-sets/{name}/follow`            | follow its DAT, or stop: `{"follow"}`; returns the source set |
 | `POST /api/v1/source-sets/{name}/stat-walks`       | queue a check for changes; `202`, or `400` when it has never been audited |
@@ -1207,7 +1235,8 @@ Its screens:
 - **A source set** (`/source-sets/<name>`) is one page in tabs, each linkable as `?tab=`. **Overview** shows the
   latest audit's game statuses and how many entries need review, a badge per finding that opens the entries with
   that finding, its facts with its evidence coverage (how many entries rest on payloads read and how many on
-  claims), and why it is stale, and starts an audit against the default DAT revision or a newer one, as a quick inventory
+  claims), and why it is stale, downloads a fixdat or have/miss CSV of what the latest audit found missing, for the
+  whole DAT or one selection's winners, and starts an audit against the default DAT revision or a newer one, as a quick inventory
   or an incremental (the default) or full audit. Its header checks it for changes and follows its DAT. **Games** and **Entries** show the latest audit's game statuses and
   entries, as the audit screen does. **Libraries** lists its library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and

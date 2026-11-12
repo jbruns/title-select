@@ -3,6 +3,7 @@
 pub mod build;
 pub mod chd;
 pub mod dat;
+pub mod fixdat;
 pub mod payload;
 mod read;
 pub mod torrentzip;

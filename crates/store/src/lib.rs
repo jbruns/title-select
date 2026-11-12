@@ -8,6 +8,7 @@ mod checks;
 pub mod config;
 mod cue_packs;
 mod dats;
+mod exports;
 pub mod fetch;
 mod folder_dir;
 mod folder_moves;
@@ -35,6 +36,7 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 pub use audits::StoredAudit;
 pub use cue_packs::{CUE_PACK_LIMIT, CUE_PACKS};
+pub use exports::Export;
 pub use ingest::OwedAudits;
 pub use jobs::Interruption;
 pub use sbi_packs::SBI_PACKS;

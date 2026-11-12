@@ -34,6 +34,8 @@ pub struct Dat {
     /// The header's date, as the provider writes it; empty if it gives none.
     pub date: String,
     pub games: Vec<String>,
+    /// Each Game's description, by the Game's index; empty if the DAT gives none.
+    pub descriptions: Vec<String>,
     pub roms: Vec<Rom>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
@@ -83,6 +85,7 @@ impl Dat {
             version: String::new(),
             date: String::new(),
             games: Vec::new(),
+            descriptions: Vec::new(),
             roms: Vec::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
@@ -121,14 +124,34 @@ impl Dat {
                 Event::Empty(e) => {
                     dat.open(&e, root)?;
                 }
-                Event::Text(t) => {
+                Event::Text(_) | Event::GeneralRef(_) => {
+                    let text = match &event {
+                        Event::Text(t) => t.xml10_content().into_owned(),
+                        Event::GeneralRef(r) => match r.resolve_char_ref() {
+                            Ok(Some(c)) => c.to_string(),
+                            _ => quick_xml::escape::resolve_predefined_entity(&r.xml10_content())
+                                .unwrap_or_default()
+                                .to_string(),
+                        },
+                        _ => unreachable!("matched above"),
+                    };
                     let in_header = root == Some(Root::Logiqx)
                         && stack.len() >= 2
                         && stack[stack.len() - 2] == "header";
+                    let in_game = stack.len() >= 2
+                        && matches!(
+                            stack[stack.len() - 2].as_str(),
+                            "game" | "machine" | "software"
+                        );
                     match stack.last().map(String::as_str) {
-                        Some("name") if in_header => dat.name.push_str(&t.xml10_content()),
-                        Some("version") if in_header => dat.version.push_str(&t.xml10_content()),
-                        Some("date") if in_header => dat.date.push_str(&t.xml10_content()),
+                        Some("description") if in_game => {
+                            if let Some(description) = dat.descriptions.last_mut() {
+                                description.push_str(&text);
+                            }
+                        }
+                        Some("name") if in_header => dat.name.push_str(&text),
+                        Some("version") if in_header => dat.version.push_str(&text),
+                        Some("date") if in_header => dat.date.push_str(&text),
                         _ => {}
                     }
                 }
@@ -226,6 +249,7 @@ impl Dat {
             .get("name")
             .ok_or_else(|| Error::Dat("a game has no name".into()))?;
         self.games.push(name.clone());
+        self.descriptions.push(String::new());
         self.extent = None;
         Ok(())
     }
