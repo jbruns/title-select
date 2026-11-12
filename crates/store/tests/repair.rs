@@ -1990,6 +1990,7 @@ fn write_torrentzip(path: &Path, name: &str, payload: &[u8]) {
         md5: None,
         sha1: None,
         sha256: None,
+        header: None,
     };
     let dest = std::fs::File::create_new(path).unwrap();
     let source = title_select_engine::build::Source {

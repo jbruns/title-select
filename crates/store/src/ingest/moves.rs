@@ -1934,6 +1934,7 @@ mod tests {
             md5: None,
             sha1: Some(sums.sha1),
             sha256: Some(sums.sha256),
+            header: None,
         }
     }
 

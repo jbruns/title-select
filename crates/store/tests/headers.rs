@@ -5,11 +5,23 @@ mod common;
 use std::path::PathBuf;
 
 use common::*;
+use title_select_api::build::{AddLibraryFolder, FolderCheck};
+use title_select_api::repair::{PlanRepair, RepairKind};
+use title_select_api::selection::{
+    CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
+    SelectionSummary, Winner,
+};
+use title_select_api::storage::{StorageFormat, SystemStorage};
+use title_select_api::{JobKind, JobState};
 use title_select_engine::{AuditEvidence, Finding, GameWarning, Reuse};
-use title_select_store::Store;
 use title_select_store::config::Config;
+use title_select_store::{Store, Workers};
 
 const SET: &str = "No-Intro/Test - System";
+const WORKERS: Workers = Workers {
+    readers: 1,
+    hashers: 1,
+};
 
 struct Env {
     tmp: tempfile::TempDir,
@@ -23,9 +35,12 @@ impl Env {
         let root = tmp.path().join("roots/sets");
         std::fs::create_dir_all(root.join(SET)).unwrap();
         std::fs::create_dir_all(tmp.path().join("in")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("roots/play")).unwrap();
         let config = Config::parse(&format!(
-            "[roots.sets]\npath = {:?}\n",
-            root.display().to_string()
+            "[roots.sets]\npath = {:?}\nwritable_paths = [{SET:?}]\n\n\
+             [roots.play]\npath = {:?}\nwritable = true\n",
+            root.display().to_string(),
+            tmp.path().join("roots/play").display().to_string(),
         ))
         .unwrap();
         let store = Store::open(&tmp.path().join("store")).unwrap();
@@ -149,4 +164,242 @@ fn an_unknown_header_rule_is_kept_by_name() {
         .unwrap();
     assert_eq!(rule.name, "No-Intro_SNES.xml");
     assert_eq!(rule.rule, None);
+}
+
+/// The payload of the sole member of the ZIP archive at `path`.
+fn sole_member(path: &std::path::Path) -> Vec<u8> {
+    let mut archive = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    assert_eq!(archive.len(), 1);
+    let mut payload = Vec::new();
+    std::io::Read::read_to_end(&mut archive.by_index(0).unwrap(), &mut payload).unwrap();
+    payload
+}
+
+#[test]
+fn a_repair_writes_a_headered_dump_with_its_header_and_its_audit_matches_it() {
+    let env = Env::new();
+    let zelda = noise(1, 64);
+    let mario = noise(2, 64);
+    env.add(
+        "No-Intro_NES.xml",
+        &[
+            ("Zelda (USA)", vec![rom("Zelda (USA).nes", &zelda)]),
+            ("Mario (USA)", vec![rom("Mario (USA).nes", &mario)]),
+        ],
+    );
+    let headered_zelda = [ines(), zelda].concat();
+    let headered_mario = [ines(), mario].concat();
+    write_file(
+        &env.set_dir().join("Zelda (Anthology).nes"),
+        &headered_zelda,
+    );
+    write_zip(
+        &env.set_dir().join("Mario (USA).zip"),
+        &[("Mario (USA).nes", &headered_mario)],
+    );
+    env.audit(AuditEvidence::Full);
+
+    let plan = env
+        .store
+        .plan_repair(&env.config, "Test - System", &PlanRepair::default())
+        .unwrap();
+    let kinds: Vec<_> = plan
+        .content
+        .items
+        .iter()
+        .map(|i| (&i.key[..], i.kind))
+        .collect();
+    assert!(
+        kinds.contains(&("game:Zelda (USA)", RepairKind::Rename)),
+        "{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&("game:Mario (USA)", RepairKind::Repack)),
+        "{kinds:?}"
+    );
+    let approved = env
+        .store
+        .approve_repair(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let ended = env
+        .store
+        .run_repair_job(&env.config, approved.job.unwrap(), None)
+        .unwrap();
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(done.outcomes.iter().all(|o| o.done), "{:#?}", done.outcomes);
+
+    assert_eq!(
+        sole_member(&env.set_dir().join("Zelda (USA).zip")),
+        headered_zelda
+    );
+    assert_eq!(
+        sole_member(&env.set_dir().join("Mario (USA).zip")),
+        headered_mario
+    );
+    let report = env.audit(AuditEvidence::Full).report;
+    for game in ["Zelda (USA)", "Mario (USA)"] {
+        let entry = report
+            .entries
+            .iter()
+            .find(|e| e.path == format!("{game}.zip"))
+            .unwrap();
+        assert_eq!(entry.finding, Finding::Matched, "{game}");
+        assert_eq!(entry.evidence.as_ref().unwrap().header.unwrap().bytes, 16);
+    }
+}
+
+/// A Selection of the DAT Revision `sha256` with each of `titles` the winner of its group.
+fn selection(sha256: &str, titles: &[&str]) -> Selection {
+    Selection {
+        pins: SelectionPins::default(),
+        dat_sha256: sha256.into(),
+        system: "Test - System".into(),
+        system_settings: false,
+        summary: SelectionSummary::default(),
+        coverage_drift: CoverageDrift::default(),
+        groups: titles
+            .iter()
+            .map(|title| SelectionGroup {
+                group: title.to_lowercase(),
+                unresolved: false,
+                winners: vec![Winner {
+                    title: (*title).into(),
+                    rule: Rule {
+                        stage: "Parent selection".into(),
+                        reference: None,
+                        message: "m".into(),
+                    },
+                    unresolved: false,
+                }],
+                alternatives: vec![],
+                exclusions: vec![],
+                choice: None,
+                drift: false,
+            })
+            .collect(),
+        stale_choices: Default::default(),
+    }
+}
+
+/// Builds `titles` of the audited Source Set into the new Library Folder `path` as `format`. Returns the folder's id.
+fn build(env: &Env, titles: &[&str], path: &str, format: StorageFormat) -> i64 {
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.play_libraries.systems.insert(
+        SET.into(),
+        SystemStorage {
+            format: Some(format),
+            ..Default::default()
+        },
+    );
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    env.store
+        .save_profile(
+            "Mine",
+            &SelectionProfile::default(),
+            None,
+            "Operator",
+            &[],
+            WORKERS,
+        )
+        .unwrap();
+    env.store
+        .enqueue_selection("Test - System", None, "Mine", None, "Operator", WORKERS)
+        .unwrap();
+    let job = env.store.claim_job().unwrap().unwrap();
+    assert_eq!(job.kind, JobKind::Selection);
+    let sha256 = env.store.history("Test - System").unwrap()[0]
+        .dat_revision_sha256
+        .clone();
+    let id = env
+        .store
+        .record_selection(&env.config, job.id, &selection(&sha256, titles))
+        .unwrap()
+        .selection
+        .unwrap();
+    let folder = env
+        .store
+        .add_library_folder(
+            &env.config,
+            &AddLibraryFolder {
+                root: "play".into(),
+                path: Some(path.into()),
+                template: None,
+                source_set: "Test - System".into(),
+                profile: "Mine".into(),
+            },
+        )
+        .unwrap();
+    let plan = env.store.plan_build(&env.config, folder.id, id).unwrap();
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    let job = env
+        .store
+        .approve_plan(&env.config, plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let ended = env.store.run_build_job(&env.config, job.id, None).unwrap();
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    folder.id
+}
+
+fn check(env: &Env, folder: i64) -> FolderCheck {
+    let job = env.store.enqueue_check(folder, "Operator").unwrap();
+    env.store.claim_job().unwrap().unwrap();
+    let done = env.store.run_check_job(&env.config, job.id, None).unwrap();
+    assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
+    env.store.latest_check(folder).unwrap().unwrap()
+}
+
+#[test]
+fn a_build_writes_headered_dumps_with_their_headers_and_a_check_knows_them_by_their_dat_checksums()
+{
+    for format in [StorageFormat::TorrentZip, StorageFormat::Loose] {
+        let env = Env::new();
+        let zelda = noise(1, 64);
+        let mario = noise(2, 64);
+        env.add(
+            "No-Intro_NES.xml",
+            &[
+                ("Zelda (USA)", vec![rom("Zelda (USA).nes", &zelda)]),
+                ("Mario (USA)", vec![rom("Mario (USA).nes", &mario)]),
+            ],
+        );
+        let headered_zelda = [ines(), zelda].concat();
+        let headered_mario = [ines(), mario].concat();
+        write_file(&env.set_dir().join("Zelda (USA).nes"), &headered_zelda);
+        write_zip(
+            &env.set_dir().join("Mario (USA).zip"),
+            &[("Mario (USA).nes", &headered_mario)],
+        );
+        env.audit(AuditEvidence::Full);
+
+        let folder = build(&env, &["Zelda (USA)", "Mario (USA)"], "nes", format);
+
+        let play = env.tmp.path().join("roots/play/nes");
+        for (game, headered) in [
+            ("Zelda (USA)", &headered_zelda),
+            ("Mario (USA)", &headered_mario),
+        ] {
+            let built = match format {
+                StorageFormat::Loose => std::fs::read(play.join(format!("{game}.nes"))).unwrap(),
+                _ => sole_member(&play.join(format!("{game}.zip"))),
+            };
+            assert_eq!(&built, headered, "{game} as {format:?}");
+        }
+        assert!(check(&env, folder).drift.is_empty(), "{format:?}");
+
+        let (from, to) = match format {
+            StorageFormat::Loose => ("Zelda (USA).nes", "zelda.nes"),
+            _ => ("Zelda (USA).zip", "zelda.zip"),
+        };
+        std::fs::rename(play.join(from), play.join(to)).unwrap();
+        let drift = check(&env, folder).drift;
+        let renamed = drift.iter().find(|d| d.name == to).unwrap();
+        assert_eq!(
+            renamed.game.as_deref(),
+            Some("Zelda (USA)"),
+            "{format:?}: {drift:#?}"
+        );
+    }
 }

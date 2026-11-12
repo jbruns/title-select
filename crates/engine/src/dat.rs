@@ -341,6 +341,20 @@ impl Dat {
         self.header_rule.as_deref().and_then(HeaderRule::named)
     }
 
+    /// What a Build expects of `rom`, one of this DAT's ROMs: its size and checksums, and the Header Rule they leave
+    /// a Header out under.
+    pub fn expected(&self, rom: &Rom) -> title_select_api::build::ExpectedRom {
+        title_select_api::build::ExpectedRom {
+            name: rom.name.clone(),
+            size: rom.size,
+            crc: rom.crc.clone(),
+            md5: rom.md5.clone(),
+            sha1: rom.sha1.clone(),
+            sha256: rom.sha256.clone(),
+            header: self.header(),
+        }
+    }
+
     pub fn roms_named(&self, name: &str) -> &[usize] {
         self.by_name.get(name).map_or(&[], Vec::as_slice)
     }

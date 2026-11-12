@@ -437,14 +437,7 @@ fn roms_of(dat: &Dat, game: usize) -> Vec<ExpectedRom> {
     dat.roms
         .iter()
         .filter(|r| r.game == game)
-        .map(|rom| ExpectedRom {
-            name: rom.name.clone(),
-            size: rom.size,
-            crc: rom.crc.clone(),
-            md5: rom.md5.clone(),
-            sha1: rom.sha1.clone(),
-            sha256: rom.sha256.clone(),
-        })
+        .map(|rom| dat.expected(rom))
         .collect()
 }
 

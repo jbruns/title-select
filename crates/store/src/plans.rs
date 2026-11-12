@@ -1170,14 +1170,7 @@ fn plan_items(
         .collect();
     let mut roms_of: Vec<Vec<ExpectedRom>> = vec![Vec::new(); dat.games.len()];
     for rom in &dat.roms {
-        roms_of[rom.game].push(ExpectedRom {
-            name: rom.name.clone(),
-            size: rom.size,
-            crc: rom.crc.clone(),
-            md5: rom.md5.clone(),
-            sha1: rom.sha1.clone(),
-            sha256: rom.sha256.clone(),
-        });
+        roms_of[rom.game].push(dat.expected(rom));
     }
     let mut winners: Vec<(&str, &str)> = Vec::new();
     let mut seen = BTreeSet::new();

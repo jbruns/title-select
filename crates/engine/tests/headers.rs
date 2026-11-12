@@ -3,7 +3,15 @@
 mod common;
 
 use common::*;
+use std::fs::File;
+use std::io::Read;
 use std::sync::Mutex;
+
+use title_select_api::build::ExpectedRom;
+use title_select_engine::build::{
+    Source, holds_as, probe, probe_under, repack, repack_from, repack_sources, verify,
+    verify_loose, write_loose, write_loose_member, write_loose_members,
+};
 
 use title_select_engine::payload::Hasher;
 use title_select_engine::{
@@ -360,4 +368,168 @@ fn a_read_made_under_another_header_rule_is_read_again() {
     let recorded = reads.recorded.lock().unwrap();
     assert_eq!(recorded[0].1.header_rule, Some(HeaderRule::Nes));
     assert_eq!(recorded[0].1.members[0].1.header, Some(16));
+}
+
+/// The ROM a Build expects of `rom`'s payload, as a DAT naming `rule` lists it.
+fn expected(name: &str, rom_bytes: &[u8], rule: Option<HeaderRule>) -> ExpectedRom {
+    let mut hasher = Hasher::new();
+    hasher.update(rom_bytes);
+    let sums = hasher.finish();
+    ExpectedRom {
+        name: name.into(),
+        size: sums.size,
+        crc: Some(sums.crc),
+        md5: Some(sums.md5),
+        sha1: Some(sums.sha1),
+        sha256: Some(sums.sha256),
+        header: rule,
+    }
+}
+
+fn opened(path: &std::path::Path) -> File {
+    File::open(path).unwrap()
+}
+
+fn created(path: &std::path::Path) -> File {
+    File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .unwrap()
+}
+
+/// The one member of the ZIP at `path`.
+fn sole_member(path: &std::path::Path) -> Vec<u8> {
+    let mut archive = zip::ZipArchive::new(opened(path)).unwrap();
+    let mut bytes = Vec::new();
+    archive
+        .by_index(0)
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
+    bytes
+}
+
+#[test]
+fn every_way_a_build_writes_a_headered_payload_keeps_the_header_and_verifies() {
+    for (_, header) in rules() {
+        let rule = HeaderRule::ALL
+            .into_iter()
+            .find(|r| r.starts(&header, header.len() as u64 + 1))
+            .unwrap();
+        let rom_bytes = noise(3, 256);
+        let dump = with_header(&header, &rom_bytes);
+        let rom = expected("Game.bin", &rom_bytes, Some(rule));
+        let dir = tempfile::tempdir().unwrap();
+        let loose = dir.path().join("loose.bin");
+        let zipped = dir.path().join("zipped.zip");
+        write_file(&loose, &dump);
+        write_zip(&zipped, &[("Game.bin", &dump)]);
+        let out = |name: &str| dir.path().join(name);
+
+        let file = created(&out("repack-loose.zip"));
+        let source = Source {
+            path: &loose,
+            member: None,
+        };
+        repack(&file, &[(&rom, source)]).unwrap();
+        verify(&file, std::slice::from_ref(&rom)).unwrap();
+        assert_eq!(sole_member(&out("repack-loose.zip")), dump, "{rule:?}");
+
+        let file = created(&out("repack-member.zip"));
+        repack_from(&file, std::slice::from_ref(&rom), &opened(&zipped)).unwrap();
+        verify(&file, std::slice::from_ref(&rom)).unwrap();
+        assert_eq!(sole_member(&out("repack-member.zip")), dump, "{rule:?}");
+
+        for (name, member, source) in [
+            ("sources-loose.zip", None, &loose),
+            ("sources-member.zip", Some("Game.bin"), &zipped),
+        ] {
+            let file = created(&out(name));
+            repack_sources(&file, &[(&rom, 0, member)], &[&opened(source)]).unwrap();
+            verify(&file, std::slice::from_ref(&rom)).unwrap();
+            assert_eq!(sole_member(&out(name)), dump, "{rule:?} {name}");
+        }
+
+        for (name, member, source) in [
+            ("loose-loose.bin", None, &loose),
+            ("loose-member.bin", Some("Game.bin"), &zipped),
+        ] {
+            let file = created(&out(name));
+            write_loose(&file, &[(&rom, 0, member)], &[&opened(source)]).unwrap();
+            verify_loose(&file, &rom).unwrap();
+            assert_eq!(std::fs::read(out(name)).unwrap(), dump, "{rule:?} {name}");
+        }
+
+        let file = created(&out("member.bin"));
+        write_loose_member(&file, &rom, "Game.bin", &opened(&zipped)).unwrap();
+        verify_loose(&file, &rom).unwrap();
+        assert_eq!(std::fs::read(out("member.bin")).unwrap(), dump);
+
+        let file = created(&out("members.bin"));
+        write_loose_members(&[&file], &[(&rom, "Game.bin")], &opened(&zipped)).unwrap();
+        verify_loose(&file, &rom).unwrap();
+        assert_eq!(std::fs::read(out("members.bin")).unwrap(), dump);
+    }
+}
+
+#[test]
+fn a_headerless_payload_is_written_as_it_is_under_a_rule() {
+    let rom_bytes = noise(4, 64);
+    let rom = expected("Game.nes", &rom_bytes, Some(HeaderRule::Nes));
+    let dir = tempfile::tempdir().unwrap();
+    let loose = dir.path().join("Game.nes");
+    write_file(&loose, &rom_bytes);
+    let out = dir.path().join("Game.zip");
+    let file = created(&out);
+
+    repack_sources(&file, &[(&rom, 0, None)], &[&opened(&loose)]).unwrap();
+
+    verify(&file, std::slice::from_ref(&rom)).unwrap();
+    assert_eq!(sole_member(&out), rom_bytes);
+}
+
+#[test]
+fn without_a_rule_a_headered_payload_never_verifies_as_its_rom() {
+    let rom_bytes = noise(5, 64);
+    let dump = with_header(&ines(), &rom_bytes);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("Game.nes");
+    write_file(&path, &dump);
+
+    assert!(verify_loose(&opened(&path), &expected("Game.nes", &rom_bytes, None)).is_err());
+    assert!(
+        verify_loose(
+            &opened(&path),
+            &expected("Game.nes", &rom_bytes, Some(HeaderRule::Nes))
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn a_probe_under_a_rule_sees_a_headered_file_as_its_rom() {
+    let rom_bytes = noise(6, 64);
+    let dump = with_header(&ines(), &rom_bytes);
+    let rom = expected("Game.nes", &rom_bytes, Some(HeaderRule::Nes));
+    let dir = tempfile::tempdir().unwrap();
+    let loose = dir.path().join("Game.nes");
+    let zipped = dir.path().join("Game.zip");
+    write_file(&loose, &dump);
+    write_zip(&zipped, &[("Game.nes", &dump)]);
+
+    let whole = probe(&opened(&loose)).unwrap();
+    assert!(!holds_as(&whole, std::slice::from_ref(&rom), true));
+
+    let read = probe_under(&opened(&loose), Some(HeaderRule::Nes)).unwrap();
+    assert!(holds_as(&read, std::slice::from_ref(&rom), true));
+    assert_eq!(read.payloads[0].header, Some(16));
+    assert_eq!(
+        read.size,
+        dump.len() as u64,
+        "the file is still hashed whole"
+    );
+    let read = probe_under(&opened(&zipped), Some(HeaderRule::Nes)).unwrap();
+    assert!(holds_as(&read, std::slice::from_ref(&rom), false));
 }

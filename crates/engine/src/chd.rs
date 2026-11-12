@@ -483,6 +483,7 @@ mod tests {
             md5: None,
             sha1: None,
             sha256: None,
+            header: None,
         }
     }
 
