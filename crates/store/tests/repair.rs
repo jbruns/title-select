@@ -3982,3 +3982,70 @@ fn a_mismatched_track_is_replaced_from_ingest_and_kept_aside() {
     env.run_queued_audit(&done);
     assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
 }
+
+/// A Redump DAT where `Ball (USA) (Canada)`, renamed since it was dumped, shares its second track's payload with
+/// `Wrestle (Europe)`, which the Source Set lacks. With `weaker`, the DAT lists Ball's track without the SHA-256 it gives
+/// Wrestle's, so writing Ball's says less about the bytes than Wrestle's copy needs. The Source Set holds Ball's tracks under its old name, `Ball (USA).zip`, with its old
+/// `.cue`, and the cue pack holds its new one.
+fn renamed_with_a_shared_track(weaker: bool) -> Env {
+    let mut ball = disc("Ball (USA) (Canada)", 2, 9_000, 40);
+    let mut wrestle = disc("Wrestle (Europe)", 2, 9_000, 50);
+    wrestle[2].payload = ball[2].payload.clone();
+    ball[2].sha256 = !weaker;
+    let [cue, track_1, track_2] = [0, 1, 2].map(|n| ball[n].payload.clone());
+    let env = Env::with(
+        "Redump",
+        &[("Ball (USA) (Canada)", ball), ("Wrestle (Europe)", wrestle)],
+    );
+    set_disc_policy(&env, StorageFormat::TorrentZip, false);
+    write_zip(
+        &env.set().join("Ball (USA).zip"),
+        &[
+            (
+                "Ball (USA).cue",
+                b"FILE \"Ball (USA) (Track 1).bin\" BINARY\n",
+            ),
+            ("Ball (USA) (Track 1).bin", &track_1),
+            ("Ball (USA) (Track 2).bin", &track_2),
+        ],
+    );
+    env.audit(AuditEvidence::Full);
+    import_cue_pack(&env, &[("Ball (USA) (Canada).cue", &cue)]);
+    env
+}
+
+#[test]
+fn a_renamed_game_whose_track_another_game_shares_is_written_under_its_new_name() {
+    let env = renamed_with_a_shared_track(false);
+
+    let plan = env.plan();
+    let fill = item(&plan, "game:Ball (USA) (Canada)");
+    assert_eq!(fill.chosen, RepairChoice::Apply, "{fill:?}");
+    let done = env.approve(&plan);
+
+    assert!(is_torrentzip(&env.set().join("Ball (USA) (Canada).zip")));
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].name, "Ball (USA).zip");
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Ball (USA) (Canada)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_renamed_game_is_left_when_its_track_is_the_last_copy_of_one_the_dat_pins_more_closely() {
+    let env = renamed_with_a_shared_track(true);
+    let before = env.listing();
+
+    let plan = env.plan();
+
+    let left = item(&plan, "game:Ball (USA) (Canada)");
+    assert_eq!(left.chosen, RepairChoice::Leave, "{left:?}");
+    assert_eq!(
+        left.note.as_deref(),
+        Some(
+            "left as it is: it would keep aside the only copy of a ROM no repair in this plan writes"
+        )
+    );
+    env.approve(&plan);
+    assert_eq!(env.listing()[1..], before[..], "only the marker is new");
+}

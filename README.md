@@ -870,8 +870,9 @@ approving approves the plan as it was made, so it waits while you have changes y
   to take it as the ROM its payload matches, keep it aside or leave it;
 - unmatched entries, duplicates and extra members of a game's ZIP are kept aside by default.
 
-Setting a file aside that holds the last copy of a ROM no repair writes is never the default; when you choose to,
-the item says so, and you can restore it from the kept files. A conflicting entry you leave is never displaced by
+Setting a file aside that holds the last copy of a ROM no repair writes is never the default. A repair that writes
+the same payload for another game counts, such as a track two games share, when the DAT gives that game's ROM every
+checksum it gives this one. When you choose to set the last copy aside, the item says so, and you can restore it from the kept files. A conflicting entry you leave is never displaced by
 another item, and an unreadable entry is replaced only while it is as the audit found it. The plan lists every
 change in order: each file written, renamed, published or kept aside. It binds the source set's folder, and every
 entry in it, by device, inode, size, modification time, change time and link count, and its audit: approving is
