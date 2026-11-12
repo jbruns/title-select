@@ -33,6 +33,19 @@ const POLL: Duration = Duration::from_millis(100);
 /// How often what a running chdman has written is measured against its budget.
 const BUDGET_POLL: Duration = Duration::from_millis(10);
 
+/// The bytes the regular files in `out` and every folder in it take, as they are now: links aren't followed, and
+/// entries removed while it is read aren't counted.
+fn written(out: &Path) -> u64 {
+    walkdir::WalkDir::new(out)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| m.len())
+        .fold(0, u64::saturating_add)
+}
+
 /// Why chdman was stopped for writing more than `budget` allows.
 fn over_budget<T>(verb: &str, budget: Option<(&Path, u64)>) -> Result<T, Stop> {
     Err(Stop::Failed(format!(
@@ -582,18 +595,7 @@ impl Chdman {
         cancelled: &dyn Fn() -> bool,
         budget: Option<(&Path, u64)>,
     ) -> Result<(), Stop> {
-        let over = || {
-            budget.and_then(|(out, most)| {
-                let written: u64 = std::fs::read_dir(out)
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                    .filter_map(|e| e.metadata().ok())
-                    .map(|m| m.len())
-                    .fold(0, u64::saturating_add);
-                (written > most).then_some(most)
-            })
-        };
+        let over = || budget.and_then(|(out, most)| (written(out) > most).then_some(most));
         let log_path = dir.join("chdman.log");
         let log = File::options()
             .create(true)
@@ -1059,19 +1061,29 @@ mod tests {
 
     #[test]
     fn chdman_writing_past_its_budget_is_stopped() {
+        chdman_writing_endlessly_is_stopped("x", "x/t1.bin");
+    }
+
+    #[test]
+    fn chdman_writing_past_its_budget_in_a_folder_of_its_own_is_stopped() {
+        chdman_writing_endlessly_is_stopped("x/a/b", "x/a/b/t1.bin");
+    }
+
+    /// A chdman that makes the folder `folder` and writes to `file` without end is stopped by a budget on `x`.
+    fn chdman_writing_endlessly_is_stopped(folder: &str, file: &str) {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let program = dir.path().join("endless");
         std::fs::write(
             &program,
-            "#!/bin/sh\nmkdir -p x\nwhile :; do head -c 65536 /dev/zero >> x/t1.bin; done\n",
+            format!("#!/bin/sh\nmkdir -p {folder}\nwhile :; do head -c 65536 /dev/zero >> {file}; done\n"),
         )
         .unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         let chdman = Chdman {
             program,
             threads: 1,
-            deadline: Duration::from_secs(60),
+            deadline: Duration::from_secs(5),
         };
         let started = std::time::Instant::now();
         let stop = chdman
@@ -1082,7 +1094,7 @@ mod tests {
                 Some((&dir.path().join("x"), 1 << 20)),
             )
             .unwrap_err();
-        assert!(started.elapsed() < Duration::from_secs(30));
+        assert!(started.elapsed() < Duration::from_secs(5));
         let Stop::Failed(why) = stop else {
             panic!("{stop:?}")
         };
