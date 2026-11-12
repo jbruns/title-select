@@ -5,6 +5,8 @@
 
 mod auth;
 mod jobs;
+mod metrics;
+mod notify;
 mod routes;
 mod selections;
 
@@ -18,6 +20,7 @@ use title_select_store::fetch::{Endpoints, Fetcher};
 use title_select_store::{Store, Workers};
 
 pub use auth::TOKEN_ACTOR;
+pub use notify::SECRET_FILE_ENV;
 pub use routes::UPLOAD_LIMIT;
 
 /// The environment variable naming the file that holds the Operator token.
@@ -32,6 +35,8 @@ pub struct Settings {
     pub listen: SocketAddr,
     /// The file holding the Operator token, if the token is enabled.
     pub token_file: Option<PathBuf>,
+    /// The file holding the webhook's HMAC secret, needed when `[notify] url` is set.
+    pub webhook_secret_file: Option<PathBuf>,
     /// The workbench's built bundle, served at `/` (ADR 0005).
     pub ui: Option<PathBuf>,
     /// The clone lists the selection engine reads; by default `$TITLE_SELECT_CLONE_LISTS`, else
@@ -40,6 +45,9 @@ pub struct Settings {
     /// Leaves queued Jobs queued, so tests can observe them.
     #[doc(hidden)]
     pub hold_jobs: bool,
+    /// Where fetches are sent instead of the official endpoints, so tests can stand in for a provider.
+    #[doc(hidden)]
+    pub fetch_endpoints: Option<Endpoints>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -52,6 +60,8 @@ pub enum StartError {
     Listen(SocketAddr, std::io::Error),
     #[error("cannot start the runtime: {0}")]
     Runtime(std::io::Error),
+    #[error("refusing to start: {0}")]
+    Notify(String),
 }
 
 /// A Service ready to serve: auth checked, the store open and its interrupted Jobs recovered, the address bound.
@@ -60,6 +70,8 @@ struct Prepared {
     app: axum::Router,
     state: routes::AppState,
     hold_jobs: bool,
+    /// The webhook's delivery, and where looking for its events starts, when a webhook is configured.
+    notify: Option<(notify::Delivery, title_select_store::observe::Watermarks)>,
 }
 
 fn prepare(settings: Settings) -> Result<Prepared, StartError> {
@@ -68,9 +80,11 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         config,
         listen,
         token_file,
+        webhook_secret_file,
         ui,
         clone_lists,
         hold_jobs,
+        fetch_endpoints,
     } = settings;
     let engine = match title_select_selection::Engine::locate(clone_lists.as_deref()) {
         Ok(engine) => Some(Arc::new(engine)),
@@ -80,6 +94,8 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         }
     };
     let auth = auth::Auth::new(&config.auth, token_file.as_deref(), listen)?;
+    let (notifier, delivery) =
+        notify::Notifier::new(&config.notify, webhook_secret_file.as_deref())?;
     let store = Store::open(&store)?;
     let workers: Workers = config.jobs.workers();
     for interruption in store.recover_jobs(workers)? {
@@ -157,6 +173,11 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     for why in store.fulfil_ingest_reaudits()?.failed {
         eprintln!("title-select: cannot queue an owed audit: {why}");
     }
+    // What the store holds now is never notified: only what happens from here on.
+    let notify = match delivery {
+        Some(delivery) => Some((delivery, notify::watermarks(&store)?)),
+        None => None,
+    };
     let listener =
         std::net::TcpListener::bind(listen).map_err(|e| StartError::Listen(listen, e))?;
     listener
@@ -165,11 +186,13 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     let state = routes::AppState {
         store: Arc::new(store),
         config: Arc::new(config),
-        jobs: Arc::new(jobs::Jobs::new()),
+        jobs: Arc::new(jobs::Jobs::new(Arc::new(notifier))),
         workers,
         engine,
         previews: Arc::default(),
-        fetcher: Arc::new(Fetcher::new(Endpoints::official())),
+        fetcher: Arc::new(Fetcher::new(
+            fetch_endpoints.unwrap_or_else(Endpoints::official),
+        )),
     };
     let app = routes::router(state.clone(), Arc::new(auth), ui.as_deref());
     Ok(Prepared {
@@ -177,6 +200,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         app,
         state,
         hold_jobs,
+        notify,
     })
 }
 
@@ -188,6 +212,14 @@ impl Prepared {
     /// Serves until the process ends; must run inside the runtime.
     async fn serve(self) -> std::io::Result<()> {
         let state = self.state;
+        if let Some((delivery, marks)) = self.notify {
+            tokio::spawn(notify::deliver(delivery));
+            tokio::spawn(notify::reconcile(
+                state.store.clone(),
+                state.jobs.notifier.clone(),
+                marks,
+            ));
+        }
         if !self.hold_jobs {
             tokio::spawn(jobs::schedule_ingest_scans(
                 state.store.clone(),
@@ -203,6 +235,7 @@ impl Prepared {
                 state.store.clone(),
                 state.config.clone(),
                 state.fetcher.clone(),
+                state.jobs.notifier.clone(),
             ));
             tokio::spawn(jobs::run(
                 state.store,

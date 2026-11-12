@@ -228,6 +228,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .nest(title_select_api::PREFIX, api)
         .route("/api", any(not_found))
         .route("/api/{*rest}", any(not_found))
+        .route("/metrics", get(metrics))
         .with_state(state);
     match ui {
         Some(dir) => app.merge(workbench(dir)),
@@ -357,6 +358,16 @@ async fn not_found() -> ApiError {
     ApiError(StatusCode::NOT_FOUND, "no such API path".into(), None)
 }
 
+/// Prometheus metrics, read from the store now. Outside the API, and unauthenticated: they name no path or Game.
+async fn metrics(State(state): State<AppState>) -> ApiResult<Response> {
+    let metrics = blocking(&state, Store::metrics).await?;
+    Ok((
+        [(header::CONTENT_TYPE, crate::metrics::CONTENT_TYPE)],
+        crate::metrics::render(&metrics),
+    )
+        .into_response())
+}
+
 async fn health() -> Json<Health> {
     Json(Health {
         status: "ok".into(),
@@ -435,6 +446,7 @@ async fn upload_dat(
         store.import_dat_bytes(&bytes, &name, &provider, source_url.as_deref())
     })
     .await?;
+    state.jobs.notifier.poke();
     let status = match outcome {
         title_select_api::ImportOutcome::Added => StatusCode::CREATED,
         _ => StatusCode::OK,
@@ -654,6 +666,8 @@ async fn plan_build(
         store.plan_build_with(&config, id, &request)
     })
     .await?;
+    // Planning checks the folder first, which may find drift.
+    state.jobs.notifier.poke();
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -1201,9 +1215,9 @@ async fn set_follow(
 ) -> ApiResult<Json<title_select_api::SourceSetRecord>> {
     let Path(name) = name?;
     let Json(request) = body?;
-    Ok(Json(
-        blocking(&state, move |store| store.set_follow(&name, request.follow)).await?,
-    ))
+    let set = blocking(&state, move |store| store.set_follow(&name, request.follow)).await?;
+    state.jobs.notifier.poke();
+    Ok(Json(set))
 }
 
 /// Queues a stat walk of a Source Set: a check, from sizes and times alone, for files changed since its latest Audit.
@@ -1271,7 +1285,9 @@ async fn start_fetch(
         state.config.clone(),
         state.fetcher.clone(),
     );
+    let notifier = state.jobs.notifier.clone();
     let fetch = tokio::task::spawn_blocking(move || {
+        let _poke = crate::jobs::PokeOnDrop(&notifier);
         crate::jobs::log_fetch(
             provider,
             store.fetch(&config, &fetcher, provider, FetchTrigger::Manual, &actor),
@@ -1965,7 +1981,7 @@ mod tests {
         AppState {
             store: Arc::new(Store::open(&dir.join("store")).unwrap()),
             config: Arc::new(Config::parse("").unwrap()),
-            jobs: Arc::new(Jobs::new()),
+            jobs: Arc::new(Jobs::new(Arc::new(crate::notify::Notifier::off()))),
             workers: Workers {
                 readers: 1,
                 hashers: 1,

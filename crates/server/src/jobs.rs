@@ -14,6 +14,8 @@ use title_select_store::config::Config;
 use title_select_store::fetch::Fetcher;
 use tokio::sync::{Notify, Semaphore, broadcast};
 
+use crate::notify::Notifier;
+
 /// The least time between two progress events of one Job.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 /// How long the runner waits after the store fails to hand it a Job.
@@ -23,13 +25,16 @@ const RETRY: Duration = Duration::from_secs(1);
 pub struct Jobs {
     wake: Notify,
     events: broadcast::Sender<JobEvent>,
+    /// Told of each Job's end.
+    pub notifier: Arc<Notifier>,
 }
 
 impl Jobs {
-    pub fn new() -> Jobs {
+    pub fn new(notifier: Arc<Notifier>) -> Jobs {
         Jobs {
             wake: Notify::new(),
             events: broadcast::channel(1024).0,
+            notifier,
         }
     }
 
@@ -37,6 +42,7 @@ impl Jobs {
     /// that waited for this one to end, as a stat walk waits for a Repair or Build of its Source Set.
     pub fn changed(&self, job: Job) {
         let wake = job.state == title_select_api::JobState::Queued || job.state.is_final();
+        self.notifier.job_changed(&job);
         self.publish(JobEvent::State(Box::new(job)));
         if wake {
             self.wake.notify_one();
@@ -283,7 +289,12 @@ const FETCH_DUE_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// Fetches, from each DAT Provider you turned on, what is due for the systems your Source Sets Follow: each at most
 /// once a day (ADR 0012). A fetch runs alongside Jobs, and never queues one.
-pub async fn schedule_fetches(store: Arc<Store>, config: Arc<Config>, fetcher: Arc<Fetcher>) {
+pub async fn schedule_fetches(
+    store: Arc<Store>,
+    config: Arc<Config>,
+    fetcher: Arc<Fetcher>,
+    notifier: Arc<Notifier>,
+) {
     let providers: Vec<_> = FetchProvider::ALL
         .into_iter()
         .filter(|p| config.fetch.enabled(*p))
@@ -298,7 +309,9 @@ pub async fn schedule_fetches(store: Arc<Store>, config: Arc<Config>, fetcher: A
         tick.tick().await;
         for &provider in &providers {
             let (store, config, fetcher) = (store.clone(), config.clone(), fetcher.clone());
+            let notifier = notifier.clone();
             let fetched = tokio::task::spawn_blocking(move || {
+                let _poke = PokeOnDrop(&notifier);
                 log_fetch(
                     provider,
                     store.fetch(
@@ -323,6 +336,15 @@ pub async fn schedule_fetches(store: Arc<Store>, config: Arc<Config>, fetcher: A
                 ),
             }
         }
+    }
+}
+
+/// Pokes the Notifier when dropped: once a fetch ends, however it ends.
+pub struct PokeOnDrop<'a>(pub &'a Notifier);
+
+impl Drop for PokeOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.poke();
     }
 }
 
