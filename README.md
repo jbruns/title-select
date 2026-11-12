@@ -52,7 +52,7 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
 
 ```jsonc
 {
-  "schema": 4,                       // version of this report's shape
+  "schema": 5,                       // version of this report's shape
   "dat_revision": {                  // the DAT revision the audit is pinned to
     "sha256": "254e…",               // SHA-256 of the unmodified DAT file: its identity
     "name": "Atari - Atari 2600",    // from the DAT header
@@ -141,15 +141,20 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
 - A game is `complete`, `incomplete` or `missing`, counting only its own files; `missing_roms` lists its ROMs no
   entry of its own matched. `claimed_roms`, present only after a quick inventory, lists its ROMs that only a claim
   matched: its status rests on claims for them, and a build never uses a claim as a source.
-- A game's own files are every entry except those inside another game's ZIP or folder. An entry in
-  `<other game>.zip` or `<other game>/` doesn't count towards this game, even when its `roms` name one of this game's
-  ROMs, as a track two discs share often does when it is stored under an old title. A loose file, or a member of a
-  ZIP not named for another game, still counts, misnamed or not. `available_elsewhere` lists the missing ROMs such
-  entries hold, with the games whose ZIP or folder holds each; they are still in `missing_roms`, and a repair can
-  still fill the game from them. The entries themselves don't change: such an entry's `roms` still names each ROM it
-  holds.
-- An audit made before Title Select counted only a game's own files keeps the statuses it found, and has no
-  `available_elsewhere`, until you audit the source set again.
+- A game's own files are every entry except those inside another game's ZIP or folder. An entry's ZIP or folder is
+  the nearest of its ZIP and the folders above it that is named for a game, so `<game>/tracks/Track 02.bin` is in
+  `<game>/`. An entry in `<other game>.zip` or `<other game>/` doesn't count towards this game, even when its `roms`
+  name one of this game's ROMs, as a track two discs share often does when it is stored under an old title. A loose
+  file, or a member of a ZIP, in nothing named for a game still counts, misnamed or not. A clone's parent's ZIP or
+  folder counts as the clone's own, because merged and split sets keep a clone's files there.
+- `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
+  the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
+  fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
+  game. The entries themselves don't change: such an entry's `roms` still names each
+  ROM it holds.
+- Schema 5 counts a game's status only from its own files and adds `available_elsewhere`; schema 4 counted every
+  entry wherever it was. An audit stored before this keeps the statuses it found, and has no `available_elsewhere`,
+  until you audit the source set again.
 
 ## Selection
 
@@ -1101,7 +1106,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
-| `GET /api/v1/audits/{id}/report`                   | the full `schema: 4` report                                  |
+| `GET /api/v1/audits/{id}/report`                   | the full `schema: 5` report                                  |
 | `GET /api/v1/audits/{id}/entries`                  | entries, paged; `?finding=`                                  |
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |

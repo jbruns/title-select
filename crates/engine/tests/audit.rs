@@ -608,3 +608,123 @@ fn a_misnamed_loose_file_or_a_member_of_the_games_own_zip_still_counts_towards_i
     assert!(b.available_elsewhere.is_empty());
     assert_eq!(status_of(&report, "Game A (USA)"), GameStatus::Incomplete);
 }
+
+#[test]
+fn a_track_named_for_its_own_game_inside_another_games_zip_is_available_elsewhere_too() {
+    let f = Fixture::new();
+    let dat = shared_track_dat(&f);
+    write_zip(
+        &f.set_path("Game A (USA).zip"),
+        &[
+            ("Game A (USA) (Track 1).bin", b"a data"),
+            ("Game A (USA) (Track 2).bin", b"shared audio"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Game A (USA)"), GameStatus::Complete);
+    let b = game_of(&report, "Game B (Europe)");
+    assert_eq!(b.status, GameStatus::Missing);
+    assert_eq!(
+        b.available_elsewhere,
+        [AvailableElsewhere {
+            rom: "Game B (Europe) (Track 2).bin".into(),
+            games: vec!["Game A (USA)".into()],
+        }]
+    );
+}
+
+#[test]
+fn a_file_nested_deeper_in_another_games_folder_is_available_elsewhere() {
+    let f = Fixture::new();
+    let dat = shared_track_dat(&f);
+    write_file(&f.set_path("Game A (USA)/tracks/Track 01.bin"), b"a data");
+    write_file(
+        &f.set_path("Game A (USA)/tracks/Track 02.bin"),
+        b"shared audio",
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Game A (USA)"), GameStatus::Complete);
+    let b = game_of(&report, "Game B (Europe)");
+    assert_eq!(b.status, GameStatus::Missing);
+    assert_eq!(b.available_elsewhere[0].games, ["Game A (USA)"]);
+}
+
+/// A parent, its clone sharing one ROM with it and having one of its own, and an unrelated Game sharing the parent's
+/// other ROM.
+fn parent_and_clone_dat(f: &Fixture) -> std::path::PathBuf {
+    f.dat_with_clones(&[
+        (
+            "Fighter (World)",
+            None,
+            vec![rom("program.bin", b"program"), rom("gfx.bin", b"graphics")],
+        ),
+        (
+            "Fighter (Japan)",
+            Some("Fighter (World)"),
+            vec![
+                rom("program.bin", b"program"),
+                rom("text-jp.bin", b"japanese"),
+            ],
+        ),
+        (
+            "Other Fighter (USA)",
+            None,
+            vec![rom("gfx.bin", b"graphics")],
+        ),
+    ])
+}
+
+#[test]
+fn a_clone_in_a_merged_set_is_complete_from_its_parents_zip_and_an_unrelated_game_is_not() {
+    let f = Fixture::new();
+    let dat = parent_and_clone_dat(&f);
+    write_zip(
+        &f.set_path("Fighter (World).zip"),
+        &[
+            ("program.bin", b"program"),
+            ("gfx.bin", b"graphics"),
+            ("text-jp.bin", b"japanese"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Fighter (World)"), GameStatus::Complete);
+    let clone = game_of(&report, "Fighter (Japan)");
+    assert_eq!(clone.status, GameStatus::Complete);
+    assert!(clone.available_elsewhere.is_empty());
+    let other = game_of(&report, "Other Fighter (USA)");
+    assert_eq!(other.status, GameStatus::Missing);
+    assert_eq!(
+        other.available_elsewhere,
+        [AvailableElsewhere {
+            rom: "gfx.bin".into(),
+            games: vec!["Fighter (World)".into()],
+        }]
+    );
+}
+
+#[test]
+fn a_clone_in_a_split_set_counts_the_roms_it_shares_from_its_parents_zip() {
+    let f = Fixture::new();
+    let dat = parent_and_clone_dat(&f);
+    write_zip(
+        &f.set_path("Fighter (World).zip"),
+        &[("program.bin", b"program"), ("gfx.bin", b"graphics")],
+    );
+    write_zip(
+        &f.set_path("Fighter (Japan).zip"),
+        &[("text-jp.bin", b"japanese")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let clone = game_of(&report, "Fighter (Japan)");
+    assert_eq!(clone.status, GameStatus::Complete);
+    assert!(clone.available_elsewhere.is_empty());
+    assert_eq!(status_of(&report, "Fighter (World)"), GameStatus::Complete);
+}

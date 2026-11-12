@@ -84,12 +84,31 @@ pub fn write_dat_with_header(dir: &Path, rule: &str, games: &[(&str, Vec<RomSpec
     write_dat_full(dir, "test.dat", "20260101-000000", Some(rule), games)
 }
 
+/// Writes a DAT whose Games may each name a parent (`cloneof`), as MAME and No-Intro's parent/clone DATs do.
+pub fn write_dat_with_clones(dir: &Path, games: &[(&str, Option<&str>, Vec<RomSpec>)]) -> PathBuf {
+    write_dat_xml(dir, "test.dat", "20260101-000000", None, games)
+}
+
 fn write_dat_full(
     dir: &Path,
     file: &str,
     version: &str,
     rule: Option<&str>,
     games: &[(&str, Vec<RomSpec>)],
+) -> PathBuf {
+    let games: Vec<(&str, Option<&str>, &[RomSpec])> = games
+        .iter()
+        .map(|(game, roms)| (*game, None, roms.as_slice()))
+        .collect();
+    write_dat_xml(dir, file, version, rule, &games)
+}
+
+fn write_dat_xml<R: AsRef<[RomSpec]>>(
+    dir: &Path,
+    file: &str,
+    version: &str,
+    rule: Option<&str>,
+    games: &[(&str, Option<&str>, R)],
 ) -> PathBuf {
     let clrmamepro = rule
         .map(|r| format!("    <clrmamepro header=\"{r}\"/>\n"))
@@ -103,9 +122,12 @@ fn write_dat_full(
 {clrmamepro}  </header>
 "#
     );
-    for (game, roms) in games {
-        xml.push_str(&format!("  <game name=\"{game}\">\n"));
-        for r in roms {
+    for (game, parent, roms) in games {
+        let cloneof = parent
+            .map(|p| format!(" cloneof=\"{p}\""))
+            .unwrap_or_default();
+        xml.push_str(&format!("  <game name=\"{game}\"{cloneof}>\n"));
+        for r in roms.as_ref() {
             xml.push_str(&format!("    {}\n", rom_xml(r)));
         }
         xml.push_str("  </game>\n");
@@ -157,6 +179,10 @@ impl Fixture {
 
     pub fn dat(&self, games: &[(&str, Vec<RomSpec>)]) -> PathBuf {
         write_dat(self.dat_dir.path(), games)
+    }
+
+    pub fn dat_with_clones(&self, games: &[(&str, Option<&str>, Vec<RomSpec>)]) -> PathBuf {
+        write_dat_with_clones(self.dat_dir.path(), games)
     }
 
     pub fn set_path(&self, rel: &str) -> PathBuf {

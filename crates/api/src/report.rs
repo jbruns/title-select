@@ -1,4 +1,4 @@
-//! The `schema: 4` Audit report (see GLOSSARY.md and ADR 0002).
+//! The `schema: 5` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 /// The report shape this version writes.
-pub const SCHEMA: u32 = 4;
+pub const SCHEMA: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

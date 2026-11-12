@@ -19,3 +19,7 @@ Game itself was present or playable. Game Status is meant to tell the Operator w
 - Game Status counts only present ROMs. A Game whose ROMs are all absent or Available Elsewhere is Missing. The Audit
   reports Available Elsewhere ROMs with the Game, and a Repair can still fill the Game from them.
 - Per-Entry Findings and Evidence are unchanged: this is about how Entries count towards Games.
+
+A clone's parent's container counts as the clone's own. Merged sets keep a clone's files in its parent's ZIP, and
+split sets keep the files a clone shares with its parent there, so treating that container as another Game's would
+make every complete clone in such a set Missing. The DAT's `cloneof` names the parent.

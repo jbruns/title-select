@@ -839,7 +839,7 @@ pub fn GamesPanel(games: Arc<AuditGames>, rule: Option<HeaderRule>) -> impl Into
         let absent = (!game.missing_roms.is_empty()).then(|| {
             let elsewhere = (!game.available_elsewhere.is_empty()).then(|| {
                 view! {
-                    <p class="note">"A ROM available in another game is inside that game's ZIP or folder, so it doesn't count towards this game. A repair can fill this game from it."</p>
+                    <p class="note">"A ROM available in another game is inside that game's ZIP or folder, so it doesn't count towards this game. A repair can fill this game from it unless the file is named for the other game."</p>
                 }
             });
             view! {

@@ -328,13 +328,20 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         might_be_headered: &might_be_headered,
     };
     let mut reads = read::read_files(&files, how, options.workers, options.progress).into_iter();
+    let game_index: HashMap<&str, usize> = dat
+        .games
+        .iter()
+        .enumerate()
+        .map(|(i, g)| (g.as_str(), i))
+        .collect();
+    let parents = dat
+        .cloneof
+        .iter()
+        .map(|p| p.as_deref().and_then(|p| game_index.get(p).copied()))
+        .collect();
     let mut scan = Scan {
-        game_index: dat
-            .games
-            .iter()
-            .enumerate()
-            .map(|(i, g)| (g.as_str(), i))
-            .collect(),
+        game_index,
+        parents,
         covered: vec![None; dat.roms.len()],
         elsewhere: vec![BTreeSet::new(); dat.roms.len()],
         header_missing: vec![false; dat.games.len()],
@@ -403,9 +410,11 @@ struct Scan<'d> {
     dat: &'d Dat,
     /// Each Game's index, by its name.
     game_index: HashMap<&'d str, usize>,
+    /// The parent each Game is a clone of, by the Game's index.
+    parents: Vec<Option<usize>>,
     /// The strongest Evidence Level any Entry holding each ROM for its own Game has.
     covered: Vec<Option<EvidenceLevel>>,
-    /// For each ROM, the other Games whose ZIP or folder holds an Entry that counts towards it (ADR 0017).
+    /// For each ROM, the other Games whose ZIP or folder holds an Entry whose payload is that ROM's (ADR 0017).
     elsewhere: Vec<BTreeSet<usize>>,
     /// Each Game a Matched Entry without the Header its emulators need counts towards.
     header_missing: Vec<bool>,
@@ -430,16 +439,23 @@ impl Scan<'_> {
         let name = full.rsplit(['/', '\\']).next().unwrap_or(full);
         let (finding, payload, named) = classify(self.dat, name, known);
         let container = self.container(&path, member.as_deref());
-        // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017).
-        let elsewhere = |r: usize| container.filter(|g| *g != self.dat.roms[r].game);
+        // An Entry inside another Game's ZIP or folder makes a ROM Available Elsewhere, never present (ADR 0017). A
+        // clone's parent's is the clone's own: merged and split sets keep a clone's files there.
+        let elsewhere = |r: usize| {
+            let game = self.dat.roms[r].game;
+            container.filter(|g| *g != game && Some(*g) != self.parents[game])
+        };
         let own: Vec<usize> = payload
             .iter()
             .copied()
             .filter(|r| elsewhere(*r).is_none())
             .collect();
-        let others: Vec<(usize, usize)> = payload
-            .iter()
-            .filter_map(|r| elsewhere(*r).map(|g| (*r, g)))
+        // Every ROM whose checksums the Entry's payload has, not only those it counts towards, so a track named for
+        // its own Game still shows where another Game's copy is. Repair cannot yet source from those: it fills a
+        // Game only from Entries that count towards it.
+        let others: Vec<(usize, usize)> = matching_roms(self.dat, known)
+            .into_iter()
+            .filter_map(|r| elsewhere(r).map(|g| (r, g)))
             .collect();
         for (r, g) in others {
             self.elsewhere[r].insert(g);
@@ -475,22 +491,19 @@ impl Scan<'_> {
         });
     }
 
-    /// The Game whose ZIP or folder holds the Entry at `path`, `member` of it in a ZIP: the ZIP's name less `.zip`,
-    /// or the name of the folder a loose file is in. None when that names no Game, or a loose file is at the root.
+    /// The Game whose ZIP or folder holds the Entry at `path` (relative to the Source Set's root), `member` of it in
+    /// a ZIP: the nearest of the ZIP, by its name less `.zip`, and the folders above it or the loose file that is
+    /// named for a Game. None when none is.
     fn container(&self, path: &str, member: Option<&str>) -> Option<usize> {
-        let name = match member {
-            Some(_) => {
-                let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
-                let (stem, ext) = file.rsplit_once('.')?;
-                ext.eq_ignore_ascii_case("zip").then_some(stem)?
-            }
-            None => path
-                .rsplit_once(['/', '\\'])?
-                .0
-                .rsplit(['/', '\\'])
-                .next()?,
-        };
-        self.game_index.get(name).copied()
+        let mut parts = path.split(['/', '\\']).rev();
+        let file = parts.next()?;
+        let zip = member.and_then(|_| {
+            let (stem, ext) = file.rsplit_once('.')?;
+            ext.eq_ignore_ascii_case("zip").then_some(stem)
+        });
+        zip.into_iter()
+            .chain(parts)
+            .find_map(|name| self.game_index.get(name).copied())
     }
 
     fn games(&self) -> Vec<Game> {

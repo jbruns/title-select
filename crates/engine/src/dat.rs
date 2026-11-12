@@ -39,6 +39,8 @@ pub struct Dat {
     pub games: Vec<String>,
     /// Each Game's description, by the Game's index; empty if the DAT gives none.
     pub descriptions: Vec<String>,
+    /// The parent each Game is a clone of (`cloneof`), by the Game's index; none for a parent or a DAT without them.
+    pub cloneof: Vec<Option<String>>,
     pub roms: Vec<Rom>,
     by_name: HashMap<String, Vec<usize>>,
     by_size_crc: HashMap<(u64, String), Vec<usize>>,
@@ -90,6 +92,7 @@ impl Dat {
             header_rule: None,
             games: Vec::new(),
             descriptions: Vec::new(),
+            cloneof: Vec::new(),
             roms: Vec::new(),
             by_name: HashMap::new(),
             by_size_crc: HashMap::new(),
@@ -259,6 +262,7 @@ impl Dat {
             .ok_or_else(|| Error::Dat("a game has no name".into()))?;
         self.games.push(name.clone());
         self.descriptions.push(String::new());
+        self.cloneof.push(a.get("cloneof").cloned());
         self.extent = None;
         Ok(())
     }
