@@ -1205,20 +1205,12 @@ fn plan_items(
     };
     // Each selected Multi-disc Game's release, listed by its `.m3u`, with its discs in disc order; and each disc's
     // SBI file, where the system opts in.
-    let mut playlists: BTreeMap<String, Vec<(u32, &str)>> = BTreeMap::new();
+    let playlists = playlists(&laid, winners.iter().map(|(_, title)| *title));
     let mut sbis: Vec<(&str, &str, String, &crate::sbi_packs::SbiMember)> = Vec::new();
     for (group, title) in &winners {
         let Some(entry) = laid.get(*title).and_then(|l| l.entry.as_ref()) else {
             continue;
         };
-        if entry.starts_with(&format!("{MULTIDISC}/"))
-            && let Some(disc) = title_select_api::discs::disc(title)
-        {
-            playlists
-                .entry(release_of(title))
-                .or_default()
-                .push((disc.number, title));
-        }
         if let (Some(pack), Some(target)) = (&inputs.sbi, sbi_beside(entry)) {
             let stem = entry
                 .rsplit('/')
@@ -1230,9 +1222,6 @@ fn plan_items(
                 sbis.push((group, title, target, member));
             }
         }
-    }
-    for discs in playlists.values_mut() {
-        discs.sort();
     }
     // Every file and every disc layout folder the plan lays out, by the key names collide by on a share.
     let mut lowered: HashMap<String, usize> = HashMap::new();
@@ -1568,20 +1557,8 @@ fn plan_items(
     };
     let mut generated = Vec::new();
     for (release, discs) in &playlists {
-        let entries: Vec<&str> = discs
-            .iter()
-            .filter_map(|(_, t)| laid[*t].entry.as_deref())
-            .collect();
-        let text = playlist(&entries);
+        let file = m3u(&laid, discs);
         let games: Vec<&str> = discs.iter().map(|(_, t)| *t).collect();
-        let file = GeneratedFile {
-            kind: GeneratedKind::M3u,
-            sha256: sha256_hex(text.as_bytes()),
-            size: text.len() as u64,
-            text: Some(text),
-            pack: None,
-            member: None,
-        };
         let group = winners
             .iter()
             .find(|(_, t)| *t == games[0])
@@ -1942,11 +1919,43 @@ fn generate(
             None => {}
         }
     } else if let Some(found) = existing {
-        let why = format!(
-            "{} is in the folder and was not built by Title Select",
-            found.name
-        );
-        if !conflict(&mut item, found, keep_chosen, at.scan, &why) {
+        // An `.m3u` you made is adopted only when it holds exactly what a build writes there.
+        item.adoptable = found.name == target
+            && item.generated.as_ref().is_some_and(|g| {
+                at.scan
+                    .and_then(|s| s.probes.get(&found.name))
+                    .is_some_and(|(seen, probe)| {
+                        Some(&seen.file) == item.existing.as_ref() && probe.sha256 == g.sha256
+                    })
+            });
+        let chosen = at.inputs.choices.adopt.contains(&target);
+        if item.adoptable && chosen {
+            item.kind = ItemKind::Adopt;
+            item.reason = Some(format!(
+                "you adopt {}: it is exactly the file a build writes there, so it is recorded as built and nothing \
+                 is written",
+                found.name
+            ));
+            return item;
+        }
+        let why = if chosen {
+            format!(
+                "you chose to adopt {}, but it is not exactly the file a build writes there",
+                found.name
+            )
+        } else if item.adoptable {
+            format!(
+                "{} is in the folder and was not built by Title Select, but is exactly the file a build writes \
+                 there; leave it, adopt it as built, or keep it aside and rebuild",
+                found.name
+            )
+        } else {
+            format!(
+                "{} is in the folder and was not built by Title Select",
+                found.name
+            )
+        };
+        if !conflict(&mut item, found, keep_chosen && !chosen, at.scan, &why) {
             return item;
         }
     }
@@ -1988,6 +1997,148 @@ pub(crate) fn laid_out(storage: Storage, dat: &Dat) -> BTreeMap<String, Laid> {
         roms[rom.game].push((&rom.name, rom.size));
     }
     lay_out(storage, dat.games.iter().map(String::as_str).zip(roms))
+}
+
+/// The ROMs the DAT lists for `game`, in DAT order.
+pub(crate) fn roms_of(dat: &Dat, game: &str) -> Vec<ExpectedRom> {
+    let Some(i) = dat.games.iter().position(|g| g == game) else {
+        return Vec::new();
+    };
+    dat.roms
+        .iter()
+        .filter(|r| r.game == i)
+        .map(|rom| dat.expected(rom))
+        .collect()
+}
+
+/// Each Multi-disc Game's release among `titles`, as `laid` lays them out, listed by its `.m3u`: its discs in
+/// disc order.
+fn playlists<'a>(
+    laid: &BTreeMap<String, Laid>,
+    titles: impl IntoIterator<Item = &'a str>,
+) -> BTreeMap<String, Vec<(u32, &'a str)>> {
+    let mut out: BTreeMap<String, Vec<(u32, &str)>> = BTreeMap::new();
+    for title in titles {
+        let Some(entry) = laid.get(title).and_then(|l| l.entry.as_ref()) else {
+            continue;
+        };
+        if entry.starts_with(&format!("{MULTIDISC}/"))
+            && let Some(disc) = title_select_api::discs::disc(title)
+        {
+            out.entry(release_of(title))
+                .or_default()
+                .push((disc.number, title));
+        }
+    }
+    for discs in out.values_mut() {
+        discs.sort();
+    }
+    out
+}
+
+/// The `.m3u` a build writes for a release of `discs`, in disc order: each one's entry file, as `laid` lays it out.
+fn m3u(laid: &BTreeMap<String, Laid>, discs: &[(u32, &str)]) -> GeneratedFile {
+    let entries: Vec<&str> = discs
+        .iter()
+        .filter_map(|(_, t)| laid[*t].entry.as_deref())
+        .collect();
+    let text = playlist(&entries);
+    GeneratedFile {
+        kind: GeneratedKind::M3u,
+        sha256: sha256_hex(text.as_bytes()),
+        size: text.len() as u64,
+        text: Some(text),
+        pack: None,
+        member: None,
+    }
+}
+
+/// A file a disc layout lays out for a selected game that its ROMs alone do not name a game by, and that a cleanup
+/// may adopt where it is: a file of a disc in a layout folder, a CHD, or a release's `.m3u`.
+#[derive(Debug, Clone)]
+pub(crate) enum LaidFile {
+    /// One file of a disc laid out in a disc layout folder: the disc's game, and the one ROM it holds.
+    Part { game: String, rom: ExpectedRom },
+    /// A disc stored as a CHD: its game, and the ROMs its extraction gives back.
+    Chd {
+        game: String,
+        roms: Vec<ExpectedRom>,
+    },
+    /// A Multi-disc Game's `.m3u`: its release, and the file a build writes.
+    Playlist {
+        release: String,
+        file: GeneratedFile,
+    },
+}
+
+impl LaidFile {
+    /// The game, or for an `.m3u` the release, it is recorded as built for.
+    pub fn game(&self) -> &str {
+        match self {
+            LaidFile::Part { game, .. } | LaidFile::Chd { game, .. } => game,
+            LaidFile::Playlist { release, .. } => release,
+        }
+    }
+
+    /// Whether the check's `probe` of the file shows it is the one laid out: a part holding its ROM, or an `.m3u`
+    /// holding exactly the text a build writes. A CHD is shown so only by its extraction, once you adopt it.
+    pub fn holds(&self, probe: &Probe) -> bool {
+        match self {
+            LaidFile::Part { rom, .. } => holds_as(probe, std::slice::from_ref(rom), true),
+            LaidFile::Chd { .. } => false,
+            LaidFile::Playlist { file, .. } => probe.sha256 == file.sha256,
+        }
+    }
+}
+
+/// Each [`LaidFile`] the storage policy lays out for the selected games `titles` of `dat`, by its exact target.
+pub(crate) fn laid_files<'a>(
+    storage: Storage,
+    dat: &Dat,
+    titles: impl IntoIterator<Item = &'a str>,
+) -> HashMap<String, LaidFile> {
+    let laid = laid_out(storage, dat);
+    let titles: BTreeSet<&str> = titles.into_iter().collect();
+    let mut out = HashMap::new();
+    for title in &titles {
+        let Some(l) = laid.get(*title) else {
+            continue;
+        };
+        match l.format {
+            StorageFormat::Chd => {
+                out.insert(
+                    l.files[0].clone(),
+                    LaidFile::Chd {
+                        game: (*title).to_owned(),
+                        roms: roms_of(dat, title),
+                    },
+                );
+            }
+            StorageFormat::TorrentZip => {}
+            _ if l.files.len() > 1 || l.files.iter().any(|f| f.contains('/')) => {
+                for (file, rom) in l.files.iter().zip(roms_of(dat, title)) {
+                    out.insert(
+                        file.clone(),
+                        LaidFile::Part {
+                            game: (*title).to_owned(),
+                            rom,
+                        },
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    for (release, discs) in playlists(&laid, titles) {
+        out.insert(
+            playlist_name(&release),
+            LaidFile::Playlist {
+                file: m3u(&laid, &discs),
+                release,
+            },
+        );
+    }
+    out
 }
 
 /// Why games the storage policy would store loose or as CHD stay TorrentZip, with how many each reason covers.

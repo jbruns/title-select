@@ -1219,6 +1219,12 @@ pub struct CleanupEntry {
     /// Whether the check found it was not TorrentZip, for an adoption.
     #[serde(default = "yes")]
     pub torrentzip: bool,
+    /// For an adoption: whether it is a disc's CHD, adopted only once its extraction gives back `roms`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chd: bool,
+    /// For an adoption: the file a build generates there, such as an `.m3u`, which it holds exactly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated: Option<GeneratedFile>,
     /// For an Addition: what it is added as. Its one ROM, as the check read it, is in `roms`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addition: Option<crate::additions::NewAddition>,

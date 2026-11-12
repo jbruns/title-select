@@ -22,7 +22,7 @@ use super::dats::revision_by_id;
 use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat};
 use super::folders::{folder_by_id, is_own, marker_problem, open_folder, store_id};
 use super::jobs::{finish_running, job_by_id};
-use super::plans::{Built, json, read_built, to_json};
+use super::plans::{Built, LaidFile, json, laid_files, read_built, to_json};
 use super::sets::set_by_id;
 use super::{Error, Result, Store, now};
 use crate::config::Config;
@@ -296,6 +296,17 @@ pub(super) fn scan(
 ) -> Scan {
     let loose = loose_names(input.storage, input.dat);
     let selected = &storage_targets(input.selected, &loose);
+    let laid = input
+        .dat
+        .filter(|_| input.storage.format != StorageFormat::TorrentZip)
+        .map(|dat| {
+            laid_files(
+                input.storage,
+                dat,
+                input.selected.values().map(String::as_str),
+            )
+        })
+        .unwrap_or_default();
     let mut out = Scan {
         files: Vec::new(),
         drift: Vec::new(),
@@ -506,7 +517,9 @@ pub(super) fn scan(
                                 );
                             }
                             Some(index) => {
-                                if let Some(game) = index.game_of(&p) {
+                                if let Some(game) =
+                                    index.game_of(&p).filter(|_| !laid.contains_key(name))
+                                {
                                     entry.game = Some(game.to_owned());
                                     let named = loose
                                         .get(game)
@@ -519,6 +532,35 @@ pub(super) fn scan(
                                     } else {
                                         DriftKind::Unselected
                                     };
+                                } else if let Some(file) = laid.get(name) {
+                                    // A disc layout's file is told by where it is: a cleanup can adopt it there.
+                                    let adoptable = match file {
+                                        LaidFile::Chd { .. } => chd_header(dir, name, &st)
+                                            .map(|_| {
+                                                Some(
+                                                    "it is checked against the DAT when you adopt it, by \
+                                                     extracting it once"
+                                                        .to_owned(),
+                                                )
+                                            })
+                                            .map_err(|e| format!("it is not a CHD that can be read: {e}")),
+                                        _ if file.holds(&p) => Ok(None),
+                                        LaidFile::Part { rom, .. } => Err(format!(
+                                            "it doesn't hold {}, the ROM the DAT expects there",
+                                            rom.name
+                                        )),
+                                        LaidFile::Playlist { .. } => {
+                                            Err("it isn't exactly the .m3u a build writes".to_owned())
+                                        }
+                                    };
+                                    match adoptable {
+                                        Ok(detail) => {
+                                            entry.game = Some(file.game().to_owned());
+                                            entry.kind = DriftKind::Selected;
+                                            entry.detail = detail;
+                                        }
+                                        Err(why) => entry.detail = Some(why),
+                                    }
                                 }
                             }
                         },

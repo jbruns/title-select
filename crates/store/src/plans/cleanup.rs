@@ -10,15 +10,15 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use title_select_api::build::{
     BlockerKind, CheckSummary, Cleanup, CleanupAction, CleanupEntry, CleanupRepack, CleanupRestore,
-    DriftKind, ExpectedRom, FileOutcome, FolderCheck, KeptFile, Plan, PlanChoices, PlanCleanup,
-    PlanContent, PlanSource, RETENTION, RestoreKind, invalid_name,
+    DriftKind, ExpectedRom, FileOutcome, FolderCheck, GeneratedFile, KeptFile, Plan, PlanChoices,
+    PlanCleanup, PlanContent, PlanSource, RETENTION, RestoreKind, invalid_name,
 };
 use title_select_engine::build::{GameIndex, Probe, holds_as};
 use title_select_engine::dat::Dat;
 
 use super::{
-    Blocker, Folder, Found, Inputs, Planned, blocker, check_folder, insert_plan, load, short,
-    to_json,
+    Blocker, Folder, Found, Inputs, LaidFile, Planned, blocker, check_folder, insert_plan,
+    laid_files, load, roms_of, short, to_json,
 };
 use crate::checks::{Seen, loose_names, reuse, storage_targets, store_check};
 use crate::config::Config;
@@ -26,18 +26,6 @@ use crate::folder_dir::{FolderDir, Identity, file_stat};
 use crate::folders::{folder_by_id, is_own, open_folder};
 use crate::kept::{kept_where, name_key, open_retention};
 use crate::{Error, Fault, Result, Store};
-
-/// The ROMs the DAT lists for `game`, in DAT order.
-fn roms_of(dat: &Dat, game: &str) -> Vec<ExpectedRom> {
-    let Some(i) = dat.games.iter().position(|g| g == game) else {
-        return Vec::new();
-    };
-    dat.roms
-        .iter()
-        .filter(|r| r.game == i)
-        .map(|rom| dat.expected(rom))
-        .collect()
-}
 
 fn refuse(target: &str, message: String) -> Blocker {
     Blocker {
@@ -91,6 +79,55 @@ fn selected_game(
         return Err(why);
     }
     Ok((game.to_owned(), roms, target))
+}
+
+/// What adopting a [`LaidFile`] records it as.
+struct Adopted {
+    game: String,
+    roms: Vec<ExpectedRom>,
+    chd: bool,
+    generated: Option<GeneratedFile>,
+}
+
+/// Adopting `name`, the file `laid` lays out there for a selected game, as the check's `probe` found it: a file of a
+/// disc in a layout folder holding its ROM, or an `.m3u` holding exactly the text a build writes. A CHD is adopted
+/// only once its extraction, when the cleanup runs, gives back the DAT's ROMs.
+fn adopt_laid(laid: &LaidFile, probe: &Probe, name: &str) -> std::result::Result<Adopted, String> {
+    if let Some(why) = super::invalid_path(name) {
+        return Err(why);
+    }
+    if !matches!(laid, LaidFile::Chd { .. }) && !laid.holds(probe) {
+        return Err(match laid {
+            LaidFile::Part { game, rom } => format!(
+                "it is where {game}'s {} goes, but it doesn't hold the ROM the DAT expects there",
+                rom.name
+            ),
+            _ => format!(
+                "it isn't exactly the .m3u a build writes for {}, so it stays as it is",
+                laid.game()
+            ),
+        });
+    }
+    Ok(match laid {
+        LaidFile::Part { game, rom } => Adopted {
+            game: game.clone(),
+            roms: vec![rom.clone()],
+            chd: false,
+            generated: None,
+        },
+        LaidFile::Chd { game, roms } => Adopted {
+            game: game.clone(),
+            roms: roms.clone(),
+            chd: true,
+            generated: None,
+        },
+        LaidFile::Playlist { release, file } => Adopted {
+            game: release.clone(),
+            roms: Vec::new(),
+            chd: false,
+            generated: Some(file.clone()),
+        },
+    })
 }
 
 /// The fingerprint of what Library Folder `inputs.folder` holds, as `found` found it, for [`Cleanup::fingerprint`]:
@@ -285,6 +322,16 @@ impl Store {
         let index = dat.as_ref().map(GameIndex::new);
         let loose = loose_names(inputs.storage, dat.as_ref());
         let selected = storage_targets(&inputs.selected, &loose);
+        let laid = dat
+            .as_ref()
+            .map(|dat| {
+                laid_files(
+                    inputs.storage,
+                    dat,
+                    inputs.selected.values().map(String::as_str),
+                )
+            })
+            .unwrap_or_default();
 
         let mut entries = Vec::new();
         let mut restores = Vec::new();
@@ -358,6 +405,8 @@ impl Store {
                         roms: Vec::new(),
                         group: String::new(),
                         torrentzip: probe.is_none_or(|p| p.torrentzip),
+                        chd: false,
+                        generated: None,
                         addition: None,
                         addition_target: None,
                     };
@@ -436,7 +485,14 @@ impl Store {
                                 (false, ..) => Err("only a file can be adopted".to_owned()),
                                 (true, None, ..) => Err("the check could not read it".to_owned()),
                                 (true, Some(p), Some(index), Some(dat)) => {
-                                    selected_game(p, index, dat, &selected, &loose)
+                                    match laid.get(&d.name) {
+                                        Some(file) => adopt_laid(file, p, &d.name).map(|adopted| {
+                                            entry.chd = adopted.chd;
+                                            entry.generated = adopted.generated;
+                                            (adopted.game, adopted.roms, d.name.clone())
+                                        }),
+                                        None => selected_game(p, index, dat, &selected, &loose),
+                                    }
                                 }
                                 (true, Some(_), ..) => {
                                     Err("the DAT revision is no longer kept".to_owned())

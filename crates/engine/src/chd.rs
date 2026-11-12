@@ -344,13 +344,45 @@ impl Chdman {
         roms: &[ExpectedRom],
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Header, Stop> {
-        let out = dir.join("x");
-        std::fs::create_dir(&out).map_err(|e| format!("{}: {e}", out.display()))?;
         let expected: Vec<&ExpectedRom> = match (kind, cue) {
             (ChdKind::Cd, Some(cue)) => cue_matches(&cue_tracks(cue)?, roms)?,
             (ChdKind::Dvd, None) => roms.iter().collect(),
             _ => return Err(Stop::Failed("a CD is checked by its cue sheet".into())),
         };
+        self.extract_and_match(dir, kind, &expected, cancelled)
+    }
+
+    /// As [`Chdman::verify`], for a CHD whose cue sheet is not at hand, such as one you made: each track it gives back
+    /// is checked against the DAT's `.bin` files in the DAT's order, which is a Redump disc's track order. A CHD of
+    /// other tracks, or of its tracks in another order, does not match, and is refused.
+    pub fn verify_in_dat_order(
+        &self,
+        dir: &Path,
+        kind: ChdKind,
+        roms: &[ExpectedRom],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Header, Stop> {
+        let expected: Vec<&ExpectedRom> = match kind {
+            ChdKind::Cd => roms
+                .iter()
+                .filter(|r| !r.name.to_ascii_lowercase().ends_with(".cue"))
+                .collect(),
+            ChdKind::Dvd => roms.iter().collect(),
+        };
+        self.extract_and_match(dir, kind, &expected, cancelled)
+    }
+
+    /// Extracts `dir/out.chd` into `dir/x`, and checks that it gives back exactly `expected`, in order. Returns its
+    /// header once every one matches.
+    fn extract_and_match(
+        &self,
+        dir: &Path,
+        kind: ChdKind,
+        expected: &[&ExpectedRom],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Header, Stop> {
+        let out = dir.join("x");
+        std::fs::create_dir(&out).map_err(|e| format!("{}: {e}", out.display()))?;
         let tracks = expected.len();
         let args: &[&str] = match kind {
             ChdKind::Cd => &[
@@ -382,7 +414,7 @@ impl Chdman {
                 given.len()
             )));
         }
-        for (path, rom) in given.iter().zip(expected) {
+        for (path, rom) in given.iter().zip(expected.iter().copied()) {
             if cancelled() {
                 return Err(Stop::Cancelled);
             }

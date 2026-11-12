@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use common::*;
 use title_select_api::JobState;
 use title_select_api::build::{
-    AddLibraryFolder, FileOutcome, FolderCheck, ItemKind, LibraryFolder, MARKER, Plan, RETENTION,
-    RemovalKind,
+    AddLibraryFolder, CleanupAction, DriftKind, FileOutcome, FolderCheck, ItemKind, LibraryFolder,
+    MARKER, Plan, PlanBuild, PlanCleanup, RETENTION, RemovalKind,
 };
 use title_select_api::selection::{
     CoverageDrift, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
@@ -350,24 +350,7 @@ impl Env {
 
     /// Every file in the folder, by its path in it, other than Title Select's own.
     fn files(&self) -> Vec<String> {
-        fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
-            for entry in std::fs::read_dir(dir).unwrap() {
-                let entry = entry.unwrap();
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if prefix.is_empty() && name.starts_with(MARKER) {
-                    continue;
-                }
-                let path = format!("{prefix}{name}");
-                match entry.file_type().unwrap().is_dir() {
-                    true => walk(&entry.path(), &format!("{path}/"), out),
-                    false => out.push(path),
-                }
-            }
-        }
-        let mut out = Vec::new();
-        walk(&self.dir(), "", &mut out);
-        out.sort();
-        out
+        files_in(&self.dir())
     }
 
     fn kept(&self, folder: &LibraryFolder) -> Vec<String> {
@@ -381,6 +364,28 @@ impl Env {
         kept.sort();
         kept
     }
+}
+
+/// Every file in `dir`, by its path in it, other than Title Select's own.
+fn files_in(dir: &Path) -> Vec<String> {
+    fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if prefix.is_empty() && name.starts_with(MARKER) {
+                continue;
+            }
+            let path = format!("{prefix}{name}");
+            match entry.file_type().unwrap().is_dir() {
+                true => walk(&entry.path(), &format!("{path}/"), out),
+                false => out.push(path),
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, "", &mut out);
+    out.sort();
+    out
 }
 
 fn group(title: &str) -> SelectionGroup {
@@ -1395,4 +1400,288 @@ fn switching_to_flat_leaves_a_cue_folder_you_made_and_its_release_as_they_are() 
         ]
     );
     assert!(env.kept(&folder).iter().all(|k| !k.starts_with("Orbit")));
+}
+
+/// A folder you laid out by hand in the ES-DE layout before Title Select built anything in it: `selection`'s discs,
+/// as a build into another folder lays them out, copied into it once it is registered. A build into it then writes
+/// nothing, every file being in the way, so that a check finds them all as drift.
+fn laid_out_by_hand(env: &Env) -> (LibraryFolder, i64) {
+    let model = env
+        .store
+        .add_library_folder(
+            &env.config,
+            &AddLibraryFolder {
+                root: "play".into(),
+                path: Some("model".into()),
+                template: None,
+                source_set: SET.into(),
+                profile: PROFILE.into(),
+            },
+        )
+        .unwrap();
+    let selection = env.selection(&ALL);
+    env.built(&model, selection);
+    let from = env.tmp.path().join("roots/play/model");
+    let folder = env.folder();
+    for f in files_in(&from) {
+        let to = env.dir().join(&f);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(from.join(&f), to).unwrap();
+    }
+    let plan = env.plan(&folder, selection);
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| matches!(i.kind, ItemKind::Conflict | ItemKind::Blocked)),
+        "{:?}",
+        plan.content.items
+    );
+    env.build(&plan);
+    (folder, selection)
+}
+
+/// Each file in the folder, by its inode: a file adopted is the very file that was there.
+fn inodes(env: &Env) -> BTreeMap<String, u64> {
+    use std::os::unix::fs::MetadataExt;
+    env.files()
+        .into_iter()
+        .map(|f| {
+            let ino = std::fs::metadata(env.dir().join(&f)).unwrap().ino();
+            (f, ino)
+        })
+        .collect()
+}
+
+/// Plans a cleanup of `folder` adopting `names`, and runs it.
+fn adopt(env: &Env, folder: &LibraryFolder, names: &[String]) -> title_select_api::Job {
+    let request = PlanCleanup {
+        entries: names
+            .iter()
+            .map(|n| (n.clone(), CleanupAction::Adopt))
+            .collect(),
+        ..PlanCleanup::default()
+    };
+    let plan = env
+        .store
+        .plan_cleanup(&env.config, folder.id, &request)
+        .unwrap();
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    env.run(&plan)
+}
+
+/// Adopts every file a check of `folder` finds, each offered as a selected game's or release's, and checks that a
+/// plan then changes nothing, and that once nothing is selected but Atlas, the layout folders adopted go.
+fn adopts_all(env: &Env, folder: &LibraryFolder, selection: i64, expected: &[&str]) {
+    let before = inodes(env);
+    let check = env.check(folder);
+    let names: Vec<String> = check.drift.iter().map(|d| d.name.clone()).collect();
+    assert_eq!(names, expected);
+    for d in &check.drift {
+        assert_eq!(d.kind, DriftKind::Selected, "{d:?}");
+        let game = if d.name == M3U { "Saga (USA)" } else { "" };
+        assert!(
+            d.game
+                .as_deref()
+                .is_some_and(|g| game.is_empty() || g == game),
+            "{d:?}"
+        );
+    }
+
+    let ended = adopt(env, folder, &names);
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    for item in env.items(&ended) {
+        assert!(item.error.is_none(), "{item:?}");
+    }
+    assert_eq!(inodes(env), before, "nothing was written");
+    let check = env.check(folder);
+    assert!(check.drift.is_empty(), "{:?}", check.drift);
+    let found = outcomes(&check);
+    assert_eq!(
+        found.keys().map(String::as_str).collect::<Vec<_>>(),
+        expected
+    );
+    assert!(
+        found.values().all(|o| *o == FileOutcome::Unchanged),
+        "{found:?}"
+    );
+    let again = env.plan(folder, selection);
+    assert!(
+        again
+            .content
+            .items
+            .iter()
+            .all(|i| i.kind == ItemKind::Unchanged),
+        "{:?}",
+        again.content.items
+    );
+    assert!(
+        again.content.removals.is_empty(),
+        "{:?}",
+        again.content.removals
+    );
+
+    // The folders adopted are recorded as a build's: emptied, they go.
+    env.built(folder, env.selection(&[DVD]));
+    assert!(!env.dir().join(".multidisc").exists());
+    assert!(!env.dir().join("Orbit (USA).cue").exists());
+}
+
+#[test]
+fn a_cleanup_adopts_a_loose_es_de_tree_you_laid_out_and_a_later_plan_changes_nothing() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let (folder, selection) = laid_out_by_hand(&env);
+    adopts_all(&env, &folder, selection, &ES_DE_LOOSE);
+    assert_eq!(env.files(), ["Atlas (USA).iso"]);
+}
+
+const ES_DE_CHD: [&str; 5] = [
+    ".multidisc/Saga (USA) (Disc 1).chd",
+    ".multidisc/Saga (USA) (Disc 2).chd",
+    "Atlas (USA).chd",
+    "Orbit (USA).chd",
+    M3U,
+];
+
+#[test]
+fn a_cleanup_adopts_an_es_de_tree_of_chds_you_laid_out_by_extracting_each_once() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, selection) = laid_out_by_hand(&env);
+    adopts_all(&env, &folder, selection, &ES_DE_CHD);
+    assert_eq!(env.files(), ["Atlas (USA).chd"]);
+}
+
+#[test]
+fn a_chd_that_does_not_hold_its_disc_is_not_adopted_and_stays_drift() {
+    let Some(_) = chdman() else { return };
+    let env = Env::new(StorageFormat::Chd);
+    let (folder, selection) = laid_out_by_hand(&env);
+    let orbit = env.dir().join("Orbit (USA).chd");
+    std::fs::copy(env.dir().join(".multidisc/Saga (USA) (Disc 1).chd"), &orbit).unwrap();
+    let bytes = std::fs::read(&orbit).unwrap();
+
+    let ended = adopt(&env, &folder, &["Orbit (USA).chd".to_owned()]);
+    let item = env
+        .items(&ended)
+        .into_iter()
+        .find(|i| i.target == "Orbit (USA).chd")
+        .unwrap();
+    assert!(
+        item.error
+            .as_deref()
+            .is_some_and(|e| e.contains("extracting it did not give back the DAT's files")),
+        "{item:?}"
+    );
+    assert_eq!(std::fs::read(&orbit).unwrap(), bytes);
+    let check = env.check(&folder);
+    assert!(
+        check.drift.iter().any(|d| d.name == "Orbit (USA).chd"),
+        "{:?}",
+        check.drift
+    );
+    let plan = env.plan(&folder, selection);
+    let orbit = plan
+        .content
+        .items
+        .iter()
+        .find(|i| i.target == "Orbit (USA).chd")
+        .unwrap();
+    assert_eq!(orbit.kind, ItemKind::Conflict, "{orbit:?}");
+}
+
+#[test]
+fn a_hand_edited_m3u_is_never_adopted_and_never_overwritten() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let (folder, selection) = laid_out_by_hand(&env);
+    let edited = ".multidisc/Saga (USA) (Disc 2).cue\n.multidisc/Saga (USA) (Disc 1).cue\n";
+    std::fs::write(env.dir().join(M3U), edited).unwrap();
+
+    let check = env.check(&folder);
+    let m3u = check.drift.iter().find(|d| d.name == M3U).unwrap();
+    assert_ne!(m3u.kind, DriftKind::Selected, "{m3u:?}");
+    assert!(m3u.conflict, "{m3u:?}");
+    let refused = env
+        .store
+        .plan_cleanup(
+            &env.config,
+            folder.id,
+            &PlanCleanup {
+                entries: [(M3U.to_owned(), CleanupAction::Adopt)].into(),
+                ..PlanCleanup::default()
+            },
+        )
+        .unwrap();
+    assert!(!refused.approvable());
+    assert!(
+        refused
+            .content
+            .blockers
+            .iter()
+            .any(|b| b.target.as_deref() == Some(M3U)),
+        "{:?}",
+        refused.content.blockers
+    );
+
+    // Its discs adopted, the m3u is still in the way of the one a build would write, and stays as you left it.
+    let discs: Vec<String> = check
+        .drift
+        .iter()
+        .filter(|d| d.name != M3U)
+        .map(|d| d.name.clone())
+        .collect();
+    assert_eq!(adopt(&env, &folder, &discs).state, JobState::Succeeded);
+    let plan = env.plan(&folder, selection);
+    let item = plan.content.items.iter().find(|i| i.target == M3U).unwrap();
+    assert_eq!(item.kind, ItemKind::Conflict, "{item:?}");
+    assert!(!item.adoptable, "{item:?}");
+    env.build(&plan);
+    assert_eq!(read(&env, M3U), edited);
+    let check = env.check(&folder);
+    assert_eq!(
+        check
+            .drift
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect::<Vec<_>>(),
+        [M3U]
+    );
+}
+
+#[test]
+fn a_plan_adopts_a_loose_es_de_tree_you_laid_out_with_its_m3u_and_its_folders() {
+    let env = Env::new(StorageFormat::LooseFolder);
+    let (folder, selection) = laid_out_by_hand(&env);
+    let before = inodes(&env);
+    let mut request = PlanBuild::new(selection);
+    request.choices.adopt = ES_DE_LOOSE.iter().map(|t| t.to_string()).collect();
+    let plan = env
+        .store
+        .plan_build_with(&env.config, folder.id, &request)
+        .unwrap();
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.kind == ItemKind::Adopt && i.adoptable),
+        "{:?}",
+        plan.content.items
+    );
+    env.build(&plan);
+
+    assert_eq!(inodes(&env), before, "nothing was written");
+    let again = env.plan(&folder, selection);
+    assert!(
+        again
+            .content
+            .items
+            .iter()
+            .all(|i| i.kind == ItemKind::Unchanged),
+        "{:?}",
+        again.content.items
+    );
+    env.built(&folder, env.selection(&[DVD]));
+    assert_eq!(env.files(), ["Atlas (USA).iso"]);
+    assert!(!env.dir().join(".multidisc").exists());
+    assert!(!env.dir().join("Orbit (USA).cue").exists());
 }
