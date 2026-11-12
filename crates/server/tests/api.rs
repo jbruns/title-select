@@ -1030,6 +1030,28 @@ fn ingest_service(env: &Env, settle_secs: u64) -> (Handle, std::path::PathBuf) {
     (service, drop)
 }
 
+/// When the folder `drop` is next checked for its arriving items, once `ready` says it is the follow-up expected. A
+/// scan's Job ends before the Service sets the follow-up from it, so the test waits for that.
+fn next_check_once(
+    client: &Client,
+    ready: impl Fn(Option<jiff::Timestamp>) -> bool,
+) -> Option<jiff::Timestamp> {
+    use title_select_api::ingest::IngestFolder;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let folder: IngestFolder = client.json("/ingest-folders/drop");
+        let next = folder.next_check_at.map(|at| at.parse().unwrap());
+        if ready(next) {
+            return next;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "next check stayed {next:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
 /// Scans `drop` by hand, and returns the scan as it ended.
 fn scan_drop(client: &Client) -> Job {
     let mut response = client
@@ -1084,45 +1106,63 @@ fn an_ingest_folder_says_when_its_arriving_items_are_next_checked_and_retries_a_
     let env = Env::new();
     let (service, drop) = ingest_service(&env, 600);
     let client = Client::new(&service);
-    let next = || -> Option<jiff::Timestamp> {
-        let folder: IngestFolder = client.json("/ingest-folders/drop");
-        folder.next_check_at.map(|at| at.parse().unwrap())
-    };
     let minutes = |m: i64| jiff::SignedDuration::from_mins(m);
-    assert_eq!(next(), None, "nothing has arrived");
+    let folder: IngestFolder = client.json("/ingest-folders/drop");
+    assert_eq!(folder.next_check_at, None, "nothing has arrived");
 
     write_file(&drop.join("mystery.bin"), b"nobody");
     assert_eq!(scan_drop(&client).state, JobState::Succeeded);
     let items: Vec<IngestItem> = client.json("/ingest-folders/drop/items");
     let seen: jiff::Timestamp = items[0].first_seen_at.parse().unwrap();
-    assert_eq!(next(), Some(seen + minutes(10)));
+    next_check_once(&client, |next| next == Some(seen + minutes(10)));
 
     write_file(&drop.join("mystery.bin"), b"nobody knows");
     let before = jiff::Timestamp::now();
     assert_eq!(scan_drop(&client).state, JobState::Succeeded);
-    let changed = next().expect("still arriving");
-    assert!(changed >= before + minutes(10), "{changed}");
+    let changed = next_check_once(&client, |next| {
+        next.is_some_and(|at| at >= before + minutes(10))
+    })
+    .unwrap();
 
+    // While the folder can't be read, each failed scan is retried: the settle interval after the first, twice that
+    // after the next, up to 15 minutes. Each retry is due later than any follow-up set before its scan started.
     let away = env.tmp.path().join("away");
     std::fs::rename(&drop, &away).unwrap();
-    let mut retries = Vec::new();
-    for _ in 0..2 {
+    for wait in [10, 15] {
         let before = jiff::Timestamp::now();
         assert_eq!(scan_drop(&client).state, JobState::Failed);
+        let retry = next_check_once(&client, |next| {
+            next.is_some_and(|at| at >= before + minutes(wait))
+        })
+        .unwrap();
         let after = jiff::Timestamp::now();
-        let retry = next().expect("retried");
-        assert!(retry >= before && retry <= after + minutes(15), "{retry}");
-        retries.push((retry.duration_since(before), after.duration_since(before)));
+        assert!(
+            retry <= after + minutes(wait),
+            "retry {retry} after {wait} minutes"
+        );
     }
-    assert!(retries[0].0 >= minutes(10) && retries[0].0 <= minutes(10) + retries[0].1);
-    assert!(
-        retries[1].0 >= minutes(15) && retries[1].0 <= minutes(15) + retries[1].1,
-        "doubled, up to 15 minutes"
-    );
 
     std::fs::rename(&away, &drop).unwrap();
     assert_eq!(scan_drop(&client).state, JobState::Succeeded);
-    assert_eq!(next(), Some(changed), "back to when the item could settle");
+    next_check_once(&client, |next| next == Some(changed));
+}
+
+/// Unregistering a folder drops its follow-up, so it is neither scanned again nor said to be.
+#[test]
+fn an_unregistered_ingest_folder_is_not_checked_again() {
+    let env = Env::new();
+    let (service, drop) = ingest_service(&env, 600);
+    let client = Client::new(&service);
+    write_file(&drop.join("mystery.bin"), b"nobody knows");
+    assert_eq!(scan_drop(&client).state, JobState::Succeeded);
+    next_check_once(&client, |next| next.is_some());
+
+    let response = client
+        .post("/ingest-folders/drop/unregistration")
+        .send_empty()
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(next_check_once(&client, |_| true), None);
 }
 
 #[test]

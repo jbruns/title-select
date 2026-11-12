@@ -111,6 +111,31 @@ impl FollowUps {
         due
     }
 
+    /// Drops the follow-up of the folder of Root `root`, and its failures, as the folder is no longer registered.
+    pub fn forget(&self, root: &str) {
+        self.pending.lock().unwrap().remove(root);
+    }
+
+    /// The follow-up scan of the folder of Root `root` that queuing returned, if one was queued. A folder no longer
+    /// registered loses its follow-up; one that met a scan already queued or running keeps it.
+    fn queued(&self, root: &str, queued: title_select_store::Result<Job>) -> Option<Job> {
+        use title_select_store::Error;
+        match queued {
+            Ok(job) => Some(job),
+            Err(Error::NotFound(_)) => {
+                self.forget(root);
+                None
+            }
+            Err(Error::Conflict(_) | Error::JobActive { .. }) => None,
+            Err(err) => {
+                eprintln!(
+                    "title-select: cannot queue a follow-up scan of ingest folder {root}: {err}"
+                );
+                None
+            }
+        }
+    }
+
     /// When the next follow-up is due, if any is pending.
     fn next_due(&self) -> Option<Timestamp> {
         self.pending.lock().unwrap().values().map(|p| p.at).min()
@@ -192,13 +217,16 @@ pub async fn run(store: Arc<Store>, config: Arc<Config>, jobs: Arc<Jobs>) {
     loop {
         for root in jobs.follow_ups.take_due(Timestamp::now()) {
             let store = store.clone();
-            let queued =
-                tokio::task::spawn_blocking(move || store.enqueue_ingest_scan(&root, ACTOR)).await;
+            let queued = {
+                let root = root.clone();
+                tokio::task::spawn_blocking(move || store.enqueue_ingest_scan(&root, ACTOR)).await
+            };
             match queued {
-                Ok(Ok(job)) => jobs.changed(job),
-                Ok(Err(title_select_store::Error::Conflict(_)))
-                | Ok(Err(title_select_store::Error::JobActive { .. })) => {}
-                Ok(Err(err)) => eprintln!("title-select: cannot queue a follow-up scan: {err}"),
+                Ok(queued) => {
+                    if let Some(job) = jobs.follow_ups.queued(&root, queued) {
+                        jobs.changed(job);
+                    }
+                }
                 Err(err) => eprintln!("title-select: cannot queue a follow-up scan: {err}"),
             }
         }
@@ -279,6 +307,44 @@ mod tests {
         follow_ups.after_scan("drop", failed(30), at(70));
         assert_eq!(follow_ups.due_at("drop"), Some(at(100)));
         assert_eq!(follow_ups.take_due(at(100)), ["drop"]);
+    }
+
+    #[test]
+    fn an_unregistered_folder_has_no_follow_up_and_starts_its_retries_afresh() {
+        let follow_ups = FollowUps::default();
+        follow_ups.after_scan("drop", failed(60), at(0));
+        follow_ups.after_scan("drop", failed(60), at(0));
+        follow_ups.forget("drop");
+        assert_eq!(follow_ups.due_at("drop"), None);
+        assert_eq!(follow_ups.take_due(at(10_000)), Vec::<String>::new());
+
+        follow_ups.after_scan("drop", failed(60), at(0));
+        assert_eq!(
+            follow_ups.due_at("drop"),
+            Some(at(60)),
+            "no failures carried over"
+        );
+    }
+
+    #[test]
+    fn a_follow_up_whose_folder_is_no_longer_registered_is_dropped_and_one_meeting_a_scan_is_kept()
+    {
+        let follow_ups = FollowUps::default();
+        follow_ups.after_scan("gone", settles(60), at(0));
+        follow_ups.after_scan("busy", settles(60), at(0));
+        assert_eq!(follow_ups.take_due(at(60)), ["busy", "gone"]);
+
+        let gone = Err(title_select_store::Error::NotFound(
+            "ingest folder gone is not registered".into(),
+        ));
+        assert!(follow_ups.queued("gone", gone).is_none());
+        assert_eq!(follow_ups.due_at("gone"), None);
+
+        let busy = Err(title_select_store::Error::Conflict(
+            "a scan is already queued".into(),
+        ));
+        assert!(follow_ups.queued("busy", busy).is_none());
+        assert_eq!(follow_ups.due_at("busy"), Some(at(60) + RECHECK));
     }
 
     #[test]
