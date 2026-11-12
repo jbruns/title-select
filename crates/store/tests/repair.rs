@@ -3,6 +3,8 @@
 
 #[path = "../../engine/tests/common/mod.rs"]
 mod common;
+#[path = "../../engine/tests/common/sevenz.rs"]
+mod sevenz_fixtures;
 
 use std::path::{Path, PathBuf};
 
@@ -4093,4 +4095,125 @@ fn a_game_whose_track_is_only_inside_another_games_zip_is_filled_from_it() {
     env.run_queued_audit(&done);
     assert_eq!(status_of(&env, "Wrestle (Europe)"), GameStatus::Complete);
     assert_eq!(status_of(&env, "Ball (USA)"), GameStatus::Complete);
+}
+
+type Tracks = Vec<(&'static str, Vec<u8>)>;
+
+/// One disc Game per 7z method, solid and not: three tracks each, which no other Game shares.
+fn sevenz_discs() -> Vec<(sevenz_fixtures::Method, bool, &'static str, Tracks)> {
+    let mut discs = Vec::new();
+    for (m, method) in sevenz_fixtures::Method::ALL.into_iter().enumerate() {
+        for solid in [true, false] {
+            let game: &'static str = format!("Disc {method:?} {solid} (USA)").leak();
+            let seed = (m * 2 + usize::from(solid)) as u64 * 10;
+            let tracks = vec![
+                ("Track 01.bin", noise(seed + 1, 40_000)),
+                ("Track 02.bin", noise(seed + 2, 3_000)),
+                (
+                    "Game.cue",
+                    format!("FILE \"Track 01.bin\" BINARY {seed}").into_bytes(),
+                ),
+            ];
+            discs.push((method, solid, game, tracks));
+        }
+    }
+    discs
+}
+
+#[test]
+fn missing_games_are_filled_from_7z_ingest_items_of_every_method_solid_or_not_in_nested_folders() {
+    let discs = sevenz_discs();
+    let games: Vec<(&str, Vec<RomSpec>)> = discs
+        .iter()
+        .map(|(_, _, game, tracks)| {
+            let roms = tracks
+                .iter()
+                .map(|(name, bytes)| {
+                    let name: &'static str = format!("{game} {name}").leak();
+                    rom(name, bytes)
+                })
+                .collect();
+            (*game, roms)
+        })
+        .collect();
+    let env = Env::with("Test", &games);
+    env.audit(AuditEvidence::Full);
+    for (method, solid, game, tracks) in &discs {
+        let members: Vec<(String, &[u8])> = tracks
+            .iter()
+            .map(|(name, bytes)| (format!("{game}/Disc 1/{name}"), bytes.as_slice()))
+            .collect();
+        let members: Vec<(&str, &[u8])> = members.iter().map(|(n, b)| (n.as_str(), *b)).collect();
+        env.ingest(&format!("{method:?}-{solid}.7z"), |p| {
+            sevenz_fixtures::write_7z(p, &members, *method, *solid)
+        });
+    }
+
+    let plan = env.plan();
+    for (_, _, game, _) in &discs {
+        assert_eq!(
+            item(&plan, &format!("game:{game}")).kind,
+            RepairKind::Fill,
+            "{game}"
+        );
+    }
+    let done = env.approve(&plan);
+
+    // Members that waited in scratch for their turn in a repack leave nothing behind.
+    let scratch: Vec<_> = std::fs::read_dir(env.store.dir().join("tmp"))
+        .into_iter()
+        .flatten()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with("7z-"))
+        .collect();
+    assert!(scratch.is_empty(), "{scratch:?}");
+    let mut want: Vec<String> = discs
+        .iter()
+        .map(|(_, _, game, _)| format!("{game}.zip"))
+        .collect();
+    want.push(".title-select".into());
+    want.sort();
+    assert_eq!(env.listing(), want);
+    for (_, _, game, _) in &discs {
+        assert!(
+            is_torrentzip(&env.set().join(format!("{game}.zip"))),
+            "{game}"
+        );
+    }
+    // Each 7z is kept in the Ingest Folder; none is written into the Source Set.
+    assert_eq!(
+        env.store.ingest_kept_files("in").unwrap().len(),
+        discs.len()
+    );
+    env.run_queued_audit(&done);
+    let report = env.latest_report();
+    for (_, _, game, _) in &discs {
+        let found = report.games.iter().find(|g| g.name == *game);
+        assert_eq!(found.unwrap().status, GameStatus::Complete, "{game}");
+    }
+}
+
+#[test]
+fn a_game_filled_from_a_7z_into_a_loose_source_set_is_stored_loose() {
+    let env = Env::new();
+    set_source_policy(&env, StorageFormat::Loose, false);
+    env.audit(AuditEvidence::Full);
+    env.ingest("pong.7z", |p| {
+        sevenz_fixtures::write_7z(
+            p,
+            &[("Atari/Pong (USA).a26", b"pong")],
+            sevenz_fixtures::Method::Lzma2,
+            true,
+        )
+    });
+
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Fill);
+    env.approve(&plan);
+
+    assert_eq!(env.listing(), [".title-select", "Pong (USA).a26"]);
+    assert_eq!(
+        std::fs::read(env.set().join("Pong (USA).a26")).unwrap(),
+        b"pong"
+    );
 }

@@ -15,7 +15,7 @@ use crate::payload::{Checksums, Hasher};
 use crate::torrentzip::{self, Writer, compare_names};
 use crate::zipdir::{self, DirectoryLimits, Gated};
 
-const CHUNK: usize = 1 << 16;
+pub(crate) const CHUNK: usize = 1 << 16;
 
 /// Where one ROM's payload is read from.
 #[derive(Debug, Clone, Copy)]
@@ -44,7 +44,11 @@ type Peeked<R> = io::Chain<io::Cursor<Vec<u8>>, R>;
 /// How many bytes of `rom`'s payload a written file holds, read from `payload`, which is `len` bytes long: the DAT's
 /// size, plus its Header's when the DAT names a Header Rule and the payload starts with that Header. A Header is
 /// copied, never stripped. The bytes looked at are read again from the reader returned.
-fn sized<R: Read>(rom: &ExpectedRom, len: u64, mut payload: R) -> io::Result<(u64, Peeked<R>)> {
+pub(crate) fn sized<R: Read>(
+    rom: &ExpectedRom,
+    len: u64,
+    mut payload: R,
+) -> io::Result<(u64, Peeked<R>)> {
     let mut head = Vec::new();
     let mut size = rom.size;
     if let Some(rule) = rom.header {
@@ -59,7 +63,7 @@ fn sized<R: Read>(rom: &ExpectedRom, len: u64, mut payload: R) -> io::Result<(u6
 }
 
 /// Why a payload `copied` bytes long is not `rom`'s, which is `size` bytes written.
-fn wrong_size(rom: &ExpectedRom, copied: u64, size: u64) -> String {
+pub(crate) fn wrong_size(rom: &ExpectedRom, copied: u64, size: u64) -> String {
     match size - rom.size {
         0 => format!(
             "{}: its payload is {copied} bytes, not the DAT's {}",
@@ -74,7 +78,7 @@ fn wrong_size(rom: &ExpectedRom, copied: u64, size: u64) -> String {
 
 /// Copies `rom`'s payload from `payload`, `len` bytes long, into `out`, reading no further than one byte past the
 /// size to write. Returns how many bytes it copied, and the size it should have.
-fn copy_sized(
+pub(crate) fn copy_sized(
     rom: &ExpectedRom,
     len: u64,
     payload: impl Read,
@@ -228,7 +232,7 @@ pub fn repack(dest: &File, roms: &[(&ExpectedRom, Source)]) -> Result<(), String
 /// A reader of a file that hashes it whole as it is read: each byte read in order from the start of the file is
 /// hashed the first time it is read, and [`Hashing::finish`] reads only what was never read in order. A ZIP reader
 /// that reads its central directory and then its members in order thus reads the file about once.
-struct Hashing<'a> {
+pub(crate) struct Hashing<'a> {
     file: &'a File,
     pos: u64,
     hashed: u64,
@@ -236,7 +240,7 @@ struct Hashing<'a> {
 }
 
 impl<'a> Hashing<'a> {
-    fn new(file: &'a File) -> io::Result<Self> {
+    pub(crate) fn new(file: &'a File) -> io::Result<Self> {
         let mut file_ref = file;
         file_ref.seek(SeekFrom::Start(0))?;
         Ok(Hashing {
@@ -248,7 +252,7 @@ impl<'a> Hashing<'a> {
     }
 
     /// The file's SHA-256, reading what was not read in order, and its size.
-    fn finish(mut self) -> io::Result<(String, u64)> {
+    pub(crate) fn finish(mut self) -> io::Result<(String, u64)> {
         self.seek(SeekFrom::Start(self.hashed))?;
         let mut buf = vec![0; CHUNK];
         while self.read(&mut buf)? > 0 {}
@@ -630,7 +634,7 @@ pub struct Payload {
 }
 
 impl Payload {
-    fn new(name: Option<String>, sums: Checksums) -> Payload {
+    pub(crate) fn new(name: Option<String>, sums: Checksums) -> Payload {
         Payload {
             name,
             size: sums.size,
@@ -663,6 +667,9 @@ pub struct Probe {
     pub zip: bool,
     /// Whether it is structurally valid TorrentZip.
     pub torrentzip: bool,
+    /// Whether it reads as a 7z archive, which is read only in an Ingest Folder.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sevenz: bool,
     pub payloads: Vec<Payload>,
     /// Why a member could not be read; its payloads are then incomplete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -672,7 +679,7 @@ pub struct Probe {
     pub header_rule: Option<HeaderRule>,
 }
 
-fn hash_all(file: &mut impl Read) -> io::Result<Checksums> {
+pub(crate) fn hash_all(file: &mut impl Read) -> io::Result<Checksums> {
     hash_under(None, file)
 }
 
@@ -750,6 +757,7 @@ pub fn probe_under(file: &File, rule: Option<HeaderRule>) -> io::Result<Probe> {
         size: whole.size,
         zip: false,
         torrentzip,
+        sevenz: false,
         payloads: Vec::new(),
         error: None,
         header_rule: rule,
@@ -834,7 +842,7 @@ pub const NESTED_ENDINGS: [&str; 12] = [
 ];
 
 /// The archive format the first bytes of a member start with, if any.
-fn archive_magic(head: &[u8]) -> Option<&'static str> {
+pub(crate) fn archive_magic(head: &[u8]) -> Option<&'static str> {
     const MAGIC: [(&[u8], &str); 6] = [
         (b"PK\x03\x04", "ZIP"),
         (b"7z\xbc\xaf\x27\x1c", "7z"),
@@ -866,6 +874,7 @@ pub fn probe_within(file: &File, limits: &ZipLimits) -> io::Result<Probed> {
         size: whole.size,
         zip: false,
         torrentzip,
+        sevenz: false,
         payloads: Vec::new(),
         error: None,
         header_rule: None,

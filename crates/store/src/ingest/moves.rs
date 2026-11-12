@@ -32,6 +32,7 @@ use title_select_engine::build::{
     FromSource, repack_sources, sole_payload, verify, verify_loose, write_loose, write_loose_member,
 };
 use title_select_engine::payload::{Checksums, Hasher};
+use title_select_engine::sevenz;
 
 use super::{check_ingest_marker, ingest_by_id, item_unmovable, open_ingest};
 use crate::builds::sha256_of;
@@ -565,7 +566,7 @@ impl Store {
         };
         match m.kind.as_str() {
             "rename" => self.drive_rename(config, &m, &src, &dest),
-            _ => self.drive_copy(&m, &src, &dest),
+            _ => self.drive_copy(config, &m, &src, &dest),
         }
     }
 
@@ -975,11 +976,17 @@ impl Store {
         Ok(Aside::Kept(aside))
     }
 
-    fn drive_copy(&self, m: &MoveRow, src: &FolderDir, dest: &FolderDir) -> Outcome {
+    fn drive_copy(
+        &self,
+        config: &Config,
+        m: &MoveRow,
+        src: &FolderDir,
+        dest: &FolderDir,
+    ) -> Outcome {
         let dest_name = m.dest_name().to_owned();
         let mut dest_sha256 = m.dest_sha256.clone();
         if matches!(m.state.as_str(), "pending" | "moving" | "staging") {
-            match self.stage_and_publish(m, src, dest, &dest_name)? {
+            match self.stage_and_publish(config, m, src, dest, &dest_name)? {
                 Ok(sha) => dest_sha256 = Some(sha),
                 Err(why) => return Ok(Err(why)),
             }
@@ -1080,9 +1087,10 @@ impl Store {
 
     /// Writes the copy or repack of `m` under a staged name recorded first, checks it, and renames it to `dest_name`
     /// without replacing anything. Resumes from a staged file or a publish a stop interrupted. Returns the SHA-256
-    /// of what was published.
+    /// of what was published. ROMs read from a 7z are decoded again, within `config`'s bounds.
     fn stage_and_publish(
         &self,
+        config: &Config,
         m: &MoveRow,
         src: &FolderDir,
         dest: &FolderDir,
@@ -1170,7 +1178,47 @@ impl Store {
             Ok(source) => source,
             Err(why) => return fail(why),
         };
+        let sevenz = match sevenz::is_7z(&source) {
+            Ok(sevenz) => sevenz,
+            Err(e) => return fail(format!("{}: {e}", m.name)),
+        };
         let written = match (&m.roms, m.sha256.as_deref()) {
+            // ROMs of a 7z are decoded from it again, the whole archive hashed as it is read.
+            (Some(roms), _) if sevenz => {
+                self.fault_point(Fault::IngestReadWhole);
+                let decoding = self.decoding(config);
+                let named: std::result::Result<Vec<(&ExpectedRom, &str)>, String> = roms
+                    .iter()
+                    .map(|(rom, member)| {
+                        member
+                            .as_deref()
+                            .map(|member| (rom, member))
+                            .ok_or_else(|| {
+                                format!("{}: no member of {} is named for it", rom.name, m.name)
+                            })
+                    })
+                    .collect();
+                named
+                    .and_then(|named| match (m.loose, named.as_slice()) {
+                        (true, [(rom, member)]) => {
+                            sevenz::write_loose(&file, rom, member, &source, &decoding)
+                        }
+                        (true, _) => Err(format!(
+                            "a loose file holds one ROM, not {}; a game with more stays a ZIP",
+                            named.len()
+                        )),
+                        (false, _) => {
+                            let scratch = Scratch::new(
+                                self.dir()
+                                    .join(crate::TMP)
+                                    .join(format!("{SEVENZ_SCRATCH}{}", m.id)),
+                            )
+                            .map_err(|e| format!("{}: {e}", m.name))?;
+                            sevenz::repack(&file, &named, &source, &decoding, &scratch.0)
+                        }
+                    })
+                    .map(|(sha, _)| sha)
+            }
             // One ROM of a ZIP written loose reads only its member: the rest of the ZIP is trusted to be what the
             // scan hashed while its stamp, change time included, holds still from before it is opened until after
             // it is read. Each ROM of a disc read from one ZIP, one move each, so reads that ZIP once.
@@ -1797,6 +1845,50 @@ pub(crate) fn insert_move(tx: &Transaction, mv: &Move, kind: &str) -> Result<i64
     Ok(tx.last_insert_rowid())
 }
 
+/// The prefix of a 7z repack's [`Scratch`] in the store's tmp, followed by its move's id.
+const SEVENZ_SCRATCH: &str = "7z-";
+
+/// Removes every 7z repack's scratch from the store's tmp at `tmp`. A kill skips [`Scratch`]'s drop, so this is what
+/// removes what a killed repack left; it runs only while no move is being made, so no scratch it finds is in use.
+pub(super) fn remove_sevenz_scratch(tmp: &std::path::Path) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(tmp) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        entries => entries?,
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(SEVENZ_SCRATCH)
+        {
+            std::fs::remove_dir_all(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+/// A directory a 7z's members wait in for their turn in a repack: made empty, and removed with whatever is left in it
+/// once the repack is done, or failed.
+struct Scratch(std::path::PathBuf);
+
+impl Scratch {
+    fn new(path: std::path::PathBuf) -> std::io::Result<Scratch> {
+        match std::fs::remove_dir_all(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+        std::fs::create_dir_all(&path)?;
+        Ok(Scratch(path))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
@@ -1981,6 +2073,40 @@ mod tests {
                 b"pong"
             );
             assert_eq!(env.unfinished(), 0);
+        }
+        FORCE_COPY.with(|f| f.set(false));
+    }
+
+    /// A kill during a 7z repack leaves its scratch behind, which no drop removes: recovery does, whatever becomes of
+    /// the move, along with any scratch no move owns, and leaves the rest of the store's tmp alone.
+    #[test]
+    fn scratch_a_killed_7z_repack_left_is_removed_by_recovery() {
+        FORCE_COPY.with(|f| f.set(true));
+        for fault in [Fault::IngestStaged, Fault::IngestPublished] {
+            let env = env();
+            env.put("pong.a26", b"pong");
+            let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+            mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+            env.store.inject_fault(Some(fault));
+            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+            assert!(ran.is_err(), "{fault:?}");
+            env.store.inject_fault(None);
+            let tmp = env.store.dir().join(crate::TMP);
+            for dir in ["7z-1", "7z-77", "chd-3-a"] {
+                std::fs::create_dir_all(tmp.join(dir)).unwrap();
+                std::fs::write(tmp.join(dir).join("0"), b"member").unwrap();
+            }
+
+            let left = env.store.recover_ingest_moves(&env.config).unwrap();
+
+            assert!(left.is_empty(), "{left:?}");
+            assert_eq!(env.unfinished(), 0);
+            let mut held: Vec<String> = std::fs::read_dir(&tmp)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            held.sort();
+            assert_eq!(held, ["chd-3-a"], "{fault:?}");
         }
         FORCE_COPY.with(|f| f.set(false));
     }

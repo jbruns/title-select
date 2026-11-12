@@ -117,6 +117,8 @@ pub struct Store {
     lifecycle: Mutex<()>,
     /// What receives each occurrence as its write commits.
     observer: std::sync::OnceLock<observe::Observer>,
+    /// How many 7z archives decode at once, across every Job; sized from the configuration on first use.
+    archives: std::sync::OnceLock<title_select_engine::sevenz::Gate>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -335,6 +337,21 @@ fn configure(conn: &Connection) -> Result<()> {
 }
 
 impl Store {
+    /// The bounds a 7z decodes within: the store's one gate, sized by `config`'s `archive_workers` when first used,
+    /// and `config`'s dictionary limit.
+    pub(crate) fn decoding(
+        &self,
+        config: &config::Config,
+    ) -> title_select_engine::sevenz::Decoding<'_> {
+        let gate = self
+            .archives
+            .get_or_init(|| title_select_engine::sevenz::Gate::new(config.ingest.archive_workers));
+        title_select_engine::sevenz::Decoding {
+            gate,
+            max_dictionary_mib: config.ingest.max_dictionary_mib,
+        }
+    }
+
     /// Opens the store in `dir`, creating it if needed, migrating it, and collecting blobs that have no row.
     pub fn open(dir: &Path) -> Result<Store> {
         Store::open_with(dir, migrations::MIGRATIONS)
@@ -364,6 +381,7 @@ impl Store {
             set_dirs: Mutex::new(()),
             lifecycle: Mutex::new(()),
             observer: std::sync::OnceLock::new(),
+            archives: std::sync::OnceLock::new(),
         };
         // Retention is not run here: it runs after an import or an Audit, so a blob restored by one command is
         // still there for the Audit the next command runs.

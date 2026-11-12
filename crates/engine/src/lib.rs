@@ -6,6 +6,7 @@ pub mod dat;
 pub mod fixdat;
 pub mod payload;
 mod read;
+pub mod sevenz;
 pub mod torrentzip;
 pub mod zipdir;
 

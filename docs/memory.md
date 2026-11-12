@@ -86,3 +86,38 @@ DAT is much larger than PlayStation's, and raise the limit if its selection need
 
 The image has no shell, so read `memory.peak` from the Host. If you can't reach Docker there, find the cgroup folder
 from the service's process: `/sys/fs/cgroup` followed by the path in `/proc/<pid>/cgroup`.
+
+## 7z in Ingest Folders
+
+Decoding a 7z (ADR 0018) needs its dictionary in memory: LZMA and LZMA2 allocate it whole, and zstd allocates its
+window. The other memory 7z needs is small and fixed: members stream through the hasher, and nothing is cached.
+
+- The dictionary each block declares is read from the header before anything is decoded. An archive that needs more
+  than `[ingest] max_dictionary_mib` (128 MiB by default) is refused without allocating it. The test
+  `crates/engine/tests/sevenz_memory.rs` shows that the peak allocation for a refused 1.5 GiB dictionary stays under
+  1 MiB and does not grow with the dictionary.
+- The header is bounded before the 7z crate parses it. A raw or decoded header over 8 MiB is refused unread, and
+  Title Select walks the header itself to read its counts of files, blocks, packed streams and substreams; any over
+  4096 is refused before the crate allocates an entry for each. A compressed header is decoded under the same
+  dictionary check. The header phase holds at most three copies of the header (raw, decoded, the crate's), so 24 MiB,
+  plus at most 4096 entries. `sevenz_memory.rs` shows that a header listing millions of entries and one too large
+  for a game's archive are both refused at a small, fixed peak.
+- zstd's window is checked on every frame, not only the first: the packed stream is followed frame by frame as it
+  is read, and a frame whose header declares a window that, with the dictionaries of the block's other coders, is
+  over the limit (or alone over 128 MiB) stops the decode before libzstd sees that header. libzstd allocates through C malloc, which the counting allocator can't see, so this
+  bound is shown by the refusal in `crates/engine/tests/sevenz.rs` rather than by a measured peak.
+- One global gate in the Store lets at most `[ingest] archive_workers` (2 by default) archives be read at once,
+  across every ingest scan and Change Plan. The permit is taken before the header is read and held to the last
+  member, so header decoding counts against it too.
+- A repack decodes each solid block once. Members needed later in the ZIP are staged in the Store's
+  `tmp/7z-<id>` and bounded by their declared sizes while they stream, so this uses disk, not memory. Interrupted-move
+  recovery at startup removes any staging a kill left behind.
+
+7z therefore adds at most `archive_workers` × (`max_dictionary_mib` + 24 MiB) to the peaks above, about 304 MiB with
+the defaults.
+The Operator sizes the limit at about:
+
+> 2 × the largest peak without 7z + `archive_workers` × (`max_dictionary_mib` + 24 MiB)
+
+With the 400M limit above and the defaults, that is about 704M. Measure an ingest scan of a large solid 7z after
+release to confirm the term, and record it here.

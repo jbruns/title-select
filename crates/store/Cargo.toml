@@ -25,6 +25,9 @@ ureq = { version = "3.5.0", default-features = false, features = ["rustls"] }
 zip.workspace = true
 
 [dev-dependencies]
+sevenz-rust2 = { workspace = true, features = ["compress"] }
+lzma-rust2.workspace = true
+zstd.workspace = true
 crc32fast.workspace = true
 md-5.workspace = true
 sha1.workspace = true

@@ -25,6 +25,7 @@ use title_select_api::{AuditEvidence, ImportOutcome, Job, JobKind, JobState, Wor
 use title_select_engine::FileStamp;
 use title_select_engine::build::{Payload, Probe, Probed, ZipLimits, probe_within};
 use title_select_engine::dat::Dat;
+use title_select_engine::sevenz::{self, Decoding};
 
 use self::moves::{Destination, Move};
 use super::audits::choose_revision;
@@ -42,7 +43,13 @@ use crate::config::{Config, Root};
 const PARTIAL: [&str; 4] = [".part", ".!qB", ".crdownload", ".tmp"];
 
 /// Archive formats Title Select never opens.
-const UNSUPPORTED_ARCHIVES: [&str; 2] = ["7z", "rar"];
+const UNSUPPORTED_ARCHIVES: [&str; 1] = ["rar"];
+
+/// How a 7z refused for its dictionary is refused: raising the limit lets it be read, so it is read again.
+const DICTIONARY_REFUSAL: &str = "this 7z needs a ";
+
+/// How a 7z was refused on sight before 7z archives were read: it is read now.
+const SEVENZ_UNREAD: &str = "7z archives are not opened";
 
 /// The largest file read as a possible DAT.
 const DAT_LIMIT: u64 = 512 << 20;
@@ -524,7 +531,8 @@ fn unsupported_at_sight(name: &str, st: &Stat) -> Option<String> {
         FileType::RegularFile => {}
         FileType::Directory => {
             return Some(
-                "it is a folder; only loose files and per-game ZIP archives are read".to_owned(),
+                "it is a folder; only loose files and per-game ZIP and 7z archives are read"
+                    .to_owned(),
             );
         }
         _ => return Some("it is not a regular file".to_owned()),
@@ -532,7 +540,7 @@ fn unsupported_at_sight(name: &str, st: &Stat) -> Option<String> {
     let ext = extension(name)?;
     UNSUPPORTED_ARCHIVES.contains(&ext.as_str()).then(|| {
         format!(
-            "{ext} archives are not opened; only loose files and per-game ZIP archives are read"
+            "{ext} archives are not opened; only loose files and per-game ZIP and 7z archives are read"
         )
     })
 }
@@ -659,7 +667,7 @@ impl Matcher {
     fn matches(
         &self,
         payloads: &[Payload],
-        zip: bool,
+        archive: bool,
     ) -> std::result::Result<Vec<ItemMatch>, String> {
         let mut found = Vec::new();
         for set in &self.sets {
@@ -682,14 +690,14 @@ impl Matcher {
                     used.insert(at);
                 }
             }
-            if zip && games.len() > 1 {
+            if archive && games.len() > 1 {
                 let matched: BTreeSet<usize> =
                     games.values().flat_map(|(_, used)| used).copied().collect();
                 games.retain(|_, (_, used)| *used == matched);
                 if games.is_empty() {
                     return Err(format!(
                         "it holds ROMs of more than one game of {} and no one game accounts for them; whole-set \
-                         archives are not opened, only one game's ZIP",
+                         archives are not opened, only one game's archive",
                         set.name
                     ));
                 }
@@ -795,7 +803,7 @@ fn found_dat(c: &Connection, name: &str, version: &str, sha256: &str) -> Result<
     })
 }
 
-/// Assesses what was read from the item `name`: a DAT file, a ZIP of one Game's ROMs, or a loose file.
+/// Assesses what was read from the item `name`: a DAT file, a ZIP or 7z of one Game's ROMs, or a loose file.
 fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Result<Found> {
     let probe = &read.probe;
     let mut assessment = Assessment {
@@ -814,6 +822,22 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
             ItemState::Unreadable,
             assessment,
             Some("it is not a readable ZIP archive".into()),
+        ));
+    }
+    if !probe.sevenz && extension(name).as_deref() == Some("7z") {
+        return Ok(found(
+            ItemState::Unreadable,
+            assessment,
+            Some("it is not a readable 7z archive".into()),
+        ));
+    }
+    if probe.sevenz
+        && let Some(error) = &probe.error
+    {
+        return Ok(found(
+            ItemState::Unreadable,
+            assessment,
+            Some(error.clone()),
         ));
     }
     if probe.zip
@@ -836,7 +860,8 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
             found(ItemState::Assessed, assessment, None)
         });
     }
-    let matches = match matcher.matches(&probe.payloads, probe.zip) {
+    let archive = probe.zip || probe.sevenz;
+    let matches = match matcher.matches(&probe.payloads, archive) {
         Ok(matches) => matches,
         Err(why) => return Ok(Found::unsupported(why)),
     };
@@ -868,7 +893,7 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
             ItemState::Assessed
         }
         None => {
-            let exts: BTreeSet<String> = if probe.zip {
+            let exts: BTreeSet<String> = if archive {
                 probe
                     .payloads
                     .iter()
@@ -888,14 +913,16 @@ fn assess(store: &Store, matcher: &Matcher, name: &str, read: &ItemRead) -> Resu
     Ok(found(state, assessment, None))
 }
 
-/// Reads the regular file `name`, found by `lstat` as `seen`, through `dir`: hashed whole and, for a ZIP, by
+/// Reads the regular file `name`, found by `lstat` as `seen`, through `dir`: hashed whole and, for a ZIP or a 7z, by
 /// member; parsed as a DAT when its name says it may be one. Trusted only if it is the same file, unchanged, before
-/// and after. A ZIP is judged from its directory before any member is decompressed, and its reading stops at the
-/// limits of a game's ZIP; one refused is `Ok(Err(why))`.
+/// and after. A ZIP is judged from its directory, and a 7z from its header, before any member is decompressed, and
+/// its reading stops at the limits of a game's archive; one refused is `Ok(Err(why))`. A 7z decodes within
+/// `decoding`.
 fn read_item(
     dir: &FolderDir,
     name: &str,
     seen: &Seen,
+    decoding: &Decoding,
 ) -> std::result::Result<std::result::Result<ItemRead, String>, String> {
     let changed = || "it changed while it was read".to_owned();
     let mut file = dir.open_file(name).map_err(|e| e.to_string())?;
@@ -903,7 +930,12 @@ fn read_item(
     if Seen::of(&before) != *seen {
         return Err(changed());
     }
-    let probe = match probe_within(&file, &ZipLimits::default()).map_err(|e| e.to_string())? {
+    let limits = ZipLimits::default();
+    let probed = match sevenz::is_7z(&file).map_err(|e| e.to_string())? {
+        true => sevenz::probe(&file, &limits, decoding),
+        false => probe_within(&file, &limits),
+    };
+    let probe = match probed.map_err(|e| e.to_string())? {
         Probed::Read(probe) => probe,
         Probed::Refused(why) => {
             let after = rustix::fs::fstat(&file).map_err(|e| e.to_string())?;
@@ -915,6 +947,7 @@ fn read_item(
     };
     let mut dat = None;
     if !probe.zip
+        && !probe.sevenz
         && probe.size <= DAT_LIMIT
         && matches!(extension(name).as_deref(), Some("dat" | "xml"))
     {
@@ -1316,8 +1349,16 @@ impl Store {
             match existing.item.state {
                 ItemState::Dismissed => continue,
                 // Refused unread, as an archive within the archive or past the limits: reading it again would only
-                // refuse it again.
-                ItemState::Unsupported if existing.read.is_none() => continue,
+                // refuse it again. A 7z refused for its dictionary is read again, as the limit may have been raised,
+                // and so is one refused on sight before 7z archives were read.
+                ItemState::Unsupported
+                    if existing.read.is_none()
+                        && !existing.item.reason.as_deref().is_some_and(|r| {
+                            r.starts_with(DICTIONARY_REFUSAL) || r.starts_with(SEVENZ_UNREAD)
+                        }) =>
+                {
+                    continue;
+                }
                 _ if !settled => continue,
                 _ => {}
             }
@@ -1333,12 +1374,16 @@ impl Store {
                 Some(read) => (read, false),
                 None => {
                     self.fault_point(Fault::IngestRead);
-                    match read_item(&dir, &name, &seen) {
+                    match read_item(&dir, &name, &seen, &self.decoding(config)) {
                         Ok(Ok(read)) => (read, true),
                         Ok(Err(why)) => {
-                            self.write(|tx| {
-                                store_found(tx, existing.item.id, &Found::unsupported(why))
-                            })?;
+                            let again = existing.item.state == ItemState::Unsupported
+                                && existing.item.reason.as_deref() == Some(why.as_str());
+                            if !again {
+                                self.write(|tx| {
+                                    store_found(tx, existing.item.id, &Found::unsupported(why))
+                                })?;
+                            }
                             continue;
                         }
                         Err(why) => {
@@ -2196,8 +2241,19 @@ impl Store {
     /// Rolls forward every move out of an Ingest Folder a stop interrupted, each only once its folder is open, in a
     /// writable Root, with this store's marker; then finishes each approved plan whose moves have all ended. Returns
     /// each move left unfinished, with why.
+    ///
+    /// It runs before any Job, so no move is being made: first it removes the scratch every 7z repack a kill
+    /// interrupted left behind, whether its move is then published, failed or tried again from the start.
     pub fn recover_ingest_moves(&self, config: &Config) -> Result<Vec<(i64, String)>> {
         let mut left = Vec::new();
+        if let Err(err) = moves::remove_sevenz_scratch(&self.dir().join(crate::TMP)) {
+            left.push((
+                0,
+                format!(
+                    "cannot remove what an interrupted 7z repack left in the store's tmp: {err}"
+                ),
+            ));
+        }
         let folders = self.read(|c| {
             let mut stmt = c.prepare(FOLDER_QUERY)?;
             Ok(stmt
