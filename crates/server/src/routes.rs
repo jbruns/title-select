@@ -99,6 +99,8 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/source-set-summaries", get(source_set_summaries))
         .route("/source-sets/{name}", get(source_set))
         .route("/source-sets/{name}/history", get(history))
+        .route("/source-sets/{name}/fixdat", get(fixdat))
+        .route("/source-sets/{name}/have-miss.csv", get(have_miss))
         .route("/source-sets/{name}/follow", put(set_follow))
         .route(
             "/source-sets/{name}/stat-walks",
@@ -1298,6 +1300,67 @@ async fn history(
     Ok(Json(
         blocking(&state, move |store| store.history(&name)).await?,
     ))
+}
+
+#[derive(Deserialize)]
+struct ExportQuery {
+    selection: Option<i64>,
+}
+
+/// The Fixdat of a Source Set's latest Audit, as a download.
+async fn fixdat(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+    query: Result<Query<ExportQuery>, QueryRejection>,
+) -> ApiResult<Response> {
+    let (Path(name), Query(query)) = (name?, query?);
+    let export = blocking(&state, move |store| store.fixdat(&name, query.selection)).await?;
+    Ok(download(export, "application/xml"))
+}
+
+/// The have/miss CSV of a Source Set's latest Audit, as a download.
+async fn have_miss(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+    query: Result<Query<ExportQuery>, QueryRejection>,
+) -> ApiResult<Response> {
+    let (Path(name), Query(query)) = (name?, query?);
+    let export = blocking(&state, move |store| store.have_miss(&name, query.selection)).await?;
+    Ok(download(export, "text/csv; charset=utf-8"))
+}
+
+/// An exported file, to be saved under its name: an ASCII fallback, and the name itself as RFC 5987 gives it.
+fn download(export: title_select_store::Export, content_type: &'static str) -> Response {
+    let fallback: String = export
+        .file_name
+        .chars()
+        .map(|c| match c {
+            ' '..='~' if c != '"' && c != '\\' => c,
+            _ => '_',
+        })
+        .collect();
+    let encoded: String = export
+        .file_name
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            b => format!("%{b:02X}"),
+        })
+        .collect();
+    let disposition = format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}");
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
+            (
+                header::CONTENT_DISPOSITION,
+                HeaderValue::from_str(&disposition).expect("visible ASCII"),
+            ),
+        ],
+        export.content,
+    )
+        .into_response()
 }
 
 /// The approved ingest plans that changed a Source Set: DAT imports that queued an Audit of it, and additions to its

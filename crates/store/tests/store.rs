@@ -1409,6 +1409,70 @@ mod profiles_and_selections {
         assert_eq!(again.kind, JobKind::Selection);
         assert_eq!(again.profile, job.profile);
     }
+
+    /// The games of a have/miss CSV, one a row.
+    fn have_miss_games(csv: &str) -> Vec<String> {
+        csv.lines()
+            .skip(1)
+            .map(|l| l.split(',').next().unwrap().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn exports_of_what_is_missing_keep_to_a_selections_winners_of_the_latest_audits_revision() {
+        let env = Env::new(20);
+        env.add_dat_and_set();
+        let refused = env.store.fixdat("Test - System", None);
+        assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
+        write_file(&env.set_dir().join("Pong (USA).a26"), b"pong");
+        let (sha256, _) = env.import(1);
+        save(&env, &SelectionProfile::default(), None);
+        let job = env
+            .store
+            .enqueue_selection("Test - System", None, NAME, None, "Operator", WORKERS)
+            .unwrap();
+        env.store.claim_job().unwrap();
+        let id = env
+            .store
+            .record_selection(&env.config, job.id, &selection(&sha256))
+            .unwrap()
+            .selection
+            .unwrap();
+        let audit = env.audit(None);
+
+        let whole = env.store.have_miss("Test - System", None).unwrap();
+        assert_eq!(
+            have_miss_games(&whole.content),
+            ["Pong (USA)", "Combat (USA)"]
+        );
+        let chosen = env.store.have_miss("Test - System", Some(id)).unwrap();
+        assert_eq!(have_miss_games(&chosen.content), ["Combat (USA)"]);
+        let fixdat = env.store.fixdat("Test - System", Some(id)).unwrap();
+        let read = title_select_engine::dat::Dat::parse(
+            fixdat.content.as_bytes(),
+            Path::new(&fixdat.file_name),
+        )
+        .unwrap();
+        assert_eq!(read.games, ["Combat (USA)"]);
+        assert!(
+            fixdat.content.contains(&format!("audit {}", audit.id)),
+            "{}",
+            fixdat.content
+        );
+        assert!(fixdat.file_name.starts_with("fixdat_Test - System ("));
+
+        let (newer, _) = env.import(2);
+        env.audit(Some(&newer));
+        for refused in [
+            env.store.fixdat("Test - System", Some(id)),
+            env.store.have_miss("Test - System", Some(id)),
+        ] {
+            let Err(Error::Refused(message)) = refused else {
+                panic!("a selection of another DAT revision is refused: {refused:?}");
+            };
+            assert!(message.contains("DAT revision"), "{message}");
+        }
+    }
 }
 
 /// Each Entry's path and member, with when its payload was last read and whether this Audit reused that read.

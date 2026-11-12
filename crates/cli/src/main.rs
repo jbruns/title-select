@@ -72,6 +72,23 @@ enum Command {
         #[arg(required_unless_present = "set", conflicts_with = "set")]
         source_set: Option<PathBuf>,
     },
+    /// Export a fixdat: a Logiqx XML DAT of what a source set lacks by its latest audit, against that audit's
+    /// DAT revision. It lists the missing games, and only the missing ROMs of incomplete games, with every size and
+    /// hash the DAT gives. Reads only; it never fetches or acquires a game.
+    Fixdat {
+        /// The registered source set, by name.
+        source_set: String,
+        #[command(flatten)]
+        export: ExportArgs,
+    },
+    /// Export a have/miss CSV of a source set by its latest audit: one row per game, with its status and the ROMs
+    /// it has and lacks. ROM names in a cell are separated by `|`. Reads only.
+    HaveMiss {
+        /// The registered source set, by name.
+        source_set: String,
+        #[command(flatten)]
+        export: ExportArgs,
+    },
     /// Manage DATs and their DAT revisions.
     Dat {
         #[command(subcommand)]
@@ -159,6 +176,18 @@ enum Command {
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=300))]
         timeout: u64,
     },
+}
+
+#[derive(clap::Args)]
+struct ExportArgs {
+    /// Limit the export to the winners of this selection, by its id. It must be a selection of the same source set,
+    /// against the DAT revision of its latest audit.
+    #[arg(long)]
+    selection: Option<i64>,
+    /// Write to this file instead of stdout. Given a folder, it writes the file there under its own name, such as
+    /// `fixdat_<DAT name> (<date>).dat`.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -358,6 +387,22 @@ fn write_report(report: &impl serde::Serialize, output: Option<PathBuf>) -> Resu
     }
 }
 
+/// Writes an export to stdout, or to `output`: a file, or a folder to write it into under its own name.
+fn write_export(export: title_select_store::Export, output: Option<PathBuf>) -> Result<(), String> {
+    let Some(output) = output else {
+        return std::io::stdout()
+            .write_all(export.content.as_bytes())
+            .map_err(|e| e.to_string());
+    };
+    let path = match output.is_dir() {
+        true => output.join(&export.file_name),
+        false => output,
+    };
+    std::fs::write(&path, export.content).map_err(|e| format!("{}: {e}", path.display()))?;
+    eprintln!("wrote {}", path.display());
+    Ok(())
+}
+
 fn parse_kind(s: &str) -> Result<RegistrationKind, String> {
     serde_json::from_value(serde_json::Value::String(s.replace('-', "_"))).map_err(|_| {
         "expected source_set, library_folder, additions_set or ingest_folder".to_owned()
@@ -478,6 +523,18 @@ fn run(cli: Cli) -> Result<(), String> {
             eprintln!("{}", payloads_line(&audit.report));
             write_report(&audit.report, output)
         }
+        Command::Fixdat { source_set, export } => write_export(
+            open_store(store)?
+                .fixdat(&source_set, export.selection)
+                .map_err(|e| e.to_string())?,
+            export.output,
+        ),
+        Command::HaveMiss { source_set, export } => write_export(
+            open_store(store)?
+                .have_miss(&source_set, export.selection)
+                .map_err(|e| e.to_string())?,
+            export.output,
+        ),
         Command::Audit { .. } => unreachable!("clap requires --dat with a directory, or --set"),
         Command::Serve {
             listen,

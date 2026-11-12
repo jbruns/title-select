@@ -694,6 +694,66 @@ fn the_bulk_ndjson_endpoint_returns_every_entry() {
 }
 
 #[test]
+fn the_api_exports_a_fixdat_and_a_have_miss_csv_of_what_the_latest_audit_found_missing() {
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    let base = "/source-sets/Test%20-%20System";
+    client.upload("Test - System (20260101).dat", &env.dat());
+    client.add_set();
+    assert_eq!(status_of(client.get(&format!("{base}/fixdat")).call()), 400);
+    let job: Job = client.start_audit().body_mut().read_json().unwrap();
+    let (_, done) = client.follow(job.id);
+    assert_eq!(done.state, JobState::Succeeded, "{done:?}");
+
+    let response = client.get(&format!("{base}/fixdat")).call().unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["Content-Type"], "application/xml");
+    let disposition = response.headers()["Content-Disposition"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        disposition.starts_with("attachment; filename=\"fixdat_Test - System ("),
+        "{disposition}"
+    );
+    let xml = response.into_body().read_to_string().unwrap();
+    let fixdat =
+        title_select_engine::dat::Dat::parse(xml.as_bytes(), std::path::Path::new("x")).unwrap();
+    assert_eq!(fixdat.games, ["Breakout (USA)"]);
+
+    let response = client.get(&format!("{base}/have-miss.csv")).call().unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()["Content-Type"],
+        "text/csv; charset=utf-8"
+    );
+    let csv = response.into_body().read_to_string().unwrap();
+    assert_eq!(
+        csv.lines().collect::<Vec<_>>(),
+        [
+            "game,status,present_roms,missing_roms,available_elsewhere_roms",
+            "Pong (USA),complete,Pong (USA).a26,,",
+            "Combat (USA),complete,Combat (USA).a26,,",
+            "Breakout (USA),missing,,Breakout (USA).a26,",
+        ]
+    );
+
+    assert_eq!(
+        status_of(client.get(&format!("{base}/fixdat?selection=999")).call()),
+        404
+    );
+    assert_eq!(
+        status_of(
+            client
+                .get(&format!("{base}/have-miss.csv?selection=x"))
+                .call()
+        ),
+        400
+    );
+}
+
+#[test]
 fn an_audit_is_incremental_unless_you_ask_the_api_for_a_full_one() {
     let env = Env::new();
     let service = env.start();

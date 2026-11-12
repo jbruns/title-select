@@ -375,6 +375,45 @@ pub fn running<'a>(jobs: impl IntoIterator<Item = &'a title_select_api::Job>) ->
     names
 }
 
+/// What a source set's latest audit found missing, exported as a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissingExport {
+    Fixdat,
+    HaveMiss,
+}
+
+/// The API path that downloads `export` for the source set whose escaped name is `set`, limited to the winners of
+/// `selection` when there is one.
+pub fn missing_export_path(set: &str, export: MissingExport, selection: Option<i64>) -> String {
+    let file = match export {
+        MissingExport::Fixdat => "fixdat",
+        MissingExport::HaveMiss => "have-miss.csv",
+    };
+    match selection {
+        Some(id) => format!("/source-sets/{set}/{file}?selection={id}"),
+        None => format!("/source-sets/{set}/{file}"),
+    }
+}
+
+/// The selections an export can be limited to: those of the latest audit's DAT revision that still hold their rows.
+pub fn export_selections<'a>(
+    latest: &AuditSummary,
+    selections: &'a [title_select_api::SelectionRecord],
+) -> Vec<&'a title_select_api::SelectionRecord> {
+    selections
+        .iter()
+        .filter(|s| !s.pruned && s.dat_revision_sha256 == latest.dat_revision_sha256)
+        .collect()
+}
+
+/// How a selection is offered in the export's choice.
+pub fn selection_option(selection: &title_select_api::SelectionRecord) -> String {
+    format!(
+        "Selection #{}: {} v{}",
+        selection.id, selection.profile.name, selection.profile.version
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -671,5 +710,54 @@ mod tests {
             ]
         );
         assert_eq!(change_counts(0, 3, 0), "3 added");
+    }
+
+    fn selection(id: i64, sha: &str, pruned: bool) -> title_select_api::SelectionRecord {
+        title_select_api::SelectionRecord {
+            id,
+            source_set: "GB".into(),
+            dat_revision_sha256: sha.into(),
+            dat_revision_version: sha.into(),
+            profile: title_select_api::ProfileVersionRef {
+                name: "Mine".into(),
+                version: 3,
+            },
+            latest_profile_version: 3,
+            job: None,
+            system: "Nintendo - Game Boy".into(),
+            system_settings: false,
+            pins: Default::default(),
+            summary: Default::default(),
+            created_at: "2026-01-02T00:00:00Z".into(),
+            pruned,
+            library_folders: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn what_is_missing_exports_by_the_latest_audit_limited_to_a_selection_of_its_revision() {
+        let latest = audit(4, "2026-01-03T00:00:00Z", "aaa", 0);
+        let selections = [
+            selection(9, "aaa", false),
+            selection(8, "bbb", false),
+            selection(7, "aaa", true),
+            selection(6, "aaa", false),
+        ];
+
+        let offered: Vec<i64> = export_selections(&latest, &selections)
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+
+        assert_eq!(offered, [9, 6]);
+        assert_eq!(selection_option(&selections[0]), "Selection #9: Mine v3");
+        assert_eq!(
+            missing_export_path("GB%20Color", MissingExport::Fixdat, None),
+            "/source-sets/GB%20Color/fixdat"
+        );
+        assert_eq!(
+            missing_export_path("GB", MissingExport::HaveMiss, Some(9)),
+            "/source-sets/GB/have-miss.csv?selection=9"
+        );
     }
 }

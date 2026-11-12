@@ -41,7 +41,7 @@ use crate::screens::repair::{MAKING_PLAN, RepairDesk, RepairTab, SourceKept};
 use crate::screens::source_sets::{
     new_library_href, preview_href, stale_icons, stale_lines, start_audit, start_check, tab_href,
 };
-use crate::source_set_model::{self as model, Happened, Moment, PageTab};
+use crate::source_set_model::{self as model, Happened, MissingExport, Moment, PageTab};
 
 /// What following a DAT does, for the toggle's tooltip.
 const FOLLOW_HINT: &str =
@@ -400,8 +400,63 @@ fn Overview(
                 </dd>
             </dl>
         </section>
+        {latest
+            .clone()
+            .filter(|a| !a.pruned)
+            .map(|a| view! { <ExportMissing name=set.name.clone() latest=a /> })}
         <StartAuditForm name=set.name.clone() latest revisions />
         <SetLifecycle name=set.name.clone() />
+    }
+}
+
+/// Downloads of what the latest audit found missing, for the whole DAT or one selection's winners.
+#[component]
+fn ExportMissing(name: String, latest: AuditSummary) -> impl IntoView {
+    let set = api::segment(&name);
+    let selection = RwSignal::new(None::<i64>);
+    let selections = {
+        let set = set.clone();
+        LocalResource::new(move || {
+            let path = format!("/selections?source_set={set}");
+            async move { api::get::<Vec<title_select_api::SelectionRecord>>(&path).await }
+        })
+    };
+    let options = move || {
+        selections.get().and_then(Result::ok).map(|records| {
+            model::export_selections(&latest, &records)
+                .into_iter()
+                .map(|s| view! { <option value=s.id.to_string()>{model::selection_option(s)}</option> })
+                .collect_view()
+        })
+    };
+    let link = move |export: MissingExport| {
+        let set = set.clone();
+        move || api::url(&model::missing_export_path(&set, export, selection.get()))
+    };
+    view! {
+        <section aria-labelledby="export-title">
+            <h2 id="export-title">"Export what's missing"</h2>
+            <p class="note">
+                "Lists what your latest audit found missing, as a fixdat or a have/miss CSV. Nothing is fetched."
+            </p>
+            <div class="form">
+                <label>
+                    "Games"
+                    <select on:change=move |ev| selection.set(event_target_value(&ev).parse().ok())>
+                        <option value="">"The whole DAT"</option>
+                        {options}
+                    </select>
+                </label>
+            </div>
+            <div class="actions">
+                <a class="button" href=link(MissingExport::Fixdat) download="">
+                    "Download fixdat"
+                </a>
+                <a class="button" href=link(MissingExport::HaveMiss) download="">
+                    "Download have/miss CSV"
+                </a>
+            </div>
+        </section>
     }
 }
 
