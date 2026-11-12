@@ -27,7 +27,7 @@ use crate::build::{
 };
 use crate::torrentzip::{Writer, compare_names};
 use header::Fault;
-use zstd::{Guarded, Stop};
+use zstd::{Guarded, Span, Stop};
 
 const SIGNATURE: [u8; 6] = *b"7z\xbc\xaf\x27\x1c";
 /// Bytes from the start of the file to where a 7z's packed streams are counted from.
@@ -190,16 +190,21 @@ fn zstd_too_large(window: u64) -> Judged {
     ))
 }
 
+/// The dictionary bytes a block may hold at once within `decoding`'s limit.
+fn budget(decoding: &Decoding) -> u64 {
+    u64::from(decoding.max_dictionary_mib) * MIB
+}
+
 /// The largest zstd window decoded within `decoding`'s limit.
 fn zstd_limit(decoding: &Decoding) -> u64 {
-    (u64::from(decoding.max_dictionary_mib) * MIB).min(ZSTD_WINDOW_MAX)
+    budget(decoding).min(ZSTD_WINDOW_MAX)
 }
 
 /// Why the zstd frames a [`Guarded`] reader followed stopped it, if they did.
 fn stopped<R>(source: &Guarded<R>, decoding: &Decoding) -> Option<Judged> {
     Some(match source.stopped.as_ref()? {
-        Stop::Window(window) if *window > ZSTD_WINDOW_MAX => zstd_too_large(*window),
-        Stop::Window(window) => too_large(*window, decoding),
+        Stop::Window { window, .. } if *window > ZSTD_WINDOW_MAX => zstd_too_large(*window),
+        Stop::Window { window, others } => too_large(window.saturating_add(*others), decoding),
         Stop::Bad(why) => damaged(format!("its zstd stream cannot be read: {why}")),
     })
 }
@@ -207,14 +212,15 @@ fn stopped<R>(source: &Guarded<R>, decoding: &Decoding) -> Option<Judged> {
 /// A 7z whose header is judged: parsed within its bounds, and declaring no dictionary past the limit.
 struct Judgement {
     archive: Archive,
-    /// Where each zstd packed stream starts and ends in the file, to follow its frames as it is decoded.
-    zstd: Vec<(u64, u64)>,
+    /// Where each zstd packed stream lies in the file, to follow its frames as it is decoded, and the dictionaries of
+    /// its block's other coders, which each frame's window shares the limit with.
+    zstd: Vec<Span>,
 }
 
 impl Judgement {
     /// Reads `source` from the file, following the frames of every zstd stream in it.
     fn guard<R: Read + Seek>(&self, source: R, decoding: &Decoding) -> io::Result<Guarded<R>> {
-        Guarded::new(source, &self.zstd, zstd_limit(decoding))
+        Guarded::new(source, &self.zstd, budget(decoding), ZSTD_WINDOW_MAX)
     }
 
     /// Where member `i` is decoded: its block, if it has one.
@@ -295,17 +301,22 @@ fn judge(file: &File, members: usize, decoding: &Decoding) -> Result<Judgement, 
     let mut zstd = Vec::new();
     for (b, block) in archive.blocks.iter().enumerate() {
         let mut needs = 0u64;
+        let mut others = 0u64;
         for coder in &block.coders {
             let id = coder.encoder_method_id();
             let size = dictionary(&archive, file, b, id, coder.properties())?;
             if id == EncoderMethod::ID_ZSTD {
                 window = window.max(size);
+            } else {
+                others = others.saturating_add(size);
             }
             needs = needs.saturating_add(size);
         }
         largest = largest.max(needs);
-        if let Some(stream) = zstd_stream(&archive, b)? {
-            zstd.push(stream);
+        // Every later frame of the block's zstd stream shares the limit with the same other dictionaries the first
+        // frame was judged beside.
+        if let Some((start, end)) = zstd_stream(&archive, b)? {
+            zstd.push(Span { start, end, others });
         }
     }
     if largest > u64::from(decoding.max_dictionary_mib) * MIB {
@@ -406,11 +417,16 @@ fn decode_header(
     let mut reader = BufReader::new(file);
     reader.seek(SeekFrom::Start(start)).map_err(damaged)?;
     let zstd = if coder.id == EncoderMethod::ID_ZSTD {
-        vec![(start, end)]
+        vec![Span {
+            start,
+            end,
+            others: 0,
+        }]
     } else {
         Vec::new()
     };
-    let mut source = Guarded::new(reader, &zstd, zstd_limit(decoding)).map_err(damaged)?;
+    let mut source =
+        Guarded::new(reader, &zstd, budget(decoding), ZSTD_WINDOW_MAX).map_err(damaged)?;
     let mut plain = Vec::with_capacity(unpack as usize);
     let read = {
         let packed = (&mut source).take(*packed);

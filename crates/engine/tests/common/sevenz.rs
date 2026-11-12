@@ -91,6 +91,57 @@ pub fn crafted_7z(path: &Path, method: &[u8], props: &[u8], name: &str, packed: 
     assemble(path, packed, &header);
 }
 
+/// Writes a 7z at `path`, its header written by hand, holding one member `name` of `size` bytes in one block of a chain
+/// of `coders`, each a method, its props and the size it decodes to. The first gives the member; each decodes what the
+/// next one gives, and the last reads the packed stream `packed`.
+pub fn chained_7z(path: &Path, coders: &[(&[u8], &[u8], u64)], name: &str, packed: &[u8]) {
+    let mut header = vec![0x01, 0x04];
+    header.extend([0x06, 0x00, 0x01, 0x09]);
+    number(&mut header, packed.len() as u64);
+    header.push(0x00);
+    header.extend([0x07, 0x0B, 0x01, 0x00]);
+    number(&mut header, coders.len() as u64);
+    for (method, props, _) in coders {
+        header.push(method.len() as u8 | if props.is_empty() { 0 } else { 0x20 });
+        header.extend(*method);
+        if !props.is_empty() {
+            number(&mut header, props.len() as u64);
+            header.extend(*props);
+        }
+    }
+    // Each coder's in-stream is bound to the next one's out-stream; the last's in-stream is the packed one.
+    for i in 1..coders.len() as u64 {
+        number(&mut header, i - 1);
+        number(&mut header, i);
+    }
+    header.push(0x0C);
+    for (_, _, size) in coders {
+        number(&mut header, *size);
+    }
+    header.extend([0x00, 0x08, 0x00, 0x00]);
+    let mut utf16: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    utf16.extend([0, 0]);
+    header.extend([0x05, 0x01, 0x11]);
+    number(&mut header, utf16.len() as u64 + 1);
+    header.push(0x00);
+    header.extend(utf16);
+    header.extend([0x00, 0x00]);
+
+    assemble(path, packed, &header);
+}
+
+/// An LZMA2 stream of `bytes` stored uncompressed, in chunks.
+pub fn lzma2_stored(bytes: &[u8]) -> Vec<u8> {
+    let mut stream = Vec::new();
+    for (i, chunk) in bytes.chunks(1 << 16).enumerate() {
+        stream.push(if i == 0 { 0x01 } else { 0x02 });
+        stream.extend(((chunk.len() - 1) as u16).to_be_bytes());
+        stream.extend(chunk);
+    }
+    stream.push(0x00);
+    stream
+}
+
 /// Writes a 7z at `path`: its packed streams `packed`, then `header`, the next header, plain or encoded.
 pub fn assemble(path: &Path, packed: &[u8], header: &[u8]) {
     let mut file = signature_header(

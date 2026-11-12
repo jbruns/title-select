@@ -1209,7 +1209,9 @@ impl Store {
                         )),
                         (false, _) => {
                             let scratch = Scratch::new(
-                                self.dir().join(crate::TMP).join(format!("7z-{}", m.id)),
+                                self.dir()
+                                    .join(crate::TMP)
+                                    .join(format!("{SEVENZ_SCRATCH}{}", m.id)),
                             )
                             .map_err(|e| format!("{}: {e}", m.name))?;
                             sevenz::repack(&file, &named, &source, &decoding, &scratch.0)
@@ -1843,6 +1845,29 @@ pub(crate) fn insert_move(tx: &Transaction, mv: &Move, kind: &str) -> Result<i64
     Ok(tx.last_insert_rowid())
 }
 
+/// The prefix of a 7z repack's [`Scratch`] in the store's tmp, followed by its move's id.
+const SEVENZ_SCRATCH: &str = "7z-";
+
+/// Removes every 7z repack's scratch from the store's tmp at `tmp`. A kill skips [`Scratch`]'s drop, so this is what
+/// removes what a killed repack left; it runs only while no move is being made, so no scratch it finds is in use.
+pub(super) fn remove_sevenz_scratch(tmp: &std::path::Path) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(tmp) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        entries => entries?,
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(SEVENZ_SCRATCH)
+        {
+            std::fs::remove_dir_all(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 /// A directory a 7z's members wait in for their turn in a repack: made empty, and removed with whatever is left in it
 /// once the repack is done, or failed.
 struct Scratch(std::path::PathBuf);
@@ -2048,6 +2073,40 @@ mod tests {
                 b"pong"
             );
             assert_eq!(env.unfinished(), 0);
+        }
+        FORCE_COPY.with(|f| f.set(false));
+    }
+
+    /// A kill during a 7z repack leaves its scratch behind, which no drop removes: recovery does, whatever becomes of
+    /// the move, along with any scratch no move owns, and leaves the rest of the store's tmp alone.
+    #[test]
+    fn scratch_a_killed_7z_repack_left_is_removed_by_recovery() {
+        FORCE_COPY.with(|f| f.set(true));
+        for fault in [Fault::IngestStaged, Fault::IngestPublished] {
+            let env = env();
+            env.put("pong.a26", b"pong");
+            let mut mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+            mv.exact = Some(rom_of("Pong (USA).a26", b"pong"));
+            env.store.inject_fault(Some(fault));
+            let ran = catch_unwind(AssertUnwindSafe(|| env.store.move_out(&env.config, mv)));
+            assert!(ran.is_err(), "{fault:?}");
+            env.store.inject_fault(None);
+            let tmp = env.store.dir().join(crate::TMP);
+            for dir in ["7z-1", "7z-77", "chd-3-a"] {
+                std::fs::create_dir_all(tmp.join(dir)).unwrap();
+                std::fs::write(tmp.join(dir).join("0"), b"member").unwrap();
+            }
+
+            let left = env.store.recover_ingest_moves(&env.config).unwrap();
+
+            assert!(left.is_empty(), "{left:?}");
+            assert_eq!(env.unfinished(), 0);
+            let mut held: Vec<String> = std::fs::read_dir(&tmp)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            held.sort();
+            assert_eq!(held, ["chd-3-a"], "{fault:?}");
         }
         FORCE_COPY.with(|f| f.set(false));
     }

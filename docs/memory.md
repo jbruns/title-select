@@ -103,14 +103,15 @@ window. The other memory 7z needs is small and fixed: members stream through the
   plus at most 4096 entries. `sevenz_memory.rs` shows that a header listing millions of entries and one too large
   for a game's archive are both refused at a small, fixed peak.
 - zstd's window is checked on every frame, not only the first: the packed stream is followed frame by frame as it
-  is read, and a frame whose header declares a window over the limit (or over 128 MiB) stops the decode before
-  libzstd sees that header. libzstd allocates through C malloc, which the counting allocator can't see, so this
+  is read, and a frame whose header declares a window that, with the dictionaries of the block's other coders, is
+  over the limit (or alone over 128 MiB) stops the decode before libzstd sees that header. libzstd allocates through C malloc, which the counting allocator can't see, so this
   bound is shown by the refusal in `crates/engine/tests/sevenz.rs` rather than by a measured peak.
 - One global gate in the Store lets at most `[ingest] archive_workers` (2 by default) archives be read at once,
   across every ingest scan and Change Plan. The permit is taken before the header is read and held to the last
   member, so header decoding counts against it too.
 - A repack decodes each solid block once. Members needed later in the ZIP are staged in the Store's
-  `tmp/7z-<id>` and bounded by their declared sizes while they stream, so this uses disk, not memory.
+  `tmp/7z-<id>` and bounded by their declared sizes while they stream, so this uses disk, not memory. Interrupted-move
+  recovery at startup removes any staging a kill left behind.
 
 7z therefore adds at most `archive_workers` × (`max_dictionary_mib` + 24 MiB) to the peaks above, about 304 MiB with
 the defaults.

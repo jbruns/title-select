@@ -2241,8 +2241,19 @@ impl Store {
     /// Rolls forward every move out of an Ingest Folder a stop interrupted, each only once its folder is open, in a
     /// writable Root, with this store's marker; then finishes each approved plan whose moves have all ended. Returns
     /// each move left unfinished, with why.
+    ///
+    /// It runs before any Job, so no move is being made: first it removes the scratch every 7z repack a kill
+    /// interrupted left behind, whether its move is then published, failed or tried again from the start.
     pub fn recover_ingest_moves(&self, config: &Config) -> Result<Vec<(i64, String)>> {
         let mut left = Vec::new();
+        if let Err(err) = moves::remove_sevenz_scratch(&self.dir().join(crate::TMP)) {
+            left.push((
+                0,
+                format!(
+                    "cannot remove what an interrupted 7z repack left in the store's tmp: {err}"
+                ),
+            ));
+        }
         let folders = self.read(|c| {
             let mut stmt = c.prepare(FOLDER_QUERY)?;
             Ok(stmt

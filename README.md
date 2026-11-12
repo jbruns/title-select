@@ -932,8 +932,8 @@ compressed with LZMA, LZMA2 or zstd, with or without the usual executable filter
 limits as a game's ZIP. Before any member is decoded, Title Select reads from its header the dictionary it needs. One
 that needs more than `[ingest] max_dictionary_mib` is unsupported, with "this 7z needs a <N> MiB dictionary, more than
 max_dictionary_mib (<M>); unpack it yourself or raise the limit"; it is read again on the next scan, so raising the
-limit takes effect without touching the file. Every zstd frame in a 7z is held to the same limit, and to 128 MiB
-whatever the limit, as it streams. A header larger than 8 MiB, or one that lists more than 4096 entries, is
+limit takes effect without touching the file. Every zstd frame in a 7z is held to the same limit, counted with the
+other dictionaries decoding beside it, and to 128 MiB whatever the limit, as it streams. A header larger than 8 MiB, or one that lists more than 4096 entries, is
 unsupported without being read further; a compressed header is decoded within the same dictionary limit. At most
 `[ingest] archive_workers` 7z archives are read at once, from their header to their last member, across every scan
 and plan; others wait their turn. Members are decoded in order and hashed as they stream, never kept, so a solid
@@ -941,7 +941,8 @@ archive is decoded once per scan. An encrypted 7z, a damaged one, or one compres
 the reason. When a plan moves a 7z's members into a source set or an additions set, they are decoded again and
 written as a TorrentZip, or a loose file, and each is checked against its hashes before it is put in place; the 7z
 itself is kept, as a ZIP is. Each solid block is decoded once: a member needed later in the new ZIP waits in the
-store's `tmp` folder, which needs room for at most the members being moved, and is removed when the move ends.
+store's `tmp` folder, which needs room for at most the members being moved, and is removed when the move ends, or,
+if the service stopped during it, when the service next starts.
 
 Each item is one of:
 

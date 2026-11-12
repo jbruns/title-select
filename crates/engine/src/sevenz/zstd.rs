@@ -13,8 +13,9 @@ const SKIPPABLE: u32 = 0x184D_2A50;
 /// Why a zstd stream is not decoded further.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Stop {
-    /// A frame needs a window, in bytes, larger than the limit.
-    Window(u64),
+    /// A frame needs a window of `window` bytes, larger than the limit, beside `others` bytes of the block's other
+    /// dictionaries.
+    Window { window: u64, others: u64 },
     /// The stream is not zstd frames that are read.
     Bad(&'static str),
 }
@@ -46,15 +47,18 @@ enum After {
 #[derive(Debug)]
 pub(super) struct Frames {
     limit: u64,
+    /// The block's other dictionaries, live beside each frame's window, to report what a refused frame needs.
+    others: u64,
     state: State,
     held: [u8; 14],
     got: usize,
 }
 
 impl Frames {
-    pub fn new(limit: u64) -> Frames {
+    pub fn new(limit: u64, others: u64) -> Frames {
         Frames {
             limit,
+            others,
             state: State::Magic,
             held: [0; 14],
             got: 0,
@@ -165,12 +169,24 @@ impl Frames {
             base + base / 8 * u64::from(wd & 7)
         };
         if window > self.limit {
-            return Err(Stop::Window(window));
+            return Err(Stop::Window {
+                window,
+                others: self.others,
+            });
         }
         Ok(State::Block {
             checksum: descriptor & 0x04 != 0,
         })
     }
+}
+
+/// Where a zstd packed stream lies in the archive, `start..end`, and how many bytes of dictionary the other coders of
+/// its block hold while it is decoded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Span {
+    pub start: u64,
+    pub end: u64,
+    pub others: u64,
 }
 
 /// A zstd packed stream: its bytes in the archive, `start..end`, and the frames followed through it.
@@ -196,20 +212,20 @@ pub(super) struct Guarded<R> {
 }
 
 impl<R: Read + Seek> Guarded<R> {
-    /// Guards `inner`, following the zstd packed streams at `streams`, each a start and end, refusing any frame whose
-    /// window passes `limit` bytes.
-    pub fn new(mut inner: R, streams: &[(u64, u64)], limit: u64) -> io::Result<Guarded<R>> {
+    /// Guards `inner`, following the zstd packed streams at `streams`, refusing any frame whose window, beside its
+    /// block's other dictionaries, passes `budget` bytes, or alone passes `cap` bytes.
+    pub fn new(mut inner: R, streams: &[Span], budget: u64, cap: u64) -> io::Result<Guarded<R>> {
         let pos = inner.stream_position()?;
         Ok(Guarded {
             inner,
             pos,
             streams: streams
                 .iter()
-                .map(|&(start, end)| Stream {
-                    start,
-                    end,
+                .map(|span| Stream {
+                    start: span.start,
+                    end: span.end,
                     read: 0,
-                    frames: Frames::new(limit),
+                    frames: Frames::new(budget.saturating_sub(span.others).min(cap), span.others),
                 })
                 .collect(),
             stopped: None,
@@ -275,7 +291,7 @@ impl<R: Seek> Seek for Guarded<R> {
 
 fn failed(stop: &Stop) -> io::Error {
     let why = match stop {
-        Stop::Window(window) => format!("a zstd frame needs a {window} byte window"),
+        Stop::Window { window, .. } => format!("a zstd frame needs a {window} byte window"),
         Stop::Bad(why) => why.to_string(),
     };
     io::Error::new(io::ErrorKind::InvalidData, why)
@@ -310,7 +326,7 @@ mod tests {
         stream.extend(frame(b"late", 21, false));
 
         for split in [1, 7, 4096, stream.len()] {
-            let mut frames = Frames::new(1 << 20);
+            let mut frames = Frames::new(1 << 20, 0);
             let mut fed = 0;
             let mut stop = None;
             for chunk in stream.chunks(split) {
@@ -320,7 +336,14 @@ mod tests {
                 }
                 fed += chunk.len();
             }
-            assert_eq!(stop, Some(Stop::Window(2 << 20)), "split {split}");
+            assert_eq!(
+                stop,
+                Some(Stop::Window {
+                    window: 2 << 20,
+                    others: 0
+                }),
+                "split {split}"
+            );
             assert!(fed <= second + 6, "split {split}: {fed} bytes passed");
             assert!(
                 fed + split > second + 5,

@@ -631,3 +631,56 @@ fn no_code_path_writes_7z() {
         "{line}"
     );
 }
+
+/// A zstd frame shares its block's budget with the block's other dictionaries: a later frame whose window fits the
+/// limit alone, but not beside an LZMA2 dictionary decoding its output, is refused as it streams.
+#[test]
+fn a_later_zstd_frame_is_held_to_what_the_blocks_other_dictionaries_leave() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = b"a game chained through zstd and LZMA2";
+    let lzma2 = lzma2_stored(content);
+    let mut packed = zstd_frame(&lzma2[..4], 10);
+    packed.extend(zstd_frame(&lzma2[4..], 21));
+    let path = dir.path().join("Game.7z");
+    // LZMA2 with a 3 MiB dictionary, fed by zstd.
+    chained_7z(
+        &path,
+        &[
+            (&[0x21], &[19], content.len() as u64),
+            (&[4, 0xF7, 0x11, 1], &[], lzma2.len() as u64),
+        ],
+        "Game.bin",
+        &packed,
+    );
+    let rom = expected("Game.bin", content);
+
+    let probe = match probed(&path, 5) {
+        Probed::Read(probe) => probe,
+        Probed::Refused(why) => panic!("refused: {why}"),
+    };
+    assert_eq!(probe.error, None);
+    assert_eq!(probe.payloads[0].sha256, rom.sha256.clone().unwrap());
+
+    // 3 MiB and the second frame's 2 MiB window are 5 MiB at once, past a 4 MiB limit.
+    assert_eq!(
+        refusal(&path, 4),
+        "this 7z needs a 5 MiB dictionary, more than max_dictionary_mib (4); unpack it yourself or raise the limit"
+    );
+    let gate = Gate::new(1);
+    let tight = Decoding {
+        gate: &gate,
+        max_dictionary_mib: 4,
+    };
+    let scratch = tempfile::tempdir_in(dir.path()).unwrap();
+    let written = sevenz::repack(
+        &created(&dir.path().join("Game.zip")),
+        &[(&rom, "Game.bin")],
+        &File::open(&path).unwrap(),
+        &tight,
+        scratch.path(),
+    );
+    assert!(
+        matches!(&written, Err(why) if why.contains("this 7z needs a 5 MiB dictionary")),
+        "{written:?}"
+    );
+}
