@@ -1473,6 +1473,44 @@ mod profiles_and_selections {
             assert!(message.contains("DAT revision"), "{message}");
         }
     }
+
+    #[test]
+    fn exports_refuse_a_selection_of_an_unregistered_source_set_whose_name_is_taken_again() {
+        let env = Env::new(20);
+        env.add_dat_and_set();
+        write_file(&env.set_dir().join("Pong (USA).a26"), b"pong");
+        let (sha256, _) = env.import(1);
+        save(&env, &SelectionProfile::default(), None);
+        let job = env
+            .store
+            .enqueue_selection("Test - System", None, NAME, None, "Operator", WORKERS)
+            .unwrap();
+        env.store.claim_job().unwrap();
+        let old = env
+            .store
+            .record_selection(&env.config, job.id, &selection(&sha256))
+            .unwrap()
+            .selection
+            .unwrap();
+        env.audit(None);
+
+        env.store
+            .unregister_source_set(&env.config, "Test - System")
+            .unwrap();
+        env.add_set();
+        env.audit(Some(&sha256));
+
+        for refused in [
+            env.store.fixdat("Test - System", Some(old)),
+            env.store.have_miss("Test - System", Some(old)),
+        ] {
+            let Err(Error::Refused(message)) = refused else {
+                panic!("a selection of the unregistered source set is refused: {refused:?}");
+            };
+            assert!(message.contains(&format!("selection {old}")), "{message}");
+        }
+        assert!(env.store.have_miss("Test - System", None).is_ok());
+    }
 }
 
 /// Each Entry's path and member, with when its payload was last read and whether this Audit reused that read.

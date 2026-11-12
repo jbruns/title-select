@@ -8,6 +8,7 @@ use title_select_api::selection::Role;
 use title_select_engine::dat::Dat;
 use title_select_engine::fixdat::{Lacking, Scope};
 
+use super::sets::set_by_name;
 use super::{Error, Result, Store};
 
 /// An exported file: the name to save it as, and its content.
@@ -41,13 +42,18 @@ impl Store {
         selection: Option<i64>,
         export: impl FnOnce(&Lacking) -> Export,
     ) -> Result<Export> {
-        let audit = self.history(name)?.into_iter().next().ok_or_else(|| {
-            Error::Refused(format!(
-                "source set {name} has no audit yet; audit it to export what it lacks"
-            ))
-        })?;
+        let set = self.read(|c| set_by_name(c, name))?;
+        let audit = self
+            .source_set_history_by_id(set.id)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                Error::Refused(format!(
+                    "source set {name} has no audit yet; audit it to export what it lacks"
+                ))
+            })?;
         let winners = selection
-            .map(|id| self.winners(name, &audit, id))
+            .map(|id| self.winners(name, set.id, &audit, id))
             .transpose()?;
         let report = self.report(audit.id)?;
         let dat = Dat::read(&self.blob_path(&report.dat_revision.sha256))
@@ -64,14 +70,32 @@ impl Store {
         }))
     }
 
-    /// The winners of Selection `id`, refused unless it selected from Source Set `name` against the DAT Revision of
-    /// its latest Audit, `audit`.
-    fn winners(&self, name: &str, audit: &AuditSummary, id: i64) -> Result<HashSet<String>> {
+    /// The winners of Selection `id`, refused unless it selected from the registration `set_id` of Source Set `name`
+    /// against the DAT Revision of its latest Audit, `audit`. The registration, not the name, decides: an
+    /// Unregistered Source Set's name can be registered again.
+    fn winners(
+        &self,
+        name: &str,
+        set_id: i64,
+        audit: &AuditSummary,
+        id: i64,
+    ) -> Result<HashSet<String>> {
         let record = self.selection_record(id)?;
-        if record.source_set != name {
+        let selected_from: i64 = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT source_set_id FROM selections WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )?)
+        })?;
+        if selected_from != set_id {
+            let whose = if record.source_set == name {
+                format!("an earlier registration of {name}, since unregistered")
+            } else {
+                format!("source set {}", record.source_set)
+            };
             return Err(Error::Refused(format!(
-                "selection {id} is of source set {}, not {name}; choose one of {name}",
-                record.source_set
+                "selection {id} is of {whose}, not of {name} as registered now; choose one of {name}"
             )));
         }
         if record.dat_revision_sha256 != audit.dat_revision_sha256 {
