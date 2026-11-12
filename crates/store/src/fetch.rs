@@ -750,6 +750,19 @@ impl Store {
                     brought.asset_url
                 ],
             )?;
+            if let Some(error) = &error {
+                let (provider, system, artifact) = tx.query_row(
+                    "SELECT provider, system, artifact FROM fetches WHERE id = ?1",
+                    [id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )?;
+                crate::observe::note(crate::observe::Observed::FetchFailed {
+                    provider,
+                    system,
+                    artifact,
+                    error: error.clone(),
+                });
+            }
             let sql = format!(
                 "SELECT {ATTEMPT_COLUMNS} FROM fetches f LEFT JOIN dat_revisions r ON r.id = f.dat_revision_id
                  WHERE f.id = ?1"

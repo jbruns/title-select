@@ -147,6 +147,7 @@ fn yield_to(c: &Connection, set: i64, since: &str) -> Result<bool> {
 
 /// Records what the walk Job `job` of Source Set `set` found against `audit`.
 fn record(tx: &Transaction, set: i64, audit: i64, job: i64, counts: &Counts) -> Result<()> {
+    let watch = crate::observe::StaleWatch::start(tx)?;
     let at = now();
     let latest: Option<(i64, i64, i64, i64, i64)> = tx
         .query_row(
@@ -167,7 +168,7 @@ fn record(tx: &Transaction, set: i64, audit: i64, job: i64, counts: &Counts) -> 
             "UPDATE stat_walks SET checked_at = ?2, job_id = ?3 WHERE id = ?1",
             params![latest.0, at, job],
         )?;
-        return Ok(());
+        return watch.finish(tx);
     }
     tx.execute(
         "DELETE FROM stat_walks WHERE source_set_id = ?1 AND changed + added + removed = 0",
@@ -186,7 +187,7 @@ fn record(tx: &Transaction, set: i64, audit: i64, job: i64, counts: &Counts) -> 
             counts.removed as i64
         ],
     )?;
-    Ok(())
+    watch.finish(tx)
 }
 
 /// Records, as the history of each Following Source Set, the newest revision of its DAT where it is newer than its

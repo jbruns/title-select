@@ -70,8 +70,8 @@ struct Prepared {
     app: axum::Router,
     state: routes::AppState,
     hold_jobs: bool,
-    /// The webhook's delivery, and where looking for its events starts, when a webhook is configured.
-    notify: Option<(notify::Delivery, title_select_store::observe::Watermarks)>,
+    /// The webhook's delivery, when a webhook is configured.
+    delivery: Option<notify::Delivery>,
 }
 
 fn prepare(settings: Settings) -> Result<Prepared, StartError> {
@@ -173,11 +173,12 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     for why in store.fulfil_ingest_reaudits()?.failed {
         eprintln!("title-select: cannot queue an owed audit: {why}");
     }
-    // What the store holds now is never notified: only what happens from here on.
-    let notify = match delivery {
-        Some(delivery) => Some((delivery, notify::watermarks(&store)?)),
-        None => None,
-    };
+    // Only what happens from here on is notified: the store reports each occurrence as it commits.
+    let notifier = Arc::new(notifier);
+    if notifier.is_on() {
+        let notifier = notifier.clone();
+        store.set_observer(move |o| notifier.observed(o));
+    }
     let listener =
         std::net::TcpListener::bind(listen).map_err(|e| StartError::Listen(listen, e))?;
     listener
@@ -186,7 +187,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
     let state = routes::AppState {
         store: Arc::new(store),
         config: Arc::new(config),
-        jobs: Arc::new(jobs::Jobs::new(Arc::new(notifier))),
+        jobs: Arc::new(jobs::Jobs::new(notifier)),
         workers,
         engine,
         previews: Arc::default(),
@@ -200,7 +201,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
         app,
         state,
         hold_jobs,
-        notify,
+        delivery,
     })
 }
 
@@ -212,13 +213,8 @@ impl Prepared {
     /// Serves until the process ends; must run inside the runtime.
     async fn serve(self) -> std::io::Result<()> {
         let state = self.state;
-        if let Some((delivery, marks)) = self.notify {
+        if let Some(delivery) = self.delivery {
             tokio::spawn(notify::deliver(delivery));
-            tokio::spawn(notify::reconcile(
-                state.store.clone(),
-                state.jobs.notifier.clone(),
-                marks,
-            ));
         }
         if !self.hold_jobs {
             tokio::spawn(jobs::schedule_ingest_scans(
@@ -235,7 +231,6 @@ impl Prepared {
                 state.store.clone(),
                 state.config.clone(),
                 state.fetcher.clone(),
-                state.jobs.notifier.clone(),
             ));
             tokio::spawn(jobs::run(
                 state.store,

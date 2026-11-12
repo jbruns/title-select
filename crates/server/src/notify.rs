@@ -1,6 +1,6 @@
 //! Webhook notifications: one signed JSON POST per event, sent by one delivery task from a bounded queue, so that no
-//! Job ever waits on the webhook. Job events come from [`crate::jobs::Jobs::changed`]; the rest from a reconciler
-//! that compares the store with what it saw last ([`Store::observe`]), each time it is poked and once a minute.
+//! Job ever waits on the webhook. Job events come from [`crate::jobs::Jobs::changed`]; the rest from the store as each
+//! write that makes one commits ([`title_select_store::Store::set_observer`]).
 
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
@@ -10,11 +10,10 @@ use std::time::Duration;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use title_select_api::{Job, JobKind, JobState, SourceSetStale};
-use title_select_store::Store;
 use title_select_store::config::{Notify as NotifyConfig, NotifyEvent};
 use title_select_store::fetch::Http;
-use title_select_store::observe::{Observed, Watermarks};
-use tokio::sync::{Notify, mpsc};
+use title_select_store::observe::Observed;
+use tokio::sync::mpsc;
 
 use crate::StartError;
 
@@ -28,8 +27,6 @@ const ATTEMPTS: usize = 3;
 const BACKOFF: [Duration; ATTEMPTS - 1] = [Duration::from_secs(1), Duration::from_secs(4)];
 /// The longest one attempt may take.
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
-/// How often the reconciler looks for events without being poked.
-const TICK: Duration = Duration::from_secs(60);
 /// How many ended Jobs are remembered, so that each is notified once.
 const JOBS_REMEMBERED: usize = 1024;
 
@@ -46,7 +43,6 @@ pub struct Payload {
 /// Turns what happens into webhook events, and queues them for delivery. Inert while no webhook is configured.
 pub struct Notifier {
     inner: Option<Inner>,
-    poke: Notify,
 }
 
 struct Inner {
@@ -67,10 +63,7 @@ pub struct Delivery {
 impl Notifier {
     /// A Notifier that sends nothing.
     pub fn off() -> Notifier {
-        Notifier {
-            inner: None,
-            poke: Notify::new(),
-        }
+        Notifier { inner: None }
     }
 
     /// A Notifier for `config`, with the secret read from `secret_file`, and its delivery; inert without a URL. A URL
@@ -97,7 +90,6 @@ impl Notifier {
                 queue: send,
                 jobs: Mutex::default(),
             }),
-            poke: Notify::new(),
         };
         let delivery = Delivery {
             url: url.clone(),
@@ -107,14 +99,12 @@ impl Notifier {
         Ok((notifier, Some(delivery)))
     }
 
-    /// Asks the reconciler to look for events now.
-    pub fn poke(&self) {
-        if self.inner.is_some() {
-            self.poke.notify_one();
-        }
+    /// Whether a webhook is configured.
+    pub fn is_on(&self) -> bool {
+        self.inner.is_some()
     }
 
-    /// Notifies a Job's end, once, and pokes the reconciler: an ended Job may have changed what it watches.
+    /// Notifies a Job's end, once.
     pub fn job_changed(&self, job: &Job) {
         let Some(inner) = &self.inner else { return };
         if !job.state.is_final() {
@@ -133,10 +123,10 @@ impl Notifier {
             }
         }
         self.send(job_payload(job, inner.workbench.as_deref()));
-        self.poke();
     }
 
-    fn observed(&self, observed: Observed) {
+    /// Notifies what the store reports as it commits.
+    pub fn observed(&self, observed: Observed) {
         let Some(inner) = &self.inner else { return };
         self.send(observed_payload(observed, inner.workbench.as_deref()));
     }
@@ -222,41 +212,6 @@ pub async fn deliver(delivery: Delivery) {
                  attempts",
                 payload.event
             );
-        }
-    }
-}
-
-/// Where the reconciler starts: what the store holds now, which it never notifies.
-pub fn watermarks(store: &Store) -> Result<Watermarks, title_select_store::Error> {
-    let mut marks = Watermarks::default();
-    store.observe(&mut marks)?;
-    Ok(marks)
-}
-
-/// Notifies what the store shows has happened since `marks`, each time the Notifier is poked and every [`TICK`].
-pub async fn reconcile(store: Arc<Store>, notifier: Arc<Notifier>, marks: Watermarks) {
-    if notifier.inner.is_none() {
-        return;
-    }
-    let mut marks = Some(marks);
-    loop {
-        tokio::select! {
-            () = notifier.poke.notified() => {}
-            () = tokio::time::sleep(TICK) => {}
-        }
-        let (store, mut taken) = (store.clone(), marks.take().unwrap_or_default());
-        let looked = tokio::task::spawn_blocking(move || {
-            let observed = store.observe(&mut taken);
-            (taken, observed)
-        })
-        .await;
-        let Ok((kept, observed)) = looked else {
-            return;
-        };
-        marks = Some(kept);
-        match observed {
-            Ok(observed) => observed.into_iter().for_each(|o| notifier.observed(o)),
-            Err(e) => eprintln!("title-select: cannot look for events to notify: {e}"),
         }
     }
 }

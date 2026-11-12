@@ -571,3 +571,82 @@ fn a_check_that_waited_long_to_run_is_due_again_an_interval_after_it_finished() 
     backdate(&env, "Alpha", 4, 3, 2);
     assert_eq!(due(&env), ["Alpha"], "due an hour after it finished");
 }
+
+/// What the store reported as it happened, kept for a test to read.
+fn observing(
+    store: &Store,
+) -> std::sync::Arc<std::sync::Mutex<Vec<title_select_store::observe::Observed>>> {
+    let seen: std::sync::Arc<std::sync::Mutex<Vec<_>>> = Default::default();
+    let kept = seen.clone();
+    store.set_observer(move |o| kept.lock().unwrap().push(o));
+    seen
+}
+
+#[test]
+fn each_time_a_source_set_goes_stale_is_reported_once_as_it_is_committed() {
+    use title_select_store::observe::Observed;
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    env.audit("Beta", AuditEvidence::Incremental);
+    env.store.set_follow("Alpha", true).unwrap();
+    let seen = observing(&env.store);
+    let stale = || -> Vec<(String, Vec<SourceSetStale>)> {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter_map(|o| match o {
+                Observed::Stale {
+                    source_set,
+                    reasons,
+                } => Some((source_set.clone(), reasons.clone())),
+                _ => None,
+            })
+            .collect()
+    };
+
+    let mut newer = games();
+    newer.push(("Yars (USA)", vec![rom("Yars (USA).a26", b"yars")]));
+    env.import("2", &newer);
+    let audit_against = |version: &str| {
+        let sha = env
+            .store
+            .dat_revisions()
+            .unwrap()
+            .into_iter()
+            .find(|r| r.version == version)
+            .unwrap()
+            .sha256;
+        env.store
+            .audit_source_set(&env.config, "Alpha", Some(&sha), AuditEvidence::Incremental)
+            .unwrap();
+    };
+    audit_against("2");
+    // Stale, fresh and stale again, with no one looking in between.
+    env.import("3", &games());
+    env.import("4", &newer);
+    audit_against("4");
+    write_file(&env.set("Alpha").join("Pong (USA).a26"), b"pong, changed");
+    env.walk("Alpha");
+    env.walk("Alpha");
+
+    let stale = stale();
+    assert_eq!(stale.len(), 3, "{stale:#?}");
+    assert!(stale.iter().all(|(name, _)| name == "Alpha"), "{stale:#?}");
+    assert!(
+        matches!(&stale[0].1[..], [SourceSetStale::NewerRevision { version, .. }] if version == "2")
+    );
+    assert!(
+        matches!(&stale[1].1[..], [SourceSetStale::NewerRevision { version, .. }] if version == "3")
+    );
+    assert!(matches!(
+        &stale[2].1[..],
+        [SourceSetStale::FilesChanged { changed: 1, .. }]
+    ));
+    let revisions = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|o| matches!(o, Observed::DatRevision { .. }))
+        .count();
+    assert_eq!(revisions, 3);
+}

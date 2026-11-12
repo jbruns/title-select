@@ -293,6 +293,7 @@ impl Store {
             }
             write_blob(&dats, &dat.sha256, bytes)?;
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let watch = crate::observe::StaleWatch::start(&tx)?;
             let provider = canonical_provider(&tx, provider)?;
             let dat_id = match find_dat(&tx, &provider, &dat.name)? {
                 Some(id) => id,
@@ -320,6 +321,11 @@ impl Store {
             reorder_revisions(&tx, dat_id)?;
             let record = revision_by_sha(&tx, &dat.sha256)?.expect("just inserted").1;
             crate::stale::note_followed_revisions(&tx)?;
+            crate::observe::note(crate::observe::Observed::DatRevision {
+                dat: format!("{}/{}", record.provider, record.name),
+                version: record.version.clone(),
+            });
+            watch.finish(&tx)?;
             tx.commit()?;
             Ok((record, ImportOutcome::Added))
         })?;

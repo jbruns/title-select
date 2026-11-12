@@ -365,6 +365,7 @@ pub(super) fn choose_revision(
 /// Finishes the running Audit `id`: its counts and times, its Entries and its Game Statuses. Forgets the payload
 /// reads of files in its Source Set that it did not find.
 fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
+    let watch = crate::observe::StaleWatch::start(tx)?;
     let mut values = vec![
         Value::Text(report.source_set.clone()),
         Value::Text(report.started_at.to_string()),
@@ -397,6 +398,7 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         return Err(Error::Io(format!("audit {id} is no longer running")));
     }
     crate::stale::note_followed_revisions(tx)?;
+    watch.finish(tx)?;
     // The Audit now holds its revision, so a restored blob needs no other hold.
     tx.execute(
         "UPDATE dat_revisions SET restored_at = NULL

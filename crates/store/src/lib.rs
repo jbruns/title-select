@@ -113,6 +113,8 @@ pub struct Store {
     /// Held while a registration is made or Unregistered, its marker written or removed, or a Library Folder's move
     /// reserves its destination, so that none of them interleave. Taken before the writer, never inside a write.
     lifecycle: Mutex<()>,
+    /// What receives each occurrence as its write commits.
+    observer: std::sync::OnceLock<observe::Observer>,
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -359,6 +361,7 @@ impl Store {
             publishing: Mutex::new(()),
             set_dirs: Mutex::new(()),
             lifecycle: Mutex::new(()),
+            observer: std::sync::OnceLock::new(),
         };
         // Retention is not run here: it runs after an import or an Audit, so a blob restored by one command is
         // still there for the Audit the next command runs.
@@ -438,9 +441,21 @@ impl Store {
     }
 
     /// Runs `f` while holding the writer, so that blob files and the rows that hold them change together.
+    /// What `f` notes is handed to the observer once it returns successfully and the writer is released.
     fn with_writer<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
         let mut conn = self.writer.lock().unwrap();
-        f(&mut conn)
+        observe::begin(self.observer.get().is_some());
+        let out = f(&mut conn);
+        let noted = observe::end();
+        drop(conn);
+        if out.is_ok()
+            && let Some(observer) = self.observer.get()
+        {
+            for o in noted {
+                observer(o);
+            }
+        }
+        out
     }
 }
 

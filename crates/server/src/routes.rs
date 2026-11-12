@@ -446,7 +446,6 @@ async fn upload_dat(
         store.import_dat_bytes(&bytes, &name, &provider, source_url.as_deref())
     })
     .await?;
-    state.jobs.notifier.poke();
     let status = match outcome {
         title_select_api::ImportOutcome::Added => StatusCode::CREATED,
         _ => StatusCode::OK,
@@ -666,8 +665,6 @@ async fn plan_build(
         store.plan_build_with(&config, id, &request)
     })
     .await?;
-    // Planning checks the folder first, which may find drift.
-    state.jobs.notifier.poke();
     Ok((StatusCode::CREATED, Json(plan)))
 }
 
@@ -1215,9 +1212,9 @@ async fn set_follow(
 ) -> ApiResult<Json<title_select_api::SourceSetRecord>> {
     let Path(name) = name?;
     let Json(request) = body?;
-    let set = blocking(&state, move |store| store.set_follow(&name, request.follow)).await?;
-    state.jobs.notifier.poke();
-    Ok(Json(set))
+    Ok(Json(
+        blocking(&state, move |store| store.set_follow(&name, request.follow)).await?,
+    ))
 }
 
 /// Queues a stat walk of a Source Set: a check, from sizes and times alone, for files changed since its latest Audit.
@@ -1285,9 +1282,7 @@ async fn start_fetch(
         state.config.clone(),
         state.fetcher.clone(),
     );
-    let notifier = state.jobs.notifier.clone();
     let fetch = tokio::task::spawn_blocking(move || {
-        let _poke = crate::jobs::PokeOnDrop(&notifier);
         crate::jobs::log_fetch(
             provider,
             store.fetch(&config, &fetcher, provider, FetchTrigger::Manual, &actor),

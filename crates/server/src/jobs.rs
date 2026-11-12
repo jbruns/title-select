@@ -289,12 +289,7 @@ const FETCH_DUE_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// Fetches, from each DAT Provider you turned on, what is due for the systems your Source Sets Follow: each at most
 /// once a day (ADR 0012). A fetch runs alongside Jobs, and never queues one.
-pub async fn schedule_fetches(
-    store: Arc<Store>,
-    config: Arc<Config>,
-    fetcher: Arc<Fetcher>,
-    notifier: Arc<Notifier>,
-) {
+pub async fn schedule_fetches(store: Arc<Store>, config: Arc<Config>, fetcher: Arc<Fetcher>) {
     let providers: Vec<_> = FetchProvider::ALL
         .into_iter()
         .filter(|p| config.fetch.enabled(*p))
@@ -309,9 +304,7 @@ pub async fn schedule_fetches(
         tick.tick().await;
         for &provider in &providers {
             let (store, config, fetcher) = (store.clone(), config.clone(), fetcher.clone());
-            let notifier = notifier.clone();
             let fetched = tokio::task::spawn_blocking(move || {
-                let _poke = PokeOnDrop(&notifier);
                 log_fetch(
                     provider,
                     store.fetch(
@@ -336,15 +329,6 @@ pub async fn schedule_fetches(
                 ),
             }
         }
-    }
-}
-
-/// Pokes the Notifier when dropped: once a fetch ends, however it ends.
-pub struct PokeOnDrop<'a>(pub &'a Notifier);
-
-impl Drop for PokeOnDrop<'_> {
-    fn drop(&mut self) {
-        self.0.poke();
     }
 }
 

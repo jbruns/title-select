@@ -1,28 +1,17 @@
-//! What notifications and metrics read from the store: what happened since the last look ([`Store::observe`]), and the
-//! gauges and counters `/metrics` serves ([`Store::metrics`]). Both only read.
+//! What notifications and metrics read from the store: each occurrence as its write commits
+//! ([`Store::set_observer`]), and the gauges and counters `/metrics` serves ([`Store::metrics`]).
+//!
+//! A write notes what it changes as it goes ([`note`]). The notes are kept on the writing thread, which holds the
+//! writer, and handed to the observer only once the write returns successfully, after the writer is released.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use rusqlite::params;
+use rusqlite::{Connection, params};
 use title_select_api::SourceSetStale;
 use title_select_api::build::CheckSummary;
 
 use super::{Result, Store};
-
-/// How far [`Store::observe`] has looked: each occurrence it reports once moves these past it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Watermarks {
-    /// The newest DAT Revision seen, by id.
-    dat_revision: i64,
-    /// Every fetch at or below this id has finished and been seen.
-    fetch: i64,
-    /// Fetches above `fetch` that have finished and been seen.
-    fetches_seen: BTreeSet<i64>,
-    /// The Source Sets Stale when last seen, by name.
-    stale: BTreeSet<String>,
-    /// The drift each Library Folder's latest check found when last seen, by id.
-    drift: BTreeMap<i64, u64>,
-}
 
 /// One thing that happened, once.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +41,68 @@ pub enum Observed {
         path: String,
         drift: u64,
     },
+}
+
+/// What receives each [`Observed`] once its write commits.
+pub(crate) type Observer = Box<dyn Fn(Observed) + Send + Sync>;
+
+thread_local! {
+    /// What the write running on this thread has noted, or `None` when no one observes.
+    static PENDING: RefCell<Option<Vec<Observed>>> = const { RefCell::new(None) };
+}
+
+/// Notes `o` for the write running on this thread, if anyone observes.
+pub(crate) fn note(o: Observed) {
+    PENDING.with_borrow_mut(|p| {
+        if let Some(p) = p {
+            p.push(o);
+        }
+    });
+}
+
+fn observing() -> bool {
+    PENDING.with_borrow(Option::is_some)
+}
+
+/// Starts collecting notes for a write on this thread, when `on`.
+pub(crate) fn begin(on: bool) {
+    PENDING.set(on.then(Vec::new));
+}
+
+/// What the write on this thread noted, ending its collection.
+pub(crate) fn end() -> Vec<Observed> {
+    PENDING.take().unwrap_or_default()
+}
+
+/// The Source Sets Stale when a write began, to note those that it makes Stale.
+pub(crate) struct StaleWatch(Option<BTreeSet<String>>);
+
+impl StaleWatch {
+    pub(crate) fn start(c: &Connection) -> Result<Self> {
+        if !observing() {
+            return Ok(Self(None));
+        }
+        let stale = crate::sets::stale_sets(c)?
+            .into_iter()
+            .map(|(name, _)| name);
+        Ok(Self(Some(stale.collect())))
+    }
+
+    /// Notes each Source Set Stale now that was not when the watch started.
+    pub(crate) fn finish(self, c: &Connection) -> Result<()> {
+        let Some(before) = self.0 else {
+            return Ok(());
+        };
+        for (source_set, reasons) in crate::sets::stale_sets(c)? {
+            if !before.contains(&source_set) {
+                note(Observed::Stale {
+                    source_set,
+                    reasons,
+                });
+            }
+        }
+        Ok(())
+    }
 }
 
 /// What `/metrics` serves, read at once.
@@ -99,104 +150,10 @@ fn seconds(at: &str) -> Option<i64> {
 }
 
 impl Store {
-    /// What has happened since `marks`, which it moves past each: new DAT Revisions, failed fetches, Source Sets newly
-    /// Stale and Library Folders whose latest check found more drift than they had. Start from
-    /// `Watermarks::default()` and discard the first answer to report only what happens afterwards.
-    pub fn observe(&self, marks: &mut Watermarks) -> Result<Vec<Observed>> {
-        let mut out = Vec::new();
-        let (revisions, fetches, folders) = self.read(|c| {
-            let mut stmt = c.prepare(
-                "SELECT r.id, d.provider || '/' || d.name, r.version FROM dat_revisions r
-                 JOIN dats d ON d.id = r.dat_id WHERE r.id > ?1 ORDER BY r.id",
-            )?;
-            let revisions = stmt
-                .query_map([marks.dat_revision], |r| {
-                    Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get(2)?))
-                })?
-                .collect::<rusqlite::Result<Vec<(i64, String, String)>>>()?;
-            let mut stmt = c.prepare(
-                "SELECT id, provider, system, artifact, finished_at IS NOT NULL, outcome, COALESCE(error, '')
-                 FROM fetches WHERE id > ?1 ORDER BY id",
-            )?;
-            let fetches = stmt
-                .query_map([marks.fetch], |r| {
-                    Ok((
-                        r.get::<_, i64>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, bool>(4)?,
-                        r.get::<_, Option<String>>(5)?,
-                        r.get::<_, String>(6)?,
-                    ))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            let folders = latest_checks(c)?;
-            Ok((revisions, fetches, folders))
-        })?;
-
-        for (id, dat, version) in revisions {
-            marks.dat_revision = marks.dat_revision.max(id);
-            out.push(Observed::DatRevision { dat, version });
-        }
-
-        let mut unfinished = None;
-        for (id, provider, system, artifact, finished, outcome, error) in fetches {
-            if !finished {
-                unfinished.get_or_insert(id);
-                continue;
-            }
-            if !marks.fetches_seen.insert(id) {
-                continue;
-            }
-            if outcome.as_deref() == Some("failed") {
-                out.push(Observed::FetchFailed {
-                    provider,
-                    system,
-                    artifact,
-                    error,
-                });
-            }
-        }
-        // Move the mark up to the first fetch still running, forgetting what lies at or below it.
-        let mark = match unfinished {
-            Some(first) => first - 1,
-            None => marks.fetches_seen.last().copied().unwrap_or(marks.fetch),
-        };
-        marks.fetch = marks.fetch.max(mark);
-        let below = marks.fetch;
-        marks.fetches_seen.retain(|id| *id > below);
-
-        let mut stale = BTreeSet::new();
-        for set in self.source_sets()? {
-            if set.stale.is_empty() {
-                continue;
-            }
-            if !marks.stale.contains(&set.name) {
-                out.push(Observed::Stale {
-                    source_set: set.name.clone(),
-                    reasons: set.stale,
-                });
-            }
-            stale.insert(set.name);
-        }
-        marks.stale = stale;
-
-        let mut drift = BTreeMap::new();
-        for (folder, root, path, _, summary) in folders {
-            let found = summary.drift;
-            if found > marks.drift.get(&folder).copied().unwrap_or(0) {
-                out.push(Observed::Drift {
-                    folder,
-                    root,
-                    path,
-                    drift: found,
-                });
-            }
-            drift.insert(folder, found);
-        }
-        marks.drift = drift;
-        Ok(out)
+    /// Hands `observer` each [`Observed`] as the write that makes it commits, on the writing thread. Set once; later
+    /// calls are ignored. It must return quickly and never touch the store.
+    pub fn set_observer(&self, observer: impl Fn(Observed) + Send + Sync + 'static) {
+        let _ = self.observer.set(Box::new(observer));
     }
 
     /// What `/metrics` serves: Job counts, and each Source Set's, fetch's and Library Folder's latest state.
