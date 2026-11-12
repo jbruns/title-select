@@ -3,6 +3,8 @@
 
 #[path = "../../engine/tests/common/mod.rs"]
 mod common;
+#[path = "../../engine/tests/common/sevenz.rs"]
+mod sevenz_fixtures;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -395,11 +397,9 @@ fn an_unmatched_item_is_a_candidate_addition_with_the_system_its_extension_sugge
 fn an_unsupported_archive_is_never_opened_and_a_damaged_zip_is_unreadable() {
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();
-    for name in ["set.7z", "set.rar"] {
-        let path = env.put(name, b"not an archive Title Select reads");
-        // Opening either would fail, and make it Failed.
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
-    }
+    let path = env.put("set.rar", b"not an archive Title Select reads");
+    // Opening it would fail, and make it Failed.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
     write_zip(
         &env.dir("in").join("nested.zip"),
         &[("inner.zip", b"PK"), ("Pong (USA).a26", b"pong")],
@@ -413,13 +413,7 @@ fn an_unsupported_archive_is_never_opened_and_a_damaged_zip_is_unreadable() {
     env.scan();
     env.scan();
 
-    for name in [
-        "set.7z",
-        "set.rar",
-        "nested.zip",
-        "whole-set.zip",
-        "a folder",
-    ] {
+    for name in ["set.rar", "nested.zip", "whole-set.zip", "a folder"] {
         let item = env.item(name);
         assert_eq!(item.state, ItemState::Unsupported, "{item:?}");
         assert!(item.reason.is_some());
@@ -886,7 +880,7 @@ fn an_item_moves_only_once_settled_and_read_whatever_state_it_is_shown_in() {
         other => panic!("not refused: {other:?}"),
     };
     // Unsupported at sight, but seen only once.
-    write_file(&env.dir("slow").join("set.7z"), b"7z");
+    write_file(&env.dir("slow").join("set.rar"), b"rar");
     env.scan_root("slow");
     let archive = &env.store.ingest_items("slow").unwrap()[0];
     assert_eq!(archive.state, ItemState::Unsupported);
@@ -1267,4 +1261,114 @@ fn a_game_held_only_on_its_claim_is_not_already_held() {
         })
     );
     assert!(Need::Claimed.label().contains("never verified"));
+}
+
+#[test]
+fn a_7z_is_read_by_member_and_one_encrypted_damaged_or_not_a_7z_is_unreadable_with_why() {
+    use sevenz_fixtures::{Method, crafted_7z, write_7z};
+    let env = Env::new();
+    write_7z(
+        &env.dir("in").join("yars.7z"),
+        &[("Atari/2600/Yars (USA).a26", b"yars")],
+        Method::Zstd,
+        false,
+    );
+    crafted_7z(
+        &env.dir("in").join("encrypted.7z"),
+        &[6, 0xF1, 7, 1],
+        &[0; 2],
+        "Yars (USA).a26",
+        &[0; 16],
+        4,
+    );
+    let damaged = env.dir("in").join("damaged.7z");
+    write_7z(
+        &damaged,
+        &[("Yars (USA).a26", &noise(7, 8192))],
+        Method::Lzma2,
+        true,
+    );
+    let mut bytes = std::fs::read(&damaged).unwrap();
+    bytes[32 + 100] ^= 0xFF;
+    std::fs::write(&damaged, bytes).unwrap();
+    env.put("fake.7z", b"not a 7z at all");
+    write_7z(
+        &env.dir("in").join("nested.7z"),
+        &[("Pong (USA).a26", b"pong"), ("inner.zip", b"PK")],
+        Method::Lzma,
+        true,
+    );
+
+    env.scan();
+    env.scan();
+
+    let yars = env.item("yars.7z");
+    assert_eq!(yars.state, ItemState::Assessed, "{yars:?}");
+    assert!(!yars.assessment.zip);
+    assert_eq!(
+        yars.assessment.payloads[0].member.as_deref(),
+        Some("Atari/2600/Yars (USA).a26")
+    );
+    assert_eq!(
+        yars.assessment.proposal,
+        Some(Proposal::SourceSet {
+            source_set: "Alpha".into(),
+            game: "Yars (USA)".into(),
+            need: Need::Missing,
+        })
+    );
+    for (name, why) in [
+        ("encrypted.7z", "encrypted"),
+        ("damaged.7z", "damaged"),
+        ("fake.7z", "it is not a readable 7z archive"),
+    ] {
+        let item = env.item(name);
+        assert_eq!(item.state, ItemState::Unreadable, "{item:?}");
+        let reason = item.reason.unwrap_or_default();
+        assert!(reason.contains(why), "{name}: {reason}");
+    }
+    let nested = env.item("nested.7z");
+    assert_eq!(nested.state, ItemState::Unsupported, "{nested:?}");
+    assert!(nested.reason.unwrap().contains("inner.zip"));
+}
+
+#[test]
+fn a_7z_over_the_dictionary_limit_is_refused_with_why_and_read_once_the_limit_is_raised() {
+    let mut env = Env::new();
+    sevenz_fixtures::write_7z(
+        &env.dir("in").join("yars.7z"),
+        &[("Yars (USA).a26", b"yars")],
+        sevenz_fixtures::Method::Lzma2,
+        true,
+    );
+    let limit = env.config.ingest.max_dictionary_mib;
+    env.config.ingest.max_dictionary_mib = 1;
+    let reads = Arc::new(AtomicUsize::new(0));
+    let counted = reads.clone();
+    env.store.hook_faults(Some(Arc::new(move |fault| {
+        if fault == Fault::IngestRead {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }
+    })));
+
+    env.scan();
+    env.scan();
+    env.scan();
+
+    let refused = env.item("yars.7z");
+    assert_eq!(refused.state, ItemState::Unsupported, "{refused:?}");
+    let reason = refused.reason.unwrap();
+    assert!(
+        reason.starts_with("this 7z needs a ")
+            && reason.ends_with(
+                " MiB dictionary, more than max_dictionary_mib (1); unpack it yourself or raise the limit"
+            ),
+        "{reason}"
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 2, "read again on each scan");
+
+    env.config.ingest.max_dictionary_mib = limit;
+    env.scan();
+
+    assert_eq!(env.state("yars.7z"), ItemState::Assessed);
 }

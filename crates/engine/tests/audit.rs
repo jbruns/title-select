@@ -1,4 +1,6 @@
 mod common;
+#[path = "common/sevenz.rs"]
+mod sevenz_fixtures;
 
 use common::*;
 use sha2::Digest;
@@ -727,4 +729,26 @@ fn a_clone_in_a_split_set_counts_the_roms_it_shares_from_its_parents_zip() {
     assert_eq!(clone.status, GameStatus::Complete);
     assert!(clone.available_elsewhere.is_empty());
     assert_eq!(status_of(&report, "Fighter (World)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_7z_in_a_source_set_is_one_opaque_file_whose_members_are_not_read() {
+    let f = Fixture::new();
+    let dat = f.dat(&[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])]);
+    sevenz_fixtures::write_7z(
+        &f.set_path("Pong (USA).7z"),
+        &[("Pong (USA).a26", b"pong")],
+        sevenz_fixtures::Method::Lzma2,
+        true,
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let entries: Vec<_> = report
+        .entries
+        .iter()
+        .map(|e| (e.path.as_str(), e.member.as_deref(), e.finding))
+        .collect();
+    assert_eq!(entries, [("Pong (USA).7z", None, Finding::Unmatched)]);
+    assert_eq!(status_of(&report, "Pong (USA)"), GameStatus::Missing);
 }

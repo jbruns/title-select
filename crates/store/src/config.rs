@@ -42,6 +42,34 @@ pub struct Config {
     pub chd: Chd,
     #[serde(default)]
     pub notify: Notify,
+    #[serde(default)]
+    pub ingest: Ingest,
+}
+
+/// How archives arriving in an Ingest Folder are read: how many 7z archives decode at once across every Job, and
+/// the largest dictionary one may declare. Decoding takes up to about `archive_workers` x `max_dictionary_mib` of
+/// memory above the rest of the Service.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Ingest {
+    pub archive_workers: usize,
+    pub max_dictionary_mib: u32,
+}
+
+impl Ingest {
+    /// The most 7z archives that may decode at once.
+    pub const MAX_ARCHIVE_WORKERS: usize = 64;
+    /// The largest dictionary limit: 4 GiB, the most an LZMA2 header can declare.
+    pub const MAX_DICTIONARY_MIB: u32 = 4096;
+}
+
+impl Default for Ingest {
+    fn default() -> Self {
+        Ingest {
+            archive_workers: 2,
+            max_dictionary_mib: 128,
+        }
+    }
 }
 
 /// Where the Service posts a webhook for each event, signed with the secret read from the file named by
@@ -429,6 +457,7 @@ impl Default for Config {
             fetch: Fetch::default(),
             chd: Chd::default(),
             notify: Notify::default(),
+            ingest: Ingest::default(),
         }
     }
 }
@@ -499,6 +528,18 @@ impl Config {
             return Err(Error(
                 "jobs.readers and jobs.hashers must be at least 1".into(),
             ));
+        }
+        if !(1..=Ingest::MAX_ARCHIVE_WORKERS).contains(&config.ingest.archive_workers) {
+            return Err(Error(format!(
+                "ingest.archive_workers must be between 1 and {}",
+                Ingest::MAX_ARCHIVE_WORKERS
+            )));
+        }
+        if !(1..=Ingest::MAX_DICTIONARY_MIB).contains(&config.ingest.max_dictionary_mib) {
+            return Err(Error(format!(
+                "ingest.max_dictionary_mib must be between 1 and {}",
+                Ingest::MAX_DICTIONARY_MIB
+            )));
         }
         let auth = &config.auth;
         match (&auth.identity_header, auth.trusted_proxies.is_empty()) {
@@ -632,6 +673,51 @@ mod tests {
             }
         );
         assert_eq!(Config::default().jobs.concurrent, 1);
+    }
+
+    #[test]
+    fn ingest_archive_limits_default_to_two_workers_and_128_mib_and_refuse_nonsense() {
+        let ingest = Config::default().ingest;
+        assert_eq!(
+            (ingest.archive_workers, ingest.max_dictionary_mib),
+            (2, 128)
+        );
+        let set =
+            Config::parse("[ingest]\narchive_workers = 4\nmax_dictionary_mib = 1536").unwrap();
+        assert_eq!(
+            (set.ingest.archive_workers, set.ingest.max_dictionary_mib),
+            (4, 1536)
+        );
+        for (bad, why) in [
+            (
+                "archive_workers = 0",
+                "ingest.archive_workers must be between 1 and 64",
+            ),
+            (
+                "archive_workers = 1000",
+                "ingest.archive_workers must be between 1 and 64",
+            ),
+            (
+                "max_dictionary_mib = 0",
+                "ingest.max_dictionary_mib must be between 1 and 4096",
+            ),
+            (
+                "max_dictionary_mib = 1000000",
+                "ingest.max_dictionary_mib must be between 1 and 4096",
+            ),
+        ] {
+            let err = Config::parse(&format!("[ingest]\n{bad}"))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(why), "{bad}: {err}");
+        }
+        for bad in [
+            "archive_workers = -1",
+            "max_dictionary_mib = \"lots\"",
+            "workers = 2",
+        ] {
+            assert!(Config::parse(&format!("[ingest]\n{bad}")).is_err(), "{bad}");
+        }
     }
 
     #[test]

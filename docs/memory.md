@@ -86,3 +86,23 @@ DAT is much larger than PlayStation's, and raise the limit if its selection need
 
 The image has no shell, so read `memory.peak` from the Host. If you can't reach Docker there, find the cgroup folder
 from the service's process: `/sys/fs/cgroup` followed by the path in `/proc/<pid>/cgroup`.
+
+## 7z in Ingest Folders
+
+Decoding a 7z (ADR 0018) needs its dictionary in memory: LZMA and LZMA2 allocate it whole, and zstd allocates its
+window. The other memory 7z needs is small and fixed: members stream through the hasher, and nothing is cached.
+
+- The dictionary each block declares is read from the header before anything is decoded. An archive that needs more
+  than `[ingest] max_dictionary_mib` (128 MiB by default) is refused without allocating it. The test
+  `crates/engine/tests/sevenz_memory.rs` shows that the peak allocation for a refused 1.5 GiB dictionary stays under
+  1 MiB and does not grow with the dictionary.
+- One global gate in the Store lets at most `[ingest] archive_workers` (2 by default) archives decode at once, across
+  every ingest scan and Change Plan.
+
+7z therefore adds at most `archive_workers` × `max_dictionary_mib` to the peaks above, 256 MiB with the defaults.
+The Operator sizes the limit at about:
+
+> 2 × the largest peak without 7z + `archive_workers` × `max_dictionary_mib`
+
+With the 400M limit above and the defaults, that is about 656M. Measure an ingest scan of a large solid 7z after
+release to confirm the term, and record it here.

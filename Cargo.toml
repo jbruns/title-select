@@ -23,6 +23,8 @@ fancy-regex = "0.20.0"
 flate2 = { version = "1.1.10", default-features = false, features = ["zlib"] }
 libz-sys = { version = "=1.1.31", default-features = false, features = ["libc", "static"] }
 # Library Folder writes: directory-relative `*at` calls with no-follow opens and no-replace renames.
+# 7z in Ingest Folders (ADR 0018): read only, LZMA, LZMA2 and zstd. Its writer (`compress`) is for test fixtures alone.
+sevenz-rust2 = { version = "0.25.0", default-features = false, features = ["zstd"] }
 rustix = { version = "1.1.6", features = ["fs", "process"] }
 indexmap = { version = "2.14.2", features = ["serde"] }
 jiff = { version = "0.2.38", features = ["serde"] }

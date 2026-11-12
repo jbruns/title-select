@@ -338,6 +338,10 @@ pace = "default"            # gentle | default | unthrottled
 # readers = 2               # overrides the pace's payload readers
 # hashers = 2               # overrides the pace's hash workers
 
+[ingest]                    # how 7z archives in ingest folders are read; see "Ingest folders" and "Memory"
+archive_workers = 2         # 7z archives decoded at once, across every job (the default; 1 to 64)
+max_dictionary_mib = 128    # the largest dictionary a 7z may need (the default; 1 to 4096)
+
 [fetch]                     # fetch newer DATs for the systems you follow; see "Fetching DATs"
 redump = false              # the default
 mame = false                # the default
@@ -920,15 +924,32 @@ before it) begins, and starts with a directory header. Its directory declares at
 ZIP64 end record carries at most 64 KiB of extensible data. Any other ZIP is refused unread: as unsupported here, as
 unreadable in an audit. Whether a file is a ZIP is decided by how it begins: one that does not begin as a ZIP is a
 loose file, hashed whole, whatever bytes its tail holds, and is never opened as an archive. A ZIP is judged from its
-directory before any member is read. Its members are read only up to the limits of one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all. Each item is one of:
+directory before any member is read. Its members are read only up to the limits of one game's ZIP: 4096 members, 16 GiB each and 32 GiB in all.
+
+A 7z is read only here, in an ingest folder: in a source set or a library folder it stays one file, hashed whole and
+never opened, and Title Select never writes one. A file is a 7z when it begins as one. Its members are read when it is
+compressed with LZMA, LZMA2 or zstd, with or without the usual executable filters, solid or not, within the same
+limits as a game's ZIP. Before any member is decoded, Title Select reads from its header the dictionary it needs. One
+that needs more than `[ingest] max_dictionary_mib` is unsupported, with "this 7z needs a <N> MiB dictionary, more than
+max_dictionary_mib (<M>); unpack it yourself or raise the limit"; it is read again on the next scan, so raising the
+limit takes effect without touching the file. A zstd 7z is read only with a window of 128 MiB or less, whatever the
+limit. At most `[ingest] archive_workers` 7z archives are decoded at once, across every scan and plan; others wait
+their turn. Members are decoded in order and hashed as they stream, never kept, so a solid archive is decoded once
+per scan. An encrypted 7z, a damaged one, or one compressed another way (PPMd, BZip2, Deflate) is unreadable, with
+the reason. When a plan moves a 7z's members into a source set or an additions set, they are decoded again and
+written as a TorrentZip, or a loose file, and each is checked against its hashes before it is put in place; the 7z
+itself is kept, as a ZIP is.
+
+Each item is one of:
 
 - assessed, with what it is: a game a source set is missing, or a better copy of a mismatched or unreadable entry;
   a candidate addition, with the system its extension suggests when exactly one registered system uses it;
   or a DAT you may import;
 - already held, when every source set it matches holds it with a verified payload, or it is a DAT revision already
   imported. A game held only by a quick audit's claim is not already held: the item would replace an unverified copy;
-- unsupported: 7z, RAR, an archive holding archives (by name or by content), a ZIP of several games that no one
-  game accounts for, a ZIP past the limits, or a folder, never read further;
+- unsupported: RAR, an archive holding archives (by name or by content), a ZIP or 7z of several games that no one
+  game accounts for, a ZIP or 7z past the limits, a 7z that needs a larger dictionary than you allow, or a folder,
+  never read further;
 - unreadable, failed, stale (changed since it was assessed), gone, dismissed (until it changes), or moved.
 
 Items leave the folder only through a plan you approve. Only an item that has settled and been read can be in a
@@ -1279,6 +1300,20 @@ docker run --read-only -p 8080:8080 -v title-select-store:/store \
 
 CI publishes `sha-<commit>` (the full commit SHA) for each push to `main`, and `<version>` and `<major>.<minor>` for
 each `v<version>` tag.
+
+### Memory
+
+Title Select's memory grows with the DATs you select against and the files in a job, not with the size of the files:
+[docs/memory.md](docs/memory.md) has the measurements and how to take them. Decoding a 7z adds its dictionary, up to
+`max_dictionary_mib`, for each of the `archive_workers` archives decoded at once. Size the service's memory limit at
+about:
+
+> 2 × the peak you measure without 7z + `archive_workers` × `max_dictionary_mib`
+
+With the defaults, 2 workers and 128 MiB, 7z adds 256 MiB. If you unpack many 7z archives, or ones made with large
+dictionaries, raise both settings and the memory limit with them. If you never drop 7z archives into an ingest folder,
+or rarely scan more than one at once, lower them and the limit. A change to `archive_workers` takes effect when the
+service restarts; a change to `max_dictionary_mib` takes effect on the next scan.
 
 ### Health
 
