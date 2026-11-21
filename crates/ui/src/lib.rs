@@ -1,13 +1,14 @@
 //! Title Select's workbench: DAT Revisions, Source Sets, Audits, Selection Profiles, Selections, Library Folders,
 //! Change Plans, Builds and Jobs over the `/api/v1` JSON API (ADR 0005).
 //!
-//! `activity_model`, `coverage_model`, `fetch_model`, `model`, `selection_model`, `build_model`, `library_model`, `repair_model`, `source_set_model`,
+//! `activity_model`, `arcade_model`, `coverage_model`, `fetch_model`, `model`, `selection_model`, `build_model`, `library_model`, `repair_model`, `source_set_model`,
 //! `registration`, `settings_model` and `jobs` are pure, as is the logic of `parts`, and tested on the host; the rest renders in the
 //! browser.
 
 pub mod activity_model;
 pub mod api;
 pub mod app;
+pub mod arcade_model;
 pub mod build_model;
 pub mod calibration_model;
 pub mod coverage_model;

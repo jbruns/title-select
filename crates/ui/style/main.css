@@ -1828,3 +1828,11 @@ nav.tabs {
 select.choice.changed {
   border-color: var(--color-selected-edge);
 }
+
+details.dependencies {
+  margin: 0 0 var(--space-4);
+}
+
+details.dependencies > summary {
+  cursor: pointer;
+}

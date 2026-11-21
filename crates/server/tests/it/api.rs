@@ -2420,7 +2420,7 @@ mod selections {
         let (_, record) = save(&client, json!({"region_order": ["USA", "Europe"]}));
 
         let made = selection(&client, record.id);
-        assert_eq!(made.pins.coverage, Some(vec!["Europe".to_owned()]));
+        assert_eq!(made.pins.coverage(), Some(&["Europe".to_owned()][..]));
         assert_eq!(winners(&made, "pong"), ["Pong (Europe)"]);
         let usa = &group(&made, "pong").exclusions[0];
         assert_eq!(usa.title, "Pong (USA)");
@@ -2570,6 +2570,7 @@ mod selections {
             [title_select_api::SourceSetSystem {
                 source_set: SET.into(),
                 system: Some("Test - System".into()),
+                arcade: false,
             }]
         );
 
@@ -2778,6 +2779,48 @@ mod selections {
             ["USA", "World", "Canada"]
         );
         assert_eq!(vocabulary.default_video_order[0], "NTSC");
+    }
+
+    #[test]
+    fn a_profile_with_arcade_blocks_round_trips_and_an_unreadable_one_is_refused() {
+        let env = Env::new();
+        let (_service, client) = ready(&env);
+        let profile = json!({
+            "arcade": {"drop_samples": true, "exclude": ["|galaga"]},
+            "systems": {"MAME": {"arcade": {"election": ["parent", "status"], "minimum_driver_status": null}}},
+        });
+        let (status, body) = send(
+            client.post(PROFILE),
+            json!({"profile": profile, "base_version": null}),
+        );
+        assert_eq!(status, 201, "{body}");
+        let saved: title_select_api::ProfileVersion = client.json(&format!("{PROFILE}/1"));
+        let expected: title_select_api::selection::SelectionProfile =
+            serde_json::from_value(profile).unwrap();
+        assert_eq!(saved.profile, expected);
+        let mame = saved.profile.arcade_settings("MAME");
+        assert_eq!(mame.minimum_driver_status, None);
+        assert!(!mame.drop_samples);
+
+        let unreadable = json!({"systems": {"MAME": {"arcade": {"region_order": ["Atlantis"]}}}});
+        let (status, check) = send(client.post("/check"), unreadable.clone());
+        assert_eq!(status, 200);
+        assert_eq!(
+            check["problems"],
+            json!([
+                "Your MAME arcade settings: region order: Atlantis is not a region the arcade selection reads."
+            ])
+        );
+        let (status, body) = send(
+            client.post(PROFILE),
+            json!({"profile": unreadable, "base_version": 1}),
+        );
+        assert_eq!(status, 400, "{body}");
+        let (status, body) = send(
+            client.post("/check"),
+            json!({"arcade": {"drop_quiz": true}}),
+        );
+        assert_eq!(status, 422, "{body}");
     }
 
     #[test]

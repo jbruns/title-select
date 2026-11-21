@@ -1,5 +1,6 @@
 mod about;
 pub mod additions;
+mod arcade_settings;
 pub mod audit;
 #[cfg(feature = "bench")]
 mod bench;

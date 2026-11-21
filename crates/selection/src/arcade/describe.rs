@@ -2,7 +2,10 @@
 //! regions, languages, revision and variant the election reads. ListXML has no structured region, so this is free text
 //! read by MAME's naming conventions (research 0105 §3), and a description that says nothing yields nothing.
 
-/// Region names as the election orders them, each with the spellings MAME descriptions use.
+use title_select_api::arcade::{LANGUAGES, Variant};
+
+/// Region names as the election orders them by default, `arcade::REGIONS`, each with the spellings MAME descriptions
+/// use.
 const REGIONS: &[(&str, &[&str])] = &[
     ("World", &["World"]),
     ("USA", &["USA", "US", "America", "North America"]),
@@ -23,50 +26,10 @@ const REGIONS: &[(&str, &[&str])] = &[
     ("Australia", &["Australia"]),
 ];
 
-const LANGUAGES: &[&str] = &[
-    "English",
-    "Japanese",
-    "Spanish",
-    "French",
-    "German",
-    "Italian",
-    "Portuguese",
-    "Korean",
-    "Chinese",
-];
-
-/// The region order a Selection uses unless settings give one: World, USA, Europe, Japan, and so on.
-pub fn default_region_order() -> Vec<String> {
-    REGIONS.iter().map(|(name, _)| name.to_string()).collect()
-}
-
-/// The language order a Selection uses unless settings give one.
-pub fn default_language_order() -> Vec<String> {
-    LANGUAGES.iter().map(|name| name.to_string()).collect()
-}
-
-/// A machine that isn't the release it copies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Variant {
-    Bootleg,
-    Hack,
-    Prototype,
-}
-
-impl Variant {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Variant::Bootleg => "bootleg",
-            Variant::Hack => "hack",
-            Variant::Prototype => "prototype",
-        }
-    }
-}
-
 /// What a description says.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Described {
-    /// The regions it names, as [`default_region_order`] spells them.
+    /// The regions it names, as `arcade::REGIONS` spells them.
     pub regions: Vec<String>,
     pub languages: Vec<String>,
     /// Its version, revision and date, newest highest; all zeros when it names none.
@@ -262,6 +225,12 @@ fn rev(text: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_regions_read_are_the_ones_a_profile_names() {
+        let names: Vec<&str> = REGIONS.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, title_select_api::arcade::REGIONS);
+    }
 
     fn regions(description: &str) -> Vec<String> {
         describe(description, None).regions

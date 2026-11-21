@@ -22,15 +22,16 @@ pub fn role_label(role: Role) -> &'static str {
     }
 }
 
-/// A rule as the workbench shows it: the stage and the engine's message, "Your choice", or, for a release its source
-/// set's coverage leaves out, that alone.
+/// A rule as the workbench shows it: the stage, in plain words for an arcade one, and the engine's message, "Your
+/// choice", or, for a release its source set's coverage leaves out, that alone.
 pub fn rule_text(rule: &Rule) -> String {
     if rule.is_choice() {
         "Your choice".to_string()
     } else if rule.is_coverage() {
         capitalised(&rule.message)
     } else {
-        format!("{}: {}", rule.stage, rule.message)
+        let stage = crate::arcade_model::stage_label(&rule.stage).unwrap_or(&rule.stage);
+        format!("{stage}: {}", rule.message)
     }
 }
 

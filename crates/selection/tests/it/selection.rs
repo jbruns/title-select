@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::support;
+use title_select_api::DatSystem;
 use title_select_api::selection::{
     Category, Selection, SelectionOptions, SelectionProfile, SystemSettings,
 };
@@ -196,8 +197,8 @@ fn a_selection_chooses_only_among_the_games_its_coverage_covers() {
     assert!(usa.rule.is_coverage(), "{usa:#?}");
     assert_eq!(usa.rule.message, "outside its source set's coverage");
     assert_eq!(selection.summary.exclusions, 1);
-    assert_eq!(selection.pins.coverage, Some(vec!["Europe".to_owned()]));
-    assert_eq!(uncovered.pins.coverage, None);
+    assert_eq!(selection.pins.coverage(), Some(&["Europe".to_owned()][..]));
+    assert_eq!(uncovered.pins.coverage(), None);
 }
 
 #[test]
@@ -752,8 +753,8 @@ fn a_dats_system_is_named_as_retool_files_its_settings() {
     assert_eq!(
         names,
         [
-            Some("Nintendo - Game Boy Advance (No-Intro)".to_owned()),
-            Some("Title Select - Plain".to_owned()),
+            Some(DatSystem::retool("Nintendo - Game Boy Advance (No-Intro)")),
+            Some(DatSystem::retool("Title Select - Plain")),
             None,
         ]
     );

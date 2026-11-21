@@ -197,22 +197,15 @@ impl Signal {
     ];
 }
 
-/// How well a driver works, as MAME rates it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum DriverStatus {
-    Preliminary,
-    Imperfect,
-    Good,
-}
+pub use title_select_api::arcade::DriverStatus;
 
-impl DriverStatus {
-    fn parse(text: &str) -> Option<DriverStatus> {
-        match text {
-            "good" => Some(DriverStatus::Good),
-            "imperfect" => Some(DriverStatus::Imperfect),
-            "preliminary" => Some(DriverStatus::Preliminary),
-            _ => None,
-        }
+/// A driver status as ListXML writes it; none for a value MAME doesn't write.
+fn driver_status(text: &str) -> Option<DriverStatus> {
+    match text {
+        "good" => Some(DriverStatus::Good),
+        "imperfect" => Some(DriverStatus::Imperfect),
+        "preliminary" => Some(DriverStatus::Preliminary),
+        _ => None,
     }
 }
 
@@ -671,7 +664,7 @@ impl Dat {
                         .get_or_insert_default()
                         .extend(a.remove("name")),
                     "driver" => {
-                        let status = |key: &str| a.get(key).and_then(|v| DriverStatus::parse(v));
+                        let status = |key: &str| a.get(key).and_then(|v| driver_status(v));
                         machine.driver = Some(Driver {
                             status: status("status"),
                             emulation: status("emulation"),

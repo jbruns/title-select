@@ -215,7 +215,7 @@ fn write_selection(
             to_json(&selection.coverage_drift),
             to_json(&selection.stale_choices),
             now(),
-            super::sets::coverage_json(selection.pins.coverage.as_deref())?,
+            super::sets::coverage_json(selection.pins.coverage())?,
         ],
     )?;
     let id = tx.last_insert_rowid();

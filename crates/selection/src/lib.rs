@@ -23,9 +23,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
+use title_select_api::DatSystem;
 use title_select_api::dat::DatFormat;
 use title_select_api::selection::{
-    ARCADE_COVERAGE_REFUSAL, SELECTION_TRACE_SCHEMA, SOFTWARE_LIST_REFUSAL, Selection,
+    ARCADE_COVERAGE_REFUSAL, RetoolPins, SELECTION_TRACE_SCHEMA, SOFTWARE_LIST_REFUSAL, Selection,
     SelectionPins, SelectionProfile,
 };
 
@@ -128,7 +129,8 @@ pub struct Engine {
     root: PathBuf,
     /// Holds the clone lists, metadata, MIAs and RetroAchievements.
     data: PathBuf,
-    pins: SelectionPins,
+    /// The pins every Retool Selection this binary makes records, but for its Coverage.
+    pins: RetoolPins,
 }
 
 impl Engine {
@@ -184,7 +186,8 @@ impl Engine {
         self
     }
 
-    pub fn pins(&self) -> &SelectionPins {
+    /// The pins the Retool port records, but for a Selection's Coverage.
+    pub fn pins(&self) -> &RetoolPins {
         &self.pins
     }
 
@@ -225,28 +228,50 @@ impl Engine {
     }
 
     /// Checks that the engine can read `profile`: every name is known and every override and post filter is
-    /// well formed.
+    /// well formed, and so is every `arcade` block.
     pub fn check(&self, profile: &SelectionProfile) -> Result<(), Error> {
         self.vocabulary()?.check(profile)?;
-        patterns::check(profile)
+        let mut problems = match patterns::check(profile) {
+            Ok(()) => Vec::new(),
+            Err(Error::Patterns(found)) => found,
+            Err(e) => return Err(e),
+        };
+        let blocks = profile.arcade.iter().map(|a| ("global", a)).chain(
+            profile
+                .systems
+                .iter()
+                .filter_map(|(system, s)| Some((system.as_str(), s.arcade.as_ref()?))),
+        );
+        for (scope, settings) in blocks {
+            if let Err(Error::Patterns(found)) = arcade::check(settings, scope) {
+                problems.extend(found);
+            }
+        }
+        match problems.is_empty() {
+            true => Ok(()),
+            false => Err(Error::Patterns(problems)),
+        }
     }
 
     /// The system each of `dats` is for, as its header names it and as a Profile files its system settings and
-    /// choices under, or `None` for a DAT the engine can't read or select. Every ListXML is `MAME`.
-    pub fn systems(&self, dats: &[&Path]) -> Result<Vec<Option<String>>, Error> {
+    /// choices under, or `None` for a DAT the engine can't read or select. Every ListXML is `MAME`, an Arcade DAT.
+    pub fn systems(&self, dats: &[&Path]) -> Result<Vec<Option<DatSystem>>, Error> {
         let internal = self.internal_config()?;
         Ok(dats
             .iter()
             .map(|dat| match format_of(dat) {
-                Ok(Some(DatFormat::Listxml)) => Some(title_select_api::dat::MAME.to_owned()),
+                Ok(Some(DatFormat::Listxml)) => Some(DatSystem {
+                    name: title_select_api::dat::MAME.to_owned(),
+                    arcade: true,
+                }),
                 Ok(Some(DatFormat::SoftwareList)) => None,
-                _ => native::system_name(dat, &internal),
+                _ => native::system_name(dat, &internal).map(DatSystem::retool),
             })
             .collect())
     }
 
     /// Selects from `dat` with `profile`, applies the Profile's choices for the DAT's system, and keeps the trace. A
-    /// ListXML goes to the arcade selector with its default settings; a software list is refused.
+    /// ListXML goes to the arcade selector with the Profile's arcade settings for `MAME`; a software list is refused.
     pub fn run(
         &self,
         dat: &Path,
@@ -255,7 +280,7 @@ impl Engine {
     ) -> Result<Outcome, Error> {
         match format_of(dat)? {
             Some(DatFormat::Listxml) => {
-                return self.run_arcade(dat, profile, &arcade::ArcadeSettings::default(), options);
+                return self.run_arcade(dat, profile, options);
             }
             Some(DatFormat::SoftwareList) => {
                 return Err(Error::Refused(SOFTWARE_LIST_REFUSAL.to_owned()));
@@ -290,19 +315,29 @@ impl Engine {
         )
     }
 
-    /// Selects from the ListXML `dat` with the arcade selector under `settings`, applies the Profile's choices for
-    /// `MAME`, and lists the winners' Dependencies. An arcade Selection takes no Coverage.
-    pub fn run_arcade(
+    /// Selects from the ListXML `dat` with the arcade selector under the Profile's arcade settings for `MAME`,
+    /// applies the Profile's choices for it, and lists the winners' Dependencies. An arcade Selection takes no
+    /// Coverage.
+    fn run_arcade(
         &self,
         dat: &Path,
         profile: &SelectionProfile,
-        settings: &arcade::ArcadeSettings,
         options: &RunOptions,
     ) -> Result<Outcome, Error> {
         if options.coverage.is_some() {
             return Err(Error::Refused(ARCADE_COVERAGE_REFUSAL.to_owned()));
         }
-        arcade::check(settings)?;
+        let system = title_select_api::dat::MAME;
+        let scope = match profile
+            .systems
+            .get(system)
+            .is_some_and(|s| s.arcade.is_some())
+        {
+            true => system,
+            false => "global",
+        };
+        let settings = profile.arcade_settings(system);
+        arcade::check(&settings, scope)?;
         if options.cancelled() {
             return Err(Error::Cancelled);
         }
@@ -324,13 +359,14 @@ impl Engine {
                 dat.display()
             )));
         }
-        let elected = arcade::elect(&parsed, settings, &stop)?;
+        let elected = arcade::elect(&parsed, &settings, &stop)?;
         let mut trace = elected.trace;
         let system = parsed.name.clone();
         let mut selection = Selection {
             pins: SelectionPins {
+                title_select_version: Some(TITLE_SELECT_VERSION.to_owned()),
+                retool: None,
                 arcade: Some(elected.pins),
-                ..self.pins.clone()
             },
             dat_sha256: parsed.sha256.clone(),
             system_settings: profile.systems.contains_key(&system),
@@ -366,8 +402,12 @@ impl Engine {
         let derived = trace::derive(&trace)?;
         let mut selection = Selection {
             pins: SelectionPins {
-                coverage: coverage.map(<[String]>::to_vec),
-                ..self.pins.clone()
+                title_select_version: Some(TITLE_SELECT_VERSION.to_owned()),
+                retool: Some(RetoolPins {
+                    coverage: coverage.map(<[String]>::to_vec),
+                    ..self.pins.clone()
+                }),
+                arcade: None,
             },
             dat_sha256,
             system_settings: profile.systems.contains_key(&derived.system),
@@ -432,13 +472,14 @@ pub fn clone_lists() -> Result<Pinned, Error> {
     Ok(pins.clone_lists)
 }
 
-/// The pins every Selection this binary makes records.
-fn expected_pins() -> Result<SelectionPins, Error> {
-    Ok(SelectionPins {
-        arcade: None,
+/// The Title Select version every Selection this binary makes records.
+const TITLE_SELECT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The pins every Retool Selection this binary makes records, but for its Coverage.
+fn expected_pins() -> Result<RetoolPins, Error> {
+    Ok(RetoolPins {
         retool_commit: None,
         patch_set_sha256: None,
-        title_select_version: Some(env!("CARGO_PKG_VERSION").to_owned()),
         clone_list_commit: clone_lists()?.commit,
         trace_schema: SELECTION_TRACE_SCHEMA,
         coverage: None,
