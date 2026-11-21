@@ -492,7 +492,7 @@ impl AuditGames {
     }
 
     /// Where the Audit found Game `i`: placed in a Library Folder, or in its Source Set's folder; neither for a
-    /// Missing Game it found nowhere, or one with Nothing to Check, which needs no file.
+    /// Missing Game it found nowhere, or one with Nothing to Check, which needs none of the files it may have.
     pub fn placement(&self, i: usize) -> Option<Placement> {
         match self.placed_in(i) {
             Some(_) => Some(Placement::Placed),

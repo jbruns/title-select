@@ -362,22 +362,23 @@ impl GroupAvailability {
         games: &BTreeMap<String, GameStatus>,
         claimed: &BTreeSet<String>,
     ) -> Self {
+        // A release with Nothing to Check lacks nothing, as a Complete one does; Complete names them both when any is.
         let rank = |s: GameStatus| match s {
             GameStatus::Missing => 0,
             GameStatus::Incomplete => 1,
-            GameStatus::Complete => 2,
-            GameStatus::NothingToCheck => 3,
+            GameStatus::Complete | GameStatus::NothingToCheck => 2,
         };
         let statuses: Vec<GameStatus> = group
             .winners
             .iter()
             .filter_map(|w| games.get(&w.title).copied())
             .collect();
-        let status = statuses.iter().copied().min_by_key(|s| rank(*s));
+        let lowest = statuses.iter().map(|s| rank(*s)).min();
+        let worst = statuses.iter().filter(|s| Some(rank(**s)) == lowest);
         GroupAvailability {
-            status,
+            status: worst.clone().copied().min(),
             claimed: group.winners.iter().any(|w| claimed.contains(&w.title)),
-            worst: statuses.iter().filter(|s| Some(**s) == status).count(),
+            worst: worst.count(),
             kept: group.winners.len(),
         }
     }
@@ -1191,6 +1192,18 @@ mod tests {
         assert_eq!(
             held.label(),
             availability_label(Some(GameStatus::Complete), true)
+        );
+
+        let device = BTreeMap::from([
+            ("Golf (USA)".to_string(), GameStatus::NothingToCheck),
+            ("Golf (Europe)".to_string(), GameStatus::Complete),
+        ]);
+        let lacking_nothing = GroupAvailability::of(&g, &device, &none);
+        assert_eq!(lacking_nothing.status, Some(GameStatus::Complete));
+        assert_eq!(
+            lacking_nothing.label(),
+            availability_label(Some(GameStatus::Complete), false),
+            "a release with nothing to check falls short of nothing"
         );
 
         let unaudited = GroupAvailability::of(&g, &BTreeMap::new(), &none);

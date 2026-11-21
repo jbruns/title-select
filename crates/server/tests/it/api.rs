@@ -3688,7 +3688,7 @@ fn put_coverage(client: &Client, coverage: serde_json::Value) -> (u16, serde_jso
     )
 }
 
-/// A whole Audit's counts, which name every Game Status, less those of no Game.
+/// A whole Audit's counts, which name every Game Status, without the statuses no Game has.
 fn nonzero(
     games: &std::collections::BTreeMap<GameStatus, usize>,
 ) -> std::collections::BTreeMap<GameStatus, usize> {

@@ -1,7 +1,7 @@
 //! Exporting what a Source Set lacks, from an Audit against a DAT Revision: the Fixdat, a Logiqx XML DAT of its
 //! Missing Games and of its Incomplete Games' missing ROMs, never a Game with Nothing to Check, and the have/miss CSV,
-//! one row per Game. A missing ROM
-//! that is Available Elsewhere is still missing: the CSV names it in its own column too.
+//! one row per Game. A missing ROM that is Available Elsewhere is still missing: the CSV names it in its own column
+//! too.
 //!
 //! The Fixdat lists a missing Disk as a Logiqx `<disk>`, which the tools it is for read. Title Select reads Disks only
 //! from ListXML (ADR 0026's amendment), so a Fixdat read back as a DAT lists none of its Disks: a Game that lacks only
