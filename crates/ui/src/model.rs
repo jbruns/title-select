@@ -460,23 +460,16 @@ pub struct AuditGames {
     found: HashSet<String>,
 }
 
-/// The Games of `games` the Audit found any of their own files of, among `entries`: each with a ROM that an Entry holds
-/// and that isn't among its missing ROMs.
+/// The Games of `games` the Audit found any of their own files of, among `entries`, as
+/// [`title_select_api::report::games_found`] finds them.
 pub fn games_found(entries: &[EntryRow], games: &[GameRow]) -> HashSet<String> {
-    let missing: HashMap<&str, &[String]> = games
-        .iter()
-        .map(|g| (g.game.name.as_str(), g.game.missing_roms.as_slice()))
-        .collect();
-    let mut found = HashSet::new();
-    for rom in entries.iter().flat_map(|row| &row.entry.roms) {
-        if missing
-            .get(rom.game.as_str())
-            .is_some_and(|m| !m.contains(&rom.name))
-        {
-            found.insert(rom.game.clone());
-        }
-    }
-    found
+    title_select_api::report::games_found(
+        entries.iter().map(|row| &row.entry),
+        games.iter().map(|row| &row.game),
+    )
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 impl AuditGames {
@@ -1285,6 +1278,7 @@ mod tests {
             dat_revision_version: sha.into(),
             findings: BTreeMap::new(),
             games: BTreeMap::new(),
+            nothing_to_check_found: 0,
             pruned: false,
             evidence: AuditEvidence::Incremental,
             claimed: Some(0),

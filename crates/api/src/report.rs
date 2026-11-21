@@ -1,7 +1,7 @@
 //! The `schema: 6` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -377,6 +377,27 @@ pub struct Game {
     /// Its missing ROMs that are Available Elsewhere (ADR 0017), in DAT order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub available_elsewhere: Vec<AvailableElsewhere>,
+}
+
+/// The Games of `games` an Audit found any of their own files of, among `entries`: each with a ROM that an Entry holds
+/// and that isn't among its missing ROMs. A ROM only inside another Game's file stays missing, so it doesn't count.
+pub fn games_found<'a>(
+    entries: impl IntoIterator<Item = &'a Entry>,
+    games: impl IntoIterator<Item = &'a Game>,
+) -> HashSet<&'a str> {
+    let missing: HashMap<&str, &[String]> = games
+        .into_iter()
+        .map(|g| (g.name.as_str(), g.missing_roms.as_slice()))
+        .collect();
+    let mut found = HashSet::new();
+    for rom in entries.into_iter().flat_map(|entry| &entry.roms) {
+        if let Some((&game, m)) = missing.get_key_value(rom.game.as_str())
+            && !m.contains(&rom.name)
+        {
+            found.insert(game);
+        }
+    }
+    found
 }
 
 /// A Game's ROM present only inside other Games' ZIPs or folders: it doesn't count towards the Game's status, but a

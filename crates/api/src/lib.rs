@@ -471,6 +471,10 @@ pub struct AuditSummary {
     pub dat_revision_version: String,
     pub findings: BTreeMap<Finding, usize>,
     pub games: BTreeMap<GameStatus, usize>,
+    /// How many of its Nothing to Check Games it found any of their own files of (ADR 0025), counted whole whatever
+    /// the Source Set's Coverage.
+    #[serde(default)]
+    pub nothing_to_check_found: usize,
     pub pruned: bool,
     /// How the Audit got its Entries' checksums.
     #[serde(default = "full_evidence")]

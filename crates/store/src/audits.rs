@@ -255,7 +255,7 @@ const SUMMARY_QUERY: &str = "SELECT a.id, s.name, a.started_at, a.finished_at, r
             CASE WHEN a.pruned_at IS NULL THEN
                 (SELECT COUNT(*) FROM audit_entries e WHERE e.audit_id = a.id AND e.evidence_level = 'claim')
             END,
-            a.header_missing, a.header_rule
+            a.header_missing, a.header_rule, a.nothing_to_check_found
      FROM audits a
      JOIN dat_revisions r ON r.id = a.dat_revision_id
      JOIN source_sets s ON s.id = a.source_set_id";
@@ -279,6 +279,7 @@ fn summary_from_row(r: &Row) -> rusqlite::Result<AuditSummary> {
             .get::<_, Option<String>>(19 + GameWarning::ALL.len())?
             .as_deref()
             .map(NamedHeaderRule::new),
+        nothing_to_check_found: r.get::<_, i64>(20 + GameWarning::ALL.len())? as usize,
     })
 }
 
@@ -444,12 +445,19 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         Some(rule) => Value::Text(rule.name.clone()),
         None => Value::Null,
     });
+    let found = title_select_api::report::games_found(&report.entries, &report.games);
+    let nothing_to_check_found = report
+        .games
+        .iter()
+        .filter(|g| g.status == GameStatus::NothingToCheck && found.contains(g.name.as_str()))
+        .count();
+    values.push(Value::Integer(nothing_to_check_found as i64));
     let counts: Vec<String> = Finding::ALL
         .iter()
         .map(|f| f.as_str())
         .chain(GameStatus::ALL.iter().map(|g| g.as_str()))
         .chain(GameWarning::ALL.iter().map(|w| w.as_str()))
-        .chain(["header_rule"])
+        .chain(["header_rule", "nothing_to_check_found"])
         .map(|c| format!("{c} = ?"))
         .collect();
     values.push(Value::Integer(id));
