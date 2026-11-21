@@ -410,13 +410,17 @@ fn is_cue(name: &str) -> bool {
         .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("cue"))
 }
 
-/// How a repair stores each Game of the DAT, by its index, with why it is not stored as the policy says; none for a
-/// Game with no ROMs. Every disc of a release is stored alike, whatever the policy: when one can't be stored as it
-/// says, as when one disc has more ROMs than a loose file holds, every disc stays TorrentZip.
-fn placements_of(i: &Inputs) -> Vec<Option<(Placement, Option<&'static str>)>> {
+/// How a repair stores each Game of the DAT, by its index, as it writes `wanted` of it, with why it is not stored as the
+/// policy says; none for a Game with no ROMs to write. Every disc of a release is stored alike, whatever the policy:
+/// when one can't be stored as it says, as when one disc has more ROMs than a loose file holds, every disc stays
+/// TorrentZip.
+fn placements_of(
+    i: &Inputs,
+    wanted: &[Vec<ExpectedRom>],
+) -> Vec<Option<(Placement, Option<&'static str>)>> {
     let mut placed: Vec<Option<(Placement, Option<&'static str>)>> = (0..i.dat.games.len())
         .map(|index| {
-            let roms = roms_of(i.dat, index);
+            let roms = &wanted[index];
             let names: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
             (!roms.is_empty()).then(|| placement(i.storage, &i.dat.games[index], &names))
         })
@@ -526,11 +530,12 @@ fn name_is_zip(path: &str) -> bool {
 /// disc already stored as the policy says, `good`, is taken as stored so.
 fn release_split_by_unrepaired(
     i: &Inputs,
+    wanted: &[Vec<ExpectedRom>],
     by_path: &BTreeMap<&str, Vec<&Entry>>,
     good: &BTreeSet<String>,
     proposed: &[Proposed],
 ) -> Option<(usize, String)> {
-    let placements = placements_of(i);
+    let placements = placements_of(i, wanted);
     let repaired: HashMap<&str, usize> = proposed
         .iter()
         .enumerate()
@@ -589,6 +594,28 @@ fn leave_release(proposed: &mut [Proposed], left: usize) {
             ));
         }
     }
+}
+
+/// The ROMs of each Game of the DAT, by its index, that a repair writes, in DAT order: each it needs, and each other one
+/// (ADR 0025) that a file of the Source Set, an Ingest Folder item or a cue pack holds. One it doesn't need that none
+/// holds never keeps the Game from being repaired.
+fn wanted_roms(i: &Inputs, held_by: &HashMap<RomKey, BTreeSet<&str>>) -> Vec<Vec<ExpectedRom>> {
+    let mut wanted = vec![Vec::new(); i.dat.games.len()];
+    for rom in &i.dat.roms {
+        let expected = i.dat.expected(rom);
+        let game = &i.dat.games[rom.game];
+        let held = || {
+            held_by.contains_key(&(game.clone(), rom.name.clone()))
+                || i.candidates.iter().any(|c| {
+                    c.matched.game == *game && c.matched.roms.iter().any(|m| m.rom == rom.name)
+                })
+                || i.cues.iter().any(|c| c.is(&expected))
+        };
+        if rom.needed() || held() {
+            wanted[rom.game].push(expected);
+        }
+    }
+    wanted
 }
 
 fn roms_of(dat: &Dat, game: usize) -> Vec<ExpectedRom> {
@@ -781,7 +808,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     let mut stays_zip = 0;
     let mut used_candidates: BTreeSet<i64> = BTreeSet::new();
     let mut good: BTreeSet<String> = BTreeSet::new();
-    let placements = placements_of(i);
+    let wanted = wanted_roms(i, &held_by);
+    let placements = placements_of(i, &wanted);
     let reported: HashMap<&str, &title_select_api::report::Game> = i
         .report
         .games
@@ -797,7 +825,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             .extend(paths.iter().map(|p| located(p)));
     }
     for (index, game) in i.dat.games.iter().enumerate() {
-        let roms = roms_of(i.dat, index);
+        let roms = &wanted[index];
         let Some((placed, why_zip)) = &placements[index] else {
             continue;
         };
@@ -1712,7 +1740,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         let Some(lost) = lost else {
             // A disc no item repairs stays stored as it is, so no other disc of its game is stored otherwise.
             let Some((repaired, stays)) =
-                release_split_by_unrepaired(i, &by_path, &good, &proposed)
+                release_split_by_unrepaired(i, &wanted, &by_path, &good, &proposed)
             else {
                 break;
             };

@@ -1049,6 +1049,16 @@ impl<'a> Sources<'a> {
         })
     }
 
+    /// Whether an Entry the plan can read from holds `game`'s ROM `rom`, with its payload read.
+    fn holds(&mut self, game: &str, rom: &ExpectedRom) -> bool {
+        let entries = self
+            .by_rom
+            .get(&(game.to_owned(), rom.name.clone()))
+            .cloned()
+            .unwrap_or_default();
+        entries.iter().any(|entry| self.file(&entry.path).is_some())
+    }
+
     /// The best Entry for each ROM, in ROM order, or the ROMs no Entry holds.
     fn choose(
         &mut self,
@@ -1308,9 +1318,10 @@ fn plan_items(
         .enumerate()
         .map(|(i, g)| (g.as_str(), i))
         .collect();
-    let mut roms_of: Vec<Vec<ExpectedRom>> = vec![Vec::new(); dat.games.len()];
+    // Each Game's ROMs, and whether it needs each (ADR 0025).
+    let mut roms_of: Vec<Vec<(ExpectedRom, bool)>> = vec![Vec::new(); dat.games.len()];
     for rom in &dat.roms {
-        roms_of[rom.game].push(dat.expected(rom));
+        roms_of[rom.game].push((dat.expected(rom), rom.needed()));
     }
     let mut winners: Vec<(&str, &str)> = Vec::new();
     let mut seen = BTreeSet::new();
@@ -1402,6 +1413,7 @@ fn plan_items(
     // them, so that an addition only ever blocks itself.
     let officials = wanted.iter().filter(|w| w.2.is_none()).count();
     let wanted_len = wanted.len();
+    let mut nothing_to_build = 0;
     for (group, game, addition, file) in wanted {
         let (target, loose, chd, part) = match (addition, file) {
             (Some(a), _) => {
@@ -1418,12 +1430,26 @@ fn plan_items(
                     .get(game)
                     .map(|&i| roms_of[i].clone())
                     .unwrap_or_default();
-                match part {
+                let all = match part {
                     Some(i) => all.into_iter().skip(i).take(1).collect(),
                     None => all,
-                }
+                };
+                // A ROM the Game doesn't need is built in when the Audit found it, and left out when it didn't: its
+                // absence is no gap.
+                all.into_iter()
+                    .filter(|(rom, needed)| *needed || sources.holds(game, rom))
+                    .map(|(rom, _)| rom)
+                    .collect()
             }
         };
+        if addition.is_none() && roms.is_empty() {
+            notes.push(format!(
+                "{game} has nothing to build at {target}: it needs none of the ROMs the DAT lists there, and the \
+                 latest audit found none of them"
+            ));
+            nothing_to_build += 1;
+            continue;
+        }
         // A disc layout folder at the target holds the release's files in its other layout: they are kept aside
         // before the target is written, and the folder goes with them.
         let existing = files
@@ -1637,13 +1663,6 @@ fn plan_items(
             items.push(item);
             continue;
         }
-        if item.roms.is_empty() {
-            item.kind = ItemKind::NoSource;
-            item.reason = Some("the DAT lists no ROMs for it".into());
-            unkeep(&mut item);
-            items.push(item);
-            continue;
-        }
         match sources.choose(game, &item.roms) {
             Err(missing) => {
                 item.kind = ItemKind::NoSource;
@@ -1701,8 +1720,12 @@ fn plan_items(
         }
         items.push(item);
     }
-    debug_assert_eq!(items.len(), wanted_len, "one item for each file wanted");
-    let additions = items.split_off(officials);
+    debug_assert_eq!(
+        items.len() + nothing_to_build,
+        wanted_len,
+        "one item for each file wanted with something to build"
+    );
+    let additions = items.split_off(officials - nothing_to_build);
     let parts_of = |items: &[PlanItem], games: &[&str]| -> Vec<(ItemKind, String)> {
         items
             .iter()

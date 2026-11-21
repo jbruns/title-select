@@ -1100,6 +1100,105 @@ fn a_replacement_keeps_the_old_file_and_writes_the_new_one_in_one_plan() {
 }
 
 #[test]
+fn a_rom_its_game_does_not_need_is_built_when_found_and_left_out_without_a_gap_when_not() {
+    let env = Env::new();
+    // Extras lists only an optional ROM, which no file holds; Bonus lists a ROM and an optional one only it has;
+    // Manual lists a ROM and an optional one no file holds; Hollow lists none.
+    let mut newer = games();
+    newer.extend([
+        ("Extras (USA)", vec![rom("Extras (USA).bin", b"extras")]),
+        (
+            "Bonus (USA)",
+            vec![
+                rom("Bonus (USA).a26", b"bonus"),
+                rom("Bonus (USA).txt", b"bonus manual"),
+            ],
+        ),
+        (
+            "Manual (USA)",
+            vec![
+                rom("Manual (USA).a26", b"manual game"),
+                rom("Manual (USA).txt", b"manual text"),
+            ],
+        ),
+        ("Hollow (USA)", vec![]),
+    ]);
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (2).dat",
+        "20260102-000000",
+        &newer,
+    );
+    let mut xml = std::fs::read_to_string(&dat).unwrap();
+    for optional in ["Extras (USA).bin", "Bonus (USA).txt", "Manual (USA).txt"] {
+        xml = xml.replace(
+            &format!(r#"<rom name="{optional}""#),
+            &format!(r#"<rom optional="yes" name="{optional}""#),
+        );
+    }
+    std::fs::write(&dat, xml).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
+    write_file(&env.set_dir().join("Bonus (USA).a26"), b"bonus");
+    write_file(&env.set_dir().join("Bonus (USA).txt"), b"bonus manual");
+    write_file(&env.set_dir().join("Manual (USA).a26"), b"manual game");
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Incremental,
+        )
+        .unwrap();
+    let id = env.record(&selection(
+        &revision.sha256,
+        [
+            "Extras (USA)",
+            "Bonus (USA)",
+            "Manual (USA)",
+            "Hollow (USA)",
+        ]
+        .into_iter()
+        .map(group)
+        .collect(),
+    ));
+    let folder = env.folder("atari2600");
+
+    let plan = env.plan(&folder, id);
+
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    assert_eq!(
+        kinds(&plan),
+        BTreeMap::from([
+            ("Bonus (USA)".to_owned(), ItemKind::Repack),
+            ("Manual (USA)".to_owned(), ItemKind::Repack),
+        ]),
+        "a game with no ROM to build has no item"
+    );
+    let built_roms = |game: &str| -> Vec<String> {
+        let item = plan.content.items.iter().find(|i| i.game == game).unwrap();
+        item.roms.iter().map(|r| r.name.clone()).collect()
+    };
+    assert_eq!(
+        built_roms("Bonus (USA)"),
+        ["Bonus (USA).a26", "Bonus (USA).txt"]
+    );
+    assert_eq!(built_roms("Manual (USA)"), ["Manual (USA).a26"]);
+    for game in ["Extras (USA)", "Hollow (USA)"] {
+        assert!(
+            plan.content.notes.iter().any(|n| n.starts_with(game)),
+            "{game}: {:?}",
+            plan.content.notes
+        );
+    }
+
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    let folder = env.store.library_folder(&env.config, folder.id).unwrap();
+    assert_eq!(folder.incomplete, None);
+    assert!(env.store.incomplete(folder.id).unwrap().items.is_empty());
+}
+
+#[test]
 fn a_conflict_is_kept_aside_and_rebuilt_only_when_you_choose_it() {
     let env = Env::new();
     env.audit();

@@ -341,6 +341,71 @@ fn a_game_not_stored_as_torrentzip_is_repacked_and_its_original_kept() {
 }
 
 #[test]
+fn a_game_is_repaired_without_an_optional_rom_no_file_holds() {
+    let env = Env::new();
+    // Manual lists a ROM and an optional one no file holds; Extras lists only an optional ROM, which no file holds.
+    let mut games = alpha_games();
+    games.extend([
+        (
+            "Manual (USA)",
+            vec![
+                rom("Manual (USA).a26", b"manual game"),
+                rom("Manual (USA).txt", b"manual text"),
+            ],
+        ),
+        ("Extras (USA)", vec![rom("Extras (USA).bin", b"extras")]),
+    ]);
+    let dat = write_dat_from(
+        &env.tmp.path().join("dats"),
+        "alpha-2.dat",
+        "2",
+        "No-Intro",
+        &games,
+    );
+    let mut xml = std::fs::read_to_string(&dat).unwrap();
+    for optional in ["Manual (USA).txt", "Extras (USA).bin"] {
+        xml = xml.replace(
+            &format!(r#"<rom name="{optional}""#),
+            &format!(r#"<rom optional="yes" name="{optional}""#),
+        );
+    }
+    std::fs::write(&dat, xml).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
+    env.put("manual.bin", b"manual game");
+    env.store
+        .audit_source_set(
+            &env.config,
+            "Alpha",
+            Some(&revision.sha256),
+            AuditEvidence::Full,
+        )
+        .unwrap();
+
+    let plan = env.plan();
+
+    assert_eq!(
+        item(&plan, "game:Manual (USA)").kind,
+        RepairKind::Rename,
+        "{:?}",
+        plan.content.notes
+    );
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.game.as_deref() != Some("Extras (USA)")),
+        "{:#?}",
+        plan.content.items
+    );
+    env.approve(&plan);
+    assert!(
+        env.listing().contains(&"Manual (USA).zip".to_owned()),
+        "{:?}",
+        env.listing()
+    );
+}
+
+#[test]
 fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_approve_it() {
     let env = Env::new();
     env.put("readme.txt", b"hello");
