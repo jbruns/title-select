@@ -2127,3 +2127,29 @@ fn a_dat_with_no_name_is_refused_naming_the_file_and_what_is_missing() {
     );
     assert!(env.store.dat_revisions().unwrap().is_empty());
 }
+
+#[test]
+fn a_stored_audit_counts_games_with_nothing_to_check_apart() {
+    let env = Env::new(20);
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (1).dat",
+        "20260101-000000",
+        &[
+            ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+            ("Device", vec![]),
+        ],
+    );
+    env.store.import_dat(&dat, None).unwrap();
+    env.add_set();
+    let id = env.audit(None).id;
+
+    let summary = &env.store.history("Test - System").unwrap()[0];
+
+    use title_select_engine::GameStatus;
+    assert_eq!(summary.games[&GameStatus::NothingToCheck], 1);
+    assert_eq!(summary.games[&GameStatus::Missing], 1);
+    let report = env.store.report(id).unwrap();
+    let device = report.games.iter().find(|g| g.name == "Device").unwrap();
+    assert_eq!(device.status, GameStatus::NothingToCheck);
+}

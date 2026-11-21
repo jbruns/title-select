@@ -328,9 +328,10 @@ impl SelectionIndex {
 fn availability_rank(status: Option<GameStatus>) -> u8 {
     match status {
         Some(GameStatus::Complete) => 0,
-        Some(GameStatus::Incomplete) => 1,
-        Some(GameStatus::Missing) => 2,
-        None => 3,
+        Some(GameStatus::NothingToCheck) => 1,
+        Some(GameStatus::Incomplete) => 2,
+        Some(GameStatus::Missing) => 3,
+        None => 4,
     }
 }
 
@@ -365,6 +366,7 @@ impl GroupAvailability {
             GameStatus::Missing => 0,
             GameStatus::Incomplete => 1,
             GameStatus::Complete => 2,
+            GameStatus::NothingToCheck => 3,
         };
         let statuses: Vec<GameStatus> = group
             .winners

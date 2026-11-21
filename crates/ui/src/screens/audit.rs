@@ -21,8 +21,8 @@ use crate::events::use_live;
 use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
     StatusFilter, absent_roms, audit_evidence_label, entry_name, evidence_text, finding_label,
-    game_status_label, game_status_text, header_rule_text, header_text, needs_review_from_counts,
-    parse_ndjson, payload_read_text, warning_counts, warning_text, when,
+    game_status_label, game_status_text, games_of_status_label, header_rule_text, header_text,
+    needs_review_from_counts, parse_ndjson, payload_read_text, warning_counts, warning_text, when,
 };
 use crate::parts::pending::Pending;
 use crate::parts::status::{GameFlag, StatusBadge, StatusIcon};
@@ -255,7 +255,7 @@ fn AuditView(audit: AuditSummary) -> impl IntoView {
                         view! {
                             <li class="count game">
                                 <span class="n">{games.get(s).copied().unwrap_or(0)}</span>
-                                <span class="what">{format!("{} games", game_status_label(*s))}</span>
+                                <span class="what">{games_of_status_label(*s)}</span>
                             </li>
                         }
                     })

@@ -733,6 +733,9 @@ impl Scan<'_> {
                     .map(|r| self.dat.roms[*r].name.clone())
                     .collect();
                 let status = match missing_roms.len() {
+                    _ if !roms.iter().any(|r| self.dat.roms[*r].needed()) => {
+                        GameStatus::NothingToCheck
+                    }
                     0 => GameStatus::Complete,
                     n if n == roms.len() => GameStatus::Missing,
                     _ => GameStatus::Incomplete,

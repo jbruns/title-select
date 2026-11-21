@@ -3688,6 +3688,17 @@ fn put_coverage(client: &Client, coverage: serde_json::Value) -> (u16, serde_jso
     )
 }
 
+/// A whole Audit's counts, which name every Game Status, less those of no Game.
+fn nonzero(
+    games: &std::collections::BTreeMap<GameStatus, usize>,
+) -> std::collections::BTreeMap<GameStatus, usize> {
+    games
+        .iter()
+        .filter(|(_, n)| **n > 0)
+        .map(|(g, n)| (*g, *n))
+        .collect()
+}
+
 fn statuses(
     complete: usize,
     incomplete: usize,
@@ -3713,7 +3724,10 @@ fn a_coverage_counts_only_covered_games_and_reports_the_rest_beside_them_without
         summaries.remove(0)
     };
     let whole = summary();
-    assert_eq!(whole.latest.as_ref().unwrap().games, statuses(4, 1, 4));
+    assert_eq!(
+        nonzero(&whole.latest.as_ref().unwrap().games),
+        statuses(4, 1, 4)
+    );
     assert_eq!(
         whole.outside_coverage, None,
         "without a coverage, nothing is outside it"
@@ -3881,7 +3895,7 @@ fn without_clone_lists_a_coverage_is_not_applied_and_the_summary_says_so() {
 
     assert!(summaries[0].coverage_unavailable);
     assert_eq!(
-        summaries[0].latest.as_ref().unwrap().games,
+        nonzero(&summaries[0].latest.as_ref().unwrap().games),
         statuses(4, 1, 4),
         "the whole audit"
     );

@@ -376,3 +376,31 @@ fn the_fixdat_lists_a_missing_disk_as_a_disk_by_its_sha1_with_no_size() {
     assert!(!xml.contains(".chd"), "{xml}");
     assert_eq!(xml.matches("<disk ").count(), 5, "{xml}");
 }
+
+#[test]
+fn the_fixdat_leaves_out_a_game_with_nothing_to_check() {
+    let f = Fixture::new();
+    let dat_path = f.dat_dir.path().join("nodump.xml");
+    write_file(
+        &dat_path,
+        br#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)" debug="no" mameconfig="10">
+  <machine name="undumped"><rom name="pal.u1" size="260" status="nodump"/></machine>
+  <machine name="dumped"><rom name="prog.u1" size="4" crc="00000001"/></machine>
+</mame>
+"#,
+    );
+    let report = audit(&dat_path, f.set.path()).unwrap();
+    let dat = Dat::read(&dat_path).unwrap();
+    let lacking = Lacking {
+        dat: &dat,
+        report: &report,
+        audit: 7,
+        scope: None,
+    };
+
+    let xml = lacking.fixdat();
+
+    assert!(xml.contains(r#"<game name="dumped">"#), "{xml}");
+    assert!(!xml.contains("undumped"), "{xml}");
+}

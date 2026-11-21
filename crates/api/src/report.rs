@@ -52,13 +52,17 @@ pub enum GameStatus {
     Complete,
     Incomplete,
     Missing,
+    /// The Game lists no ROM that must be present and can match: none at all, or only nodump or optional ones (ADR
+    /// 0025). It is in none of the other counts and no Fixdat.
+    NothingToCheck,
 }
 
 impl GameStatus {
-    pub const ALL: [GameStatus; 3] = [
+    pub const ALL: [GameStatus; 4] = [
         GameStatus::Complete,
         GameStatus::Incomplete,
         GameStatus::Missing,
+        GameStatus::NothingToCheck,
     ];
 
     /// The name the report uses.
@@ -67,7 +71,14 @@ impl GameStatus {
             GameStatus::Complete => "complete",
             GameStatus::Incomplete => "incomplete",
             GameStatus::Missing => "missing",
+            GameStatus::NothingToCheck => "nothing_to_check",
         }
+    }
+
+    /// Whether a Game of this status satisfies a Game it is a Dependency of (ADR 0025): it is Complete, or has
+    /// nothing to check.
+    pub fn satisfies_dependency(self) -> bool {
+        matches!(self, GameStatus::Complete | GameStatus::NothingToCheck)
     }
 
     pub fn parse(s: &str) -> Option<GameStatus> {
@@ -408,4 +419,21 @@ pub struct ReviewFlag {
     /// The Build that raised it.
     pub build: i64,
     pub raised_at: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GameStatus;
+
+    #[test]
+    fn a_dependency_is_satisfied_when_complete_or_with_nothing_to_check() {
+        let satisfying: Vec<GameStatus> = GameStatus::ALL
+            .into_iter()
+            .filter(|s| s.satisfies_dependency())
+            .collect();
+        assert_eq!(
+            satisfying,
+            [GameStatus::Complete, GameStatus::NothingToCheck]
+        );
+    }
 }

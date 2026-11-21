@@ -30,6 +30,15 @@ pub fn game_status_label(status: GameStatus) -> &'static str {
         GameStatus::Complete => "Complete",
         GameStatus::Incomplete => "Incomplete",
         GameStatus::Missing => "Missing",
+        GameStatus::NothingToCheck => "Nothing to check",
+    }
+}
+
+/// What a count of Games of a Game Status counts, such as "Complete games".
+pub fn games_of_status_label(status: GameStatus) -> String {
+    match status {
+        GameStatus::NothingToCheck => "Games with nothing to check".to_string(),
+        status => format!("{} games", game_status_label(status)),
     }
 }
 
@@ -237,6 +246,7 @@ fn status_bit(status: GameStatus) -> u8 {
         GameStatus::Complete => 1,
         GameStatus::Incomplete => 2,
         GameStatus::Missing => 4,
+        GameStatus::NothingToCheck => 8,
     }
 }
 
@@ -482,11 +492,17 @@ impl AuditGames {
     }
 
     /// Where the Audit found Game `i`: placed in a Library Folder, or in its Source Set's folder; neither for a
-    /// Missing Game it found nowhere.
+    /// Missing Game it found nowhere, or one with Nothing to Check, which needs no file.
     pub fn placement(&self, i: usize) -> Option<Placement> {
         match self.placed_in(i) {
             Some(_) => Some(Placement::Placed),
-            None if self.rows[i].game.status == GameStatus::Missing => None,
+            None if matches!(
+                self.rows[i].game.status,
+                GameStatus::Missing | GameStatus::NothingToCheck
+            ) =>
+            {
+                None
+            }
             None => Some(Placement::SourceSet),
         }
     }
@@ -774,6 +790,15 @@ mod tests {
         assert_eq!(
             game_status_text(&game("Combat (USA)", GameStatus::Complete).game),
             "Complete"
+        );
+    }
+
+    #[test]
+    fn a_count_of_games_names_their_status() {
+        assert_eq!(games_of_status_label(GameStatus::Missing), "Missing games");
+        assert_eq!(
+            games_of_status_label(GameStatus::NothingToCheck),
+            "Games with nothing to check"
         );
     }
 

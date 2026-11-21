@@ -50,6 +50,7 @@ ICONS = [
     "clock",
     "circle-x",
     "circle-pause",
+    "circle-minus",
     # Toolbars, overlays and the theme toggle.
     "plus",
     "trash-2",

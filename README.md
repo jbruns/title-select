@@ -65,7 +65,9 @@ writes a JSON report to stdout, or to `--output`. It only reads: your source set
   "evidence": "incremental",         // quick, incremental or full: how the audit got its checksums
   "summary": {
     "findings": { "matched": 786, "misnamed": 19, "conflicting": 3, "mismatched": 0, "unmatched": 41, "unreadable": 0 },
-    "games": { "complete": 802, "incomplete": 0, "missing": 70 }
+    // nothing_to_check: games that list no ROM that must be present and can match, such as a ROM-less device or
+    // a machine of nodump ROMs. They're in no other count and no fixdat.
+    "games": { "complete": 802, "incomplete": 0, "missing": 70, "nothing_to_check": 0 }
   },
   "entries": [
     {
