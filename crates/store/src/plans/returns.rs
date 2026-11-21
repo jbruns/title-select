@@ -285,13 +285,10 @@ fn one<'a>(
             .flat_map(|f| f.built.roms.iter().cloned())
             .collect();
         let names: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
-        // Its format is decided by every ROM the DAT lists for it, though only those built went home; by those alone
-        // when the DAT, or the Game in it, is gone.
+        // Its format is decided by every ROM the DAT lists for it and every ROM built, though only those built go
+        // home; by those built alone when the DAT, or the Game in it, is gone.
         let listed = dat.map(|dat| roms_of(dat, game)).unwrap_or_default();
-        let listed: Vec<&str> = match listed.is_empty() {
-            true => names.clone(),
-            false => listed.iter().map(|r| r.name.as_str()).collect(),
-        };
+        let listed: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
         let (laid, _) = placement_writing(inputs.set_storage, game, &listed, &names);
         let outputs: Vec<(String, bool, Vec<ExpectedRom>)> = match laid {
             Placement::TorrentZip(name) => vec![(name, false, roms.clone())],

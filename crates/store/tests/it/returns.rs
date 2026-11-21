@@ -1263,3 +1263,56 @@ fn a_game_listing_more_than_one_rom_goes_home_as_torrentzip_though_one_was_place
     let paths: Vec<&str> = r.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, ["Manual (USA).zip"], "{r:?}");
 }
+
+#[test]
+fn a_game_placed_with_more_roms_than_its_dat_now_lists_goes_home_as_torrentzip() {
+    let mut games = crate::single_copy::games();
+    games.push((
+        "Manual (USA)",
+        vec![
+            rom("Manual (USA).a26", b"manual game"),
+            rom("Manual (USA).txt", b"manual text"),
+        ],
+    ));
+    let mut env = Env::with(&games);
+    let both = [
+        ("Manual (USA).a26", &b"manual game"[..]),
+        ("Manual (USA).txt", &b"manual text"[..]),
+    ];
+    torrentzip(&env.set().join("Manual (USA).zip"), &both);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Manual (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Manual (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    // Revision 2 lists only Manual's game ROM, though both were placed.
+    let dat = env.tmp.path().join("dats/alpha-2.dat");
+    let xml = std::fs::read_to_string(env.tmp.path().join("dats/alpha.dat")).unwrap();
+    let text = xml.find(r#"<rom name="Manual (USA).txt""#).unwrap();
+    let end = text + xml[text..].find("/>").unwrap() + 2;
+    let xml = format!("{}{}", &xml[..text], &xml[end..]).replace("version>1<", "version>2<");
+    std::fs::write(&dat, xml).unwrap();
+    env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
+    env.store
+        .audit_source_set(&env.config, SET, Some(&env.sha256), AuditEvidence::Full)
+        .unwrap();
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.format = StorageFormat::Loose;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    let selection = env.select(&["Combat (USA)"]);
+
+    let plan = env.plan(&env.folder, selection);
+
+    assert!(
+        plan.content.blockers.is_empty(),
+        "{:?}",
+        plan.content.blockers
+    );
+    let r = returned(&plan, "Manual (USA)");
+    let paths: Vec<&str> = r.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["Manual (USA).zip"], "{r:?}");
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    assert!(env.files().0.contains(&"Manual (USA).zip".to_owned()));
+}
