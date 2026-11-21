@@ -41,8 +41,9 @@ jobs:
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-nextest@0.9.152
-      # The pinned clone lists the Selection tests read.
+      # The pinned clone lists and curated list the Selection tests read.
       - run: tools/clone-lists/fetch
+      - run: tools/curated-list/fetch
       # The image's own chdman, from its pinned MAME release, for the CHD tests; they fail in CI without it.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -97,10 +98,11 @@ jobs:
           curl -fsS -o /dev/null -H 'Accept-Encoding: br' localhost:8080/pkg/title-select.wasm
           curl -fsS localhost:8080/source-sets | grep -q '/boot.js'
           # The About page's licence texts are served as plain text.
-          for licence in title-select retool retool-clonelists-metadata mame; do
+          for licence in title-select retool retool-clonelists-metadata mame curated-mame-arcade-romset; do
             curl -fsS -D - -o "$RUNNER_TEMP/$licence.txt" "localhost:8080/licences/$licence.txt" \
               | grep -qi '^content-type: text/plain'
-            grep -q 'Copyright' "$RUNNER_TEMP/$licence.txt"
+            # The curated list's Unlicense gives it to the public domain, so it says copyright in lowercase.
+            grep -qi 'copyright' "$RUNNER_TEMP/$licence.txt"
           done
       # A Selection runs offline on the image's clone lists, writing nothing.
       - name: select smoke test

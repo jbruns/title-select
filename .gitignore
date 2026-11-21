@@ -11,3 +11,7 @@
 # Clone lists for Selection, fetched by tools/clone-lists/fetch
 /.clone-lists/
 /.clone-lists.partial/
+
+# The curated list for arcade Selection, fetched by tools/curated-list/fetch
+/.curated-list/
+/.curated-list.partial/

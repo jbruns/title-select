@@ -10,6 +10,7 @@ const RETOOL: &str = "https://github.com/unexpectedpanda/retool";
 const CLONE_LISTS: &str = "https://github.com/unexpectedpanda/retool-clonelists-metadata";
 const PROGETTO_SNAPS: &str = "https://www.progettosnaps.net/support/";
 const SUPPORT_MIRROR: &str = "https://github.com/AntoPISA/MAME_SupportFiles";
+const CURATED_LIST: &str = "https://github.com/zr00da/curated-mame-arcade-romset";
 
 /// A licence text shipped beside the workbench's bundle, under `/licences/`.
 struct Licence {
@@ -41,6 +42,11 @@ const LICENCES: &[Licence] = &[
         title: "chdman, from MAME: GNU General Public License, version 2",
         file: "/licences/mame.txt",
         upstream: Some("https://github.com/mamedev/mame/blob/master/COPYING"),
+    },
+    Licence {
+        title: "curated-mame-arcade-romset: The Unlicense",
+        file: "/licences/curated-mame-arcade-romset.txt",
+        upstream: Some("https://github.com/zr00da/curated-mame-arcade-romset/blob/master/LICENSE"),
     },
     Licence {
         title: "Lucide icons: ISC License",
@@ -89,9 +95,16 @@ pub fn About() -> impl IntoView {
             <p>
                 "When you turn on fetching from MAME, Title Select fetches catver.ini, languages.ini and bestgames.ini from "
                 <a href=PROGETTO_SNAPS>"progetto-SNAPS"</a>
-                ". Its maintainer curates them for each MAME release: every machine's category, its languages and its rating. Title Select will read them to select arcade machines. They are fetched from the maintainer's own "
+                ". Its maintainer curates them for each MAME release: every machine's category, its languages and its rating. Title Select reads them to select arcade machines. They are fetched from the maintainer's own "
                 <a href=SUPPORT_MIRROR>"GitHub mirror"</a>
                 ", never shipped with Title Select, and the copyright in them stays with progetto-SNAPS. Our thanks to progetto-SNAPS and its maintainer."
+            </p>
+        </section>
+        <section id="curated-list" aria-labelledby="curated-list-title">
+            <h2 id="curated-list-title">"The curated list of arcade games"</h2>
+            <p>
+                "An arcade selection can keep to " <a href=CURATED_LIST>"curated-mame-arcade-romset"</a>
+                ", a hand-picked list of arcade games: when you turn it on, your selection keeps only the families it names, and prefers the machine it names in each. Title Select ships a pinned copy of the list, which its author has released into the public domain under the Unlicense, shown below. Our thanks to its author."
             </p>
         </section>
         <section id="default-orders" aria-labelledby="default-orders-title">

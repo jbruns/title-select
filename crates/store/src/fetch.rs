@@ -983,7 +983,7 @@ impl Store {
         commit: &str,
     ) -> std::result::Result<Brought, String> {
         let file = kind.file_name();
-        let (named, _) = crate::support_files::read_header(&fetched.bytes, &fetched.url)?;
+        let (named, _) = title_select_api::support::read_header(&fetched.bytes, &fetched.url)?;
         if named != kind {
             return Err(format!(
                 "{} holds {}, not {file}, so it wasn't kept",

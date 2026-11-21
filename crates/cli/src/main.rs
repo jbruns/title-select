@@ -179,6 +179,10 @@ enum Command {
         /// Write the selection to this file instead of stdout.
         #[arg(long)]
         output: Option<PathBuf>,
+        /// A MAME support file, catver.ini, languages.ini or bestgames.ini, for selecting from a MAME ListXML.
+        /// Repeat it for each file you have, one of each kind; without them, category comes from the ListXML alone.
+        #[arg(long = "support-file")]
+        support_files: Vec<PathBuf>,
     },
     /// Calibrate: measure how fast the host hashes as hash workers are added, and how fast each root reads as
     /// payload readers are added, and print the results. The service at `<url>` runs it as a job, which this
@@ -706,6 +710,7 @@ fn run(cli: Cli) -> Result<(), String> {
             clone_lists,
             timeout,
             output,
+            support_files,
         } => {
             let profile = read_profile(&profile)?;
             let outcome = title_select_selection::Engine::locate(clone_lists.as_deref())
@@ -715,6 +720,7 @@ fn run(cli: Cli) -> Result<(), String> {
                         &profile,
                         &title_select_selection::RunOptions {
                             timeout: std::time::Duration::from_secs(timeout),
+                            support_files,
                             ..title_select_selection::RunOptions::new()
                         },
                     )

@@ -1,0 +1,25 @@
+{"message":"category from the ListXML heuristic: no catver.ini was read","source":"listxml_heuristic","type":"category"}
+{"message":"curated-mame-arcade-romset names shortnames this DAT doesn't have, which match nothing","type":"curated","unmatched":["nosuch","shooterx"]}
+{"machine":"acmebios","message":"a BIOS, which isn't played on its own","stage":"structural","type":"filter"}
+{"machine":"acmesnd","message":"a device, part of other machines","stage":"structural","type":"filter"}
+{"machine":"calcul8","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"crane","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"fighter","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"fighteru","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"homepc","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"jukebox","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"mjhouse","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"mystery","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"oldbios","message":"a BIOS, which isn't played on its own","stage":"structural","type":"filter"}
+{"machine":"pokerace","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"proto","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"racer","message":"driver status preliminary, below imperfect","stage":"quality","type":"filter"}
+{"machine":"reels","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"group":"sailor","kept":["sailor"],"message":"named by curated-mame-arcade-romset","removed":["sailore"],"stage":"election:curated","type":"election"}
+{"group":"shooter","kept":["shooteru"],"message":"named by curated-mame-arcade-romset","removed":["shooter","shootere","shooterw","shooterb"],"stage":"election:curated","type":"election"}
+{"machine":"typist","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"worldh","message":"curated-mame-arcade-romset names no machine of its family","stage":"curated","type":"filter"}
+{"machine":"z80","message":"a device, part of other machines","stage":"structural","type":"filter"}
+{"machine":"acmebios","needed_by":["shooteru"],"type":"dependency"}
+{"machine":"acmesnd","needed_by":["shooteru"],"type":"dependency"}
+{"machine":"z80","needed_by":["shooteru"],"type":"dependency"}

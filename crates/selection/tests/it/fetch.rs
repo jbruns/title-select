@@ -1,5 +1,6 @@
-//! `tools/clone-lists/fetch` unpacks only regular files and folders from the pinned archive, so an archive that
-//! links or names something outside its own folder can't put another file into the clone lists.
+//! `tools/clone-lists/fetch` and `tools/curated-list/fetch` unpack only regular files and folders from the pinned
+//! archive, so an archive that links or names something outside its own folder can't put another file into the clone
+//! lists or the curated list.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -64,37 +65,49 @@ fn archive(members: &[(String, Kind)]) -> Vec<u8> {
     gz.finish().unwrap()
 }
 
-/// Runs a copy of the script pinned to an archive of `members`, served from a local folder, and returns its
-/// output and the folder it was asked to fill.
+/// Runs a copy of the clone-list script pinned to an archive of `members`, served from a local folder, and returns
+/// its output and the folder it was asked to fill.
 fn fetch(work: &Path, members: &[(String, Kind)]) -> (std::process::Output, PathBuf) {
+    fetch_list(work, "clone-lists", members, None)
+}
+
+/// Runs a copy of `list`'s fetch script pinned to an archive of `members`, or to `pinned` as its sha256.
+fn fetch_list(
+    work: &Path,
+    list: &str,
+    members: &[(String, Kind)],
+    pinned: Option<&str>,
+) -> (std::process::Output, PathBuf) {
     let bytes = archive(members);
     let repo = work.join("repo");
-    std::fs::create_dir_all(repo.join("tools/clone-lists")).unwrap();
-    std::fs::create_dir_all(repo.join("third_party/clone-lists")).unwrap();
+    std::fs::create_dir_all(repo.join(format!("tools/{list}"))).unwrap();
+    std::fs::create_dir_all(repo.join(format!("third_party/{list}"))).unwrap();
     std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/clone-lists/fetch"),
-        repo.join("tools/clone-lists/fetch"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../tools/{list}/fetch")),
+        repo.join(format!("tools/{list}/fetch")),
     )
     .unwrap();
     let upstream = work.join("upstream");
     std::fs::create_dir_all(upstream.join("archive")).unwrap();
     std::fs::write(upstream.join(format!("archive/{COMMIT}.tar.gz")), &bytes).unwrap();
+    let digest = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
     std::fs::write(
-        repo.join("third_party/clone-lists/pins.toml"),
+        repo.join(format!("third_party/{list}/pins.toml")),
         format!(
-            "[clone_lists]\nrepository = \"file://{}\"\nbranch = \"main\"\ncommit = \"{COMMIT}\"\n\
+            "[{}]\nrepository = \"file://{}\"\nbranch = \"main\"\ncommit = \"{COMMIT}\"\n\
              archive_sha256 = \"{}\"\n",
+            list.replace('-', "_"),
             upstream.display(),
-            Sha256::digest(&bytes)
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
+            pinned.unwrap_or(&digest),
         ),
     )
     .unwrap();
     let dest = work.join("dest");
     let output = Command::new("sh")
-        .arg(repo.join("tools/clone-lists/fetch"))
+        .arg(repo.join(format!("tools/{list}/fetch")))
         .arg(&dest)
         .current_dir(work)
         .output()
@@ -219,4 +232,79 @@ fn an_archive_whose_names_read_as_tar_options_is_refused_without_running_them() 
     assert!(!output.status.success(), "{output:?}");
     assert!(stderr.contains("fetch: the clone-list archive"), "{stderr}");
     assert!(!dest.exists());
+}
+
+fn curated(path: &str) -> String {
+    format!("curated-mame-arcade-romset-{COMMIT}/{path}")
+}
+
+#[test]
+fn the_curated_list_unpacks_its_romset_and_licence_and_checks_the_archive_sha256() {
+    let members = || {
+        vec![
+            (curated(""), Kind::Dir),
+            (curated("LICENSE"), Kind::File("Unlicense")),
+            (curated("README.md"), Kind::File("not needed")),
+            (curated("ROMSET"), Kind::File("1942\npacman\n")),
+        ]
+    };
+    let work = tempfile::tempdir().unwrap();
+    let (output, dest) = fetch_list(work.path(), "curated-list", &members(), None);
+    assert!(output.status.success(), "{output:?}");
+    let read = |p: &str| std::fs::read_to_string(dest.join(p)).unwrap();
+    assert_eq!(read("ROMSET"), "1942\npacman\n");
+    assert_eq!(read("LICENSE"), "Unlicense");
+    assert_eq!(read("commit"), format!("{COMMIT}\n"));
+    assert!(!dest.join("README.md").exists());
+
+    let work = tempfile::tempdir().unwrap();
+    let (output, dest) = fetch_list(
+        work.path(),
+        "curated-list",
+        &members(),
+        Some(&"0".repeat(64)),
+    );
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("does not match pins.toml archive_sha256")
+    );
+    assert!(!dest.exists());
+}
+
+#[test]
+fn a_curated_list_archive_with_a_linked_romset_or_a_path_outside_it_is_refused() {
+    let outside = tempfile::tempdir().unwrap();
+    let secret = outside.path().join("secret");
+    std::fs::write(&secret, "not a list").unwrap();
+    let secret = secret.to_str().unwrap().to_owned();
+    let cases: Vec<(&str, (String, Kind))> = vec![
+        (
+            "a symlinked list",
+            (curated("ROMSET"), Kind::Symlink(&secret)),
+        ),
+        (
+            "a hardlinked list",
+            (curated("ROMSET"), Kind::Hardlink(&secret)),
+        ),
+        ("a .. component", (curated("../escaped"), Kind::File("x"))),
+    ];
+    for (what, extra) in cases {
+        let work = tempfile::tempdir().unwrap();
+        let mut members: Vec<(String, Kind)> = [
+            (curated("LICENSE"), Kind::File("Unlicense")),
+            (curated("ROMSET"), Kind::File("1942\n")),
+        ]
+        .into_iter()
+        .filter(|(name, _)| *name != extra.0)
+        .collect();
+        members.push(extra);
+        let (output, dest) = fetch_list(work.path(), "curated-list", &members, None);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{what}: {output:?}");
+        assert!(
+            stderr.contains("fetch: the curated-list archive"),
+            "{what}: {stderr}"
+        );
+        assert!(!dest.exists(), "{what}");
+    }
 }

@@ -1,0 +1,29 @@
+{"message":"category from the ListXML heuristic: no catver.ini was read","source":"listxml_heuristic","type":"category"}
+{"file":"bestgames.ini","mame_version":"0.280","message":"bestgames.ini is for MAME 0.280, behind this DAT's MAME 0.289: machines added since aren't in it, so they're read as they would be without it","type":"drift"}
+{"machine":"acmebios","message":"a BIOS, which isn't played on its own","stage":"structural","type":"filter"}
+{"machine":"acmesnd","message":"a device, part of other machines","stage":"structural","type":"filter"}
+{"machine":"calcul8","message":"non-arcade by the ListXML heuristic: its driver is in casio/","stage":"category","type":"filter"}
+{"machine":"crane","message":"a mechanical machine","stage":"hardware","type":"filter"}
+{"group":"fighter","message":"rated 70–80 (Good) by progetto-SNAPS, MAME 0.280","type":"rating"}
+{"group":"fighter","kept":["fighteru"],"message":"driver status good","removed":["fighter"],"stage":"election:status","type":"election"}
+{"machine":"homepc","message":"it names a software list, as computers and consoles do","stage":"hardware","type":"filter"}
+{"machine":"jukebox","message":"it has no screen","stage":"hardware","type":"filter"}
+{"machine":"mjhouse","message":"tabletop by the ListXML heuristic: it has mahjong controls","stage":"category","type":"filter"}
+{"group":"mystery","message":"unrated by progetto-SNAPS, MAME 0.280, and kept, as you keep unrated families","type":"rating"}
+{"machine":"oldbios","message":"a BIOS, which isn't played on its own","stage":"structural","type":"filter"}
+{"machine":"pokerace","message":"gambling by the ListXML heuristic: it has gambling controls","stage":"category","type":"filter"}
+{"group":"proto","message":"unrated by progetto-SNAPS, MAME 0.280, and kept, as you keep unrated families","type":"rating"}
+{"machine":"racer","message":"its family is rated 40–50 (Decent) by progetto-SNAPS, MAME 0.280, below 70","stage":"rating","type":"filter"}
+{"machine":"racera","message":"its family is rated 40–50 (Decent) by progetto-SNAPS, MAME 0.280, below 70","stage":"rating","type":"filter"}
+{"machine":"reels","message":"gambling by the ListXML heuristic: its driver is in aristocrat/","stage":"category","type":"filter"}
+{"group":"sailor","message":"unrated by progetto-SNAPS, MAME 0.280, and kept, as you keep unrated families","type":"rating"}
+{"group":"sailor","kept":["sailor"],"message":"the parent","removed":["sailore"],"stage":"election:parent","type":"election"}
+{"group":"shooter","message":"rated 70–80 (Good) by progetto-SNAPS, MAME 0.280","type":"rating"}
+{"group":"shooter","kept":["shooterw","shooterb"],"message":"region World","removed":["shooter","shootere","shooteru"],"stage":"election:region","type":"election"}
+{"group":"shooter","kept":["shooterw"],"message":"an original release","removed":["shooterb"],"stage":"election:variant","type":"election"}
+{"machine":"typist","message":"non-arcade by the ListXML heuristic: it has a keyboard","stage":"category","type":"filter"}
+{"group":"worldh","message":"unrated by progetto-SNAPS, MAME 0.280, and kept, as you keep unrated families","type":"rating"}
+{"machine":"z80","message":"a device, part of other machines","stage":"structural","type":"filter"}
+{"machine":"acmebios","needed_by":["fighteru","shooterw"],"type":"dependency"}
+{"machine":"acmesnd","needed_by":["fighteru","shooterw"],"type":"dependency"}
+{"machine":"z80","needed_by":["fighteru","shooterw"],"type":"dependency"}

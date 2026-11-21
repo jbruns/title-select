@@ -273,6 +273,40 @@ pub struct ArcadePins {
     /// The filters whose signal the DAT doesn't carry, so they dropped nothing, by stage.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unavailable: Vec<String>,
+    /// The machines catver doesn't list, whose category the ListXML heuristic decided: only with catver.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub category_fallbacks: usize,
+    /// The Support Files the selector read, by kind (ADR 0012's amendment).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub support_files: Vec<SupportFilePin>,
+    /// The curated list the selector kept to: only when it was on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curated: Option<CuratedPin>,
+}
+
+/// A Support File an arcade Selection read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupportFilePin {
+    pub kind: crate::support::SupportFileKind,
+    /// SHA-256 of the unmodified file.
+    pub sha256: String,
+    /// The MAME version its header names, such as `0.289`.
+    pub mame_version: String,
+    /// Whether that version is behind the ListXML's build: machines newer than the file are missing from it, and the
+    /// selector reads them as it would without the file. Drift, never a failure.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub drift: bool,
+}
+
+/// The curated list an arcade Selection kept to (ADR 0027).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CuratedPin {
+    pub repository: String,
+    pub commit: String,
+    /// The shortnames it names that the DAT Revision lacks, which matched nothing: a shortname is never matched
+    /// loosely.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unmatched: Vec<String>,
 }
 
 /// What decided an arcade machine's category.
@@ -281,6 +315,8 @@ pub struct ArcadePins {
 pub enum CategorySource {
     /// The ListXML-only heuristic (research 0105 §4): source file directory, software lists and control types.
     ListxmlHeuristic,
+    /// catver, and for a machine it doesn't list, the ListXML heuristic.
+    Catver,
 }
 
 /// Why a MAME Source Set takes no Coverage (ADR 0027), as the Operator reads it.
@@ -309,6 +345,9 @@ pub struct SelectionSummary {
     /// Dependencies of the winners (ADR 0025), each counted once.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub dependencies: usize,
+    /// Shortnames the curated list names that the DAT Revision lacks; `pins.arcade.curated.unmatched` lists them.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub curated_unmatched: usize,
 }
 
 impl SelectionSummary {
@@ -674,7 +713,8 @@ pub const COVERAGE_MESSAGE: &str = "outside its source set's coverage";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
     pub stage: String,
-    /// Retool's trace reference, such as `REF0014`; absent when no trace record names the release.
+    /// Retool's trace reference, such as `REF0014`, or the source an arcade Rule cites, such as the curated list's
+    /// URL; absent when neither names the release.
     #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     pub message: String,

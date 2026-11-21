@@ -3,13 +3,13 @@
     "clone_list_commit": "",
     "trace_schema": 0
   },
-  "dat_sha256": "c48b0371d72c98282baf647e73a0ccd9138af6d997e1b241d0414bfd7ab2ebae",
+  "dat_sha256": "50f66c88f5332fb81e2d2e756a7cee309cdbae657670e8280d1b114d7c76f735",
   "system": "MAME",
   "system_settings": false,
   "summary": {
-    "groups": 18,
-    "winners": 6,
-    "alternatives": 5,
+    "groups": 19,
+    "winners": 7,
+    "alternatives": 6,
     "exclusions": 10,
     "unresolved": 0,
     "dependencies": 3
@@ -270,6 +270,31 @@
           "reason": "gambling"
         }
       ]
+    },
+    {
+      "group": "sailor",
+      "unresolved": false,
+      "winners": [
+        {
+          "title": "sailor",
+          "rule": {
+            "stage": "election:parent",
+            "message": "the parent"
+          },
+          "unresolved": false
+        }
+      ],
+      "alternatives": [
+        {
+          "title": "sailore",
+          "clone_of": "sailor",
+          "rule": {
+            "stage": "election:parent",
+            "message": "a clone, which ranks below the parent"
+          }
+        }
+      ],
+      "exclusions": []
     },
     {
       "group": "shooter",

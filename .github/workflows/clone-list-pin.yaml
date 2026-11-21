@@ -1,16 +1,16 @@
 name: clone-list pin
 
-# Renovate moves the clone-list commit in third_party/clone-lists/pins.toml but can't know the new archive's
-# sha256. This writes it on the Renovate branch, then runs CI on the result: a push made with the workflow's
-# token starts no workflows by itself.
+# Renovate moves the clone-list commit in third_party/clone-lists/pins.toml, or the curated list's in
+# third_party/curated-list/pins.toml, but can't know the new archive's sha256. This writes both on the Renovate
+# branch, then runs CI on the result: a push made with the workflow's token starts no workflows by itself.
 #
-# The job holds a write token, so it runs no code from the branch: the default branch's tools/clone-lists/fetch
-# hashes the archive the branch's pins.toml names, and only the push and the CI dispatch see the token.
+# The job holds a write token, so it runs no code from the branch: the default branch's fetch scripts hash the
+# archives the branch's pins.toml files name, and only the push and the CI dispatch see the token.
 
 on:
   push:
     branches: ['renovate/**']
-    paths: [third_party/clone-lists/pins.toml]
+    paths: [third_party/clone-lists/pins.toml, third_party/curated-list/pins.toml]
 
 permissions:
   contents: read
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   pin:
-    name: clone-list archive sha256
+    name: clone-list and curated-list archive sha256
     if: github.actor == 'renovate[bot]'
     runs-on: ubuntu-24.04
     permissions:
@@ -39,11 +39,13 @@ jobs:
         with:
           path: branch
           persist-credentials: false
-      - name: hash the archive
+      - name: hash the archives
         run: |
-          cp branch/third_party/clone-lists/pins.toml trusted/third_party/clone-lists/pins.toml
-          sh trusted/tools/clone-lists/fetch pin
-          cp trusted/third_party/clone-lists/pins.toml branch/third_party/clone-lists/pins.toml
+          for list in clone-lists curated-list; do
+            cp "branch/third_party/$list/pins.toml" "trusted/third_party/$list/pins.toml"
+            sh "trusted/tools/$list/fetch" pin
+            cp "trusted/third_party/$list/pins.toml" "branch/third_party/$list/pins.toml"
+          done
       - name: commit and run CI
         working-directory: branch
         env:
@@ -51,12 +53,12 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: |
           if git diff --quiet; then
-            echo "the archive sha256 is already pinned"
+            echo "the archive sha256s are already pinned"
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -am 'Pin the clone-list archive sha256'
+          git commit -am 'Pin the archive sha256'
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           echo "::add-mask::$auth"
           git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" push origin "HEAD:$BRANCH"

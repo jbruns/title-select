@@ -97,6 +97,10 @@ WORKDIR /src
 COPY third_party/clone-lists third_party/clone-lists
 COPY tools/clone-lists tools/clone-lists
 RUN tools/clone-lists/fetch /opt/clone-lists
+# The curated list of arcade games the arcade selector offers (ADR 0027), at the pinned commit.
+COPY third_party/curated-list third_party/curated-list
+COPY tools/curated-list tools/curated-list
+RUN tools/curated-list/fetch /opt/curated-list
 
 # chdman, for CHD builds, from a pinned MAME release: only chdman is built, not the emulator. MAME's tools build links
 # SDL, which chdman never calls: SDL's headers are there to compile against, but a stub stands in for its library, and
@@ -127,16 +131,19 @@ COPY --from=server /title-select /title-select
 COPY --from=front /ui /ui
 COPY --from=server --chown=65532:65532 /store /store
 COPY --from=clone-lists /opt/clone-lists /opt/clone-lists
+COPY --from=clone-lists /opt/curated-list /opt/curated-list
 # Retool's licence, which the selection engine ported from it carries, and the clone lists' licence, for the
 # workbench's About page.
 COPY third_party/retool/LICENSE /ui/licences/retool.txt
 COPY --from=clone-lists /opt/clone-lists/LICENSE /ui/licences/retool-clonelists-metadata.txt
+COPY --from=clone-lists /opt/curated-list/LICENSE /ui/licences/curated-mame-arcade-romset.txt
 COPY --from=chdman-build /out/chdman /usr/local/bin/chdman
 COPY --from=chdman-build /out/mame.txt /ui/licences/mame.txt
 ENV TITLE_SELECT_STORE=/store \
     TITLE_SELECT_LISTEN=0.0.0.0:8080 \
     TITLE_SELECT_UI=/ui \
     TITLE_SELECT_CLONE_LISTS=/opt/clone-lists \
+    TITLE_SELECT_CURATED_LIST=/opt/curated-list \
     TITLE_SELECT_CHDMAN=/usr/local/bin/chdman
 VOLUME /store
 EXPOSE 8080

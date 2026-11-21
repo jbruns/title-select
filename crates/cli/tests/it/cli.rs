@@ -558,6 +558,29 @@ fn select_prints_the_selection_and_refuses_a_profile_it_cannot_read() {
 }
 
 #[test]
+fn select_reads_the_support_files_it_is_given_for_a_listxml() {
+    let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../selection/tests/data");
+    let f = Fixture::new();
+    let profile = f.dat_dir.path().join("profile.json");
+    std::fs::write(&profile, "{}").unwrap();
+    let stdout = run_ok(
+        title_select()
+            .arg("select")
+            .arg("--dat")
+            .arg(data.join("arcade.xml"))
+            .arg("--profile")
+            .arg(&profile)
+            .arg("--support-file")
+            .arg(data.join("support/catver.ini")),
+    );
+    let selection: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        selection["pins"]["arcade"]["support_files"][0]["kind"],
+        "catver"
+    );
+}
+
+#[test]
 fn the_engine_choice_and_the_conformance_command_are_gone() {
     let (f, dat) = pong_fixture();
     let profile = f.dat_dir.path().join("profile.json");

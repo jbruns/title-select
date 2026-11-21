@@ -1020,7 +1020,7 @@ fn read_item(
                 SUPPORT_FILE_LIMIT >> 20
             ));
         } else {
-            match crate::support_files::read_header(&bytes, name) {
+            match title_select_api::support::read_header(&bytes, name) {
                 Ok(read) => support = Some(read),
                 Err(why) => refused_support = Some(why),
             }

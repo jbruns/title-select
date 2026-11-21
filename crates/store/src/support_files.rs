@@ -9,14 +9,14 @@ use super::blobs::write_blob;
 use super::{Error, Result, Store, io_error, now};
 
 use title_select_api::ImportOutcome;
-use title_select_api::support::{SupportFileKind, SupportFileOrigin, SupportFileRecord};
+use title_select_api::support::{
+    SupportFileKind, SupportFileOrigin, SupportFileRecord, read_header,
+};
 
 /// The directory, in the store directory, that holds Support Files.
 pub const SUPPORT_FILES: &str = "support_files";
 /// The largest Support File kept, well past catver's few MiB.
 pub const SUPPORT_FILE_LIMIT: u64 = 64 << 20;
-/// How far into a file its header is looked for: progetto-SNAPS's comes after a short `[FOLDER_SETTINGS]` section.
-const HEADER_WITHIN: usize = 4096;
 
 const COLUMNS: &str =
     "sha256, kind, file_name, mame_version, commit_sha, origin, source_url, imported_at";
@@ -47,44 +47,6 @@ fn by_sha(c: &Connection, sha256: &str) -> Result<Option<SupportFileRecord>> {
 /// Whether the store keeps the Support File whose SHA-256 is `sha256`.
 pub(crate) fn is_kept(c: &Connection, sha256: &str) -> Result<bool> {
     Ok(by_sha(c, sha256)?.is_some())
-}
-
-/// What a Support File's `;; <file> 0.NNN / <date> / MAME 0.NNN ;;` header says it is: which file, and the MAME
-/// version it is for. `file` names it in an error.
-pub(crate) fn read_header(
-    bytes: &[u8],
-    file: &str,
-) -> std::result::Result<(SupportFileKind, String), String> {
-    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(HEADER_WITHIN)]);
-    let header = head
-        .lines()
-        .map(str::trim)
-        .find_map(|l| l.strip_prefix(";;")?.strip_suffix(";;"))
-        .ok_or_else(|| {
-            format!("{file}: not a MAME support file: it has no \";; … MAME 0.NNN ;;\" header")
-        })?;
-    let named = header.split_whitespace().next().unwrap_or_default();
-    let kind = SupportFileKind::ALL
-        .into_iter()
-        .find(|k| k.file_name().eq_ignore_ascii_case(named))
-        .ok_or_else(|| {
-            format!(
-                "{file}: its header names {named}, but Title Select reads only catver.ini, languages.ini and \
-                 bestgames.ini"
-            )
-        })?;
-    let version = header
-        .rsplit_once("MAME ")
-        .and_then(|(_, v)| v.split_whitespace().next())
-        .filter(|v| {
-            v.split_once('.').is_some_and(|(major, minor)| {
-                [major, minor]
-                    .iter()
-                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-            })
-        })
-        .ok_or_else(|| format!("{file}: its header names no MAME version, such as MAME 0.289"))?;
-    Ok((kind, version.to_owned()))
 }
 
 impl Store {
@@ -150,6 +112,27 @@ impl Store {
             let record = by_sha(conn, &sha)?.ok_or_else(|| Error::Io(format!("{sha}: not kept")))?;
             Ok((record, outcome))
         })
+    }
+
+    /// The Support Files a Selection reads: of each kind, the one for the newest MAME version, and of those the last
+    /// to come, as paths to the files the store keeps.
+    pub fn selection_support_files(&self) -> Result<Vec<std::path::PathBuf>> {
+        let version = |v: &str| -> (u32, u32) {
+            let (major, minor) = v.split_once('.').unwrap_or_default();
+            (major.parse().unwrap_or(0), minor.parse().unwrap_or(0))
+        };
+        let mut newest: std::collections::BTreeMap<SupportFileKind, SupportFileRecord> =
+            std::collections::BTreeMap::new();
+        for file in self.support_files()? {
+            match newest.get(&file.kind) {
+                Some(kept) if version(&kept.mame_version) > version(&file.mame_version) => {}
+                _ => {
+                    newest.insert(file.kind, file);
+                }
+            }
+        }
+        let dir = self.dir.join(SUPPORT_FILES);
+        Ok(newest.into_values().map(|f| dir.join(f.sha256)).collect())
     }
 
     /// Every Support File the store keeps, in the order they came.

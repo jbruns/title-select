@@ -362,7 +362,7 @@ impl From<title_select_selection::Error> for ApiError {
             }
             E::Cancelled => StatusCode::CONFLICT,
             E::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
-            E::Install(_) => StatusCode::SERVICE_UNAVAILABLE,
+            E::Install(_) | E::CuratedList(_) => StatusCode::SERVICE_UNAVAILABLE,
             E::Io { .. } | E::Trace(_) | E::Builtin(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let message = match &err {

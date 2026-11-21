@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!-- A synthetic MAME ListXML for the arcade selector's tests. Its names, descriptions and checksums are invented. It
      holds a BIOS and a device chain that two winners share, a BIOS nothing needs, families that the driver status, the
-     region and a bootleg decide, and machines each filter drops. -->
+     region and a bootleg decide, a family only languages.ini decides, and machines each filter drops. -->
 <!DOCTYPE mame [
 <!ELEMENT mame (machine+)>
 ]>
@@ -131,6 +131,24 @@
     <rom name="worldh.u3" size="32" crc="a000000d" sha1="a00000000000000000000000000000000000000d"/>
     <display type="vector" rotate="0"/>
     <input players="4" coins="4"><control type="joy"/><control type="lightgun"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+
+  <!-- A family no description tells apart: the parent wins it, unless languages.ini says its clone is in English. -->
+  <machine name="sailor" sourcefile="acme/sailor.cpp">
+    <description>Sailor (World)</description>
+    <year>1995</year>
+    <rom name="sailor.u3" size="32" crc="a0000020" sha1="a000000000000000000000000000000000000020"/>
+    <display type="raster" rotate="0"/>
+    <input players="2" coins="2"><control type="joy"/></input>
+    <driver status="good" emulation="good"/>
+  </machine>
+  <machine name="sailore" sourcefile="acme/sailor.cpp" cloneof="sailor" romof="sailor">
+    <description>Sailor (World, set 2)</description>
+    <year>1995</year>
+    <rom name="sailore.u3" size="32" crc="a0000021" sha1="a000000000000000000000000000000000000021"/>
+    <display type="raster" rotate="0"/>
+    <input players="2" coins="2"><control type="joy"/></input>
     <driver status="good" emulation="good"/>
   </machine>
 

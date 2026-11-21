@@ -1,4 +1,4 @@
-{"message":"category from the ListXML heuristic: the support files aren't read yet","source":"listxml_heuristic","type":"category"}
+{"message":"category from the ListXML heuristic: no catver.ini was read","source":"listxml_heuristic","type":"category"}
 {"machine":"acmebios","message":"a BIOS, which isn't played on its own","stage":"structural","type":"filter"}
 {"machine":"acmesnd","message":"a device, part of other machines","stage":"structural","type":"filter"}
 {"machine":"calcul8","message":"non-arcade by the ListXML heuristic: its driver is in casio/","stage":"category","type":"filter"}
@@ -11,6 +11,7 @@
 {"machine":"pokerace","message":"gambling by the ListXML heuristic: it has gambling controls","stage":"category","type":"filter"}
 {"group":"racer","kept":["racera"],"message":"driver status good","removed":["racer"],"stage":"election:status","type":"election"}
 {"machine":"reels","message":"gambling by the ListXML heuristic: its driver is in aristocrat/","stage":"category","type":"filter"}
+{"group":"sailor","kept":["sailor"],"message":"the parent","removed":["sailore"],"stage":"election:parent","type":"election"}
 {"group":"shooter","kept":["shooterw","shooterb"],"message":"region World","removed":["shooter","shootere","shooteru"],"stage":"election:region","type":"election"}
 {"group":"shooter","kept":["shooterw"],"message":"an original release","removed":["shooterb"],"stage":"election:variant","type":"election"}
 {"machine":"typist","message":"non-arcade by the ListXML heuristic: it has a keyboard","stage":"category","type":"filter"}

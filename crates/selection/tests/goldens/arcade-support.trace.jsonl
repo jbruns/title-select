@@ -1,0 +1,26 @@
+{"message":"category from catver.ini, MAME 0.289, and for a machine it doesn't list, from the ListXML heuristic","source":"catver","type":"category"}
+{"machine":"calcul8","message":"catver.ini doesn't list it, so the ListXML heuristic decides its category","source":"listxml_heuristic","type":"category"}
+{"machine":"mystery","message":"catver.ini doesn't list it, so the ListXML heuristic decides its category","source":"listxml_heuristic","type":"category"}
+{"file":"bestgames.ini","mame_version":"0.280","message":"bestgames.ini is for MAME 0.280, behind this DAT's MAME 0.289: machines added since aren't in it, so they're read as they would be without it","type":"drift"}
+{"machine":"acmebios","message":"a BIOS, which isn't played on its own","stage":"structural","type":"filter"}
+{"machine":"acmesnd","message":"a device, part of other machines","stage":"structural","type":"filter"}
+{"machine":"calcul8","message":"non-arcade by the ListXML heuristic, as catver.ini doesn't list it: its driver is in casio/","stage":"category","type":"filter"}
+{"machine":"crane","message":"a mechanical machine","stage":"hardware","type":"filter"}
+{"group":"fighter","kept":["fighteru"],"message":"driver status good","removed":["fighter"],"stage":"election:status","type":"election"}
+{"machine":"homepc","message":"it names a software list, as computers and consoles do","stage":"hardware","type":"filter"}
+{"machine":"jukebox","message":"it has no screen","stage":"hardware","type":"filter"}
+{"machine":"mjhouse","message":"tabletop by catver.ini: Tabletop / Mahjong * Mature *","stage":"category","type":"filter"}
+{"machine":"oldbios","message":"a BIOS, which isn't played on its own","stage":"structural","type":"filter"}
+{"machine":"pokerace","message":"gambling by catver.ini: Casino / Cards","stage":"category","type":"filter"}
+{"machine":"proto","message":"mature by catver.ini: Puzzle / Drop * Mature *","stage":"category","type":"filter"}
+{"machine":"racer","message":"driver status preliminary, below imperfect","stage":"quality","type":"filter"}
+{"machine":"reels","message":"gambling by catver.ini: Slot Machine / Reels","stage":"category","type":"filter"}
+{"group":"sailor","kept":["sailore"],"message":"language English","removed":["sailor"],"stage":"election:language","type":"election"}
+{"group":"shooter","kept":["shooterw","shooterb"],"message":"region World","removed":["shooter","shootere","shooteru"],"stage":"election:region","type":"election"}
+{"group":"shooter","kept":["shooterw"],"message":"an original release","removed":["shooterb"],"stage":"election:variant","type":"election"}
+{"machine":"typist","message":"non-arcade by catver.ini: Computer / Keyboard","stage":"category","type":"filter"}
+{"machine":"worldh","message":"quiz by catver.ini: Quiz / Trivia","stage":"category","type":"filter"}
+{"machine":"z80","message":"a device, part of other machines","stage":"structural","type":"filter"}
+{"machine":"acmebios","needed_by":["fighteru","shooterw"],"type":"dependency"}
+{"machine":"acmesnd","needed_by":["fighteru","shooterw"],"type":"dependency"}
+{"machine":"z80","needed_by":["fighteru","shooterw"],"type":"dependency"}

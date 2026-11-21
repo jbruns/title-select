@@ -97,3 +97,28 @@ fn garbage_collection_keeps_support_files_and_removes_strays() {
     assert_eq!(removed, ["support_files/.stray.tmp"]);
     assert!(support.join(&file.sha256).is_file());
 }
+
+#[test]
+fn a_selection_reads_the_newest_mame_versions_support_file_of_each_kind() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    let import = |file: &str, version: &str| {
+        store
+            .import_support_file(&ini(file, version), file, None)
+            .unwrap()
+            .0
+            .sha256
+    };
+    import("catver.ini", "0.288");
+    let catver = import("catver.ini", "0.289");
+    // An older file dropped in later doesn't replace the newer one.
+    import("catver.ini", "0.99");
+    let languages = import("languages.ini", "0.289");
+
+    let kept = dir.path().join("support_files");
+    let mut expected = vec![kept.join(catver), kept.join(languages)];
+    expected.sort();
+    let mut read = store.selection_support_files().unwrap();
+    read.sort();
+    assert_eq!(read, expected);
+}

@@ -54,6 +54,10 @@ pub fn select(
     let mut options = RunOptions::new();
     options.cancel = cancel;
     options.coverage = coverage;
+    options.support_files = store.selection_support_files().map_err(|e| Error::Io {
+        context: "the support files".into(),
+        source: std::io::Error::other(e.to_string()),
+    })?;
     let outcome = engine.run(&staged.dat, profile, &options)?;
     for warning in &outcome.warnings {
         eprintln!("title-select: selection engine warning for {file}: {warning}");

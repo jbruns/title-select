@@ -23,6 +23,7 @@ The toolchain is pinned in `rust-toolchain.toml`. CI runs exactly these, so run 
 
 ```sh
 tools/clone-lists/fetch   # clone lists for the Selection tests; needs curl, tar and sha256sum
+tools/curated-list/fetch  # the curated list for the arcade Selection tests
 cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo clippy --package title-select-ui --target wasm32-unknown-unknown --locked -- -D warnings

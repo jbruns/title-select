@@ -4,10 +4,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use sha2::Digest;
 use title_select_api::selection::{
     CategorySource, ChoiceStatus, SOFTWARE_LIST_REFUSAL, Selection, SelectionGroup,
     SelectionProfile,
 };
+use title_select_api::support::SupportFileKind;
 use title_select_selection::arcade::{ArcadeSettings, Orientation, Range, Variant};
 use title_select_selection::{Engine, Outcome};
 
@@ -89,7 +91,7 @@ fn the_defaults_elect_one_machine_per_family_and_list_each_dependency_once() {
     assert_eq!(
         winners(selection),
         set(&[
-            "fighteru", "mystery", "proto", "racera", "shooterw", "worldh"
+            "fighteru", "mystery", "proto", "racera", "sailor", "shooterw", "worldh"
         ])
     );
     assert_eq!(
@@ -555,5 +557,318 @@ fn a_number_that_is_no_calendar_date_ranks_as_naming_no_revision() {
             ("fightera", "election:revision"),
             ("fighterc", "election:revision"),
         ])
+    );
+}
+
+/// The synthetic Support Files: catver and languages for MAME 0.289, bestgames for 0.280.
+fn support_files(kinds: &[&str]) -> Vec<PathBuf> {
+    kinds
+        .iter()
+        .map(|kind| data(&format!("support/{kind}.ini")))
+        .collect()
+}
+
+fn run_supported(engine: &Engine, kinds: &[&str], settings: &ArcadeSettings) -> Outcome {
+    let options = title_select_selection::RunOptions {
+        support_files: support_files(kinds),
+        ..support::options()
+    };
+    engine
+        .run_arcade(
+            &data("arcade.xml"),
+            &SelectionProfile::default(),
+            settings,
+            &options,
+        )
+        .unwrap()
+}
+
+#[test]
+fn catver_decides_category_and_the_heuristic_decides_a_machine_it_lacks() {
+    let outcome = run_supported(
+        &engine(),
+        &["catver", "languages", "bestgames"],
+        &ArcadeSettings::default(),
+    );
+    golden("arcade-support", &outcome);
+    let selection = &outcome.selection;
+    let dropped = exclusions(selection);
+    let reason = |title: &str| {
+        selection
+            .groups
+            .iter()
+            .flat_map(|g| g.exclusions.iter())
+            .find(|e| e.title == title)
+            .map(|e| (e.reason.clone(), e.rule.message.clone()))
+            .unwrap()
+    };
+    // catver sees what the heuristic can't: quiz and mature machines.
+    assert_eq!(dropped["worldh"], "category");
+    assert_eq!(reason("worldh").0, "quiz");
+    assert_eq!(reason("proto").0, "mature");
+    assert_eq!(reason("mjhouse").0, "tabletop");
+    assert_eq!(
+        reason("pokerace").1,
+        "gambling by catver.ini: Casino / Cards"
+    );
+    // catver doesn't list calcul8, so the heuristic drops it by its driver's directory; nor mystery, which it keeps.
+    assert_eq!(
+        reason("calcul8").1,
+        "non-arcade by the ListXML heuristic, as catver.ini doesn't list it: its driver is in casio/"
+    );
+    assert!(winners(selection).contains("mystery"));
+
+    let arcade = selection.pins.arcade.as_ref().unwrap();
+    assert_eq!(arcade.category, CategorySource::Catver);
+    assert_eq!(arcade.category_fallbacks, 2);
+    let pinned: Vec<(SupportFileKind, &str, bool)> = arcade
+        .support_files
+        .iter()
+        .map(|p| (p.kind, p.mame_version.as_str(), p.drift))
+        .collect();
+    assert_eq!(
+        pinned,
+        [
+            (SupportFileKind::Catver, "0.289", false),
+            (SupportFileKind::Languages, "0.289", false),
+            (SupportFileKind::Bestgames, "0.280", true),
+        ]
+    );
+    let catver = std::fs::read(data("support/catver.ini")).unwrap();
+    assert_eq!(
+        arcade.support_files[0].sha256,
+        sha2::Sha256::digest(&catver)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    );
+    assert!(
+        outcome
+            .trace
+            .lines()
+            .any(|l| l.contains(r#""type":"drift""#) && l.contains("bestgames.ini")),
+        "{}",
+        outcome.trace
+    );
+}
+
+#[test]
+fn languages_ini_gives_the_language_election_the_languages_of_each_machine_it_lists() {
+    let engine = engine();
+    let without = run(&data("arcade.xml"), &ArcadeSettings::default()).selection;
+    assert_eq!(group(&without, "sailor").winners[0].title, "sailor");
+
+    let with = run_supported(&engine, &["languages"], &ArcadeSettings::default()).selection;
+    let sailor = group(&with, "sailor");
+    assert_eq!(sailor.winners[0].title, "sailore");
+    assert_eq!(sailor.winners[0].rule.stage, "election:language");
+    assert_eq!(
+        sailor.alternatives[0].rule.message,
+        "language Japanese, which ranks below language English"
+    );
+}
+
+#[test]
+fn a_minimum_rating_reads_the_parents_rating_and_keeps_unrated_families_unless_told() {
+    let engine = engine();
+    let settings = ArcadeSettings {
+        minimum_rating: Some(70),
+        ..ArcadeSettings::default()
+    };
+    let outcome = run_supported(&engine, &["bestgames"], &settings);
+    golden("arcade-rating", &outcome);
+    let selection = &outcome.selection;
+    let dropped = exclusions(selection);
+    // racera is rated best itself, but its family's parent is rated below 70.
+    assert_eq!(dropped["racera"], "rating");
+    let racera = &group(selection, "racer").exclusions;
+    assert_eq!(
+        racera
+            .iter()
+            .find(|e| e.title == "racera")
+            .unwrap()
+            .rule
+            .message,
+        "its family is rated 40–50 (Decent) by progetto-SNAPS, MAME 0.280, below 70"
+    );
+    assert!(winners(selection).is_superset(&set(&["fighteru", "shooterw", "mystery", "sailor"])));
+    assert!(
+        outcome
+            .trace
+            .lines()
+            .any(|l| l.contains(r#""group":"fighter""#)
+                && l.contains("rated 70–80 (Good) by progetto-SNAPS, MAME 0.280"))
+    );
+
+    let strict = run_supported(
+        &engine,
+        &["bestgames"],
+        &ArcadeSettings {
+            drop_unrated: true,
+            ..settings
+        },
+    )
+    .selection;
+    assert_eq!(winners(&strict), set(&["fighteru", "shooterw"]));
+    assert_eq!(exclusions(&strict)["mystery"], "rating");
+
+    // Without bestgames the filter is unavailable and drops nothing.
+    let unrated = run(
+        &data("arcade.xml"),
+        &ArcadeSettings {
+            minimum_rating: Some(70),
+            ..ArcadeSettings::default()
+        },
+    );
+    let arcade = unrated.selection.pins.arcade.as_ref().unwrap();
+    assert!(arcade.unavailable.contains(&"rating".to_owned()));
+    assert!(winners(&unrated.selection).contains("racera"));
+}
+
+/// A curated list at the pinned commit, naming `names`.
+fn curated_list(names: &[&str]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let pinned = title_select_selection::curated_list().unwrap();
+    std::fs::write(dir.path().join("commit"), format!("{}\n", pinned.commit)).unwrap();
+    std::fs::write(dir.path().join("ROMSET"), names.join("\n") + "\n").unwrap();
+    dir
+}
+
+#[test]
+fn the_curated_list_keeps_only_its_families_and_prefers_the_machine_it_names() {
+    // racer names a parent the quality filter drops; nosuch and shooterx aren't in the DAT, and shooterx is never
+    // matched to the shooter family by its start.
+    let list = curated_list(&["shooteru", "racer", "sailor", "nosuch", "shooterx"]);
+    let engine = engine().with_curated_list(list.path());
+    let settings = ArcadeSettings {
+        curated: true,
+        ..ArcadeSettings::default()
+    };
+    let outcome = run_supported(&engine, &[], &settings);
+    // The golden names no commit, so that a new pin doesn't change it.
+    let pinned = title_select_selection::curated_list().unwrap();
+    let mut masked = outcome.clone();
+    for group in &mut masked.selection.groups {
+        let rules = group
+            .winners
+            .iter_mut()
+            .map(|w| &mut w.rule)
+            .chain(group.alternatives.iter_mut().map(|a| &mut a.rule));
+        for rule in rules {
+            if let Some(reference) = &mut rule.reference {
+                *reference = reference.replace(&pinned.commit, "<commit>");
+            }
+        }
+    }
+    golden("arcade-curated", &masked);
+    let selection = &outcome.selection;
+    assert_eq!(winners(selection), set(&["racera", "sailor", "shooteru"]));
+    let shooter = group(selection, "shooter");
+    assert_eq!(shooter.winners[0].rule.stage, "election:curated");
+    assert_eq!(
+        shooter.winners[0].rule.message,
+        "named by curated-mame-arcade-romset"
+    );
+    assert_eq!(
+        shooter.winners[0].rule.reference.as_deref(),
+        Some(format!("{}/blob/{}/ROMSET", pinned.repository, pinned.commit).as_str())
+    );
+    assert_eq!(
+        group(selection, "sailor").winners[0].rule.stage,
+        "election:curated"
+    );
+    assert_eq!(exclusions(selection)["fighteru"], "curated");
+    let curated = selection
+        .pins
+        .arcade
+        .as_ref()
+        .unwrap()
+        .curated
+        .as_ref()
+        .unwrap();
+    assert_eq!(curated.commit, pinned.commit);
+    assert_eq!(curated.unmatched, ["nosuch", "shooterx"]);
+    assert_eq!(selection.summary.curated_unmatched, 2);
+    // The winners' Dependencies are still listed.
+    assert_eq!(
+        group(selection, "acmebios").dependencies[0].needed_by,
+        ["shooteru"]
+    );
+}
+
+#[test]
+fn the_curated_list_at_another_commit_is_refused() {
+    let list = curated_list(&["shooteru"]);
+    std::fs::write(list.path().join("commit"), "0000000\n").unwrap();
+    let settings = ArcadeSettings {
+        curated: true,
+        ..ArcadeSettings::default()
+    };
+    let error = engine()
+        .with_curated_list(list.path())
+        .run_arcade(
+            &data("arcade.xml"),
+            &SelectionProfile::default(),
+            &settings,
+            &support::options(),
+        )
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("tools/curated-list/fetch"),
+        "{error}"
+    );
+}
+
+#[test]
+fn two_support_files_of_one_kind_are_refused() {
+    let options = title_select_selection::RunOptions {
+        support_files: support_files(&["catver", "catver"]),
+        ..support::options()
+    };
+    let error = engine()
+        .run_arcade(
+            &data("arcade.xml"),
+            &SelectionProfile::default(),
+            &ArcadeSettings::default(),
+            &options,
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("catver.ini"), "{error}");
+}
+
+#[test]
+fn the_pinned_curated_list_reads_where_tools_curated_list_fetch_unpacks_it() {
+    let dir = std::env::var_os(title_select_selection::CURATED_LIST_ENV).map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.curated-list"),
+        PathBuf::from,
+    );
+    let settings = ArcadeSettings {
+        curated: true,
+        ..ArcadeSettings::default()
+    };
+    let outcome = engine()
+        .with_curated_list(&dir)
+        .run_arcade(
+            &data("arcade.xml"),
+            &SelectionProfile::default(),
+            &settings,
+            &support::options(),
+        )
+        .unwrap_or_else(|e| {
+            panic!("{e}\nthe arcade tests need the curated list: run tools/curated-list/fetch")
+        });
+    // None of the synthetic machines is a real game it names.
+    assert!(winners(&outcome.selection).is_empty());
+    assert!(
+        outcome
+            .selection
+            .pins
+            .arcade
+            .unwrap()
+            .curated
+            .unwrap()
+            .unmatched
+            .len()
+            > 100
     );
 }

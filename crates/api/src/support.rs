@@ -98,3 +98,44 @@ pub struct SupportFileImport {
     pub file: SupportFileRecord,
     pub outcome: crate::ImportOutcome,
 }
+
+/// How far into a file its header is looked for: progetto-SNAPS's comes after a short `[FOLDER_SETTINGS]` section.
+const HEADER_WITHIN: usize = 4096;
+
+/// What a Support File's `;; <file> 0.NNN / <date> / MAME 0.NNN ;;` header says it is: which file, and the MAME
+/// version it is for. `file` names it in an error.
+pub fn read_header(
+    bytes: &[u8],
+    file: &str,
+) -> std::result::Result<(SupportFileKind, String), String> {
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(HEADER_WITHIN)]);
+    let header = head
+        .lines()
+        .map(str::trim)
+        .find_map(|l| l.strip_prefix(";;")?.strip_suffix(";;"))
+        .ok_or_else(|| {
+            format!("{file}: not a MAME support file: it has no \";; … MAME 0.NNN ;;\" header")
+        })?;
+    let named = header.split_whitespace().next().unwrap_or_default();
+    let kind = SupportFileKind::ALL
+        .into_iter()
+        .find(|k| k.file_name().eq_ignore_ascii_case(named))
+        .ok_or_else(|| {
+            format!(
+                "{file}: its header names {named}, but Title Select reads only catver.ini, languages.ini and \
+                 bestgames.ini"
+            )
+        })?;
+    let version = header
+        .rsplit_once("MAME ")
+        .and_then(|(_, v)| v.split_whitespace().next())
+        .filter(|v| {
+            v.split_once('.').is_some_and(|(major, minor)| {
+                [major, minor]
+                    .iter()
+                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+            })
+        })
+        .ok_or_else(|| format!("{file}: its header names no MAME version, such as MAME 0.289"))?;
+    Ok((kind, version.to_owned()))
+}

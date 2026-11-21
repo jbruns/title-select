@@ -1,3 +1,5 @@
-# Tests and `cargo run` find the clone lists that tools/clone-lists/fetch unpacks.
+# Tests and `cargo run` find the clone lists that tools/clone-lists/fetch unpacks, and the curated list that
+# tools/curated-list/fetch unpacks.
 [env]
 TITLE_SELECT_CLONE_LISTS = { value = ".clone-lists", relative = true }
+TITLE_SELECT_CURATED_LIST = { value = ".curated-list", relative = true }

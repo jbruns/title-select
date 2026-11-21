@@ -1,0 +1,9 @@
+# The curated list of arcade games (Unlicense) the arcade selector offers, off by default (ADR 0027), fetched as the
+# archive of this commit by `tools/curated-list/fetch`, which checks the archive's sha256. A Selection that keeps to it
+# records the commit. Renovate proposes upstream's newest master commit; the clone-list-pin workflow then writes the
+# new archive's sha256 (`tools/curated-list/fetch pin`).
+[curated_list]
+repository = "https://github.com/zr00da/curated-mame-arcade-romset"
+branch = "master"
+commit = "e44ec73d04bf27824879a8297888af53e51aa965"
+archive_sha256 = "d936bd7aba62117df853033e703e33b275ab8317079ff120891c1e7aa88de2b6"

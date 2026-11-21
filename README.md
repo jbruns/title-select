@@ -160,7 +160,7 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
 
 ```sh
 title-select select --dat <DAT file> --profile <selection profile file> [--output <file>] [--timeout <seconds>]
-  [--clone-lists <dir>]
+  [--clone-lists <dir>] [--support-file <catver.ini, languages.ini or bestgames.ini>]...
 ```
 
 Chooses releases from a DAT with your selection profile and prints the explained selection as JSON on stdout, or to
@@ -169,6 +169,18 @@ a pinned copy of the clone lists and metadata: `--clone-lists`, else `TITLE_SELE
 `/opt/clone-lists`, where the image has them. Clone lists fetched at another commit than this binary's pins are
 refused. The selection is derived from a trace of every decision selection made. `title-select --version` prints the
 clone-list commit, and the workbench's About page says where selection comes from.
+
+A MAME ListXML gets an arcade selection instead: filters drop what isn't an arcade game, and one machine is chosen in
+each family, a parent and its clones. It reads the MAME support files you give with `--support-file`, one of each kind;
+the service reads, of each kind it keeps, the one for the newest MAME version. With `catver.ini`, a machine's category
+comes from it, and for a machine it doesn't list, or without it, from the ListXML alone. `languages.ini` gives the
+languages of each machine it lists; for any other machine, its description does. `bestgames.ini` gives a family a
+rating, its parent's, for an optional minimum rating; a family it doesn't rate is kept unless you drop unrated
+families. The selection records each file's SHA-256 and MAME version, and says when a file is for an older MAME than
+the ListXML: machines added since aren't in it, so they're read as they would be without it. An arcade selection can also keep to the pinned curated list of arcade games,
+`curated-mame-arcade-romset`: it keeps only the families the list names and prefers the machine it names, and lists
+the names that match no machine of the ListXML. The list is at `TITLE_SELECT_CURATED_LIST`, else `/opt/curated-list`,
+where the image has it; a list fetched at another commit than this binary's pin is refused.
 
 Your selection profile is JSON; every field is optional, and an unknown field, region, language or video standard is
 refused:
@@ -962,9 +974,10 @@ Fetching never starts an audit. A newer DAT revision it brings makes the source 
 imported one does, and you choose when to audit against it. Fetched cue packs join the cue packs you import, and SBI packs
 are kept beside them; each is tied to the fetch that brought it.
 
-**MAME support files.** Selecting arcade machines will read `catver.ini`, `languages.ini` and `bestgames.ini` from
-[progetto-SNAPS](https://www.progettosnaps.net/support/): each machine's category, its languages and its rating. Until
-it does, it guesses each machine's category from the ListXML, and the selection says so. Title Select doesn't ship
+**MAME support files.** Selecting arcade machines reads `catver.ini`, `languages.ini` and `bestgames.ini` from
+[progetto-SNAPS](https://www.progettosnaps.net/support/): each machine's category, its languages and its rating (see
+"Selection"). Without `catver.ini`, it reads each machine's category from the ListXML, and the selection says
+so. Title Select doesn't ship
 them, as they carry no licence. With fetching from MAME on, the service fetches them from progetto-SNAPS's own GitHub
 mirror: it asks the GitHub API which commit the mirror is at,
 then fetches each file from that commit. It does so when a source set you register, following or not, is first bound
@@ -2135,11 +2148,14 @@ rustup target add wasm32-unknown-unknown   # rust-toolchain.toml lists it
 cargo install cargo-leptos --locked
 cargo leptos build --release               # the workbench into target/site, and the binary
 tools/clone-lists/fetch                    # the clone lists selection reads, into .clone-lists
+tools/curated-list/fetch                   # the curated list arcade selection reads, into .curated-list
 mkdir -p target/site/licences && cp LICENSE target/site/licences/title-select.txt \
   && cp third_party/retool/LICENSE target/site/licences/retool.txt \
-  && cp .clone-lists/LICENSE target/site/licences/retool-clonelists-metadata.txt
+  && cp .clone-lists/LICENSE target/site/licences/retool-clonelists-metadata.txt \
+  && cp .curated-list/LICENSE target/site/licences/curated-mame-arcade-romset.txt
 printf '[roots.sets]\npath = "/data/source-sets"\n\n[auth]\ndev_identity = "Developer"\n' > dev.toml
-target/release/title-select --store dev-store --config dev.toml serve --ui target/site --clone-lists .clone-lists
+TITLE_SELECT_CURATED_LIST=.curated-list target/release/title-select --store dev-store --config dev.toml serve \
+  --ui target/site --clone-lists .clone-lists
 ```
 
 Then open `http://127.0.0.1:8080/`.
@@ -2265,6 +2281,11 @@ The tests fail, rather than skip, without it.
   workflow writes the new archive's sha256 on its branch and runs CI. It runs the default branch's
   `tools/clone-lists/fetch pin`, never the branch's code, because it holds a write token. By hand: change `commit`,
   run `tools/clone-lists/fetch pin`, then `tools/clone-lists/fetch` and the tests.
+- **Curated list:** `third_party/curated-list/pins.toml` pins `curated-mame-arcade-romset` (Unlicense) the same way,
+  and `tools/curated-list/fetch [dir]` unpacks its `ROMSET` and `LICENSE` into `.curated-list/` (gitignored), with the
+  same checks; the image has it at `/opt/curated-list`. Renovate proposes upstream's newest `master` commit, and the
+  `clone-list pin` workflow writes the sha256 of either archive. The arcade tests read it through
+  `TITLE_SELECT_CURATED_LIST` (cargo sets it), and fail without it.
 - **Retool's fixtures:** `third_party/retool/` keeps Retool's BSD-3-Clause licence and, under `fixtures/`, the test
   inputs of Retool's own suite at the commit the port followed: its fixture DATs, test configs, clone lists, metadata,
   MIAs, RetroAchievements data and internal config. See its [README](third_party/retool/README.md).

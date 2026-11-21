@@ -1,0 +1,405 @@
+{
+  "pins": {
+    "clone_list_commit": "",
+    "trace_schema": 0
+  },
+  "dat_sha256": "50f66c88f5332fb81e2d2e756a7cee309cdbae657670e8280d1b114d7c76f735",
+  "system": "MAME",
+  "system_settings": false,
+  "summary": {
+    "groups": 19,
+    "winners": 3,
+    "alternatives": 5,
+    "exclusions": 15,
+    "unresolved": 0,
+    "dependencies": 3,
+    "curated_unmatched": 2
+  },
+  "coverage_drift": {
+    "clone_list": false,
+    "metadata": false,
+    "unmatched_clone_list_terms": [],
+    "titles_without_metadata": []
+  },
+  "groups": [
+    {
+      "group": "acmebios",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [],
+      "dependencies": [
+        {
+          "title": "acmebios",
+          "needed_by": [
+            "shooteru"
+          ],
+          "rule": {
+            "stage": "dependency",
+            "message": "needed by shooteru"
+          }
+        }
+      ]
+    },
+    {
+      "group": "acmesnd",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [],
+      "dependencies": [
+        {
+          "title": "acmesnd",
+          "needed_by": [
+            "shooteru"
+          ],
+          "rule": {
+            "stage": "dependency",
+            "message": "needed by shooteru"
+          }
+        }
+      ]
+    },
+    {
+      "group": "calcul8",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "calcul8",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "crane",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "crane",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "fighter",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "fighter",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        },
+        {
+          "title": "fighteru",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "homepc",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "homepc",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "jukebox",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "jukebox",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "mjhouse",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "mjhouse",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "mystery",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "mystery",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "oldbios",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "oldbios",
+          "rule": {
+            "stage": "structural",
+            "message": "a BIOS, which isn't played on its own"
+          },
+          "reason": "BIOS"
+        }
+      ]
+    },
+    {
+      "group": "pokerace",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "pokerace",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "proto",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "proto",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "racer",
+      "unresolved": false,
+      "winners": [
+        {
+          "title": "racera",
+          "rule": {
+            "stage": "election",
+            "message": "the only machine its filters left in its family"
+          },
+          "unresolved": false
+        }
+      ],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "racer",
+          "rule": {
+            "stage": "quality",
+            "message": "driver status preliminary, below imperfect"
+          },
+          "reason": "driver status"
+        }
+      ]
+    },
+    {
+      "group": "reels",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "reels",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "sailor",
+      "unresolved": false,
+      "winners": [
+        {
+          "title": "sailor",
+          "rule": {
+            "stage": "election:curated",
+            "ref": "https://github.com/zr00da/curated-mame-arcade-romset/blob/<commit>/ROMSET",
+            "message": "named by curated-mame-arcade-romset"
+          },
+          "unresolved": false
+        }
+      ],
+      "alternatives": [
+        {
+          "title": "sailore",
+          "clone_of": "sailor",
+          "rule": {
+            "stage": "election:curated",
+            "ref": "https://github.com/zr00da/curated-mame-arcade-romset/blob/<commit>/ROMSET",
+            "message": "not the machine curated-mame-arcade-romset names, which ranks below named by curated-mame-arcade-romset"
+          }
+        }
+      ],
+      "exclusions": []
+    },
+    {
+      "group": "shooter",
+      "unresolved": false,
+      "winners": [
+        {
+          "title": "shooteru",
+          "rule": {
+            "stage": "election:curated",
+            "ref": "https://github.com/zr00da/curated-mame-arcade-romset/blob/<commit>/ROMSET",
+            "message": "named by curated-mame-arcade-romset"
+          },
+          "unresolved": false
+        }
+      ],
+      "alternatives": [
+        {
+          "title": "shooter",
+          "clone_of": "shooteru",
+          "rule": {
+            "stage": "election:curated",
+            "ref": "https://github.com/zr00da/curated-mame-arcade-romset/blob/<commit>/ROMSET",
+            "message": "not the machine curated-mame-arcade-romset names, which ranks below named by curated-mame-arcade-romset"
+          }
+        },
+        {
+          "title": "shootere",
+          "clone_of": "shooteru",
+          "rule": {
+            "stage": "election:curated",
+            "ref": "https://github.com/zr00da/curated-mame-arcade-romset/blob/<commit>/ROMSET",
+            "message": "not the machine curated-mame-arcade-romset names, which ranks below named by curated-mame-arcade-romset"
+          }
+        },
+        {
+          "title": "shooterw",
+          "clone_of": "shooteru",
+          "rule": {
+            "stage": "election:curated",
+            "ref": "https://github.com/zr00da/curated-mame-arcade-romset/blob/<commit>/ROMSET",
+            "message": "not the machine curated-mame-arcade-romset names, which ranks below named by curated-mame-arcade-romset"
+          }
+        },
+        {
+          "title": "shooterb",
+          "clone_of": "shooteru",
+          "rule": {
+            "stage": "election:curated",
+            "ref": "https://github.com/zr00da/curated-mame-arcade-romset/blob/<commit>/ROMSET",
+            "message": "not the machine curated-mame-arcade-romset names, which ranks below named by curated-mame-arcade-romset"
+          }
+        }
+      ],
+      "exclusions": []
+    },
+    {
+      "group": "typist",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "typist",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "worldh",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [
+        {
+          "title": "worldh",
+          "rule": {
+            "stage": "curated",
+            "message": "curated-mame-arcade-romset names no machine of its family"
+          },
+          "reason": "not in the curated list"
+        }
+      ]
+    },
+    {
+      "group": "z80",
+      "unresolved": false,
+      "winners": [],
+      "alternatives": [],
+      "exclusions": [],
+      "dependencies": [
+        {
+          "title": "z80",
+          "needed_by": [
+            "shooteru"
+          ],
+          "rule": {
+            "stage": "dependency",
+            "message": "needed by shooteru"
+          }
+        }
+      ]
+    }
+  ]
+}

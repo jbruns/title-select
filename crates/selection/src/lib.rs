@@ -6,7 +6,9 @@
 //! image), and never reaches the network.
 //!
 //! An Arcade DAT, a MAME ListXML, goes to the arcade selector (`arcade`, ADR 0027) instead, and a MAME software list
-//! is refused: `Engine::run` chooses by the DAT's kind.
+//! is refused: `Engine::run` chooses by the DAT's kind. The arcade selector reads the Support Files the caller gives,
+//! and the pinned curated list that `tools/curated-list/fetch` unpacks (`.curated-list/`, or `/opt/curated-list` in
+//! the image) when its settings ask for it.
 
 pub mod arcade;
 pub mod choices;
@@ -40,10 +42,19 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
 
 const PINS: &str = include_str!("../../../third_party/clone-lists/pins.toml");
 
+/// The environment variable that points at the curated list, for `Engine::locate`.
+pub const CURATED_LIST_ENV: &str = "TITLE_SELECT_CURATED_LIST";
+/// Where the image installs the curated list.
+pub const DEFAULT_CURATED_LIST: &str = "/opt/curated-list";
+
+const CURATED_PINS: &str = include_str!("../../../third_party/curated-list/pins.toml");
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("the clone lists: {0} (fetch them with tools/clone-lists/fetch)")]
     Install(String),
+    #[error("the curated list: {0} (fetch it with tools/curated-list/fetch)")]
+    CuratedList(String),
     #[error("selection profile: {0}")]
     Profile(String),
     /// Regular expressions in the Profile that the engine cannot read, one message each.
@@ -87,6 +98,9 @@ pub struct RunOptions {
     /// The Source Set's Coverage, as engine region names: Games it doesn't cover are excluded before the engine
     /// chooses (ADR 0021). `None` covers every Game.
     pub coverage: Option<Vec<String>>,
+    /// The Support Files the arcade selector reads, at most one of each kind, which their headers name; the Retool
+    /// port reads none.
+    pub support_files: Vec<PathBuf>,
 }
 
 impl RunOptions {
@@ -95,6 +109,7 @@ impl RunOptions {
             timeout: DEFAULT_TIMEOUT,
             cancel: None,
             coverage: None,
+            support_files: Vec::new(),
         }
     }
 
@@ -128,11 +143,14 @@ pub struct Engine {
     root: PathBuf,
     /// Holds the clone lists, metadata, MIAs and RetroAchievements.
     data: PathBuf,
+    /// Holds the curated list's `ROMSET` and the `commit` it was fetched at; read only when a run asks for it.
+    curated_list: PathBuf,
     pins: SelectionPins,
 }
 
 impl Engine {
-    /// The clone lists at `explicit`, else at `$TITLE_SELECT_CLONE_LISTS`, else at `/opt/clone-lists`.
+    /// The clone lists at `explicit`, else at `$TITLE_SELECT_CLONE_LISTS`, else at `/opt/clone-lists`, and the
+    /// curated list at `$TITLE_SELECT_CURATED_LIST`, else at `/opt/curated-list`.
     pub fn locate(explicit: Option<&Path>) -> Result<Self, Error> {
         let root = match explicit {
             Some(path) => path.to_path_buf(),
@@ -140,7 +158,10 @@ impl Engine {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(DEFAULT_CLONE_LISTS)),
         };
-        Self::open(&root)
+        let curated = std::env::var_os(CURATED_LIST_ENV)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_CURATED_LIST));
+        Ok(Self::open(&root)?.with_curated_list(&curated))
     }
 
     /// The clone lists at `root`, if they are the commit this binary was built with.
@@ -173,8 +194,40 @@ impl Engine {
         Ok(Engine {
             data: root.clone(),
             root,
+            curated_list: PathBuf::from(DEFAULT_CURATED_LIST),
             pins: expected_pins()?,
         })
+    }
+
+    /// Reads the curated list from `dir`, which holds its `ROMSET` and the `commit` it was fetched at.
+    pub fn with_curated_list(mut self, dir: &Path) -> Self {
+        self.curated_list = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+        self
+    }
+
+    /// The curated list's pin and shortnames, if it is the commit this binary was built with.
+    fn read_curated_list(&self) -> Result<CuratedList, Error> {
+        let pinned = curated_list()?;
+        let read = |name: &str| {
+            let path = self.curated_list.join(name);
+            std::fs::read_to_string(&path)
+                .map_err(|e| Error::CuratedList(format!("{}: {e}", path.display())))
+        };
+        let commit = read("commit")?;
+        if commit.trim() != pinned.commit {
+            return Err(Error::CuratedList(format!(
+                "{} holds commit {}, not the commit third_party/curated-list/pins.toml pins",
+                self.curated_list.display(),
+                commit.trim()
+            )));
+        }
+        let names = read("ROMSET")?
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(str::to_owned)
+            .collect();
+        Ok(CuratedList { pin: pinned, names })
     }
 
     /// Reads clone lists, metadata, MIAs and RetroAchievements from `dir` instead of the pinned ones. Tests use
@@ -303,6 +356,11 @@ impl Engine {
             return Err(Error::Refused(ARCADE_COVERAGE_REFUSAL.to_owned()));
         }
         arcade::check(settings)?;
+        let support = arcade::SupportFiles::read(&options.support_files)?;
+        let curated = match settings.curated {
+            true => Some(self.read_curated_list()?),
+            false => None,
+        };
         if options.cancelled() {
             return Err(Error::Cancelled);
         }
@@ -324,7 +382,7 @@ impl Engine {
                 dat.display()
             )));
         }
-        let elected = arcade::elect(&parsed, settings, &stop)?;
+        let elected = arcade::elect(&parsed, settings, &support, curated, &stop)?;
         let mut trace = elected.trace;
         let system = parsed.name.clone();
         let mut selection = Selection {
@@ -343,6 +401,12 @@ impl Engine {
         choices::apply(&mut selection, profile.choices.get(&parsed.name));
         arcade::list_dependencies(&mut selection, &parsed, &mut trace);
         choices::recount(&mut selection);
+        selection.summary.curated_unmatched = selection
+            .pins
+            .arcade
+            .as_ref()
+            .and_then(|a| a.curated.as_ref())
+            .map_or(0, |c| c.unmatched.len());
         let mut lines = String::new();
         for record in trace {
             lines.push_str(&serde_json::to_string(&record).expect("a JSON value serializes"));
@@ -420,6 +484,23 @@ pub struct Names {
 pub struct Pinned {
     pub repository: String,
     pub commit: String,
+}
+
+/// The curated list as a run reads it: its pin and the shortnames its `ROMSET` names.
+pub(crate) struct CuratedList {
+    pub pin: Pinned,
+    pub names: Vec<String>,
+}
+
+/// The curated-list repository and commit this binary was built with.
+pub fn curated_list() -> Result<Pinned, Error> {
+    #[derive(serde::Deserialize)]
+    struct Pins {
+        curated_list: Pinned,
+    }
+    let pins: Pins =
+        toml::from_str(CURATED_PINS).map_err(|e| Error::CuratedList(format!("pins.toml: {e}")))?;
+    Ok(pins.curated_list)
 }
 
 /// The clone-list repository and commit this binary was built with.
