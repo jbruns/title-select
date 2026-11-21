@@ -373,12 +373,12 @@ impl GroupAvailability {
             .iter()
             .filter_map(|w| games.get(&w.title).copied())
             .collect();
-        let lowest = statuses.iter().map(|s| rank(*s)).min();
-        let worst = statuses.iter().filter(|s| Some(rank(**s)) == lowest);
+        let worst_rank = statuses.iter().map(|s| rank(*s)).min();
+        let at_worst = statuses.iter().filter(|s| Some(rank(**s)) == worst_rank);
         GroupAvailability {
-            status: worst.clone().copied().min(),
+            status: at_worst.clone().copied().min(),
             claimed: group.winners.iter().any(|w| claimed.contains(&w.title)),
-            worst: worst.count(),
+            worst: at_worst.count(),
             kept: group.winners.len(),
         }
     }

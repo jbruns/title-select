@@ -386,6 +386,7 @@ fn the_fixdat_leaves_out_a_game_with_nothing_to_check() {
         br#"<?xml version="1.0"?>
 <mame build="0.289 (mame0289)" debug="no" mameconfig="10">
   <machine name="undumped"><rom name="pal.u1" size="260" status="nodump"/></machine>
+  <machine name="z80" isdevice="yes"/>
   <machine name="dumped"><rom name="prog.u1" size="4" crc="00000001"/></machine>
 </mame>
 "#,
@@ -403,4 +404,5 @@ fn the_fixdat_leaves_out_a_game_with_nothing_to_check() {
 
     assert!(xml.contains(r#"<game name="dumped">"#), "{xml}");
     assert!(!xml.contains("undumped"), "{xml}");
+    assert!(!xml.contains("z80"), "{xml}");
 }
