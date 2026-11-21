@@ -343,7 +343,53 @@ fn a_game_not_stored_as_torrentzip_is_repacked_and_its_original_kept() {
 #[test]
 fn a_game_is_repaired_without_an_optional_rom_no_file_holds() {
     let env = Env::new();
-    // Manual lists a ROM and an optional one no file holds; Extras lists only an optional ROM, which no file holds.
+    audit_manual_without_its_optional_rom(&env);
+
+    let plan = env.plan();
+
+    assert_eq!(
+        item(&plan, "game:Manual (USA)").kind,
+        RepairKind::Rename,
+        "{:?}",
+        plan.content.notes
+    );
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.game.as_deref() != Some("Extras (USA)")),
+        "{:#?}",
+        plan.content.items
+    );
+    env.approve(&plan);
+    assert!(
+        env.listing().contains(&"Manual (USA).zip".to_owned()),
+        "{:?}",
+        env.listing()
+    );
+}
+
+#[test]
+fn a_game_listing_more_than_one_rom_stays_torrentzip_though_only_one_is_written() {
+    let env = Env::new();
+    set_source_policy(&env, StorageFormat::Loose, false);
+    audit_manual_without_its_optional_rom(&env);
+
+    let plan = env.plan();
+
+    env.approve(&plan);
+    let listing = env.listing();
+    assert!(
+        listing.contains(&"Manual (USA).zip".to_owned())
+            && !listing.contains(&"Manual (USA).a26".to_owned()),
+        "{listing:?}"
+    );
+    assert!(is_torrentzip(&env.set().join("Manual (USA).zip")));
+}
+
+/// Imports a DAT in which Manual lists a ROM and an optional one no file holds, and Extras lists only an optional ROM,
+/// which no file holds, then audits the Source Set holding Manual's needed ROM.
+fn audit_manual_without_its_optional_rom(env: &Env) {
     let mut games = alpha_games();
     games.extend([
         (
@@ -380,29 +426,6 @@ fn a_game_is_repaired_without_an_optional_rom_no_file_holds() {
             AuditEvidence::Full,
         )
         .unwrap();
-
-    let plan = env.plan();
-
-    assert_eq!(
-        item(&plan, "game:Manual (USA)").kind,
-        RepairKind::Rename,
-        "{:?}",
-        plan.content.notes
-    );
-    assert!(
-        plan.content
-            .items
-            .iter()
-            .all(|i| i.game.as_deref() != Some("Extras (USA)")),
-        "{:#?}",
-        plan.content.items
-    );
-    env.approve(&plan);
-    assert!(
-        env.listing().contains(&"Manual (USA).zip".to_owned()),
-        "{:?}",
-        env.listing()
-    );
 }
 
 #[test]

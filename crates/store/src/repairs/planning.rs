@@ -410,10 +410,11 @@ fn is_cue(name: &str) -> bool {
         .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("cue"))
 }
 
-/// How a repair stores each Game of the DAT, by its index, as it writes `wanted` of it, with why it is not stored as the
-/// policy says; none for a Game with no ROMs to write. Every disc of a release is stored alike, whatever the policy:
-/// when one can't be stored as it says, as when one disc has more ROMs than a loose file holds, every disc stays
-/// TorrentZip.
+/// How a repair stores each Game of the DAT, by its index, with why it is not stored as the policy says; none for a
+/// Game with no ROMs in `wanted` to write. Its format is decided by every ROM the DAT lists for it, so a Game listing
+/// several stays TorrentZip though it writes only one (ADR 0010); a loose folder holds only the files it writes. Every
+/// disc of a release is stored alike, whatever the policy: when one can't be stored as it says, as when one disc has
+/// more ROMs than a loose file holds, every disc stays TorrentZip.
 fn placements_of(
     i: &Inputs,
     wanted: &[Vec<ExpectedRom>],
@@ -421,8 +422,20 @@ fn placements_of(
     let mut placed: Vec<Option<(Placement, Option<&'static str>)>> = (0..i.dat.games.len())
         .map(|index| {
             let roms = &wanted[index];
-            let names: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
-            (!roms.is_empty()).then(|| placement(i.storage, &i.dat.games[index], &names))
+            (!roms.is_empty()).then(|| {
+                let listed = roms_of(i.dat, index);
+                let names: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
+                match placement(i.storage, &i.dat.games[index], &names) {
+                    (Placement::Folder { folder, .. }, why) => {
+                        let files = roms
+                            .iter()
+                            .map(|r| format!("{folder}/{}", r.name))
+                            .collect();
+                        (Placement::Folder { folder, files }, why)
+                    }
+                    placed => placed,
+                }
+            })
         })
         .collect();
     let mut formats: BTreeMap<String, HashSet<StorageFormat>> = BTreeMap::new();
