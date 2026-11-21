@@ -10,7 +10,7 @@ use title_select_api::repair::{
 };
 use title_select_api::storage::{
     MULTI_ROM_STAYS_ZIP, Placement, RELEASE_STAYS_ZIP, Storage, StorageFormat, is_reserved_name,
-    placed_path, placement, release_of, split_placed,
+    placed_path, placement_writing, release_of, split_placed,
 };
 use title_select_api::{Entry, EvidenceLevel, Finding, Report};
 use title_select_engine::FileStamp;
@@ -410,11 +410,10 @@ fn is_cue(name: &str) -> bool {
         .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("cue"))
 }
 
-/// How a repair stores each Game of the DAT, by its index, with why it is not stored as the policy says; none for a
-/// Game with no ROMs in `wanted` to write. Its format is decided by every ROM the DAT lists for it, so a Game listing
-/// several stays TorrentZip though it writes only one (ADR 0010); a loose folder holds only the files it writes. Every
-/// disc of a release is stored alike, whatever the policy: when one can't be stored as it says, as when one disc has
-/// more ROMs than a loose file holds, every disc stays TorrentZip.
+/// How a repair stores each Game of the DAT, by its index, writing `wanted` of it as [`placement_writing`] says (ADR
+/// 0010), with why it is not stored as the policy says; none for a Game with no ROMs in `wanted` to write. Every disc
+/// of a release is stored alike, whatever the policy: when one can't be stored as it says, as when one disc has more
+/// ROMs than a loose file holds, every disc stays TorrentZip.
 fn placements_of(
     i: &Inputs,
     wanted: &[Vec<ExpectedRom>],
@@ -422,20 +421,11 @@ fn placements_of(
     let mut placed: Vec<Option<(Placement, Option<&'static str>)>> = (0..i.dat.games.len())
         .map(|index| {
             let roms = &wanted[index];
-            (!roms.is_empty()).then(|| {
-                let listed = roms_of(i.dat, index);
-                let names: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
-                match placement(i.storage, &i.dat.games[index], &names) {
-                    (Placement::Folder { folder, .. }, why) => {
-                        let files = roms
-                            .iter()
-                            .map(|r| format!("{folder}/{}", r.name))
-                            .collect();
-                        (Placement::Folder { folder, files }, why)
-                    }
-                    placed => placed,
-                }
-            })
+            let listed = roms_of(i.dat, index);
+            let listed: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
+            let written: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
+            (!roms.is_empty())
+                .then(|| placement_writing(i.storage, &i.dat.games[index], &listed, &written))
         })
         .collect();
     let mut formats: BTreeMap<String, HashSet<StorageFormat>> = BTreeMap::new();
@@ -1340,12 +1330,14 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             // The files of the Game as a loose folder, when that is what the Source Set holds it as, each exactly
             // its ROM: converted into this format.
             let as_folder: Vec<String> = {
+                let listed = roms_of(i.dat, index);
+                let listed: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
                 let names: Vec<&str> = roms.iter().map(|r| r.name.as_str()).collect();
                 let folder_storage = Storage {
                     format: StorageFormat::LooseFolder,
                     ..i.storage
                 };
-                match placement(folder_storage, game, &names).0 {
+                match placement_writing(folder_storage, game, &listed, &names).0 {
                     Placement::Folder { files: f, .. }
                         if f.len() > 1
                             && cued.is_empty()

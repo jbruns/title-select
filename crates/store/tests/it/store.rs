@@ -7,7 +7,7 @@ use title_select_api::settings::{
     DEFAULT_SELECTIONS_KEPT, PathTemplates, Retention, SettingsUpdate,
 };
 use title_select_api::{DatFormat, DatRevisionRecord};
-use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, Reuse};
+use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Reuse};
 use title_select_store::config::Config;
 use title_select_store::{Error, ImportOutcome, Store};
 
@@ -2146,7 +2146,6 @@ fn a_stored_audit_counts_games_with_nothing_to_check_apart() {
 
     let summary = &env.store.history("Test - System").unwrap()[0];
 
-    use title_select_engine::GameStatus;
     assert_eq!(summary.games[&GameStatus::NothingToCheck], 1);
     assert_eq!(summary.games[&GameStatus::Missing], 1);
     let report = env.store.report(id).unwrap();
@@ -2187,7 +2186,6 @@ fn a_stored_audit_counts_the_games_with_nothing_to_check_it_found_files_of() {
 
     let summary = &env.store.history("Test - System").unwrap()[0];
 
-    use title_select_engine::GameStatus;
     assert_eq!(summary.games[&GameStatus::NothingToCheck], 3);
     assert_eq!(
         summary.nothing_to_check_found, 1,

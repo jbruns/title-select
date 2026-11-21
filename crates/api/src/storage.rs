@@ -690,9 +690,72 @@ pub fn placement(storage: Storage, game: &str, roms: &[&str]) -> (Placement, Opt
     }
 }
 
+/// As [`placement`], for Game `game` when the DAT lists ROMs `listed` but only `written` of them are written: the
+/// format is decided by every ROM it lists, so a Game listing several stays TorrentZip though one is written, and a
+/// loose folder holds only the files written.
+pub fn placement_writing(
+    storage: Storage,
+    game: &str,
+    listed: &[&str],
+    written: &[&str],
+) -> (Placement, Option<&'static str>) {
+    match placement(storage, game, listed) {
+        (Placement::Folder { folder, .. }, why) => {
+            let files = written.iter().map(|r| format!("{folder}/{r}")).collect();
+            (Placement::Folder { folder, files }, why)
+        }
+        placed => placed,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_game_is_stored_by_every_rom_it_lists_and_holds_only_those_written() {
+        let loose = |format| Storage {
+            format,
+            ..Storage::default()
+        };
+        let listed = ["Manual (USA).a26", "Manual (USA).txt"];
+        assert_eq!(
+            placement_writing(
+                loose(StorageFormat::Loose),
+                "Manual (USA)",
+                &listed,
+                &listed[..1]
+            )
+            .0,
+            Placement::TorrentZip("Manual (USA).zip".into())
+        );
+        assert_eq!(
+            placement_writing(
+                loose(StorageFormat::LooseFolder),
+                "Manual (USA)",
+                &listed,
+                &listed[..1]
+            )
+            .0,
+            Placement::Folder {
+                folder: "Manual (USA)".into(),
+                files: vec!["Manual (USA)/Manual (USA).a26".into()],
+            }
+        );
+        // A ROM name a loose folder can't hold keeps the game TorrentZip, though it isn't written.
+        let reserved = ["Manual (USA).a26", "CON"];
+        assert_eq!(
+            placement_writing(
+                loose(StorageFormat::LooseFolder),
+                "Manual (USA)",
+                &reserved,
+                &reserved[..1]
+            )
+            .0
+            .format(),
+            StorageFormat::TorrentZip
+        );
+    }
 
     #[test]
     fn a_system_override_beats_the_default() {

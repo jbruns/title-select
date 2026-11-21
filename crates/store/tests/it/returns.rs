@@ -1213,3 +1213,53 @@ fn a_stop_between_putting_a_renamed_file_back_in_recovery_and_recording_it_is_fi
     assert!(blocked.is_empty(), "{blocked:?}");
     pitfall_returns_next(&env, &bytes, "rolled back by recovery");
 }
+
+#[test]
+fn a_game_listing_more_than_one_rom_goes_home_as_torrentzip_though_one_was_placed() {
+    let mut games = crate::single_copy::games();
+    games.push((
+        "Manual (USA)",
+        vec![
+            rom("Manual (USA).a26", b"manual game"),
+            rom("Manual (USA).txt", b"manual text"),
+        ],
+    ));
+    let mut env = Env::with(&games);
+    // Revision 2 makes Manual's text an optional ROM, which no file holds.
+    let dat = env.tmp.path().join("dats/alpha-2.dat");
+    let xml = std::fs::read_to_string(env.tmp.path().join("dats/alpha.dat"))
+        .unwrap()
+        .replace(r#"version>1<"#, r#"version>2<"#)
+        .replace(
+            r#"<rom name="Manual (USA).txt""#,
+            r#"<rom optional="yes" name="Manual (USA).txt""#,
+        );
+    std::fs::write(&dat, xml).unwrap();
+    env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
+    torrentzip(
+        &env.set().join("Manual (USA).zip"),
+        &[("Manual (USA).a26", b"manual game")],
+    );
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Manual (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(
+        item(&plan, "Manual (USA)").kind,
+        ItemKind::Place,
+        "{:?}",
+        plan.content.notes
+    );
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    env.audit(AuditEvidence::Full);
+    let mut policy = env.store.storage_policy().unwrap();
+    policy.source_sets.format = StorageFormat::Loose;
+    env.store.set_storage_policy(&policy, "Operator").unwrap();
+    let selection = env.select(&["Combat (USA)"]);
+
+    let plan = env.plan(&env.folder, selection);
+
+    let r = returned(&plan, "Manual (USA)");
+    let paths: Vec<&str> = r.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["Manual (USA).zip"], "{r:?}");
+}
