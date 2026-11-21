@@ -10,8 +10,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use title_select_api::build::{
-    ExpectedRom, FileIdentity, FileOutcome, PlanItem, PlanReturn, PlanSource, ReturnFile,
-    ReturnHow, ReturnPlaced,
+    ExpectedRom, FileIdentity, FileOutcome, PlanReturn, PlanSource, ReturnFile, ReturnHow,
+    ReturnPlaced,
 };
 use title_select_api::storage::{Placement, placement_writing, release_of};
 use title_select_engine::dat::Dat;
@@ -51,7 +51,6 @@ pub(super) fn returns(
     inputs: &Inputs,
     folder: Option<&Folder>,
     dat: Option<&Dat>,
-    items: &[PlanItem],
     notes: &mut Vec<String>,
 ) -> (Vec<PlanReturn>, HashSet<String>) {
     let mut out = Vec::new();
@@ -68,7 +67,16 @@ pub(super) fn returns(
     for p in &inputs.placed {
         releases.entry(release_of(&p.game)).or_default().push(p);
     }
-    let selected = |game: &str| !remove_all && items.iter().any(|i| i.game == game);
+    // Selected by the Selection itself, not by the items built: a selected Game with nothing to build has no item
+    // (ADR 0025), and stays placed.
+    let chosen: HashSet<&str> = inputs
+        .selection
+        .groups
+        .iter()
+        .flat_map(|g| &g.winners)
+        .map(|w| w.title.as_str())
+        .collect();
+    let selected = |game: &str| !remove_all && chosen.contains(game);
     let mut stays: Vec<String> = Vec::new();
     let writable = config
         .root(&inputs.set_root)

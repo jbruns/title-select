@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 use crate::common::{RomSpec, rom};
 use crate::single_copy::*;
-use title_select_api::build::{BlockerKind, ItemKind, ItemState, Plan, PlanReturn, ReturnHow};
+use title_select_api::build::{
+    BlockerKind, ItemKind, ItemState, Plan, PlanReturn, RemovalKind, ReturnHow,
+};
 use title_select_api::storage::StorageFormat;
 use title_select_api::{AuditEvidence, Finding, JobState};
 use title_select_store::Fault;
@@ -1312,6 +1314,97 @@ fn a_game_placed_with_more_roms_than_its_dat_now_lists_goes_home_as_torrentzip()
     let r = returned(&plan, "Manual (USA)");
     let paths: Vec<&str> = r.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, ["Manual (USA).zip"], "{r:?}");
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    assert!(env.files().0.contains(&"Manual (USA).zip".to_owned()));
+}
+
+/// Places Manual, a Game of two ROMs, through Single Copy; then imports revision 2, which keeps Manual but lists no
+/// ROMs for it, and audits.
+fn place_manual_then_list_no_roms() -> Env {
+    let mut games = crate::single_copy::games();
+    games.push((
+        "Manual (USA)",
+        vec![
+            rom("Manual (USA).a26", b"manual game"),
+            rom("Manual (USA).txt", b"manual text"),
+        ],
+    ));
+    let mut env = Env::with(&games);
+    let both = [
+        ("Manual (USA).a26", &b"manual game"[..]),
+        ("Manual (USA).txt", &b"manual text"[..]),
+    ];
+    torrentzip(&env.set().join("Manual (USA).zip"), &both);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Manual (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Manual (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    let dat = env.tmp.path().join("dats/alpha-2.dat");
+    let mut xml = std::fs::read_to_string(env.tmp.path().join("dats/alpha.dat"))
+        .unwrap()
+        .replace("version>1<", "version>2<");
+    for name in ["Manual (USA).a26", "Manual (USA).txt"] {
+        let start = xml.find(&format!(r#"<rom name="{name}""#)).unwrap();
+        let end = start + xml[start..].find("/>").unwrap() + 2;
+        xml.replace_range(start..end, "");
+    }
+    std::fs::write(&dat, xml).unwrap();
+    env.sha256 = env.store.import_dat(&dat, None).unwrap().0.sha256;
+    env.store
+        .audit_source_set(&env.config, SET, Some(&env.sha256), AuditEvidence::Full)
+        .unwrap();
+    env
+}
+
+#[test]
+fn a_placed_game_still_selected_with_nothing_to_build_stays_placed() {
+    let env = place_manual_then_list_no_roms();
+    let selection = env.select(&["Manual (USA)"]);
+
+    let plan = env.plan(&env.folder, selection);
+
+    assert!(
+        plan.content.returns.is_empty(),
+        "{:?}",
+        plan.content.returns
+    );
+    assert!(plan.content.items.is_empty(), "{:?}", plan.content.items);
+    let [removal] = plan.content.removals.as_slice() else {
+        panic!("{:?}", plan.content.removals);
+    };
+    assert_eq!(
+        (removal.target.as_str(), removal.kind),
+        ("Manual (USA).zip", RemovalKind::Leave),
+        "{}",
+        removal.reason
+    );
+    assert!(
+        removal.reason.contains("nothing to build"),
+        "{}",
+        removal.reason
+    );
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 1);
+    let (set, library) = env.files();
+    assert!(!set.contains(&"Manual (USA).zip".to_owned()), "{set:?}");
+    assert!(
+        library.contains(&"Manual (USA).zip".to_owned()),
+        "{library:?}"
+    );
+}
+
+#[test]
+fn a_deselected_placed_game_with_nothing_to_build_goes_home() {
+    let env = place_manual_then_list_no_roms();
+    let selection = env.select(&["Combat (USA)"]);
+
+    let plan = env.plan(&env.folder, selection);
+
+    let r = returned(&plan, "Manual (USA)");
+    assert!(r.reason.contains("no longer selected"), "{}", r.reason);
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     assert!(env.store.placed_files(SET).unwrap().is_empty());
     assert!(env.files().0.contains(&"Manual (USA).zip".to_owned()));

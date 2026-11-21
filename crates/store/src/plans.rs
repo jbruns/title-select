@@ -698,11 +698,17 @@ fn removals(
                 target: target.clone(),
                 game: built.game.clone(),
                 kind: RemovalKind::Leave,
-                reason: format!(
-                    "{target} is the only copy of {}, placed here from source set {}; it stays as it is until it can \
-                     go back there",
-                    placed.game, inputs.folder.source_set
-                ),
+                reason: match nothing_to_build.contains(&placed.game) {
+                    true => format!(
+                        "{} has nothing to build now, so {target}, placed here from source set {}, is left as it is",
+                        placed.game, inputs.folder.source_set
+                    ),
+                    false => format!(
+                        "{target} is the only copy of {}, placed here from source set {}; it stays as it is until it \
+                         can go back there",
+                        placed.game, inputs.folder.source_set
+                    ),
+                },
                 keep: None,
                 converts_to: None,
             });
@@ -1218,10 +1224,10 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     }
     let (returns, returned) = match (&folder, dat, usable_audit) {
         (Some(_), _, _) if inputs.choices.remove_all => {
-            returns::returns(config, inputs, folder.as_ref(), dat, &items, &mut placing)
+            returns::returns(config, inputs, folder.as_ref(), dat, &mut placing)
         }
         (Some(_), Some(_), Some(_)) => {
-            returns::returns(config, inputs, folder.as_ref(), dat, &items, &mut placing)
+            returns::returns(config, inputs, folder.as_ref(), dat, &mut placing)
         }
         _ => Default::default(),
     };
