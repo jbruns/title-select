@@ -1476,8 +1476,8 @@ fn plan_items(
         };
         if addition.is_none() && roms.is_empty() {
             notes.push(format!(
-                "{game} has nothing to build at {target}: it needs none of the ROMs the DAT lists there, and no \
-                 file holds one with its payload read"
+                "{game} has nothing to build at {target}: it needs none of the ROMs the DAT lists there, and the \
+                 audit read none of them in a file"
             ));
             nothing_to_build.push(game.to_owned());
             continue;
