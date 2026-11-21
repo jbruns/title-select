@@ -113,7 +113,8 @@ impl Drop for PreviewGuard {
 }
 
 /// The systems already named, by DAT Revision SHA-256: a revision's header never changes.
-static SYSTEMS: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
+static SYSTEMS: Mutex<Option<HashMap<String, Option<title_select_api::DatSystem>>>> =
+    Mutex::new(None);
 
 /// The system each registered Source Set's latest DAT Revision is for, asking the engine only about revisions
 /// it hasn't named yet. A Source Set without a readable revision has none.
@@ -154,10 +155,14 @@ pub fn systems(
     let known = SYSTEMS.lock().unwrap();
     Ok(revisions
         .into_iter()
-        .map(|(source_set, revision)| title_select_api::SourceSetSystem {
-            source_set,
-            system: revision
-                .and_then(|(sha, _)| known.as_ref().and_then(|k| k.get(&sha).cloned().flatten())),
+        .map(|(source_set, revision)| {
+            let system = revision
+                .and_then(|(sha, _)| known.as_ref().and_then(|k| k.get(&sha).cloned().flatten()));
+            title_select_api::SourceSetSystem {
+                source_set,
+                arcade: system.as_ref().is_some_and(|s| s.arcade),
+                system: system.map(|s| s.name),
+            }
         })
         .collect())
 }

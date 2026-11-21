@@ -20,6 +20,7 @@ use crate::app::{Loading, Problem, navigator};
 use crate::events::use_live;
 use crate::model::{revision_label, short_sha, when};
 use crate::parts::pending::Pending;
+use crate::screens::arcade_settings::ArcadeSettingsForm;
 use crate::screens::selection::{ChangesTable, ReleasesPanel, SelectionQueued};
 use crate::selection_model::{
     SelectionIndex, Setting, Source, lines, move_item, reset_global, reset_system, system_tabs,
@@ -517,6 +518,31 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
             })
         })
     });
+    // The systems of Arcade DATs, whose tabs hold the arcade settings in place of the Retool ones.
+    let arcade_systems = Memo::new(move |_| {
+        let mut arcade: BTreeSet<String> = registered.with(|r| {
+            r.iter()
+                .filter(|s| s.arcade)
+                .filter_map(|s| s.system.clone())
+                .collect()
+        });
+        preview.with(|p| {
+            if let Some(Ok(p)) = p
+                && p.selection.pins.arcade.is_some()
+            {
+                arcade.insert(p.selection.system.clone());
+            }
+        });
+        profile.with(|p| {
+            arcade.extend(
+                p.systems
+                    .iter()
+                    .filter(|(_, s)| s.arcade.is_some())
+                    .map(|(name, _)| name.clone()),
+            )
+        });
+        arcade
+    });
     let tab = RwSignal::new(None::<String>);
     // A system's tab previews against its source set.
     Effect::new(move || {
@@ -647,6 +673,9 @@ fn Editor(name: Option<String>, initial: Option<ProfileVersion>) -> impl IntoVie
                 (_, None) => view! { <Loading what="the names you can use" /> }.into_any(),
                 (None, Some(vocabulary)) => {
                     view! { <GlobalSettings profile vocabulary=Arc::new(vocabulary) /> }.into_any()
+                }
+                (Some(system), Some(_)) if arcade_systems.with(|a| a.contains(&system)) => {
+                    view! { <ArcadeSettingsForm profile system /> }.into_any()
                 }
                 (Some(system), Some(vocabulary)) => {
                     view! { <SystemSettingsForm profile system vocabulary=Arc::new(vocabulary) /> }
@@ -1540,7 +1569,7 @@ fn Exclusions(
 
 /// One override or post filter per line, committed when you leave the box.
 #[component]
-fn LineEditor(
+pub(crate) fn LineEditor(
     id: &'static str,
     label: &'static str,
     items: Signal<Vec<String>>,
@@ -1563,7 +1592,7 @@ fn LineEditor(
 
 /// An ordered list: drag an item, or use its up and down buttons, to reorder it.
 #[component]
-fn OrderedList(
+pub(crate) fn OrderedList(
     id: &'static str,
     label: &'static str,
     note: &'static str,

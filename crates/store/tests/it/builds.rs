@@ -6300,11 +6300,11 @@ fn a_folder_is_stale_once_its_source_sets_coverage_differs_from_its_builds_and_n
     let europe = vec!["Europe".to_owned()];
     env.store.set_coverage(SET, Some(&europe)).unwrap();
     let mut made = everything(&env.sha256);
-    made.pins.coverage = Some(europe.clone());
+    made.pins.retool.get_or_insert_default().coverage = Some(europe.clone());
     let id = env.record(&made);
     assert_eq!(
-        env.store.selection(id).unwrap().pins.coverage,
-        Some(europe.clone())
+        env.store.selection(id).unwrap().pins.coverage(),
+        Some(&europe[..])
     );
     let folder = env.folder("atari2600");
     let read = || env.store.library_folder(&env.config, folder.id).unwrap();

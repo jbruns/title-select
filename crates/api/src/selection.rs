@@ -4,6 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::arcade::ArcadeSettings;
+
 /// The Operator's rules for choosing releases: global settings, with per-system settings that replace or add to
 /// them. It holds no DAT content. Every Retool setting that affects Selection has a field here; settings that only
 /// shape Retool's output DAT have none.
@@ -25,6 +27,11 @@ pub struct SelectionProfile {
     pub overrides: Overrides,
     /// Patterns a chosen release must match to stay chosen, in Retool's override syntax.
     pub post_filters: Vec<String>,
+    /// The arcade selector's settings (ADR 0027), for every Arcade DAT whose system has no `arcade` block of its
+    /// own. Absent, the selector's defaults apply. The settings above are the Retool port's, which reads no Arcade
+    /// DAT.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arcade: Option<ArcadeSettings>,
     /// Per-system settings, by the system name Retool derives from the DAT header, such as
     /// `Atari - Atari 2600 (No-Intro)`.
     pub systems: BTreeMap<String, SystemSettings>,
@@ -73,6 +80,17 @@ impl SelectionProfile {
         }
     }
 
+    /// The arcade selector's settings for `system`: its own `arcade` block, which replaces the global one whole, else
+    /// the global block, else the defaults.
+    pub fn arcade_settings(&self, system: &str) -> ArcadeSettings {
+        self.systems
+            .get(system)
+            .and_then(|s| s.arcade.as_ref())
+            .or(self.arcade.as_ref())
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// Removes every choice in the Profile.
     pub fn reset_all_choices(&mut self) {
         self.choices.clear();
@@ -110,6 +128,10 @@ pub struct SystemSettings {
     /// Whether builds of this system also read its Additions Set. Off unless you turn it on.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub additions: bool,
+    /// The arcade selector's settings for this system, replacing the global `arcade` block whole: no setting of it
+    /// is added to or taken from the global one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arcade: Option<ArcadeSettings>,
 }
 
 impl SystemSettings {
@@ -237,9 +259,32 @@ pub struct Selection {
     pub stale_choices: BTreeMap<String, BTreeSet<String>>,
 }
 
-/// What a Selection was made with, so that it can be reproduced.
+/// What a Selection was made with, so that it can be reproduced: the pins of the selector that made it, the Retool
+/// port's or the arcade selector's (ADR 0027), never both.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionPins {
+    /// The Title Select version whose engine made the Selection: absent on a Selection made before the cutover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_select_version: Option<String>,
+    /// What the Retool port chose with: only on a Selection of a DAT other than an Arcade DAT.
+    #[serde(flatten)]
+    pub retool: Option<RetoolPins>,
+    /// What the arcade selector chose with: only on a Selection of an Arcade DAT.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arcade: Option<ArcadePins>,
+}
+
+impl SelectionPins {
+    /// The Source Set's Coverage the Selection was made under, as engine region names (ADR 0021): `None` when it
+    /// covered every Game, as an arcade Selection always does.
+    pub fn coverage(&self) -> Option<&[String]> {
+        self.retool.as_ref()?.coverage.as_deref()
+    }
+}
+
+/// What the Retool port chose with, beside the DAT Revision's SHA-256.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetoolPins {
     /// The Retool commit the bundled engine ran: only on a Selection made before the cutover to the built-in engine
     /// (ADR 0015).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -248,9 +293,6 @@ pub struct SelectionPins {
     /// the cutover.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patch_set_sha256: Option<String>,
-    /// The Title Select version whose engine made the Selection: absent on a Selection made before the cutover.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title_select_version: Option<String>,
     /// The clone list and metadata commit.
     pub clone_list_commit: String,
     pub trace_schema: u32,
@@ -258,9 +300,6 @@ pub struct SelectionPins {
     /// covered every Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Vec<String>>,
-    /// What the arcade selector chose with (ADR 0027): only on a Selection of an Arcade DAT.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub arcade: Option<ArcadePins>,
 }
 
 /// What an arcade Selection was made with, beside its ListXML DAT Revision's SHA-256.
@@ -268,9 +307,10 @@ pub struct SelectionPins {
 pub struct ArcadePins {
     /// The MAME build the ListXML names, such as `0.289 (mame0289)`.
     pub build: String,
-    /// What decided each machine's category.
-    pub category: CategorySource,
-    /// The filters whose signal the DAT doesn't carry, so they dropped nothing, by stage.
+    /// What decided each machine's category: absent when the category filter was off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<CategorySource>,
+    /// The filters you turned on that dropped nothing: their signal isn't in the DAT, or their file isn't read yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unavailable: Vec<String>,
 }
@@ -694,18 +734,122 @@ mod tests {
             r#"{"retool_commit":"59f169f","patch_set_sha256":"ab","clone_list_commit":"cdeb391","trace_schema":1}"#,
         )
         .unwrap();
-        assert_eq!(old.retool_commit.as_deref(), Some("59f169f"));
+        let retool = old.retool.as_ref().unwrap();
+        assert_eq!(retool.retool_commit.as_deref(), Some("59f169f"));
         assert_eq!(old.title_select_version, None);
 
         let new = SelectionPins {
             title_select_version: Some("0.7.0".into()),
-            clone_list_commit: "cdeb391".into(),
-            trace_schema: 1,
-            ..SelectionPins::default()
+            retool: Some(RetoolPins {
+                clone_list_commit: "cdeb391".into(),
+                trace_schema: 1,
+                ..RetoolPins::default()
+            }),
+            arcade: None,
         };
         assert_eq!(
             serde_json::to_string(&new).unwrap(),
             r#"{"title_select_version":"0.7.0","clone_list_commit":"cdeb391","trace_schema":1}"#
+        );
+    }
+
+    #[test]
+    fn arcade_pins_carry_no_retool_pins() {
+        let pins = SelectionPins {
+            title_select_version: Some("0.7.0".into()),
+            retool: None,
+            arcade: Some(ArcadePins {
+                build: "0.289 (mame0289)".into(),
+                category: Some(CategorySource::ListxmlHeuristic),
+                unavailable: Vec::new(),
+            }),
+        };
+        let json = serde_json::to_string(&pins).unwrap();
+        assert_eq!(
+            json,
+            r#"{"title_select_version":"0.7.0","arcade":{"build":"0.289 (mame0289)","category":"listxml_heuristic"}}"#
+        );
+        let read: SelectionPins = serde_json::from_str(&json).unwrap();
+        assert_eq!(read, pins);
+        assert_eq!(read.coverage(), None);
+    }
+
+    #[test]
+    fn a_profile_with_arcade_blocks_round_trips() {
+        let mut profile = SelectionProfile {
+            arcade: Some(ArcadeSettings {
+                drop_samples: true,
+                exclude: vec!["galaga".into()],
+                ..ArcadeSettings::default()
+            }),
+            ..SelectionProfile::default()
+        };
+        profile.systems.insert(
+            "MAME".into(),
+            SystemSettings {
+                arcade: Some(ArcadeSettings {
+                    minimum_driver_status: None,
+                    election: vec![crate::arcade::ElectionStep::Parent],
+                    ..ArcadeSettings::default()
+                }),
+                ..SystemSettings::default()
+            },
+        );
+        let json = profile.canonical_json();
+        let read: SelectionProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(read, profile);
+        assert!(!profile.systems["MAME"].is_empty());
+    }
+
+    #[test]
+    fn an_arcade_block_takes_the_defaults_for_what_it_leaves_out() {
+        let profile: SelectionProfile =
+            serde_json::from_str(r#"{"arcade":{"drop_samples":true}}"#).unwrap();
+        assert_eq!(
+            profile.arcade,
+            Some(ArcadeSettings {
+                drop_samples: true,
+                ..ArcadeSettings::default()
+            })
+        );
+        let unknown = serde_json::from_str::<SelectionProfile>(r#"{"arcade":{"drop_quiz":true}}"#);
+        assert!(unknown.is_err());
+        // A profile without one keeps its canonical JSON.
+        assert!(
+            !SelectionProfile::default()
+                .canonical_json()
+                .contains("arcade")
+        );
+    }
+
+    #[test]
+    fn a_systems_arcade_block_replaces_the_global_one_whole() {
+        let global = ArcadeSettings {
+            drop_samples: true,
+            include: vec!["pacman".into()],
+            ..ArcadeSettings::default()
+        };
+        let own = ArcadeSettings {
+            drop_disks: true,
+            ..ArcadeSettings::default()
+        };
+        let mut profile = SelectionProfile {
+            arcade: Some(global.clone()),
+            ..SelectionProfile::default()
+        };
+        assert_eq!(profile.arcade_settings("MAME"), global);
+        profile.systems.insert(
+            "MAME".into(),
+            SystemSettings {
+                arcade: Some(own.clone()),
+                ..SystemSettings::default()
+            },
+        );
+        assert_eq!(profile.arcade_settings("MAME"), own);
+        assert_eq!(profile.arcade_settings("FinalBurn Neo"), global);
+        assert_eq!(
+            SelectionProfile::default().arcade_settings("MAME"),
+            ArcadeSettings::default()
         );
     }
 

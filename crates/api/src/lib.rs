@@ -2,6 +2,7 @@
 //! (ADR 0005). Every response body is one of these, or the `schema: 5` [`Report`].
 
 pub mod additions;
+pub mod arcade;
 pub mod build;
 pub mod calibration;
 pub mod coverage;
@@ -762,6 +763,28 @@ pub struct SelectionRecord {
 pub struct SourceSetSystem {
     pub source_set: String,
     pub system: Option<String>,
+    /// Whether the DAT is an Arcade DAT, which the arcade selector selects under the Profile's `arcade` settings
+    /// rather than its Retool settings (ADR 0027).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub arcade: bool,
+}
+
+/// The system a DAT is for, as a Profile files its system settings and choices under, and whether it is an Arcade
+/// DAT.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DatSystem {
+    pub name: String,
+    pub arcade: bool,
+}
+
+impl DatSystem {
+    /// The system of a DAT the Retool port selects.
+    pub fn retool(name: impl Into<String>) -> DatSystem {
+        DatSystem {
+            name: name.into(),
+            arcade: false,
+        }
+    }
 }
 
 /// A release of a Selection with its position, and the availability of the release in the Source Set's latest

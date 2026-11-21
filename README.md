@@ -204,6 +204,37 @@ its post filters too unless `replace_post_filters` is set. An empty region or vi
 default order, which suits English speakers: [docs/default-orders.md](docs/default-orders.md) lists it and says where
 it comes from.
 
+A MAME ListXML is an arcade DAT. Its selection keeps one machine per family, a parent and its clones, and reads your
+`arcade` settings instead of the ones above. Put an `arcade` block at the top level, for every arcade DAT, or in a
+system's settings (`"systems": { "MAME": { "arcade": { … } } }`), where it replaces the top-level block whole. Every
+field is optional, and one you leave out takes the default shown:
+
+```jsonc
+"arcade": {
+  "drop_mechanical": true, "drop_screenless": true,
+  "drop_software_lists": true,                 // computers and consoles
+  "drop_categories": ["non_arcade", "gambling", "tabletop"],
+  "minimum_driver_status": "imperfect",        // good, imperfect, or null for any
+  "drop_variants": [],                         // bootleg, hack, prototype
+  "years": {}, "players": {},                  // such as { "min": 1980, "max": 1999 }
+  "require_controls": [], "forbid_controls": [],  // ListXML control types, such as "lightgun"
+  "orientation": null,                         // horizontal, vertical, or null for both
+  "drop_disks": false, "drop_samples": false,
+  "election": ["status", "region", "language", "parent", "revision", "variant"],
+  "region_order": ["World", "USA", "Europe", "Japan", "…"],
+  "language_order": ["English", "Japanese", "…"],
+  "include": [], "exclude": [],                // text, |full shortname or description, or /regex
+  "curated": false, "minimum_rating": null, "drop_unrated": false
+}
+```
+
+BIOSes, devices and machines MAME can't run on their own are always left out, and `include` wins over `exclude` and
+every other filter. The election decides each family in the order you list its steps; a step you leave out doesn't
+decide, and a tie left goes to the shortname that sorts first. A machine whose DAT entry doesn't say what a filter
+reads is kept. Categories come from what the ListXML says about each machine, and the selection says so. The curated
+list and ratings (`curated`, `minimum_rating`, `drop_unrated`) are not read yet: on, they drop nothing, and the
+selection lists them as unavailable.
+
 In overrides and post filters, plain text matches part of a release's name, `|` the full name and `/` a regular
 expression (Python syntax, ignoring case). A profile with a regular expression that doesn't compile is refused, so it
 can't silently match nothing; so is one that nests groups more than 60 deep. Anything else the engine warns about on a run that succeeds goes to the server's log, or
@@ -247,7 +278,10 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
 
 - `pins` names the Title Select version that made the selection and the clone-list commit it read. A selection made
   by Title Select 0.6.0 or earlier has no `title_select_version`: it has `retool_commit` and `patch_set_sha256` instead,
-  naming the selection engine it was made with then.
+  naming the selection engine it was made with then. An arcade selection reads no clone lists, so its `pins` has no
+  `clone_list_commit` or `trace_schema`. It has `arcade` instead: the MAME `build`, what decided each machine's
+  `category` (`listxml_heuristic`, absent when your category filter is off), and the filters you turned on that were
+  `unavailable` because the DAT had nothing for them to read, or because their file isn't read yet.
 - Each winner, alternative and exclusion carries the rule that decided it: the stage, the engine's trace reference and
   its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
 - A group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
@@ -1600,7 +1634,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `GET /api/v1/audits/{id}/entries.ndjson`           | every entry, one JSON object per line                        |
 | `GET /api/v1/audits/{id}/games`                    | game statuses, paged; `?status=`                             |
 | `GET /api/v1/vocabulary`                           | the names, categories and default orders, and `coverage_presets`, each `{"name", "regions"}` |
-| `GET /api/v1/systems`                              | each source set's system, as a profile's system settings name it: `[{"source_set", "system"}]` |
+| `GET /api/v1/systems`                              | each source set's system, as a profile's system settings name it: `[{"source_set", "system", "arcade"}]`, `arcade` present and `true` for an arcade DAT |
 | `POST /api/v1/check`                               | check a selection profile: `{"problems": [...]}`             |
 | `GET /api/v1/profiles`                             | the selection profiles, each with its newest version         |
 | `POST /api/v1/profiles`                            | create one with no versions: `{"name"}`                      |
@@ -2024,7 +2058,11 @@ Its screens:
   running; when a preview of a source set takes more than 2 seconds, it waits for the Preview button instead. While
   a preview runs, it shows how long it has taken (a large system takes several seconds). It shows what changed from
   the latest saved selection. Saving creates the next version and can make a selection. A profile's page lists its
-  what-if selections, the selections no library folder uses, with "New what-if selection" to make another.
+  what-if selections, the selections no library folder uses, with "New what-if selection" to make another. The tab of
+  an arcade DAT's system, such as MAME, holds its arcade settings instead: what to leave out and keep, the election
+  order, region and language orders, and your include and exclude lists. It says whether they are the defaults, come
+  from your global arcade settings or are set for that system; changing one sets them all for that system. The curated
+  list and ratings show as unavailable.
 - **New what-if selection** (`/selections/new`) makes a selection without changing any library folder: from a
   profile (`?profile=`) you pick a source set, and from a source set (`?source_set=`) you pick a profile. It is
   listed on its profile, not on its source set, until a library folder uses it.
@@ -2038,7 +2076,11 @@ Its screens:
   (`?group=`) opens it. Its facts name the coverage it was made under, and a release outside that coverage shows as
   excluded, "Outside its source set's coverage". The selection names the library folders that use it; one no library folder uses is a
   what-if. "Create library folder from this" makes a library folder from it, and "Plan a build" plans building it
-  into a library folder bound to its source set and selection profile.
+  into a library folder bound to its source set and selection profile. An arcade selection's groups are families, and
+  its rules' stages read in plain words, such as "Parent over clone". It says where categories came from, when your category
+  filter is on, and lists the filters you turned on that had nothing to read. Its dependencies sum up in one line, "Your selected games need 3
+  dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with
+  what you have of it and the games that need it.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
   conversion deletes each original once its converted file verifies, a disc system's disc layout and whether its
   play libraries put SBI files beside its discs, whether play libraries keep each game once under single copy and

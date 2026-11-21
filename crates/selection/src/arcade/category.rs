@@ -2,29 +2,8 @@
 //! software list, and its control types. It agrees with catver about 91% of the time on MAME 0.289, misses quiz,
 //! mature and most tabletop machines, and stands in until the support files are read (#251).
 
+use title_select_api::arcade::Category;
 use title_select_engine::dat::Machine;
-
-/// A kind of machine the category filter can drop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Category {
-    /// Computers, consoles, handhelds, calculators, chess computers, instruments and other machines that aren't arcade
-    /// games.
-    NonArcade,
-    /// Gambling and redemption machines.
-    Gambling,
-    /// Mahjong and hanafuda machines.
-    Tabletop,
-}
-
-impl Category {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Category::NonArcade => "non-arcade",
-            Category::Gambling => "gambling",
-            Category::Tabletop => "tabletop",
-        }
-    }
-}
 
 /// Directories of MAME 0.289's `src/mame` that hold only machines that aren't arcade games: handhelds, TV games,
 /// skeleton drivers, pinball, chess computers, and makers of computers, calculators and instruments.

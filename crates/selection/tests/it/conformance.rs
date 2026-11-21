@@ -142,9 +142,14 @@ fn run(case: &Case) -> Selection {
         }
     }
 
-    // The pins change with every clone-list update and release; the goldens describe the Selection itself.
+    // The pins change with every clone-list update and release; the goldens describe the Selection itself, and that
+    // it records the Retool port's pins alone.
+    assert!(selection.pins.retool.is_some() && selection.pins.arcade.is_none());
     let mut golden = selection.clone();
-    golden.pins = Default::default();
+    golden.pins = title_select_api::selection::SelectionPins {
+        retool: Some(Default::default()),
+        ..Default::default()
+    };
     let mut json = serde_json::to_string_pretty(&golden).unwrap();
     json.push('\n');
     let trace = title_select_selection::stable_trace(&outcome.trace).unwrap();
