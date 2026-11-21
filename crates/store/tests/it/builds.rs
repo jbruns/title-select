@@ -1199,6 +1199,60 @@ fn a_rom_its_game_does_not_need_is_built_when_found_and_left_out_without_a_gap_w
 }
 
 #[test]
+fn a_file_built_for_a_game_now_with_nothing_to_build_is_left_as_it_is() {
+    let env = Env::new();
+    // Extras lists only an optional ROM, which the Source Set holds for the first Build and loses after it.
+    let mut newer = games();
+    newer.push(("Extras (USA)", vec![rom("Extras (USA).bin", b"extras")]));
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (2).dat",
+        "20260102-000000",
+        &newer,
+    );
+    let xml = std::fs::read_to_string(&dat).unwrap().replace(
+        r#"<rom name="Extras (USA).bin""#,
+        r#"<rom optional="yes" name="Extras (USA).bin""#,
+    );
+    std::fs::write(&dat, xml).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
+    let source = env.set_dir().join("Extras (USA).bin");
+    write_file(&source, b"extras");
+    let audit = || {
+        env.store
+            .audit_source_set(
+                &env.config,
+                SET,
+                Some(&revision.sha256),
+                title_select_engine::AuditEvidence::Incremental,
+            )
+            .unwrap();
+    };
+    audit();
+    let id = env.record(&selection(&revision.sha256, vec![group("Extras (USA)")]));
+    let folder = env.folder("atari2600");
+    let plan = env.plan(&folder, id);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    std::fs::remove_file(&source).unwrap();
+    audit();
+
+    let plan = env.plan(&folder, id);
+
+    assert!(plan.content.items.is_empty(), "{:?}", plan.content.items);
+    let [removal] = plan.content.removals.as_slice() else {
+        panic!("{:?}", plan.content.removals);
+    };
+    assert_eq!(removal.game, "Extras (USA)");
+    assert_eq!(removal.kind, RemovalKind::Leave, "{}", removal.reason);
+    assert!(removal.keep.is_none());
+    assert!(
+        removal.reason.contains("nothing to build"),
+        "{}",
+        removal.reason
+    );
+}
+
+#[test]
 fn a_conflict_is_kept_aside_and_rebuilt_only_when_you_choose_it() {
     let env = Env::new();
     env.audit();

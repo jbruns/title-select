@@ -661,12 +661,13 @@ fn keep_of(
 }
 
 /// What the plan does with each file built into the folder whose game is no longer selected: one the check found
-/// as built is kept aside, one gone is forgotten, and one changed since is left as it is. Files of `untouched`
-/// releases are skipped.
+/// as built is kept aside, one gone is forgotten, and one changed since is left as it is. A file of an `idle` game,
+/// selected but with nothing to build, is left as it is. Files of `untouched` releases are skipped.
 fn removals(
     inputs: &Inputs,
     folder: &Folder,
     items: &[PlanItem],
+    idle: &[String],
     untouched: &BTreeSet<String>,
     returned: &HashSet<String>,
 ) -> Vec<PlanRemoval> {
@@ -797,6 +798,22 @@ fn removals(
                 ));
             }
             out.push(removal);
+            continue;
+        }
+        // A selected game with nothing to build keeps the file built for it before: it may hold a ROM the game
+        // doesn't need, which counts when present (ADR 0025).
+        if !generated && idle.contains(&built.game) {
+            out.push(PlanRemoval {
+                target: target.clone(),
+                game: built.game.clone(),
+                kind: RemovalKind::Leave,
+                reason: format!(
+                    "{} has nothing to build now, so {target} is left as it is",
+                    built.game
+                ),
+                keep: None,
+                converts_to: None,
+            });
             continue;
         }
         let lower = name_key(target);
@@ -1187,6 +1204,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
 
     let mut items = Vec::new();
     let mut placing = Vec::new();
+    let mut idle = Vec::new();
     if let (Some(dat), Some(_), false) = (dat, usable_audit, inputs.choices.remove_all) {
         items = plan_items(
             config,
@@ -1195,6 +1213,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             folder.as_ref(),
             &unresolved,
             &mut placing,
+            &mut idle,
         );
     }
     let (returns, returned) = match (&folder, dat, usable_audit) {
@@ -1208,9 +1227,11 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     };
     let removals = match (&folder, dat, usable_audit) {
         (Some(folder), _, _) if inputs.choices.remove_all => {
-            removals(inputs, folder, &items, &untouched, &returned)
+            removals(inputs, folder, &items, &idle, &untouched, &returned)
         }
-        (Some(folder), Some(_), Some(_)) => removals(inputs, folder, &items, &untouched, &returned),
+        (Some(folder), Some(_), Some(_)) => {
+            removals(inputs, folder, &items, &idle, &untouched, &returned)
+        }
         _ => Vec::new(),
     };
     let (previous, changes) = match &inputs.previous {
@@ -1309,6 +1330,7 @@ fn plan_items(
     folder: Option<&Folder>,
     unresolved: &BTreeSet<&str>,
     notes: &mut Vec<String>,
+    idle: &mut Vec<String>,
 ) -> Vec<PlanItem> {
     let files = folder.map(|f| &f.files);
     let scan = folder.and_then(|f| f.scan.as_ref());
@@ -1413,7 +1435,6 @@ fn plan_items(
     // them, so that an addition only ever blocks itself.
     let officials = wanted.iter().filter(|w| w.2.is_none()).count();
     let wanted_len = wanted.len();
-    let mut nothing_to_build = 0;
     for (group, game, addition, file) in wanted {
         let (target, loose, chd, part) = match (addition, file) {
             (Some(a), _) => {
@@ -1430,13 +1451,14 @@ fn plan_items(
                     .get(game)
                     .map(|&i| roms_of[i].clone())
                     .unwrap_or_default();
-                let all = match part {
+                let listed = match part {
                     Some(i) => all.into_iter().skip(i).take(1).collect(),
                     None => all,
                 };
-                // A ROM the Game doesn't need is built in when the Audit found it, and left out when it didn't: its
+                // A ROM the Game doesn't need is built in when the Audit read it, and left out when it didn't: its
                 // absence is no gap.
-                all.into_iter()
+                listed
+                    .into_iter()
                     .filter(|(rom, needed)| *needed || sources.holds(game, rom))
                     .map(|(rom, _)| rom)
                     .collect()
@@ -1444,10 +1466,10 @@ fn plan_items(
         };
         if addition.is_none() && roms.is_empty() {
             notes.push(format!(
-                "{game} has nothing to build at {target}: it needs none of the ROMs the DAT lists there, and the \
-                 latest audit found none of them"
+                "{game} has nothing to build at {target}: it needs none of the ROMs the DAT lists there, and no \
+                 file holds one with its payload read"
             ));
-            nothing_to_build += 1;
+            idle.push(game.to_owned());
             continue;
         }
         // A disc layout folder at the target holds the release's files in its other layout: they are kept aside
@@ -1721,11 +1743,11 @@ fn plan_items(
         items.push(item);
     }
     debug_assert_eq!(
-        items.len() + nothing_to_build,
+        items.len() + idle.len(),
         wanted_len,
         "one item for each file wanted with something to build"
     );
-    let additions = items.split_off(officials - nothing_to_build);
+    let additions = items.split_off(officials - idle.len());
     let parts_of = |items: &[PlanItem], games: &[&str]| -> Vec<(ItemKind, String)> {
         items
             .iter()
