@@ -32,6 +32,12 @@ pub struct Rom {
 }
 
 impl Rom {
+    /// Whether its Game needs it: it must be present, as it isn't optional, and a file can match it, as it isn't
+    /// nodump (ADR 0025). A Game that lists none such is Nothing to Check.
+    pub fn needed(&self) -> bool {
+        !self.optional && self.status != DumpStatus::NoDump
+    }
+
     /// Its name as the DAT lists it: a Disk's less `.chd`.
     pub fn listed_name(&self) -> &str {
         match self.disk {

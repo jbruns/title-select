@@ -7,7 +7,7 @@ use title_select_api::settings::{
     DEFAULT_SELECTIONS_KEPT, PathTemplates, Retention, SettingsUpdate,
 };
 use title_select_api::{DatFormat, DatRevisionRecord};
-use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, Reuse};
+use title_select_engine::{AuditEvidence, EvidenceLevel, Finding, GameStatus, Reuse};
 use title_select_store::config::Config;
 use title_select_store::{Error, ImportOutcome, Store};
 
@@ -2126,4 +2126,69 @@ fn a_dat_with_no_name_is_refused_naming_the_file_and_what_is_missing() {
         "{message}"
     );
     assert!(env.store.dat_revisions().unwrap().is_empty());
+}
+
+#[test]
+fn a_stored_audit_counts_games_with_nothing_to_check_apart() {
+    let env = Env::new(20);
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (1).dat",
+        "20260101-000000",
+        &[
+            ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+            ("Device", vec![]),
+        ],
+    );
+    env.store.import_dat(&dat, None).unwrap();
+    env.add_set();
+    let id = env.audit(None).id;
+
+    let summary = &env.store.history("Test - System").unwrap()[0];
+
+    assert_eq!(summary.games[&GameStatus::NothingToCheck], 1);
+    assert_eq!(summary.games[&GameStatus::Missing], 1);
+    let report = env.store.report(id).unwrap();
+    let device = report.games.iter().find(|g| g.name == "Device").unwrap();
+    assert_eq!(device.status, GameStatus::NothingToCheck);
+}
+
+#[test]
+fn a_stored_audit_counts_the_games_with_nothing_to_check_it_found_files_of() {
+    let env = Env::new(20);
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (1).dat",
+        "20260101-000000",
+        &[
+            ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+            ("Device", vec![]),
+            ("Extras (USA)", vec![rom("Extras (USA).bin", b"extras")]),
+            ("Manual (USA)", vec![rom("Manual (USA).txt", b"manual")]),
+        ],
+    );
+    let xml = std::fs::read_to_string(&dat).unwrap();
+    let xml = xml
+        .replace(
+            r#"<rom name="Extras"#,
+            r#"<rom optional="yes" name="Extras"#,
+        )
+        .replace(
+            r#"<rom name="Manual"#,
+            r#"<rom optional="yes" name="Manual"#,
+        );
+    std::fs::write(&dat, xml).unwrap();
+    env.store.import_dat(&dat, None).unwrap();
+    env.add_set();
+    write_file(&env.set_dir().join("Pong (USA).a26"), b"pong");
+    write_file(&env.set_dir().join("Extras (USA).bin"), b"extras");
+    env.audit(None);
+
+    let summary = &env.store.history("Test - System").unwrap()[0];
+
+    assert_eq!(summary.games[&GameStatus::NothingToCheck], 3);
+    assert_eq!(
+        summary.nothing_to_check_found, 1,
+        "Extras' file was found; Manual's and Device's weren't"
+    );
 }

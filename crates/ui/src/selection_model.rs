@@ -328,9 +328,10 @@ impl SelectionIndex {
 fn availability_rank(status: Option<GameStatus>) -> u8 {
     match status {
         Some(GameStatus::Complete) => 0,
-        Some(GameStatus::Incomplete) => 1,
-        Some(GameStatus::Missing) => 2,
-        None => 3,
+        Some(GameStatus::NothingToCheck) => 1,
+        Some(GameStatus::Incomplete) => 2,
+        Some(GameStatus::Missing) => 3,
+        None => 4,
     }
 }
 
@@ -361,21 +362,23 @@ impl GroupAvailability {
         games: &BTreeMap<String, GameStatus>,
         claimed: &BTreeSet<String>,
     ) -> Self {
+        // A release with Nothing to Check lacks nothing, as a Complete one does; Complete names them both when any is.
         let rank = |s: GameStatus| match s {
             GameStatus::Missing => 0,
             GameStatus::Incomplete => 1,
-            GameStatus::Complete => 2,
+            GameStatus::Complete | GameStatus::NothingToCheck => 2,
         };
         let statuses: Vec<GameStatus> = group
             .winners
             .iter()
             .filter_map(|w| games.get(&w.title).copied())
             .collect();
-        let status = statuses.iter().copied().min_by_key(|s| rank(*s));
+        let worst_rank = statuses.iter().map(|s| rank(*s)).min();
+        let at_worst = statuses.iter().filter(|s| Some(rank(**s)) == worst_rank);
         GroupAvailability {
-            status,
+            status: at_worst.clone().copied().min(),
             claimed: group.winners.iter().any(|w| claimed.contains(&w.title)),
-            worst: statuses.iter().filter(|s| Some(**s) == status).count(),
+            worst: at_worst.count(),
             kept: group.winners.len(),
         }
     }
@@ -1189,6 +1192,18 @@ mod tests {
         assert_eq!(
             held.label(),
             availability_label(Some(GameStatus::Complete), true)
+        );
+
+        let device = BTreeMap::from([
+            ("Golf (USA)".to_string(), GameStatus::NothingToCheck),
+            ("Golf (Europe)".to_string(), GameStatus::Complete),
+        ]);
+        let lacking_nothing = GroupAvailability::of(&g, &device, &none);
+        assert_eq!(lacking_nothing.status, Some(GameStatus::Complete));
+        assert_eq!(
+            lacking_nothing.label(),
+            availability_label(Some(GameStatus::Complete), false),
+            "a release with nothing to check falls short of nothing"
         );
 
         let unaudited = GroupAvailability::of(&g, &BTreeMap::new(), &none);

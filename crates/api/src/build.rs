@@ -204,7 +204,7 @@ pub enum ItemKind {
     Repack,
     /// The folder already holds this file, built from the same ROMs.
     Unchanged,
-    /// No Entry in the Audit holds every ROM; skipped.
+    /// No Entry in the Audit holds every ROM its Game needs; skipped.
     NoSource,
     /// A file Title Select did not build is at the target, or one it built was changed there; it is never
     /// overwritten, so the item is skipped.
@@ -700,7 +700,7 @@ pub struct PlanContent {
     /// What the storage policy says for the folder's system when the plan was made.
     #[serde(default, skip_serializing_if = "crate::storage::is_default")]
     pub storage: crate::storage::Storage,
-    /// What the plan does not do as the storage policy says, and why.
+    /// What the plan does not do as the storage policy says, or for want of anything to build, and why.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
     /// The SHA-256 of the SBI pack the plan's SBI files come from, when its system puts SBI files beside its discs:

@@ -251,11 +251,11 @@ impl PayloadReads for StoredReads<'_> {
 
 const SUMMARY_QUERY: &str = "SELECT a.id, s.name, a.started_at, a.finished_at, r.sha256, r.version,
             a.pruned_at IS NOT NULL, a.matched, a.misnamed, a.conflicting, a.mismatched, a.unmatched, a.unreadable,
-            a.complete, a.incomplete, a.missing, a.evidence,
+            a.complete, a.incomplete, a.missing, a.nothing_to_check, a.evidence,
             CASE WHEN a.pruned_at IS NULL THEN
                 (SELECT COUNT(*) FROM audit_entries e WHERE e.audit_id = a.id AND e.evidence_level = 'claim')
             END,
-            a.header_missing, a.header_rule
+            a.header_missing, a.header_rule, a.nothing_to_check_found
      FROM audits a
      JOIN dat_revisions r ON r.id = a.dat_revision_id
      JOIN source_sets s ON s.id = a.source_set_id";
@@ -270,15 +270,16 @@ fn summary_from_row(r: &Row) -> rusqlite::Result<AuditSummary> {
         dat_revision_sha256: r.get(4)?,
         dat_revision_version: r.get(5)?,
         pruned: r.get(6)?,
-        evidence: evidence_from(r, 16)?,
-        claimed: r.get::<_, Option<i64>>(17)?.map(|n| n as usize),
+        evidence: evidence_from(r, 17)?,
+        claimed: r.get::<_, Option<i64>>(18)?.map(|n| n as usize),
         findings,
         games,
-        warnings: warnings_from(r, 18)?,
+        warnings: warnings_from(r, 19)?,
         header_rule: r
-            .get::<_, Option<String>>(18 + GameWarning::ALL.len())?
+            .get::<_, Option<String>>(19 + GameWarning::ALL.len())?
             .as_deref()
             .map(NamedHeaderRule::new),
+        nothing_to_check_found: r.get::<_, i64>(20 + GameWarning::ALL.len())? as usize,
     })
 }
 
@@ -444,12 +445,19 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
         Some(rule) => Value::Text(rule.name.clone()),
         None => Value::Null,
     });
+    let found = title_select_api::report::games_found(&report.entries, &report.games);
+    let nothing_to_check_found = report
+        .games
+        .iter()
+        .filter(|g| g.status == GameStatus::NothingToCheck && found.contains(g.name.as_str()))
+        .count();
+    values.push(Value::Integer(nothing_to_check_found as i64));
     let counts: Vec<String> = Finding::ALL
         .iter()
         .map(|f| f.as_str())
         .chain(GameStatus::ALL.iter().map(|g| g.as_str()))
         .chain(GameWarning::ALL.iter().map(|w| w.as_str()))
-        .chain(["header_rule"])
+        .chain(["header_rule", "nothing_to_check_found"])
         .map(|c| format!("{c} = ?"))
         .collect();
     values.push(Value::Integer(id));
@@ -1080,7 +1088,7 @@ impl Store {
         self.write(|tx| delete_audits(tx, "status = 'running'", []))
     }
 
-    /// The `schema: 5` report of a stored Audit, generated from its rows.
+    /// The `schema: 6` report of a stored Audit, generated from its rows.
     pub fn report(&self, audit_id: i64) -> Result<Report> {
         self.read(|conn| {
             // One read transaction, so a concurrent prune cannot leave the counts without their rows. It only

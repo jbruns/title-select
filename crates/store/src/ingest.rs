@@ -607,8 +607,10 @@ impl SetIndex {
         match audit.games.get(game) {
             None => Need::Missing,
             Some((status, _, _)) if status == "missing" => Need::Missing,
+            // A Game with Nothing to Check still lacks an optional ROM that is absent.
             Some((status, missing, _))
-                if status == "incomplete" && roms.iter().any(|r| missing.contains(&r.rom)) =>
+                if matches!(status.as_str(), "incomplete" | "nothing_to_check")
+                    && roms.iter().any(|r| missing.contains(&r.rom)) =>
             {
                 Need::Missing
             }

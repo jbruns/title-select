@@ -661,12 +661,13 @@ fn keep_of(
 }
 
 /// What the plan does with each file built into the folder whose game is no longer selected: one the check found
-/// as built is kept aside, one gone is forgotten, and one changed since is left as it is. Files of `untouched`
-/// releases are skipped.
+/// as built is kept aside, one gone is forgotten, and one changed since is left as it is. A file of a game of
+/// `nothing_to_build`, selected but with nothing to build, is left as it is. Files of `untouched` releases are skipped.
 fn removals(
     inputs: &Inputs,
     folder: &Folder,
     items: &[PlanItem],
+    nothing_to_build: &[String],
     untouched: &BTreeSet<String>,
     returned: &HashSet<String>,
 ) -> Vec<PlanRemoval> {
@@ -697,11 +698,17 @@ fn removals(
                 target: target.clone(),
                 game: built.game.clone(),
                 kind: RemovalKind::Leave,
-                reason: format!(
-                    "{target} is the only copy of {}, placed here from source set {}; it stays as it is until it can \
-                     go back there",
-                    placed.game, inputs.folder.source_set
-                ),
+                reason: match nothing_to_build.contains(&placed.game) {
+                    true => format!(
+                        "{} has nothing to build now, so {target}, placed here from source set {}, is left as it is",
+                        placed.game, inputs.folder.source_set
+                    ),
+                    false => format!(
+                        "{target} is the only copy of {}, placed here from source set {}; it stays as it is until it \
+                         can go back there",
+                        placed.game, inputs.folder.source_set
+                    ),
+                },
                 keep: None,
                 converts_to: None,
             });
@@ -797,6 +804,22 @@ fn removals(
                 ));
             }
             out.push(removal);
+            continue;
+        }
+        // A selected game with nothing to build keeps the file built for it before: it may hold a ROM the game
+        // doesn't need, which counts when present (ADR 0025).
+        if !generated && nothing_to_build.contains(&built.game) {
+            out.push(PlanRemoval {
+                target: target.clone(),
+                game: built.game.clone(),
+                kind: RemovalKind::Leave,
+                reason: format!(
+                    "{} has nothing to build now, so {target} is left as it is",
+                    built.game
+                ),
+                keep: None,
+                converts_to: None,
+            });
             continue;
         }
         let lower = name_key(target);
@@ -1049,6 +1072,16 @@ impl<'a> Sources<'a> {
         })
     }
 
+    /// Whether an Entry the plan can read from holds `game`'s ROM `rom`, with its payload read.
+    fn holds(&mut self, game: &str, rom: &ExpectedRom) -> bool {
+        let entries = self
+            .by_rom
+            .get(&(game.to_owned(), rom.name.clone()))
+            .cloned()
+            .unwrap_or_default();
+        entries.iter().any(|entry| self.file(&entry.path).is_some())
+    }
+
     /// The best Entry for each ROM, in ROM order, or the ROMs no Entry holds.
     fn choose(
         &mut self,
@@ -1177,6 +1210,7 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
 
     let mut items = Vec::new();
     let mut placing = Vec::new();
+    let mut nothing_to_build = Vec::new();
     if let (Some(dat), Some(_), false) = (dat, usable_audit, inputs.choices.remove_all) {
         items = plan_items(
             config,
@@ -1185,22 +1219,35 @@ fn compute(config: &Config, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
             folder.as_ref(),
             &unresolved,
             &mut placing,
+            &mut nothing_to_build,
         );
     }
     let (returns, returned) = match (&folder, dat, usable_audit) {
         (Some(_), _, _) if inputs.choices.remove_all => {
-            returns::returns(config, inputs, folder.as_ref(), &items, &mut placing)
+            returns::returns(config, inputs, folder.as_ref(), dat, &mut placing)
         }
         (Some(_), Some(_), Some(_)) => {
-            returns::returns(config, inputs, folder.as_ref(), &items, &mut placing)
+            returns::returns(config, inputs, folder.as_ref(), dat, &mut placing)
         }
         _ => Default::default(),
     };
     let removals = match (&folder, dat, usable_audit) {
-        (Some(folder), _, _) if inputs.choices.remove_all => {
-            removals(inputs, folder, &items, &untouched, &returned)
-        }
-        (Some(folder), Some(_), Some(_)) => removals(inputs, folder, &items, &untouched, &returned),
+        (Some(folder), _, _) if inputs.choices.remove_all => removals(
+            inputs,
+            folder,
+            &items,
+            &nothing_to_build,
+            &untouched,
+            &returned,
+        ),
+        (Some(folder), Some(_), Some(_)) => removals(
+            inputs,
+            folder,
+            &items,
+            &nothing_to_build,
+            &untouched,
+            &returned,
+        ),
         _ => Vec::new(),
     };
     let (previous, changes) = match &inputs.previous {
@@ -1299,6 +1346,7 @@ fn plan_items(
     folder: Option<&Folder>,
     unresolved: &BTreeSet<&str>,
     notes: &mut Vec<String>,
+    nothing_to_build: &mut Vec<String>,
 ) -> Vec<PlanItem> {
     let files = folder.map(|f| &f.files);
     let scan = folder.and_then(|f| f.scan.as_ref());
@@ -1308,9 +1356,10 @@ fn plan_items(
         .enumerate()
         .map(|(i, g)| (g.as_str(), i))
         .collect();
-    let mut roms_of: Vec<Vec<ExpectedRom>> = vec![Vec::new(); dat.games.len()];
+    // Each Game's ROMs, and whether it needs each (ADR 0025).
+    let mut roms_of: Vec<Vec<(ExpectedRom, bool)>> = vec![Vec::new(); dat.games.len()];
     for rom in &dat.roms {
-        roms_of[rom.game].push(dat.expected(rom));
+        roms_of[rom.game].push((dat.expected(rom), rom.needed()));
     }
     let mut winners: Vec<(&str, &str)> = Vec::new();
     let mut seen = BTreeSet::new();
@@ -1418,12 +1467,33 @@ fn plan_items(
                     .get(game)
                     .map(|&i| roms_of[i].clone())
                     .unwrap_or_default();
-                match part {
+                let listed = match part {
                     Some(i) => all.into_iter().skip(i).take(1).collect(),
                     None => all,
-                }
+                };
+                // A ROM the Game doesn't need is built in when the Audit read it, and left out when it found none:
+                // its absence is no gap. One a quick inventory only claims is kept, so the item asks for a read.
+                listed
+                    .into_iter()
+                    .filter(|(rom, needed)| {
+                        *needed
+                            || sources.holds(game, rom)
+                            || sources
+                                .claimed
+                                .contains(&(game.to_owned(), rom.name.clone()))
+                    })
+                    .map(|(rom, _)| rom)
+                    .collect()
             }
         };
+        if addition.is_none() && roms.is_empty() {
+            notes.push(format!(
+                "{game} has nothing to build at {target}: it needs none of the ROMs the DAT lists there, and the \
+                 audit read none of them in a file"
+            ));
+            nothing_to_build.push(game.to_owned());
+            continue;
+        }
         // A disc layout folder at the target holds the release's files in its other layout: they are kept aside
         // before the target is written, and the folder goes with them.
         let existing = files
@@ -1637,13 +1707,6 @@ fn plan_items(
             items.push(item);
             continue;
         }
-        if item.roms.is_empty() {
-            item.kind = ItemKind::NoSource;
-            item.reason = Some("the DAT lists no ROMs for it".into());
-            unkeep(&mut item);
-            items.push(item);
-            continue;
-        }
         match sources.choose(game, &item.roms) {
             Err(missing) => {
                 item.kind = ItemKind::NoSource;
@@ -1701,8 +1764,12 @@ fn plan_items(
         }
         items.push(item);
     }
-    debug_assert_eq!(items.len(), wanted_len, "one item for each file wanted");
-    let additions = items.split_off(officials);
+    debug_assert_eq!(
+        items.len() + nothing_to_build.len(),
+        wanted_len,
+        "one item for each file wanted with something to build"
+    );
+    let additions = items.split_off(officials - nothing_to_build.len());
     let parts_of = |items: &[PlanItem], games: &[&str]| -> Vec<(ItemKind, String)> {
         items
             .iter()

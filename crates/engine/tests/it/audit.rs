@@ -807,3 +807,66 @@ fn an_audit_counts_every_payload_byte_it_reads_for_its_job_its_root_and_in_total
     assert_eq!(meter.total().read, payload + 5);
     assert_eq!(meter.total().written, 0, "an audit writes nothing");
 }
+
+#[test]
+fn a_game_with_no_roms_is_nothing_to_check_and_in_no_other_count() {
+    let f = Fixture::new();
+    let dat = f.dat(&[
+        ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
+        ("Device", vec![]),
+    ]);
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Device"), GameStatus::NothingToCheck);
+    let games = &report.summary.games;
+    assert_eq!(games.get(&GameStatus::NothingToCheck), Some(&1));
+    assert_eq!(games.get(&GameStatus::Missing), Some(&1));
+    assert_eq!(games.get(&GameStatus::Complete), Some(&0));
+    assert_eq!(games.get(&GameStatus::Incomplete), Some(&0));
+}
+
+/// A synthetic ListXML of a ROM-less device, a machine of nodump ROMs, one of optional ROMs, and one of a Disk alone.
+/// Its names and checksums are invented.
+const NOTHING_TO_CHECK_LISTXML: &str = r#"<?xml version="1.0"?>
+<mame build="0.289 (mame0289)" debug="no" mameconfig="10">
+  <machine name="z80" isdevice="yes" runnable="no"><description>Zilog Z80</description></machine>
+  <machine name="undumped">
+    <description>Undumped</description>
+    <rom name="pal.u1" size="260" status="nodump" region="plds" offset="0"/>
+    <disk name="undumped-hdd" status="nodump" region="ide:0:hdd" index="0" writable="no"/>
+  </machine>
+  <machine name="extras">
+    <description>Extras</description>
+    <rom name="snd.u2" size="8" crc="5d000002" sha1="5d00000000000000000000000000000000000002" optional="yes" region="audio" offset="0"/>
+  </machine>
+  <machine name="hddonly">
+    <description>Disk Only</description>
+    <disk name="hddonly" sha1="d15c000000000000000000000000000000000003" region="ide:0:hdd" index="0" writable="no"/>
+  </machine>
+</mame>
+"#;
+
+#[test]
+fn a_machine_of_only_nodump_or_optional_roms_is_nothing_to_check_and_a_disk_only_machine_is_missing()
+ {
+    let f = Fixture::new();
+    let dat = f.dat_dir.path().join("nothing-to-check.xml");
+    write_file(&dat, NOTHING_TO_CHECK_LISTXML.as_bytes());
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    for game in ["z80", "undumped", "extras"] {
+        assert_eq!(
+            status_of(&report, game),
+            GameStatus::NothingToCheck,
+            "{game}"
+        );
+    }
+    assert_eq!(status_of(&report, "hddonly"), GameStatus::Missing);
+    assert_eq!(
+        report.summary.games.get(&GameStatus::NothingToCheck),
+        Some(&3)
+    );
+    assert_eq!(report.summary.games.get(&GameStatus::Missing), Some(&1));
+}

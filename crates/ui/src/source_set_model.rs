@@ -485,6 +485,7 @@ mod tests {
             dat_revision_version: sha.into(),
             findings: BTreeMap::from([(Finding::Unmatched, review)]),
             games: BTreeMap::new(),
+            nothing_to_check_found: 0,
             pruned: false,
             evidence: Default::default(),
             claimed: Some(0),

@@ -2,7 +2,7 @@
 //! Audit's Entries and Game Statuses. It runs on every keystroke, so filtering works on precomputed keys.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use title_select_api::{
     ALGORITHMS, AuditEvidence, AuditSummary, Dat, DatRevisionRecord, Entry, EntryRow,
@@ -30,6 +30,15 @@ pub fn game_status_label(status: GameStatus) -> &'static str {
         GameStatus::Complete => "Complete",
         GameStatus::Incomplete => "Incomplete",
         GameStatus::Missing => "Missing",
+        GameStatus::NothingToCheck => "Nothing to check",
+    }
+}
+
+/// What a count of Games of a Game Status counts, such as "Complete games".
+pub fn games_of_status_label(status: GameStatus) -> String {
+    match status {
+        GameStatus::NothingToCheck => "Games with nothing to check".to_string(),
+        status => format!("{} games", game_status_label(status)),
     }
 }
 
@@ -237,6 +246,7 @@ fn status_bit(status: GameStatus) -> u8 {
         GameStatus::Complete => 1,
         GameStatus::Incomplete => 2,
         GameStatus::Missing => 4,
+        GameStatus::NothingToCheck => 8,
     }
 }
 
@@ -446,6 +456,20 @@ pub struct AuditGames {
     search: Vec<String>,
     /// The Games the Audit found placed under Single Copy, with the Library Folder each is placed in.
     placed: HashMap<String, i64>,
+    /// The Games the Audit found any of their own files of.
+    found: HashSet<String>,
+}
+
+/// The Games of `games` the Audit found any of their own files of, among `entries`, as
+/// [`title_select_api::report::games_found`] finds them.
+pub fn games_found(entries: &[EntryRow], games: &[GameRow]) -> HashSet<String> {
+    title_select_api::report::games_found(
+        entries.iter().map(|row| &row.entry),
+        games.iter().map(|row| &row.game),
+    )
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
 impl AuditGames {
@@ -468,6 +492,7 @@ impl AuditGames {
             name,
             search,
             placed: HashMap::new(),
+            found: HashSet::new(),
         }
     }
 
@@ -476,18 +501,25 @@ impl AuditGames {
         AuditGames { placed, ..self }
     }
 
+    /// The Games, with `found`, those the Audit found any of their own files of, as [`games_found`] gives them.
+    pub fn with_found(self, found: HashSet<String>) -> AuditGames {
+        AuditGames { found, ..self }
+    }
+
     /// The Library Folder the Audit found Game `i` placed in, if it was placed.
     pub fn placed_in(&self, i: usize) -> Option<i64> {
         self.placed.get(&self.rows[i].game.name).copied()
     }
 
-    /// Where the Audit found Game `i`: placed in a Library Folder, or in its Source Set's folder; neither for a
-    /// Missing Game it found nowhere.
+    /// Where the Audit found Game `i`'s files: placed in a Library Folder, or in its Source Set's folder; neither for
+    /// a Game it found none of, whatever its Game Status.
     pub fn placement(&self, i: usize) -> Option<Placement> {
         match self.placed_in(i) {
             Some(_) => Some(Placement::Placed),
-            None if self.rows[i].game.status == GameStatus::Missing => None,
-            None => Some(Placement::SourceSet),
+            None => self
+                .found
+                .contains(&self.rows[i].game.name)
+                .then_some(Placement::SourceSet),
         }
     }
 
@@ -778,6 +810,15 @@ mod tests {
     }
 
     #[test]
+    fn a_count_of_games_names_their_status() {
+        assert_eq!(games_of_status_label(GameStatus::Missing), "Missing games");
+        assert_eq!(
+            games_of_status_label(GameStatus::NothingToCheck),
+            "Games with nothing to check"
+        );
+    }
+
+    #[test]
     fn an_absent_rom_available_elsewhere_names_the_games_holding_it() {
         let mut b = game("Game B (Europe)", GameStatus::Missing).game;
         b.missing_roms = vec!["Track 1.bin".into(), "Track 2.bin".into()];
@@ -1026,22 +1067,61 @@ mod tests {
 
     #[test]
     fn games_say_where_the_audit_found_them_and_sort_placed_first() {
-        let games = AuditGames::new(vec![
+        let mut extras = game("Extras (USA)", GameStatus::NothingToCheck);
+        extras.game.missing_roms.clear();
+        let games = vec![
             game("Pong (USA)", GameStatus::Complete),
             game("Combat (USA)", GameStatus::Complete),
             game("Adventure (USA)", GameStatus::Missing),
-        ])
-        .with_placements(HashMap::from([("Combat (USA)".to_string(), 7)]));
+            extras,
+            game("Device (USA)", GameStatus::NothingToCheck),
+        ];
+        // Adventure's ROM is only in Pong's ZIP, so it is still among its missing ROMs.
+        let entries = rows(vec![
+            entry(
+                "Pong (USA).zip",
+                Finding::Matched,
+                &["Pong (USA)", "Adventure (USA)"],
+                &["size"],
+            ),
+            entry(
+                "Combat (USA).zip",
+                Finding::Matched,
+                &["Combat (USA)"],
+                &["size"],
+            ),
+            entry(
+                "Extras (USA).zip",
+                Finding::Matched,
+                &["Extras (USA)"],
+                &["size"],
+            ),
+        ]);
+        let found = games_found(&entries, &games);
+        let games = AuditGames::new(games)
+            .with_placements(HashMap::from([("Combat (USA)".to_string(), 7)]))
+            .with_found(found);
         assert_eq!(games.placed_in(1), Some(7));
         assert_eq!(
-            [0, 1, 2].map(|i| games.placement(i)),
-            [Some(Placement::SourceSet), Some(Placement::Placed), None]
+            [0, 1, 2, 3, 4].map(|i| games.placement(i)),
+            [
+                Some(Placement::SourceSet),
+                Some(Placement::Placed),
+                None,
+                Some(Placement::SourceSet),
+                None
+            ],
+            "a game is where its files are, whatever its status"
         );
         let order = games.sorted(Some(Sort {
             column: GameColumn::Placement,
             descending: false,
         }));
-        assert_eq!(order, [1, 0, 2], "placed first, a game found nowhere last");
+        assert_eq!(
+            order,
+            [1, 0, 3, 2, 4],
+            "placed first, a game found nowhere last"
+        );
     }
 
     #[test]
@@ -1198,6 +1278,7 @@ mod tests {
             dat_revision_version: sha.into(),
             findings: BTreeMap::new(),
             games: BTreeMap::new(),
+            nothing_to_check_found: 0,
             pruned: false,
             evidence: AuditEvidence::Incremental,
             claimed: Some(0),

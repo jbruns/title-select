@@ -209,6 +209,12 @@ impl Status for GameStatus {
                 "Missing",
                 "None of its ROMs is present.",
             ),
+            GameStatus::NothingToCheck => look(
+                Glyph::CircleMinus,
+                Tone::Neutral,
+                "Nothing to check",
+                "It lists no ROM you need that a file can match, so you have nothing to check.",
+            ),
         }
     }
 }

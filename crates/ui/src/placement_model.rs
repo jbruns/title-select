@@ -12,7 +12,8 @@ use crate::model::when;
 use crate::parts::status::Placement;
 
 /// How many games the source set's latest audit found present, in its coverage and outside it: what "N of M games
-/// placed" counts against. None before its first audit.
+/// placed" counts against. A game with nothing to check is present only where the audit found its own files. None
+/// before its first audit.
 pub fn present_games(summary: &SourceSetSummary) -> Option<u64> {
     let present = |games: &BTreeMap<GameStatus, usize>| {
         [GameStatus::Complete, GameStatus::Incomplete]
@@ -25,7 +26,7 @@ pub fn present_games(summary: &SourceSetSummary) -> Option<u64> {
         .outside_coverage
         .as_ref()
         .map_or(0, |o| present(&o.games));
-    Some(present(&latest.games) + outside)
+    Some(present(&latest.games) + outside + latest.nothing_to_check_found as u64)
 }
 
 /// "3 of the 10 games in your source set are placed in play: atari". M is the games its latest audit found present,
@@ -331,6 +332,18 @@ mod tests {
             "active_job": null, "latest_plan": null,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn present_games_count_a_game_with_nothing_to_check_only_where_its_files_were_found() {
+        let mut latest = audit(json!({"complete": 1, "nothing_to_check": 3}));
+        latest["nothing_to_check_found"] = json!(1);
+        let present = present_games(&summary(latest, None));
+        assert_eq!(present, Some(2));
+        assert_eq!(
+            placed_line(1, present, "play: atari"),
+            "1 of the 2 games in your source set is placed in play: atari"
+        );
     }
 
     #[test]

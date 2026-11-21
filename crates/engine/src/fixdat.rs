@@ -1,10 +1,11 @@
 //! Exporting what a Source Set lacks, from an Audit against a DAT Revision: the Fixdat, a Logiqx XML DAT of its
-//! Missing Games and of its Incomplete Games' missing ROMs, and the have/miss CSV, one row per Game. A missing ROM
-//! that is Available Elsewhere is still missing: the CSV names it in its own column too.
+//! Missing Games and of its Incomplete Games' missing ROMs, never a Game with Nothing to Check, and the have/miss CSV,
+//! one row per Game. A missing ROM that is Available Elsewhere is still missing: the CSV names it in its own column
+//! too.
 //!
 //! The Fixdat lists a missing Disk as a Logiqx `<disk>`, which the tools it is for read. Title Select reads Disks only
 //! from ListXML (ADR 0026's amendment), so a Fixdat read back as a DAT lists none of its Disks: a Game that lacks only
-//! Disks reads back with no ROMs, and audits Complete against it.
+//! Disks reads back with no ROMs, and audits Nothing to Check against it.
 //!
 //! Both are deterministic: Games come in DAT order, and every value is taken from the Audit and its DAT Revision,
 //! never from the time of the export.
@@ -122,7 +123,9 @@ impl Lacking<'_> {
                 .map(|r| &self.dat.roms[*r])
                 .filter(|r| status == GameStatus::Missing || missing.contains(r.name.as_str()))
                 .collect();
-            if status == GameStatus::Complete || roms.is_empty() {
+            if matches!(status, GameStatus::Complete | GameStatus::NothingToCheck)
+                || roms.is_empty()
+            {
                 continue;
             }
             put(Event::Start(

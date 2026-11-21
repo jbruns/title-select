@@ -1613,3 +1613,44 @@ fn a_7z_refused_before_7z_archives_were_read_is_read_on_the_next_scan() {
 
     assert_eq!(env.state("yars.7z"), ItemState::Assessed);
 }
+
+#[test]
+fn an_optional_rom_of_a_game_with_nothing_to_check_is_needed_while_absent() {
+    let env = Env::new();
+    let mut games = beta_games();
+    games.push(("Extras (Beta)", vec![rom("Extras (Beta).bin", b"extras")]));
+    let dat = write_named_dat(&env.dir("dats"), "beta-2.dat", "Beta System", "2", &games);
+    let xml = std::fs::read_to_string(&dat).unwrap().replace(
+        r#"<rom name="Extras (Beta).bin""#,
+        r#"<rom optional="yes" name="Extras (Beta).bin""#,
+    );
+    std::fs::write(&dat, xml).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
+    let audit = env
+        .store
+        .audit_source_set(
+            &env.config,
+            "Beta",
+            Some(&revision.sha256),
+            AuditEvidence::Full,
+        )
+        .unwrap();
+    let report = env.store.report(audit.id).unwrap();
+    let extras = report.games.iter().find(|g| g.name == "Extras (Beta)");
+    assert_eq!(
+        extras.map(|g| g.status),
+        Some(title_select_api::GameStatus::NothingToCheck)
+    );
+    env.put("extras.bin", b"extras");
+    env.scan();
+    env.scan();
+
+    assert_eq!(
+        env.item("extras.bin").assessment.proposal,
+        Some(Proposal::SourceSet {
+            source_set: "Beta".into(),
+            game: "Extras (Beta)".into(),
+            need: Need::Missing,
+        })
+    );
+}

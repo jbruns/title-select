@@ -1,12 +1,12 @@
-//! The `schema: 5` Audit report (see GLOSSARY.md and ADR 0002).
+//! The `schema: 6` Audit report (see GLOSSARY.md and ADR 0002).
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 /// The report shape this version writes.
-pub const SCHEMA: u32 = 5;
+pub const SCHEMA: u32 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -52,13 +52,17 @@ pub enum GameStatus {
     Complete,
     Incomplete,
     Missing,
+    /// The Game lists no ROM that must be present and can match: none at all, or only nodump or optional ones (ADR
+    /// 0025). It is in none of the other counts and no Fixdat.
+    NothingToCheck,
 }
 
 impl GameStatus {
-    pub const ALL: [GameStatus; 3] = [
+    pub const ALL: [GameStatus; 4] = [
         GameStatus::Complete,
         GameStatus::Incomplete,
         GameStatus::Missing,
+        GameStatus::NothingToCheck,
     ];
 
     /// The name the report uses.
@@ -67,7 +71,14 @@ impl GameStatus {
             GameStatus::Complete => "complete",
             GameStatus::Incomplete => "incomplete",
             GameStatus::Missing => "missing",
+            GameStatus::NothingToCheck => "nothing_to_check",
         }
+    }
+
+    /// Whether a Game of this status satisfies a Game it is a Dependency of (ADR 0025): it is Complete, or has
+    /// nothing to check.
+    pub fn satisfies_dependency(self) -> bool {
+        matches!(self, GameStatus::Complete | GameStatus::NothingToCheck)
     }
 
     pub fn parse(s: &str) -> Option<GameStatus> {
@@ -368,6 +379,27 @@ pub struct Game {
     pub available_elsewhere: Vec<AvailableElsewhere>,
 }
 
+/// The Games of `games` an Audit found any of their own files of, among `entries`: each with a ROM that an Entry holds
+/// and that isn't among its missing ROMs. A ROM only inside another Game's file stays missing, so it doesn't count.
+pub fn games_found<'a>(
+    entries: impl IntoIterator<Item = &'a Entry>,
+    games: impl IntoIterator<Item = &'a Game>,
+) -> HashSet<&'a str> {
+    let missing: HashMap<&str, &[String]> = games
+        .into_iter()
+        .map(|g| (g.name.as_str(), g.missing_roms.as_slice()))
+        .collect();
+    let mut found = HashSet::new();
+    for rom in entries.into_iter().flat_map(|entry| &entry.roms) {
+        if let Some((&game, m)) = missing.get_key_value(rom.game.as_str())
+            && !m.contains(&rom.name)
+        {
+            found.insert(game);
+        }
+    }
+    found
+}
+
 /// A Game's ROM present only inside other Games' ZIPs or folders: it doesn't count towards the Game's status, but a
 /// Repair may fill the Game from it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -408,4 +440,21 @@ pub struct ReviewFlag {
     /// The Build that raised it.
     pub build: i64,
     pub raised_at: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GameStatus;
+
+    #[test]
+    fn a_dependency_is_satisfied_when_complete_or_with_nothing_to_check() {
+        let satisfying: Vec<GameStatus> = GameStatus::ALL
+            .into_iter()
+            .filter(|s| s.satisfies_dependency())
+            .collect();
+        assert_eq!(
+            satisfying,
+            [GameStatus::Complete, GameStatus::NothingToCheck]
+        );
+    }
 }

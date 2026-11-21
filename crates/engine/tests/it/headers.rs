@@ -214,7 +214,7 @@ fn the_json_report_carries_the_header_size_and_the_warning() {
 
     let json = serde_json::to_value(audit(&dat, f.set.path()).unwrap()).unwrap();
 
-    assert_eq!(json["schema"], 5);
+    assert_eq!(json["schema"], 6);
     assert_eq!(
         json["dat_revision"]["header_rule"],
         serde_json::json!({"name": NES, "rule": "nes"})
