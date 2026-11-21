@@ -213,7 +213,7 @@ impl Status for GameStatus {
                 Glyph::CircleMinus,
                 Tone::Neutral,
                 "Nothing to check",
-                "It lists no ROM that must be present and can be matched.",
+                "You have nothing to check: it lists no ROM you need that a file can match.",
             ),
         }
     }

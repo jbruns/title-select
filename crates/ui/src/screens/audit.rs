@@ -21,8 +21,9 @@ use crate::events::use_live;
 use crate::model::{
     AuditEntries, AuditGames, Derived, EntryColumn, EntryFilter, GameColumn, GameFilter, Sort,
     StatusFilter, absent_roms, audit_evidence_label, entry_name, evidence_text, finding_label,
-    game_status_label, game_status_text, games_of_status_label, header_rule_text, header_text,
-    needs_review_from_counts, parse_ndjson, payload_read_text, warning_counts, warning_text, when,
+    game_status_label, game_status_text, games_found, games_of_status_label, header_rule_text,
+    header_text, needs_review_from_counts, parse_ndjson, payload_read_text, warning_counts,
+    warning_text, when,
 };
 use crate::parts::pending::Pending;
 use crate::parts::status::{GameFlag, StatusBadge, StatusIcon};
@@ -45,10 +46,15 @@ pub async fn load(id: i64) -> Result<Loaded, String> {
     let rows = parse_ndjson(&text)?;
     let games = api::games(id).await?;
     let placed = game_placements(&rows);
+    let found = games_found(&rows, &games);
     let entries = AuditEntries::new(rows, &games);
     Ok(Loaded {
         entries: Arc::new(entries),
-        games: Arc::new(AuditGames::new(games).with_placements(placed)),
+        games: Arc::new(
+            AuditGames::new(games)
+                .with_placements(placed)
+                .with_found(found),
+        ),
     })
 }
 
