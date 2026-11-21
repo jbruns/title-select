@@ -6603,3 +6603,53 @@ fn a_build_stopped_while_it_recovers_from_failing_keeps_its_error_across_a_resta
     let build = env.store.build_of_job(job.id).unwrap().unwrap();
     assert_eq!(build.state, BuildState::Failed);
 }
+
+#[test]
+fn a_rom_its_game_does_not_need_that_a_quick_inventory_only_claims_holds_its_game_back() {
+    let env = Env::new();
+    // Bonus lists a ROM and an optional one, which a ZIP holds: a quick inventory reads only its directory.
+    let mut newer = games();
+    newer.push((
+        "Bonus (USA)",
+        vec![
+            rom("Bonus (USA).a26", b"bonus"),
+            rom("Bonus (USA).txt", b"bonus manual"),
+        ],
+    ));
+    let dat = write_dat_version(
+        &env.tmp.path().join("in"),
+        "Test - System (2).dat",
+        "20260102-000000",
+        &newer,
+    );
+    let xml = std::fs::read_to_string(&dat).unwrap().replace(
+        r#"<rom name="Bonus (USA).txt""#,
+        r#"<rom optional="yes" name="Bonus (USA).txt""#,
+    );
+    std::fs::write(&dat, xml).unwrap();
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
+    write_file(&env.set_dir().join("Bonus (USA).a26"), b"bonus");
+    write_stored_zip(
+        &env.set_dir().join("Bonus extras.zip"),
+        &[("Bonus (USA).txt", b"bonus manual")],
+    );
+    env.store
+        .audit_source_set(
+            &env.config,
+            SET,
+            Some(&revision.sha256),
+            title_select_engine::AuditEvidence::Quick,
+        )
+        .unwrap();
+    let id = env.record(&selection(&revision.sha256, vec![group("Bonus (USA)")]));
+    let folder = env.folder("atari2600");
+
+    let plan = env.plan(&folder, id);
+
+    let [bonus] = plan.content.items.as_slice() else {
+        panic!("{:?}", plan.content.items);
+    };
+    assert_eq!(bonus.kind, ItemKind::NoSource, "{bonus:?}");
+    let reason = bonus.reason.as_deref().unwrap();
+    assert!(reason.contains("claim evidence"), "{reason}");
+}

@@ -1471,11 +1471,17 @@ fn plan_items(
                     Some(i) => all.into_iter().skip(i).take(1).collect(),
                     None => all,
                 };
-                // A ROM the Game doesn't need is built in when the Audit read it, and left out when it didn't: its
-                // absence is no gap.
+                // A ROM the Game doesn't need is built in when the Audit read it, and left out when it found none:
+                // its absence is no gap. One a quick inventory only claims is kept, so the item asks for a read.
                 listed
                     .into_iter()
-                    .filter(|(rom, needed)| *needed || sources.holds(game, rom))
+                    .filter(|(rom, needed)| {
+                        *needed
+                            || sources.holds(game, rom)
+                            || sources
+                                .claimed
+                                .contains(&(game.to_owned(), rom.name.clone()))
+                    })
                     .map(|(rom, _)| rom)
                     .collect()
             }
