@@ -1866,7 +1866,7 @@ async fn audit(
     Ok(Json(blocking(&state, move |store| store.audit(id)).await?))
 }
 
-/// The full `schema: 5` report.
+/// The full `schema: 6` report.
 async fn report(
     State(state): State<AppState>,
     id: Result<Path<i64>, PathRejection>,
