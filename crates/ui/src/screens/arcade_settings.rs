@@ -11,7 +11,7 @@ use title_select_api::arcade::{
 use title_select_api::selection::SelectionProfile;
 
 use crate::arcade_model::{
-    ArcadeSource, category_label, driver_status_label, reset_arcade, step_label, update_arcade,
+    ArcadeSource, category_label, driver_status_label, reset_arcade, update_arcade,
     use_global_arcade, variant_label,
 };
 use crate::screens::profiles::{LineEditor, OrderedList};
@@ -167,10 +167,10 @@ pub fn ArcadeSettingsForm(profile: RwSignal<SelectionProfile>, system: String) -
             <OrderedList
                 id="a-election"
                 label="Election, in order"
-                note="Each family keeps one machine: the steps decide in this order, and a tie left goes to the shortname that sorts first. A step you remove doesn't decide."
+                note="Each family keeps one machine, decided by these steps in order. A tie left goes to the shortname that sorts first."
                 empty="Only the shortname decides."
-                options=ElectionStep::ALL.iter().map(|s| step_label(*s).to_owned()).collect()
-                items=Signal::derive(move || settings.with(|a| a.election.iter().map(|s| step_label(*s).to_owned()).collect()))
+                options=ElectionStep::ALL.iter().map(|s| s.label().to_owned()).collect()
+                items=Signal::derive(move || settings.with(|a| a.election.iter().map(|s| s.label().to_owned()).collect()))
                 on_change=Callback::new(move |labels: Vec<String>| {
                     let steps = labels.iter().filter_map(|l| step_of(l)).collect();
                     change(Box::new(move |a| a.election = steps));
@@ -196,13 +196,16 @@ pub fn ArcadeSettingsForm(profile: RwSignal<SelectionProfile>, system: String) -
             />
             <fieldset class="setting">
                 <legend>"Your lists"</legend>
-                <p class="note small">
-                    "One per line, matched against each machine's shortname and description. Plain text matches part of one, "
-                    <code>"|"</code>
-                    " then the whole of one matches exactly, and "
-                    <code>"/"</code>
-                    " then a regular expression matches by pattern. Always include wins over always exclude and every filter, but BIOSes, devices and machines MAME can't run stay out."
-                </p>
+                <details class="note small">
+                    <summary>"How to write a line"</summary>
+                    <p>
+                        "One per line, matched against each machine's shortname and description. Plain text matches part of one, "
+                        <code>"|"</code>
+                        " then the whole of one matches exactly, and "
+                        <code>"/"</code>
+                        " then a regular expression matches by pattern. Always include wins over always exclude and every filter, but BIOSes, devices and machines MAME can't run stay out."
+                    </p>
+                </details>
                 <LineEditor
                     id="a-include"
                     label="Always include"
@@ -434,7 +437,5 @@ fn orientation_of(value: &str) -> Option<Orientation> {
 }
 
 fn step_of(label: &str) -> Option<ElectionStep> {
-    ElectionStep::ALL
-        .into_iter()
-        .find(|s| step_label(*s) == label)
+    ElectionStep::ALL.into_iter().find(|s| s.label() == label)
 }

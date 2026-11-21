@@ -112,15 +112,15 @@ impl ElectionStep {
         ElectionStep::Variant,
     ];
 
-    /// The step as you read it.
+    /// The step as you read it, in the workbench's editor, its Rules and the problems a Profile check finds.
     pub fn label(self) -> &'static str {
         match self {
-            ElectionStep::Status => "driver status",
-            ElectionStep::Region => "region",
-            ElectionStep::Language => "language",
-            ElectionStep::Parent => "parent over clone",
-            ElectionStep::Revision => "newest revision",
-            ElectionStep::Variant => "not a bootleg or hack",
+            ElectionStep::Status => "Best driver status",
+            ElectionStep::Region => "Preferred region",
+            ElectionStep::Language => "Preferred language",
+            ElectionStep::Parent => "Parent over clone",
+            ElectionStep::Revision => "Newest revision",
+            ElectionStep::Variant => "Original over bootleg or hack",
         }
     }
 
@@ -296,7 +296,8 @@ impl Default for ArcadeSettings {
 
 impl ArcadeSettings {
     /// What the selector can't read in these settings, one message each, as you read it after "your arcade
-    /// settings": a step or name listed twice, or a region, language or control type it doesn't know. The include and exclude lists' patterns are the selector's to check.
+    /// settings": a step or name listed twice, or a region, language or control type it doesn't know. The include
+    /// and exclude lists' patterns are the selector's to check.
     pub fn problems(&self) -> Vec<String> {
         let mut problems = Vec::new();
         let mut seen = BTreeSet::new();
@@ -357,7 +358,7 @@ mod tests {
         assert_eq!(
             settings.problems(),
             [
-                "election order: region is listed twice",
+                "election order: Preferred region is listed twice",
                 "region order: Atlantis is not a region the arcade selection reads",
                 "region order: World is listed twice",
                 "language order: Klingon is not a language the arcade selection reads",

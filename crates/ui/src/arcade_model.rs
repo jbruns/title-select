@@ -24,15 +24,14 @@ pub fn stage_label(stage: &str) -> Option<&'static str> {
         "orientation" => "Screen",
         "media" => "Disks and samples",
         "election" => "Only one left",
-        "election:status" => "Best driver status",
-        "election:region" => "Preferred region",
-        "election:language" => "Preferred language",
-        "election:parent" => "Parent over clone",
-        "election:revision" => "Newest revision",
-        "election:variant" => "Original over bootleg",
         "election:shortname" => "Tie-break by shortname",
         DEPENDENCY_STAGE => "Dependency",
-        _ => return None,
+        _ => {
+            return ElectionStep::ALL
+                .into_iter()
+                .find(|s| s.stage() == stage)
+                .map(ElectionStep::label);
+        }
     })
 }
 
@@ -59,12 +58,12 @@ pub fn filter_label(filter: &str) -> &str {
 /// filters that dropped nothing because there was nothing to read.
 pub fn notices(pins: &ArcadePins) -> Vec<String> {
     let mut out = Vec::new();
-    match pins.category {
-        CategorySource::ListxmlHeuristic => out.push(
+    if let Some(CategorySource::ListxmlHeuristic) = pins.category {
+        out.push(
             "Categories come from what the ListXML says about each machine: its driver's folder, software lists and \
              controls. It can miss quiz, mature and most tabletop machines."
                 .to_owned(),
-        ),
+        );
     }
     if !pins.unavailable.is_empty() {
         let filters: Vec<&str> = pins.unavailable.iter().map(|f| filter_label(f)).collect();
@@ -175,18 +174,6 @@ pub fn driver_status_label(status: Option<DriverStatus>) -> &'static str {
     }
 }
 
-/// An election step's name in the editor, capitalised.
-pub fn step_label(step: ElectionStep) -> &'static str {
-    match step {
-        ElectionStep::Status => "Driver status",
-        ElectionStep::Region => "Region",
-        ElectionStep::Language => "Language",
-        ElectionStep::Parent => "Parent over clone",
-        ElectionStep::Revision => "Newest revision",
-        ElectionStep::Variant => "Not a bootleg or hack",
-    }
-}
-
 /// Where a system's arcade settings come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArcadeSource {
@@ -245,18 +232,6 @@ pub fn use_global_arcade(profile: &mut SelectionProfile, system: &str) {
 /// Sets `system`'s arcade settings to the defaults, whatever the global ones say.
 pub fn reset_arcade(profile: &mut SelectionProfile, system: &str) {
     profile.systems.entry(system.to_owned()).or_default().arcade = Some(ArcadeSettings::default());
-}
-
-/// Moves `step` one place earlier (`-1`) or later (`1`) in the election; a step not in it, or at that end, stays.
-pub fn move_step(order: &mut [ElectionStep], step: ElectionStep, by: isize) {
-    let Some(at) = order.iter().position(|s| *s == step) else {
-        return;
-    };
-    let to = at as isize + by;
-    if to < 0 || to as usize >= order.len() {
-        return;
-    }
-    order.swap(at, to as usize);
 }
 
 #[cfg(test)]
@@ -364,15 +339,22 @@ mod tests {
     fn the_notices_say_where_categories_came_from_and_what_dropped_nothing() {
         let pins = ArcadePins {
             build: "0.289".into(),
-            category: CategorySource::ListxmlHeuristic,
+            category: Some(CategorySource::ListxmlHeuristic),
             unavailable: vec!["year".into(), "curated".into()],
         };
-        let notices = notices(&pins);
-        assert!(notices[0].starts_with("Categories come from what the ListXML says"));
+        let said = notices(&pins);
+        assert!(said[0].starts_with("Categories come from what the ListXML says"));
         assert_eq!(
-            notices[1],
+            said[1],
             "These filters had nothing to read, so they dropped nothing: year, the curated list."
         );
+        // With the category filter off, nothing says where categories came from.
+        let off = ArcadePins {
+            category: None,
+            unavailable: Vec::new(),
+            ..pins
+        };
+        assert!(notices(&off).is_empty());
     }
 
     #[test]
@@ -405,16 +387,5 @@ mod tests {
         assert!(profile.systems["MAME"].additions);
         profile.arcade = None;
         assert_eq!(ArcadeSource::of(&profile, "Other"), ArcadeSource::Defaults);
-    }
-
-    #[test]
-    fn a_step_moves_within_the_order_only() {
-        let mut order = ElectionStep::ALL.to_vec();
-        move_step(&mut order, ElectionStep::Region, -1);
-        assert_eq!(order[..2], [ElectionStep::Region, ElectionStep::Status]);
-        move_step(&mut order, ElectionStep::Region, -1);
-        assert_eq!(order[0], ElectionStep::Region);
-        move_step(&mut order, ElectionStep::Variant, 1);
-        assert_eq!(order[5], ElectionStep::Variant);
     }
 }

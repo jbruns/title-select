@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -1461,8 +1461,8 @@ fn GroupPanel(
 fn DependencyLine(
     #[prop(into)] lead: String,
     dependencies: Vec<Dependency>,
-    games: std::collections::BTreeMap<String, GameStatus>,
-    claimed: std::collections::BTreeSet<String>,
+    games: BTreeMap<String, GameStatus>,
+    claimed: BTreeSet<String>,
 ) -> impl IntoView {
     let summary = Needs::of(&dependencies, &games).summary()?;
     Some(view! {

@@ -2,10 +2,10 @@
 //! machines by filters on ListXML's signals, elects one machine per family (a parent and its clones) by an ordered
 //! chain of steps, each one Rule, and lists each winner's Dependencies once (ADR 0025).
 //!
-//! Every signal is optional: a filter keeps a machine whose entry doesn't say, and a filter whose signal no machine of
-//! the DAT carries is unavailable, which the Selection records. Until the support files are read (#251), category comes
-//! from a ListXML-only heuristic, and the Selection says so; the curated list and the rating filter are unavailable
-//! when they are on.
+//! Every signal is optional: a filter keeps a machine whose entry doesn't say, and a filter you turn on whose signal no
+//! machine of the DAT carries is unavailable, which the Selection records. Until the support files are read (#251),
+//! category comes from a ListXML-only heuristic, and the Selection says so; the curated list and the rating filter are
+//! unavailable when they are on.
 //!
 //! Its settings are the Selection Profile's `arcade` block (`SelectionProfile::arcade_settings`).
 
@@ -28,21 +28,32 @@ pub use title_select_api::arcade::{
 use crate::Error;
 use crate::native::UserRegex;
 
-/// Each filter, by the name the Selection records it unavailable under, with the signals it reads.
-const FILTER_SIGNALS: &[(&str, &[Signal])] = &[
-    ("mechanical", &[Signal::Mechanical]),
-    ("screenless", &[Signal::Displays]),
-    ("software_lists", &[Signal::SoftwareLists]),
+/// Each filter, by the name the Selection records it unavailable under, with the signals it reads and whether the
+/// settings turn it on.
+type FilterOn = fn(&ArcadeSettings) -> bool;
+const FILTER_SIGNALS: &[(&str, &[Signal], FilterOn)] = &[
+    ("mechanical", &[Signal::Mechanical], |s| s.drop_mechanical),
+    ("screenless", &[Signal::Displays], |s| s.drop_screenless),
+    ("software_lists", &[Signal::SoftwareLists], |s| {
+        s.drop_software_lists
+    }),
     (
         "category",
         &[Signal::SourceFile, Signal::SoftwareLists, Signal::Controls],
+        |s| !s.drop_categories.is_empty(),
     ),
-    ("quality", &[Signal::Driver]),
-    ("year", &[Signal::Year]),
-    ("players", &[Signal::Players]),
-    ("controls", &[Signal::Controls]),
-    ("orientation", &[Signal::Displays]),
-    ("samples", &[Signal::Samples]),
+    ("quality", &[Signal::Driver], |s| {
+        s.minimum_driver_status.is_some()
+    }),
+    ("year", &[Signal::Year], |s| !s.years.is_open()),
+    ("players", &[Signal::Players], |s| !s.players.is_open()),
+    ("controls", &[Signal::Controls], |s| {
+        !s.require_controls.is_empty() || !s.forbid_controls.is_empty()
+    }),
+    ("orientation", &[Signal::Displays], |s| {
+        s.orientation.is_some()
+    }),
+    ("samples", &[Signal::Samples], |s| s.drop_samples),
 ];
 
 /// A pattern of an include or exclude list.
@@ -160,15 +171,21 @@ pub(crate) fn elect(dat: &Dat, settings: &ArcadeSettings, stop: Stop) -> Result<
         })
         .collect();
 
-    let mut trace = vec![json!({
-        "type": "category",
-        "source": "listxml_heuristic",
-        "message": "category from the ListXML heuristic: the support files aren't read yet",
-    })];
+    let mut trace = Vec::new();
+    let category =
+        (!settings.drop_categories.is_empty()).then_some(CategorySource::ListxmlHeuristic);
+    if category.is_some() {
+        trace.push(json!({
+            "type": "category",
+            "source": "listxml_heuristic",
+            "message": "category from the ListXML heuristic: the support files aren't read yet",
+        }));
+    }
+    // A filter you turned on that has nothing to read in this DAT.
     let mut unavailable: Vec<String> = FILTER_SIGNALS
         .iter()
-        .filter(|(_, signals)| !signals.iter().any(|s| dat.carries(*s)))
-        .map(|(filter, _)| filter.to_string())
+        .filter(|(_, signals, on)| on(settings) && !signals.iter().any(|s| dat.carries(*s)))
+        .map(|(filter, _, _)| filter.to_string())
         .collect();
     for filter in &unavailable {
         trace.push(json!({
@@ -246,7 +263,7 @@ pub(crate) fn elect(dat: &Dat, settings: &ArcadeSettings, stop: Stop) -> Result<
         groups,
         pins: ArcadePins {
             build: dat.version.clone(),
-            category: CategorySource::ListxmlHeuristic,
+            category,
             unavailable,
         },
         trace,

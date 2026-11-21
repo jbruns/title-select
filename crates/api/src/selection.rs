@@ -307,9 +307,10 @@ pub struct RetoolPins {
 pub struct ArcadePins {
     /// The MAME build the ListXML names, such as `0.289 (mame0289)`.
     pub build: String,
-    /// What decided each machine's category.
-    pub category: CategorySource,
-    /// The filters whose signal the DAT doesn't carry, so they dropped nothing, by stage.
+    /// What decided each machine's category: absent when the category filter was off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<CategorySource>,
+    /// The filters you turned on that dropped nothing: their signal isn't in the DAT, or their file isn't read yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unavailable: Vec<String>,
 }
@@ -759,7 +760,7 @@ mod tests {
             retool: None,
             arcade: Some(ArcadePins {
                 build: "0.289 (mame0289)".into(),
-                category: CategorySource::ListxmlHeuristic,
+                category: Some(CategorySource::ListxmlHeuristic),
                 unavailable: Vec::new(),
             }),
         };

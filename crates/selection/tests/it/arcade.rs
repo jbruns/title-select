@@ -158,7 +158,7 @@ fn the_defaults_elect_one_machine_per_family_and_list_each_dependency_once() {
 
     let arcade = selection.pins.arcade.as_ref().unwrap();
     assert_eq!(arcade.build, "0.289 (mame0289)");
-    assert_eq!(arcade.category, CategorySource::ListxmlHeuristic);
+    assert_eq!(arcade.category, Some(CategorySource::ListxmlHeuristic));
     assert!(arcade.unavailable.is_empty());
 }
 
@@ -295,6 +295,8 @@ fn a_filter_whose_signal_the_dat_lacks_is_unavailable_and_drops_nothing() {
     let arcade = outcome.selection.pins.arcade.clone().unwrap();
     assert!(arcade.unavailable.contains(&"quality".to_owned()));
     assert!(arcade.unavailable.contains(&"year".to_owned()));
+    // A filter you left off isn't listed, though the DAT has nothing for it either.
+    assert!(!arcade.unavailable.contains(&"players".to_owned()));
     // A machine that names no region ranks after every region you order.
     assert_eq!(winners(&outcome.selection), set(&["barej"]));
     assert!(exclusions(&outcome.selection).is_empty());
@@ -411,7 +413,7 @@ fn the_election_runs_your_steps_in_your_order() {
     let problem = engine().check(&twice).unwrap_err().to_string();
     assert_eq!(
         problem,
-        "Your global arcade settings: election order: region is listed twice."
+        "Your global arcade settings: election order: Preferred region is listed twice."
     );
 }
 

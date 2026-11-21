@@ -280,8 +280,8 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   by Title Select 0.6.0 or earlier has no `title_select_version`: it has `retool_commit` and `patch_set_sha256` instead,
   naming the selection engine it was made with then. An arcade selection reads no clone lists, so its `pins` has no
   `clone_list_commit` or `trace_schema`. It has `arcade` instead: the MAME `build`, what decided each machine's
-  `category` (`listxml_heuristic`), and the filters that were `unavailable` because the DAT had nothing for them to
-  read, or because their file isn't read yet.
+  `category` (`listxml_heuristic`, absent when your category filter is off), and the filters you turned on that were
+  `unavailable` because the DAT had nothing for them to read, or because their file isn't read yet.
 - Each winner, alternative and exclusion carries the rule that decided it: the stage, the engine's trace reference and
   its message. `ref` is absent when no trace record names the release, for example a release filtered out by region.
 - A group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
@@ -2077,8 +2077,8 @@ Its screens:
   excluded, "Outside its source set's coverage". The selection names the library folders that use it; one no library folder uses is a
   what-if. "Create library folder from this" makes a library folder from it, and "Plan a build" plans building it
   into a library folder bound to its source set and selection profile. An arcade selection's groups are families, and
-  its rules' stages read in plain words, such as "Parent over clone". It says where categories came from and lists
-  the filters that had nothing to read. Its dependencies sum up in one line, "Your selected games need 3
+  its rules' stages read in plain words, such as "Parent over clone". It says where categories came from, when your category
+  filter is on, and lists the filters you turned on that had nothing to read. Its dependencies sum up in one line, "Your selected games need 3
   dependencies, all complete", and so does each selected game's in its group; open the line to list them, each with
   what you have of it and the games that need it.
 - **Settings** (`/settings`) has three tabs. **Storage policy** sets how source sets and play libraries store games, TorrentZip, loose or loose folder, and whether a
