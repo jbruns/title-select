@@ -93,9 +93,10 @@ plan that names each item, where it goes and why, and only while its marker says
 _Avoid_: Source (alone), Downloads
 
 **Root**:
-A named folder the Operator configures for Title Select to read, or to write, such as the one holding Source Sets.
-A Source Set or a Play Library folder is identified by its Root and a path relative to it. A Root that is not
-writable may still name, in its `writable_paths`, the Source Sets that Repairs may write.
+A named folder the Operator registers for Title Select to read, or to write, such as the one holding Source Sets. Its
+name never changes once registered. A Source Set or a Play Library folder is identified by its Root and a path
+relative to it. A Root that is not writable may still name, in its `writable_paths`, the Source Sets that Repairs may
+write. Its kind is `general`, `ingest` (an Ingest Folder) or `additions` (where Additions Sets live; at most one).
 _Avoid_: Mount, share
 
 **Operator**:
@@ -144,7 +145,7 @@ that matched nothing. Its recorded provenance and local integrity checks do not 
 _Avoid_: Operator Addition, Custom ROM, homebrew (as a kind)
 
 **Additions Set**:
-The folder holding the Additions of one system, `<DAT name>` in the Root named `additions`, each stored under
+The folder holding the Additions of one system, `<DAT name>` in the Root of kind `additions`, each stored under
 its name in the format the Storage Policy says for its system's Source Sets. A Build reads it alongside the Source Set
 only when its Selection Profile opts in for that system, and it is checked for Drift like a Library Folder. An Additions
 Job publishes approved additions into it, and moves the file of one retired into its own Kept Files.

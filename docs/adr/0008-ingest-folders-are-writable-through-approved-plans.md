@@ -4,7 +4,7 @@ Date: 2026-10-31
 
 ## Status
 
-Accepted
+Accepted. Amended by ADR 0029: configuration lives in the store, and there is no configuration file.
 
 ## Context
 
