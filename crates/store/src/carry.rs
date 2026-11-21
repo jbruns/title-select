@@ -71,6 +71,9 @@ pub(crate) struct Intent {
 pub(crate) trait Intents {
     fn load(&self) -> Result<Intent>;
     fn save(&self, intent: &Intent) -> Result<()>;
+    /// Called once the original is moved into its `.deleting` slot, before its change time there is recorded: a point a
+    /// test can stop at.
+    fn moved(&self) {}
     /// Called once the original is set aside to delete and read back, just before its published copy is checked a
     /// last time: a point a test can change the copy at.
     fn verifying(&self) {}
@@ -391,6 +394,7 @@ pub(crate) fn dispose_as(
                     o.label
                 )));
             }
+            intents.moved();
             // Its change time, which the rename moved, read through the descriptor held across it.
             if let Some(held) = &pin {
                 let moved = rustix::fs::fstat(held).map_err(|e| io_err(e.into()))?;

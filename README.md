@@ -1289,8 +1289,35 @@ every audit, and writes it back when the game returns to your source set: back u
 folders. If a build finds a placed CHD doesn't hold its disc as the DAT lists it, it leaves the CHD in place, deletes
 nothing, and flags the game **Needs review** with the reason: on its source set's overview, beside its game status in
 every audit's game statuses and entries, and beside its availability in the source set's selections. A past audit
-shows the flag as the game's now, not as part of that audit. A full audit that verifies the file, or returning the
-game, clears the flag.
+shows the flag as the game's now, not as part of that audit. A full audit that verifies the file, returning the
+game, or a repair that sets the file aside clears the flag.
+
+Because a placed CHD is the game's only copy, a damaged one can't be fixed where it is. Once a full audit finds a placed
+CHD doesn't hold its disc as the DAT lists it, or that its file is gone while another disc's CHD or a file laid out
+beside it, such as its `.m3u` or an SBI file, is still there, a repair of your source set offers to take the game out of
+your play library, and does so by default: the CHD is set aside in your source set's kept files, where you can delete it
+like any kept file, its placement is forgotten and its flag cleared, and the game is missing. A game whose every CHD is
+gone, with nothing laid out beside them, is simply missing, and a repair fills it as any missing game. A repair that
+takes a game out only sets files aside; it never fills the game. To get it back, bring a good copy through an ingest
+folder: with one there, the next repair after the audit that repair queues rebuilds the game in your source set, as for
+any missing game, and the next build places it again. A copy of a healthy disc already in an ingest folder was assessed
+as already held while its CHD was placed, so scan that folder again after the audit. A game of several discs is taken
+out whole, never one disc alone: every disc's CHD is set aside, the healthy ones too, with the `.m3u` and any SBI files,
+as a game missing a disc isn't fully playable. Nothing is extracted, put back in your source set or deleted, so bring
+the whole game back through an ingest folder, and delete the kept CHDs once you no longer need them. Until the next
+build places the game again, checking your play library folder reports each disc it took out as missing. The repair plan
+states the space it needs in your source set's root, counting each CHD copied there from a folder it can't prove is on
+the same mount, and can't be approved without it. If a CHD it planned to rename has to be copied after all, the repair
+copies it only when it fits, and otherwise leaves it placed. If the service stops while a repair copies a CHD across
+mounts, after the copy and before it can prove the original safe to delete, you may find the copy in your kept files and
+the CHD still placed: nothing is lost, the copy is never deleted to leave one, and the next repair after an audit sets
+the placed CHD aside again. Don't change a play library folder by hand while a repair is queued or running: a CHD you
+put back then can leave a game with one disc placed and another in your source set, which the next full audit shows. No
+repair writes to that game while the CHD is placed. To put it right, move that CHD out of the play library folder while
+no repair is queued, run a full audit, scan the ingest folder that holds a good copy of its disc, and then repair. A CHD the last audit didn't read as it is now, such as one a quick inventory read only the header
+of, is never taken out: the plan leaves it placed and asks you to run a full audit first. One the audit read but chdman
+couldn't extract may be damaged, but chdman missing or stopped, or too little free space, does the same, so the plan
+offers to take it out and leaves it placed unless you choose to.
 
 ### Ingest folders
 
@@ -1618,7 +1645,7 @@ Every body is JSON, and every error is `{"error": "...", "job": <id, when one is
 | `POST /api/v1/ingest-plans/{id}/approval`          | approve it: `{"digest"}`; moves the items and answers with each outcome, `409` when the folder changed |
 | `GET /api/v1/source-sets/{name}/repairs`           | its repair plans, newest first                               |
 | `POST /api/v1/source-sets/{name}/repairs`          | plan a repair from its latest audit: `{"choices"?: {key: "apply" \| "leave" \| "keep_aside" \| "add_addition"}, "additions"?: {key: {"system", "name", "parent"?}}}`; `201` |
-| `GET /api/v1/repairs/{id}`                         | a repair plan, with its items, steps, digest and outcomes, its `content.coverage` being the coverage it was made under, absent for every game |
+| `GET /api/v1/repairs/{id}`                         | a repair plan, with its items, steps, digest and outcomes, its `content.coverage` being the coverage it was made under, absent for every game, and its `content.needs` the most free space it needs in each root, by name, to set placed CHDs aside, absent when it sets none aside |
 | `POST /api/v1/repairs/{id}/approval`               | approve it: `{"digest"}`; queues its repair job and answers with the plan naming it, `409` when anything changed, its source set's coverage included |
 | `GET /api/v1/source-sets/{name}/kept-files`        | the files its repairs kept aside                             |
 | `POST /api/v1/source-sets/{name}/kept-deletions`   | plan deleting kept files: `{"ids"?: [id], "all"?}`; `201`     |

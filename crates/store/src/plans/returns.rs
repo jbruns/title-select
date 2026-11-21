@@ -33,7 +33,7 @@ fn zip_bound(roms: &[ExpectedRom]) -> u64 {
         + 1024
 }
 
-fn rounded(bytes: u64) -> u64 {
+pub(crate) fn rounded(bytes: u64) -> u64 {
     bytes.div_ceil(BLOCK).max(1) * BLOCK
 }
 
@@ -208,7 +208,7 @@ pub(super) fn returns(
     (out, taken)
 }
 
-pub(super) fn bytes(n: u64) -> String {
+pub(crate) fn bytes(n: u64) -> String {
     match n {
         1 => "1 byte".into(),
         n => format!("{n} bytes"),

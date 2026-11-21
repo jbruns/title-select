@@ -39,7 +39,7 @@ use super::{Error, Result, Store, now};
 
 mod cleanup;
 mod place;
-mod returns;
+pub(crate) mod returns;
 use crate::config::Config;
 
 /// A file a Build wrote into a Library Folder, as the store recorded it.

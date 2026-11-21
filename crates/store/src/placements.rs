@@ -348,6 +348,45 @@ pub(crate) fn placed_chds_of(c: &Connection, set: i64) -> Result<Vec<PlacedChd>>
         .collect()
 }
 
+/// The files a Build laid out beside Source Set `set`'s placed CHDs, such as a release's `.m3u` or a disc's SBI file,
+/// that are no placed file: each by its Library Folder and path there, with the release of the CHDs it is laid out
+/// for. They are found by what each is recorded built for, the release or one of its discs, wherever the layout put
+/// them, the system folder itself included.
+pub(crate) fn laid_beside(c: &Connection, set: i64) -> Result<Vec<(i64, String, String)>> {
+    use title_select_api::storage::release_of;
+    let placed: std::collections::HashSet<(i64, String)> = placed_files_of(c, set)?
+        .into_iter()
+        .map(|p| (p.library_folder, p.path))
+        .collect();
+    let mut releases: std::collections::BTreeMap<i64, std::collections::BTreeSet<String>> =
+        Default::default();
+    for chd in placed_chds_of(c, set)? {
+        releases
+            .entry(chd.folder)
+            .or_default()
+            .insert(release_of(&chd.game));
+    }
+    let mut found = Vec::new();
+    let mut stmt = c.prepare(
+        "SELECT target, game FROM built_files WHERE folder_id = ?1 AND chd = 0 ORDER BY target",
+    )?;
+    for (folder, releases) in releases {
+        let built = stmt
+            .query_map([folder], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (target, owner) in built {
+            // An `.m3u` is built for its release, an SBI file for its disc.
+            let release = release_of(&owner);
+            if releases.contains(&release) && !placed.contains(&(folder, target.clone())) {
+                found.push((folder, target, release));
+            }
+        }
+    }
+    Ok(found)
+}
+
 /// The Game the Placed Game's file `path` in Library Folder `folder` is a file of; none when it is no such file.
 pub(crate) fn placed_game_of(c: &Connection, folder: i64, path: &str) -> Result<Option<String>> {
     Ok(c.query_row(

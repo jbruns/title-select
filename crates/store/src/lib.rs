@@ -333,6 +333,9 @@ pub enum Fault {
     RepairMoved(u32),
     /// After a repair's step with this sequence number is done on disk and synced, before the store records it done.
     RepairStepDone(u32),
+    /// After the original a repair's step with this sequence number carried across filesystems is moved into its
+    /// folder's private `.deleting` area to be deleted, before its change time there is recorded.
+    RepairCarryMoved(u32),
     /// After the original a repair's step with this sequence number carried across filesystems is set aside to delete
     /// and read back, before its published copy is checked a last time and the original deleted.
     RepairCarryChecking(u32),
@@ -538,14 +541,28 @@ impl Store {
 
     /// The bytes free to Title Select in the filesystem holding the folder `path` of Root `root`.
     fn free_space(&self, config: &config::Config, root: &str, path: &str) -> Result<u64> {
-        let pretended = self.free_space.load(std::sync::atomic::Ordering::SeqCst);
-        if pretended != u64::MAX {
+        if let Some(pretended) = self.pretended_free() {
             return Ok(pretended);
         }
         let resolved = sets::resolve(config, root, path)?;
         let st = rustix::fs::statvfs(&resolved.path)
             .map_err(|e| Error::Io(format!("{}: {e}", resolved.path.display())))?;
         Ok(st.f_bavail.saturating_mul(st.f_frsize))
+    }
+
+    /// The bytes free to Title Select in the filesystem holding the open folder `dir`, or what a test says.
+    fn free_in(&self, dir: impl std::os::fd::AsFd) -> Result<u64> {
+        if let Some(pretended) = self.pretended_free() {
+            return Ok(pretended);
+        }
+        let st = rustix::fs::fstatvfs(dir).map_err(|e| Error::Io(e.to_string()))?;
+        Ok(st.f_bavail.saturating_mul(st.f_frsize))
+    }
+
+    /// The free space a test says every filesystem has, if it has said.
+    fn pretended_free(&self) -> Option<u64> {
+        let pretended = self.free_space.load(std::sync::atomic::Ordering::SeqCst);
+        (pretended != u64::MAX).then_some(pretended)
     }
 
     /// Whether `e`, from a rename between folders, says they are on different filesystems; or a test has said to

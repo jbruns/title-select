@@ -32,6 +32,20 @@ const SINGLE_COPY_NOTE: &str = "With this on, a build places each selected game 
 
 const PLACE_CONVERTED_NOTE: &str = "With this and single copy on, a game your play library stores as CHD, a format your source set doesn't hold, is placed too, instead of copied. The CHD is then the game's only copy, so a full audit extracts it to check each track, which takes longer than reading a file. Title Select keeps the disc's .cue sheet, exactly as the DAT lists it, and writes it back when the game returns to your source set.";
 
+const DAMAGED_PLACED_NOTE: &str = "Because the CHD is your only copy, a damaged one can't be fixed where it is: a repair sets it aside in your source set's kept files, where you can delete it, and the game is missing. With a good copy in an ingest folder, the next repair after the audit that repair queues rebuilds it in your source set. A copy of a healthy disc found in an ingest folder while its CHD was placed counts as already held, so scan that folder again after the audit. A game of several discs is set aside whole, every disc's CHD with it, never one disc alone.";
+
+/// What placing converted games means, with what a repair does with a damaged CHD, its only copy, folded beneath.
+#[component]
+fn PlaceConvertedNote() -> impl IntoView {
+    view! {
+        <p class="note small">{PLACE_CONVERTED_NOTE}</p>
+        <details class="note small">
+            <summary>"If a placed CHD is damaged"</summary>
+            <p>{DAMAGED_PLACED_NOTE}</p>
+        </details>
+    }
+}
+
 const LAYOUTS: [DiscLayout; 2] = [DiscLayout::EsDe, DiscLayout::Flat];
 
 fn layout_label(layout: DiscLayout) -> &'static str {
@@ -523,7 +537,7 @@ fn GlobalSingleCopy(policy: RwSignal<StoragePolicy>) -> impl IntoView {
                 "Place converted games"
             </label>
         </p>
-        <p class="note small">{PLACE_CONVERTED_NOTE}</p>
+        <PlaceConvertedNote/>
     }
 }
 
@@ -595,8 +609,31 @@ fn SystemSingleCopy(policy: RwSignal<StoragePolicy>, system: String) -> impl Int
                         <option value="off">"Off: copy games stored as CHD"</option>
                         <option value="on">"On: place games stored as CHD too"</option>
                     </select>
-                    <p class="note small">{PLACE_CONVERTED_NOTE}</p>
+                    <PlaceConvertedNote/>
                 }
             })}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Placing converted games makes a CHD the only copy: the note says what a repair does with a damaged one.
+    #[test]
+    fn the_place_converted_note_states_the_only_copy_risk() {
+        for said in [
+            "the game's only copy",
+            "a damaged one can't be fixed where it is",
+            "sets it aside in your source set's kept files",
+            "With a good copy in an ingest folder, the next repair after the audit that repair queues rebuilds it",
+            "every disc's CHD with it",
+            "scan that folder again after the audit",
+        ] {
+            assert!(
+                PLACE_CONVERTED_NOTE.contains(said) || DAMAGED_PLACED_NOTE.contains(said),
+                "{said}"
+            );
+        }
     }
 }

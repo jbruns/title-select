@@ -124,7 +124,7 @@ pub(super) fn deletion_active(c: &Connection, folder: i64) -> Result<Option<Stri
 }
 
 /// The name a generation's folder is recorded under in `folder_dirs`.
-fn generation_dir(generation: u64) -> String {
+pub(crate) fn generation_dir(generation: u64) -> String {
     format!("{RETENTION}/{generation}")
 }
 

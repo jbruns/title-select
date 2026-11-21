@@ -105,6 +105,43 @@ impl From<title_select_api::build::FileIdentity> for Identity {
     }
 }
 
+/// Whether a rename between the open directories `a` and `b` is proven to work, as both are on one mount. One device
+/// alone doesn't prove it: two bind mounts of one filesystem share a device, yet a rename between them fails with
+/// `EXDEV`. Where the mount can't be told, a rename isn't proven, and whoever plans for one counts a copy instead.
+pub(super) fn one_mount(a: impl AsFd, b: impl AsFd) -> bool {
+    mount_of(a.as_fd()).is_some_and(|a| mount_of(b.as_fd()) == Some(a))
+}
+
+/// The mount holding `fd`: its mount ID, and the device, from `statx`.
+#[cfg(target_os = "linux")]
+fn mount_of(fd: std::os::fd::BorrowedFd) -> Option<(u64, u32, u32)> {
+    use rustix::fs::StatxFlags;
+    let st = rustix::fs::statx(fd, "", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID).ok()?;
+    (st.stx_mask & StatxFlags::MNT_ID.bits() != 0).then_some((
+        st.stx_mnt_id,
+        st.stx_dev_major,
+        st.stx_dev_minor,
+    ))
+}
+
+/// The mount holding `fd`: where it is mounted, from `fstatfs`, and the device.
+#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+fn mount_of(fd: std::os::fd::BorrowedFd) -> Option<(Vec<u8>, u64)> {
+    let fs = rustix::fs::fstatfs(fd).ok()?;
+    let on: Vec<u8> = fs
+        .f_mntonname
+        .iter()
+        .take_while(|c| **c != 0)
+        .map(|c| *c as u8)
+        .collect();
+    Some((on, Identity::of_fd(fd).ok()?.dev))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "freebsd")))]
+fn mount_of(_: std::os::fd::BorrowedFd) -> Option<()> {
+    None
+}
+
 /// A file's status change time in nanoseconds since the Unix epoch: it moves on any change to the file's content or
 /// metadata, and cannot be set back.
 #[allow(clippy::unnecessary_cast)]
@@ -568,5 +605,19 @@ mod tests {
 
         let synced = SYNCED.with(|synced| synced.borrow().clone());
         assert!(synced.contains(&tmp.path().to_path_buf()), "{synced:?}");
+    }
+
+    /// Two folders of one mount are proven to rename between; a folder and one on another mount, `/dev`, are not.
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+    #[test]
+    fn a_rename_is_proven_only_within_one_mount() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("a/deep")).unwrap();
+        std::fs::create_dir(tmp.path().join("b")).unwrap();
+        let a = FolderDir::open(tmp.path(), "a/deep").unwrap();
+        let b = FolderDir::open(tmp.path(), "b").unwrap();
+        assert!(one_mount(&a, &b));
+        let dev = FolderDir::open(Path::new("/dev"), "").unwrap();
+        assert!(!one_mount(&a, &dev));
     }
 }

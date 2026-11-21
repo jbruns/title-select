@@ -3307,13 +3307,13 @@ fn ingest(env: &mut Env, chdman: &Path, name: &str, bytes: &[u8]) {
 }
 
 /// A disc placed as a CHD is never placed as files of two formats: a repair of one whose CHD is there but holds a track
-/// of other bytes, the DAT's track in an ingest folder, leaves it as it is, saying it needs review, and writes
-/// nothing beside it.
+/// of other bytes, only that track in an ingest folder, either leaves it as it is, nothing written beside it, or
+/// releases it whole, the track left where it is: a part of the disc is never written beside or in place of its CHD.
 #[test]
 fn a_repair_never_completes_a_damaged_placed_chd_with_a_file_of_another_format() {
     let Some(chdman) = chdman() else { return };
     let mut env = Env::new(Some(&chdman));
-    place_orbit(&mut env, &chdman);
+    let folder = place_orbit(&mut env, &chdman);
     let made = tempfile::tempdir().unwrap();
     let other = orbit_with_another_track(&chdman, made.path());
     std::fs::copy(&other, env.dir().join("Orbit (USA).chd")).unwrap();
@@ -3324,70 +3324,108 @@ fn a_repair_never_completes_a_damaged_placed_chd_with_a_file_of_another_format()
     env.audit(title_select_engine::AuditEvidence::Full);
     ingest(&mut env, &chdman, "track.bin", &track.payload);
     env.audit(title_select_engine::AuditEvidence::Full);
+    let orbit_files = |env: &Env| -> Vec<String> {
+        let mut files: Vec<String> = tree(&env.dir())
+            .into_iter()
+            .chain(tree(&env.tmp.path().join("roots/sets").join(SET)))
+            .filter(|f| f.contains("Orbit"))
+            .collect();
+        files.sort();
+        files.dedup();
+        files
+    };
 
-    let repair = env
-        .store
-        .plan_repair(&env.config, SET, &Default::default())
-        .unwrap();
-    let orbit: Vec<_> = repair
-        .content
-        .items
-        .iter()
-        .filter(|i| {
-            i.game.as_deref() == Some(CD) || i.path.as_deref().is_some_and(|p| p.contains("Orbit"))
-        })
-        .collect();
-    assert!(!orbit.is_empty(), "{:?}", repair.content.items);
-    for item in &orbit {
+    for choice in [
+        title_select_api::repair::RepairChoice::Leave,
+        title_select_api::repair::RepairChoice::KeepAside,
+    ] {
+        let request = title_select_api::repair::PlanRepair {
+            choices: [(format!("game:{CD}"), choice)].into(),
+            ..Default::default()
+        };
+        let repair = env.store.plan_repair(&env.config, SET, &request).unwrap();
+        let item = repair
+            .content
+            .items
+            .iter()
+            .find(|i| i.key == format!("game:{CD}"))
+            .unwrap_or_else(|| panic!("{:#?}", repair.content.items));
         assert_eq!(
-            item.choices,
-            [title_select_api::repair::RepairChoice::Leave],
-            "{item:?}"
+            item.kind,
+            title_select_api::repair::RepairKind::KeepAside,
+            "only a part of the disc is there to fill it, so it is released alone: {item:?}"
         );
         assert!(
-            item.note
-                .as_deref()
-                .is_some_and(|n| n.contains("needs review")),
-            "{item:?}"
+            repair
+                .content
+                .items
+                .iter()
+                .filter(|i| i.key != item.key)
+                .all(|i| i.game.as_deref() != Some(CD)
+                    && !i.path.as_deref().is_some_and(|p| p.contains("Orbit"))),
+            "{:#?}",
+            repair.content.items
+        );
+        if repair
+            .content
+            .items
+            .iter()
+            .any(|i| i.chosen != title_select_api::repair::RepairChoice::Leave)
+        {
+            let approved = env
+                .store
+                .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS)
+                .unwrap();
+            env.store.claim_job().unwrap().unwrap();
+            let ended = env
+                .store
+                .run_repair_job(&env.config, approved.job.unwrap(), None)
+                .unwrap();
+            assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        }
+        let placed: Vec<_> = env
+            .store
+            .placed_files(SET)
+            .unwrap()
+            .into_iter()
+            .filter(|p| p.game == CD)
+            .map(|p| (p.path, p.chd))
+            .collect();
+        match choice {
+            title_select_api::repair::RepairChoice::Leave => {
+                // Placed as its CHD alone, nothing beside it.
+                assert_eq!(placed, [("Orbit (USA).chd".to_owned(), true)]);
+                assert_eq!(orbit_files(&env), ["Orbit (USA).chd"]);
+            }
+            _ => {
+                // Released whole: the CHD kept aside, the track left in the ingest folder, nothing of it written.
+                assert!(placed.is_empty(), "{placed:?}");
+                assert!(orbit_files(&env).is_empty(), "{:?}", orbit_files(&env));
+                let kept: Vec<_> = env
+                    .store
+                    .source_kept_files(SET)
+                    .unwrap()
+                    .into_iter()
+                    .map(|k| k.name)
+                    .collect();
+                assert_eq!(
+                    kept,
+                    [title_select_api::storage::placed_path(
+                        folder.id,
+                        "Orbit (USA).chd"
+                    )]
+                );
+                assert!(env.tmp.path().join("in/track.bin").exists());
+            }
+        }
+        let report = env.audit(title_select_engine::AuditEvidence::Full);
+        let game = report.games.iter().find(|g| g.name == CD).unwrap();
+        assert_ne!(
+            game.status,
+            title_select_api::report::GameStatus::Complete,
+            "{game:?}"
         );
     }
-    if repair
-        .content
-        .items
-        .iter()
-        .any(|i| i.chosen != title_select_api::repair::RepairChoice::Leave)
-    {
-        let approved = env
-            .store
-            .approve_repair(&env.config, repair.id, &repair.digest, "Operator", WORKERS)
-            .unwrap();
-        env.store.claim_job().unwrap().unwrap();
-        env.store
-            .run_repair_job(&env.config, approved.job.unwrap(), None)
-            .unwrap();
-    }
-    // Placed as its CHD alone, nothing beside it, and not taken for complete.
-    let placed: Vec<_> = env
-        .store
-        .placed_files(SET)
-        .unwrap()
-        .into_iter()
-        .filter(|p| p.game == CD)
-        .map(|p| (p.path, p.chd))
-        .collect();
-    assert_eq!(placed, [("Orbit (USA).chd".to_owned(), true)]);
-    assert_eq!(
-        tree(&env.dir())
-            .into_iter()
-            .filter(|f| f.contains("Orbit"))
-            .collect::<Vec<_>>(),
-        ["Orbit (USA).chd"]
-    );
-    let report = env.audit(title_select_engine::AuditEvidence::Full);
-    let game = report.games.iter().find(|g| g.name == CD).unwrap();
-    assert_ne!(
-        game.status,
-        title_select_api::report::GameStatus::Complete,
-        "{game:?}"
-    );
 }
+
+mod release;
